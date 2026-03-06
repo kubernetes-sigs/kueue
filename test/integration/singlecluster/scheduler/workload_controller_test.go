@@ -66,16 +66,18 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 	})
 
 	ginkgo.When("the queue has admission check strategies", func() {
-		var (
-			flavor1           *kueue.ResourceFlavor
-			flavor2           *kueue.ResourceFlavor
-			check1            *kueue.AdmissionCheck
-			check2            *kueue.AdmissionCheck
-			check3            *kueue.AdmissionCheck
-			reservationFlavor = "reservation"
-			updatedWl         kueue.Workload
+		const (
+			reservationFlavor                     = "reservation"
 			flavorOnDemand                        = "on-demand"
 			resourceGPU       corev1.ResourceName = "example.com/gpu"
+		)
+
+		var (
+			flavor1 *kueue.ResourceFlavor
+			flavor2 *kueue.ResourceFlavor
+			check1  *kueue.AdmissionCheck
+			check2  *kueue.AdmissionCheck
+			check3  *kueue.AdmissionCheck
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -131,16 +133,18 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				Obj()
 			wlKey := client.ObjectKeyFromObject(wl)
 
+			updatedWl := &kueue.Workload{}
+
 			ginkgo.By("creating and waiting for workload to have a quota reservation", func() {
 				util.MustCreate(ctx, k8sClient, wl)
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&updatedWl)).Should(gomega.BeTrue(), "should have quota reservation")
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(updatedWl)).Should(gomega.BeTrue(), "should have quota reservation")
 
 					checks := slices.Map(updatedWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 					g.Expect(checks).Should(gomega.ConsistOf(kueue.AdmissionCheckReference("check1"), kueue.AdmissionCheckReference("check2")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				gomega.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeFalse())
+				gomega.Expect(workload.IsAdmitted(updatedWl)).To(gomega.BeFalse())
 			})
 
 			ginkgo.By("adding an additional admission check to the clusterqueue", func() {
@@ -153,7 +157,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 						*utiltestingapi.MakeAdmissionCheckStrategyRule("check2", kueue.ResourceFlavorReference(reservationFlavor)).Obj(),
 						*utiltestingapi.MakeAdmissionCheckStrategyRule("check3").Obj()}
 					g.Expect(k8sClient.Update(ctx, &createdQueue)).To(gomega.Succeed())
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					checks := slices.Map(updatedWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 					g.Expect(checks).Should(gomega.ConsistOf(kueue.AdmissionCheckReference("check1"), kueue.AdmissionCheckReference("check3")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -161,7 +165,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 			ginkgo.By("marking the checks as passed", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
@@ -172,9 +176,9 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 						State:   kueue.CheckStateReady,
 						Message: "check successfully passed",
 					}, util.RealClock)
-					g.Expect(k8sClient.Status().Update(ctx, &updatedWl)).Should(gomega.Succeed())
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(&updatedWl)).Should(gomega.BeTrue(), "should have been admitted")
+					g.Expect(k8sClient.Status().Update(ctx, updatedWl)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(updatedWl)).Should(gomega.BeTrue(), "should have been admitted")
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -211,10 +215,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
 
+				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(updatedWl)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -265,10 +269,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
 
+				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(updatedWl)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -318,10 +322,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
 
+				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(updatedWl)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -358,10 +362,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
 
+				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(updatedWl)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -419,10 +423,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 				util.MustCreate(ctx, k8sClient, localQueue)
 
+				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(updatedWl)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -591,6 +595,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 
 		ginkgo.It("Should sync the resource requests with the new overhead", framework.SlowSpec, func() {
+			updatedWl := &kueue.Workload{}
+
 			ginkgo.By("Create and wait for the first workload admission", func() {
 				wl = utiltestingapi.MakeWorkload("one", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -598,11 +604,9 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					RuntimeClass("kata").
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
-
 				gomega.Eventually(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(updatedWl)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -631,9 +635,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 			ginkgo.By("The second workload now fits and is admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(updatedWl)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -680,16 +683,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 
 		ginkgo.It("Should sync the resource requests with the limit", framework.SlowSpec, func() {
+			updatedWl := &kueue.Workload{}
+
 			ginkgo.By("Create and wait for the first workload admission", func() {
 				wl = utiltestingapi.MakeWorkload("one", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl)
-
 				gomega.Eventually(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(updatedWl)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -716,9 +719,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 			ginkgo.By("The second workload now fits and is admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(updatedWl)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

@@ -143,14 +143,11 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 			})
 
 			ginkgo.By("ensuring the pod is scheduled on a worker node", func() {
+				pods := &corev1.PodList{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					pods := &corev1.PodList{}
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(job.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).To(gomega.HaveLen(1))
-
-					pod = &pods.Items[0]
-					nodeName = pod.Spec.NodeName
-					g.Expect(nodeName).ToNot(gomega.BeEmpty())
+					g.Expect(pods.Items[0].Spec.NodeName).ToNot(gomega.BeEmpty())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

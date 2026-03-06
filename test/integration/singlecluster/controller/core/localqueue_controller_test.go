@@ -26,7 +26,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -113,9 +112,9 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 	})
 
 	ginkgo.It("Should update conditions when clusterQueues that its localQueue references are updated", framework.SlowSpec, func() {
+		updatedQueue := &kueue.LocalQueue{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -131,8 +130,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		ginkgo.By("Creating a clusterQueue")
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -154,8 +152,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -173,8 +170,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		ginkgo.By("Deleting a clusterQueue")
 		gomega.Expect(k8sClient.Delete(ctx, clusterQueue)).To(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -241,9 +237,9 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 			util.MustCreate(ctx, k8sClient, w)
 		}
 
+		updatedQueue := &kueue.LocalQueue{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				ReservingWorkloads: 0,
 				AdmittedWorkloads:  0,
@@ -295,8 +291,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		}
 
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				ReservingWorkloads: 3,
 				AdmittedWorkloads:  0,
@@ -327,8 +322,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		}
 
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				ReservingWorkloads: 3,
 				AdmittedWorkloads:  3,
@@ -359,8 +353,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		util.FinishWorkloads(ctx, k8sClient, workloads...)
 
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -418,14 +411,14 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 					Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj(),
 		}
 
+		updatedQueue := &kueue.LocalQueue{}
+
 		ginkgo.By("Creating workloads", func() {
 			for _, w := range workloads {
 				util.MustCreate(ctx, k8sClient, w)
 			}
-
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedQueue kueue.LocalQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 				g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 					ReservingWorkloads: 0,
 					AdmittedWorkloads:  0,
@@ -471,8 +464,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedQueue kueue.LocalQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 				g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 					ReservingWorkloads: 3,
 					AdmittedWorkloads:  0,
@@ -497,8 +489,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedQueue kueue.LocalQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 				g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 					ReservingWorkloads: 3,
 					AdmittedWorkloads:  3,
@@ -519,17 +510,16 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 
 		ginkgo.By("Deleting a clusterQueue forcefully", func() {
 			gomega.Expect(k8sClient.Delete(ctx, clusterQueue)).To(gomega.Succeed())
+
+			updatedClusterQueue := &kueue.ClusterQueue{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedClusterQueue kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedClusterQueue)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), updatedClusterQueue)).To(gomega.Succeed())
 				updatedClusterQueue.Finalizers = nil
-				g.Expect(k8sClient.Update(ctx, &updatedClusterQueue)).To(gomega.Succeed())
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedClusterQueue)).Should(utiltesting.BeNotFoundError())
+				g.Expect(k8sClient.Update(ctx, updatedClusterQueue)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedQueue kueue.LocalQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), updatedQueue)).To(gomega.Succeed())
 				g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 					Conditions: []metav1.Condition{
 						{

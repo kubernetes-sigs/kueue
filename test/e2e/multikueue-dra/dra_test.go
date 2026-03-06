@@ -48,10 +48,8 @@ type objAsPtr[T any] interface {
 
 func expectObjectToBeDeletedOnWorkerClusters[PtrT objAsPtr[T], T any](ctx context.Context, obj PtrT) {
 	ginkgo.GinkgoHelper()
-	gomega.Eventually(func(g gomega.Gomega) {
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, obj, false)
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, obj, false)
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, obj, false)
+	util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, obj, false)
 }
 
 var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area:multikueue", "feature:multikueue"), ginkgo.Ordered, func() {
@@ -201,8 +199,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			util.MustCreate(ctx, k8sManagerClient, job)
 
 			ginkgo.By("Waiting for job to be managed by MultiKueue")
+			createdJob := &batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJob := &batchv1.Job{}
 				g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 				g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.BeEquivalentTo(kueue.MultiKueueControllerName))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -217,8 +215,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			var expectedDeviceCount int64
 
 			ginkgo.By("Checking which worker cluster was assigned")
+			managerWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
 				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				g.Expect(managerWl.Status.ClusterName).NotTo(gomega.BeNil())
 
@@ -274,7 +272,6 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			expectObjectToBeDeletedOnWorkerClusters(ctx, createdWorkload)
 			expectObjectToBeDeletedOnWorkerClusters(ctx, job)
 
-			createdJob := &batchv1.Job{}
 			gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 			gomega.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
 				batchv1.JobCondition{
@@ -349,8 +346,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			}
 
 			ginkgo.By("Verifying job is assigned to worker1 (the only worker with RCT)")
+			managerWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
 				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				g.Expect(managerWl.Status.ClusterName).NotTo(gomega.BeNil())
 				g.Expect(*managerWl.Status.ClusterName).To(gomega.Equal(workerCluster1.Name))
@@ -428,8 +425,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			var assignedClusterName string
 
 			ginkgo.By("Waiting for workload to be admitted")
+			managerWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
 				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				g.Expect(managerWl.Status.ClusterName).NotTo(gomega.BeNil())
 

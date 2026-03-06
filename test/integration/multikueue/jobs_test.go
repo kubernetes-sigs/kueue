@@ -242,8 +242,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				Message:            finishJobReason,
 			}
 
+			createdJob := batchv1.Job{}
+
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
 				createdJob.Status.Conditions = append(createdJob.Status.Conditions,
 					batchv1.JobCondition{
@@ -322,10 +323,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		createdJob := batchv1.Job{}
+
 		ginkgo.By("updating the worker job status", func() {
 			startTime := metav1.NewTime(time.Now().Truncate(time.Second))
+
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
 				createdJob.Status.StartTime = &startTime
 				createdJob.Status.Active = 1
@@ -334,7 +337,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJob := batchv1.Job{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
 				g.Expect(ptr.Deref(createdJob.Status.StartTime, metav1.Time{})).To(gomega.Equal(startTime))
 				g.Expect(ptr.Deref(createdJob.Status.Ready, 0)).To(gomega.Equal(int32(1)))
@@ -357,7 +359,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
 				createdJob.Status.Conditions = append(createdJob.Status.Conditions,
 					batchv1.JobCondition{
@@ -419,15 +420,15 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+		createdJobSet := jobset.JobSet{}
+
 		ginkgo.By("changing the status of the jobset in the worker, updates the manager's jobset status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJobSet := jobset.JobSet{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(jobSet), &createdJobSet)).To(gomega.Succeed())
 				createdJobSet.Status.Restarts = 10
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdJobSet)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJobSet := jobset.JobSet{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(jobSet), &createdJobSet)).To(gomega.Succeed())
 				g.Expect(createdJobSet.Status.Restarts).To(gomega.Equal(int32(10)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -436,7 +437,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("finishing the worker jobSet, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			finishJobReason := "JobSet finished successfully"
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJobSet := jobset.JobSet{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(jobSet), &createdJobSet)).To(gomega.Succeed())
 				apimeta.SetStatusCondition(&createdJobSet.Status.Conditions, metav1.Condition{
 					Type:    string(jobset.JobSetCompleted),
@@ -490,9 +490,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+		createdTfJob := kftraining.TFJob{}
+
 		ginkgo.By("changing the status of the TFJob in the worker, updates the manager's TFJob status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdTfJob := kftraining.TFJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(tfJob), &createdTfJob)).To(gomega.Succeed())
 				createdTfJob.Status.ReplicaStatuses = map[kftraining.ReplicaType]*kftraining.ReplicaStatus{
 					kftraining.TFJobReplicaTypeChief: {
@@ -509,7 +510,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdTfJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdTfJob := kftraining.TFJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(tfJob), &createdTfJob)).To(gomega.Succeed())
 				g.Expect(createdTfJob.Status.ReplicaStatuses).To(gomega.Equal(
 					map[kftraining.ReplicaType]*kftraining.ReplicaStatus{
@@ -530,7 +530,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("finishing the worker TFJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			finishJobReason := "TFJob finished successfully"
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdTfJob := kftraining.TFJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(tfJob), &createdTfJob)).To(gomega.Succeed())
 				createdTfJob.Status.Conditions = append(createdTfJob.Status.Conditions, kftraining.JobCondition{
 					Type:    kftraining.JobSucceeded,
@@ -577,9 +576,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+		createdPaddleJob := kftraining.PaddleJob{}
+
 		ginkgo.By("changing the status of the PaddleJob in the worker, updates the manager's PaddleJob status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdPaddleJob := kftraining.PaddleJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(paddleJob), &createdPaddleJob)).To(gomega.Succeed())
 				createdPaddleJob.Status.ReplicaStatuses = map[kftraining.ReplicaType]*kftraining.ReplicaStatus{
 					kftraining.PaddleJobReplicaTypeMaster: {
@@ -592,7 +592,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdPaddleJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdPaddleJob := kftraining.PaddleJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(paddleJob), &createdPaddleJob)).To(gomega.Succeed())
 				g.Expect(createdPaddleJob.Status.ReplicaStatuses).To(gomega.Equal(
 					map[kftraining.ReplicaType]*kftraining.ReplicaStatus{
@@ -609,7 +608,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("finishing the worker PaddleJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			finishJobReason := "PaddleJob finished successfully"
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdPaddleJob := kftraining.PaddleJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(paddleJob), &createdPaddleJob)).To(gomega.Succeed())
 				createdPaddleJob.Status.Conditions = append(createdPaddleJob.Status.Conditions, kftraining.JobCondition{
 					Type:    kftraining.JobSucceeded,
@@ -656,9 +654,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+		createdPyTorchJob := kftraining.PyTorchJob{}
+
 		ginkgo.By("changing the status of the PyTorchJob in the worker, updates the manager's PyTorchJob status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdPyTorchJob := kftraining.PyTorchJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(pyTorchJob), &createdPyTorchJob)).To(gomega.Succeed())
 				createdPyTorchJob.Status.ReplicaStatuses = map[kftraining.ReplicaType]*kftraining.ReplicaStatus{
 					kftraining.PyTorchJobReplicaTypeMaster: {
@@ -672,7 +671,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdPyTorchJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdPyTorchJob := kftraining.PyTorchJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(pyTorchJob), &createdPyTorchJob)).To(gomega.Succeed())
 				g.Expect(createdPyTorchJob.Status.ReplicaStatuses).To(gomega.Equal(
 					map[kftraining.ReplicaType]*kftraining.ReplicaStatus{
@@ -690,7 +688,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("finishing the worker PyTorchJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			finishJobReason := "PyTorchJob finished successfully"
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdPyTorchJob := kftraining.PyTorchJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(pyTorchJob), &createdPyTorchJob)).To(gomega.Succeed())
 				createdPyTorchJob.Status.Conditions = append(createdPyTorchJob.Status.Conditions, kftraining.JobCondition{
 					Type:    kftraining.JobSucceeded,
@@ -772,9 +769,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+		createdXGBoostJob := kftraining.XGBoostJob{}
+
 		ginkgo.By("changing the status of the XGBoostJob in the worker, updates the manager's XGBoostJob status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdXGBoostJob := kftraining.XGBoostJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(xgBoostJob), &createdXGBoostJob)).To(gomega.Succeed())
 				createdXGBoostJob.Status.ReplicaStatuses = map[kftraining.ReplicaType]*kftraining.ReplicaStatus{
 					kftraining.XGBoostJobReplicaTypeMaster: {
@@ -788,7 +786,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdXGBoostJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdXGBoostJob := kftraining.XGBoostJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(xgBoostJob), &createdXGBoostJob)).To(gomega.Succeed())
 				g.Expect(createdXGBoostJob.Status.ReplicaStatuses).To(gomega.Equal(
 					map[kftraining.ReplicaType]*kftraining.ReplicaStatus{
@@ -806,7 +803,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("finishing the worker XGBoostJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			finishJobReason := "XGBoostJob finished successfully"
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdXGBoostJob := kftraining.XGBoostJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(xgBoostJob), &createdXGBoostJob)).To(gomega.Succeed())
 				createdXGBoostJob.Status.Conditions = append(createdXGBoostJob.Status.Conditions, kftraining.JobCondition{
 					Type:    kftraining.JobSucceeded,
@@ -841,15 +837,15 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+		createdAppWrapper := awv1beta2.AppWrapper{}
+
 		ginkgo.By("changing the status of the appwrapper in the worker, updates the manager's appwrappers status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdAppWrapper := awv1beta2.AppWrapper{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
 				createdAppWrapper.Status.Phase = awv1beta2.AppWrapperRunning
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdAppWrapper)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdAppWrapper := awv1beta2.AppWrapper{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
 				g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperRunning))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -858,7 +854,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("finishing the worker appwrapper, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			finishJobReason := "AppWrapper finished successfully"
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdAppWrapper := awv1beta2.AppWrapper{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
 				createdAppWrapper.Status.Phase = awv1beta2.AppWrapperSucceeded
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdAppWrapper)).To(gomega.Succeed())
@@ -929,9 +924,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpijob.Name, mpijob.UID), Namespace: managerNs.Name}
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+		createdMPIJob := kfmpi.MPIJob{}
+
 		ginkgo.By("changing the status of the MPIJob in the worker, updates the manager's MPIJob status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdMPIJob := kfmpi.MPIJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(mpijob), &createdMPIJob)).To(gomega.Succeed())
 				createdMPIJob.Status.ReplicaStatuses = map[kfmpi.MPIReplicaType]*kfmpi.ReplicaStatus{
 					kfmpi.MPIReplicaTypeLauncher: {
@@ -945,7 +941,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdMPIJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdMPIJob := kfmpi.MPIJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(mpijob), &createdMPIJob)).To(gomega.Succeed())
 				g.Expect(createdMPIJob.Status.ReplicaStatuses).To(gomega.Equal(
 					map[kfmpi.MPIReplicaType]*kfmpi.ReplicaStatus{
@@ -963,7 +958,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("finishing the worker MPIJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			finishJobReason := "MPIJob finished successfully"
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdMPIJob := kfmpi.MPIJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(mpijob), &createdMPIJob)).To(gomega.Succeed())
 				createdMPIJob.Status.Conditions = append(createdMPIJob.Status.Conditions, kfmpi.JobCondition{
 					Type:    kfmpi.JobSucceeded,
@@ -1030,8 +1024,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 
 		ginkgo.By("finishing the worker pod", func() {
+			createdPod := corev1.Pod{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdPod := corev1.Pod{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(pod), &createdPod)).To(gomega.Succeed())
 				createdPod.Status.Phase = corev1.PodSucceeded
 				createdPod.Status.Conditions = append(createdPod.Status.Conditions,
@@ -1147,10 +1141,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("finishing the worker pod", func() {
 			pods := corev1.PodList{}
+			createdPod := corev1.Pod{}
 			gomega.Expect(worker1TestCluster.client.List(worker1TestCluster.ctx, &pods)).To(gomega.Succeed())
 			for _, p := range podgroup {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdPod := corev1.Pod{}
 					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(p), &createdPod)).To(gomega.Succeed())
 					createdPod.Status.Phase = corev1.PodSucceeded
 					createdPod.Status.Conditions = append(createdPod.Status.Conditions,
@@ -1214,16 +1208,16 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		createdCluster := &kueue.MultiKueueCluster{}
+
 		ginkgo.By("breaking the connection to worker2", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 				createdCluster.Spec.ClusterSource.KubeConfig.Location = "bad-secret"
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 				activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
 				g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
@@ -1245,14 +1239,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("breaking the connection to worker1", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
 				createdCluster.Spec.ClusterSource.KubeConfig.Location = "bad-secret"
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
 				activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
 				g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
@@ -1291,14 +1283,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("restoring the connection to worker2", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 				createdCluster.Spec.ClusterSource.KubeConfig.Location = managerMultiKueueSecret2.Name
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 				activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
 				g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
@@ -1317,14 +1307,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("restoring the connection to worker1", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
 				createdCluster.Spec.ClusterSource.KubeConfig.Location = managerMultiKueueSecret1.Name
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
 				activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
 				g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
@@ -1375,17 +1363,17 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+		createdCluster := &kueue.MultiKueueCluster{}
+
 		var disconnectedTime time.Time
 		ginkgo.By("breaking the connection to worker2", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 				createdCluster.Spec.ClusterSource.KubeConfig.Location = "bad-secret"
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 				activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
 				g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
@@ -1397,9 +1385,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		createdWorkload := &kueue.Workload{}
+
 		ginkgo.By("waiting for the local workload admission check state to be set to pending and quotaReservatio removed", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdWorkload := &kueue.Workload{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
@@ -1417,14 +1406,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("restoring the connection to worker2", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 				createdCluster.Spec.ClusterSource.KubeConfig.Location = managerMultiKueueSecret2.Name
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdCluster := &kueue.MultiKueueCluster{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 				activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
 				g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
@@ -1438,7 +1425,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("the worker2 wl is removed since the local one no longer has a reservation", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdWorkload := &kueue.Workload{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -1462,15 +1448,15 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+		createdRayJob := rayv1.RayJob{}
+
 		ginkgo.By("changing the status of the RayJob in the worker, updates the manager's RayJob status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayJob := rayv1.RayJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
 				createdRayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusRunning
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayJob := rayv1.RayJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
 				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusRunning))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1479,7 +1465,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("finishing the worker RayJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			finishJobReason := ""
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayJob := rayv1.RayJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
 				createdRayJob.Status.JobStatus = rayv1.JobStatusSucceeded
 				createdRayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusComplete
@@ -1549,17 +1534,18 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, testCtr)
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, trainJob)
 		wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainJob.Name, trainJob.UID), Namespace: managerNs.Name}
+		createdWorkload := &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			createdWorkload := &kueue.Workload{}
 			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+		createdTrainJob := kftrainer.TrainJob{}
+
 		ginkgo.By("changing the status of the TrainJob in the worker, updates the manager's TrainJob status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdTrainJob := kftrainer.TrainJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(trainJob), &createdTrainJob)).To(gomega.Succeed())
 				createdTrainJob.Status.JobsStatus = []kftrainer.JobStatus{
 					testingtrainjob.MakeJobStatusWrapper("foo").Obj(),
@@ -1567,7 +1553,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdTrainJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdTrainJob := kftrainer.TrainJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(trainJob), &createdTrainJob)).To(gomega.Succeed())
 				g.Expect(createdTrainJob.Status.JobsStatus).To(gomega.HaveLen(1))
 				g.Expect(createdTrainJob.Status.JobsStatus[0].Name).To(gomega.Equal("foo"))
@@ -1577,7 +1562,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("finishing the worker TrainJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			finishJobReason := ""
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdTrainJob := kftrainer.TrainJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(trainJob), &createdTrainJob)).To(gomega.Succeed())
 				apimeta.SetStatusCondition(&createdTrainJob.Status.Conditions, metav1.Condition{
 					Type:   kftrainer.TrainJobComplete,
@@ -1927,7 +1911,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("preempting workload in worker1", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdWorkload := &kueue.Workload{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(workload.SetConditionAndUpdate(worker1TestCluster.ctx, worker1TestCluster.client, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1935,17 +1918,16 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("check manager's workload ClusterName reset", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				g.Expect(managerWl.Status.ClusterName).To(gomega.BeNil())
-				g.Expect(managerWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Status.ClusterName).To(gomega.BeNil())
+				g.Expect(createdWorkload.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
 					kueue.AdmissionCheckState{
 						Name:    kueue.AdmissionCheckReference(multiKueueAC.Name),
 						State:   kueue.CheckStatePending,
 						Message: "Reset to Pending after eviction. Previously: Retry",
 					},
 					cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates", "RetryCount"))))
-				g.Expect(managerWl.Status.Conditions).To(gomega.ContainElements(
+				g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
 					gomega.BeComparableTo(metav1.Condition{
 						Type:   kueue.WorkloadRequeued,
 						Status: metav1.ConditionTrue,
@@ -1959,14 +1941,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 
 		ginkgo.By("checking the workload admission process started again", func() {
-			managerWl := &kueue.Workload{}
-			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdWorkload := &kueue.Workload{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(createdWorkload.Spec))
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(createdWorkload.Spec))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -2000,12 +1981,6 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 			g.Expect(acs).NotTo(gomega.BeNil())
 			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 			g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker2"`))
-			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-				Reason:  "MultiKueue",
-				Type:    corev1.EventTypeNormal,
-				Message: `The workload got reservation on "worker2"`,
-			})
-
 			g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
 				Type:    kueue.WorkloadAdmitted,
 				Status:  metav1.ConditionTrue,
@@ -2013,6 +1988,12 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 				Message: "The workload is admitted",
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
+			Reason:  "MultiKueue",
+			Type:    corev1.EventTypeNormal,
+			Message: `The workload got reservation on "worker2"`,
+		})
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
@@ -2022,8 +2003,8 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 
 func waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey types.NamespacedName, finishJobReason string) {
 	ginkgo.GinkgoHelper()
+	createdWorkload := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
-		createdWorkload := &kueue.Workload{}
 		g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 		g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 			Type:    kueue.WorkloadFinished,
@@ -2034,12 +2015,10 @@ func waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey types.Names
 	}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 	gomega.Eventually(func(g gomega.Gomega) {
-		createdWorkload := &kueue.Workload{}
 		g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 	}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 	gomega.Eventually(func(g gomega.Gomega) {
-		createdWorkload := &kueue.Workload{}
 		g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 	}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 }

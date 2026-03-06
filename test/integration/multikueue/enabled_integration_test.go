@@ -164,8 +164,8 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 		ginkgo.By("finishing the worker job", func() {
 			reachedPodsReason := "Reached expected number of succeeded pods"
 			finishJobReason := "Job finished successfully"
+			createdJob := batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
 				now := metav1.Now()
 				createdJob.Status.Conditions = append(createdJob.Status.Conditions,
@@ -190,8 +190,8 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdWorkload := &kueue.Workload{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 					Type:    kueue.WorkloadFinished,
@@ -202,7 +202,6 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdWorkload := &kueue.Workload{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})

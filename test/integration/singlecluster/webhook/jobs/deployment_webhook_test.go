@@ -73,8 +73,8 @@ var _ = ginkgo.Describe("Deployment Webhook", ginkgo.Ordered, ginkgo.ContinueOnF
 		})
 
 		ginkgo.It("should inject queue name to pod template labels", func() {
+			createdDeployment := &appsv1.Deployment{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdDeployment := &appsv1.Deployment{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
 				g.Expect(createdDeployment.Spec.Template.Labels[constants.QueueLabel]).
 					To(

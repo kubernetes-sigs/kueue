@@ -244,8 +244,9 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		createdJob := batchv1.Job{}
+
 		ginkgo.By("Updating the worker job status to active=1", func() {
-			createdJob := batchv1.Job{}
 			startTime := metav1.NewTime(time.Now().Truncate(time.Second))
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
@@ -272,7 +273,6 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, highJob)
 
 		ginkgo.By("Checking that the manager job is suspended", func() {
-			createdJob := batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
@@ -280,7 +280,6 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		})
 
 		ginkgo.By("Checking that the worker job is suspended", func() {
-			createdJob := batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
@@ -288,7 +287,6 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		})
 
 		ginkgo.By("Updating the worker job status to active=0", func() {
-			createdJob := batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				createdJob.Status.Active = 0
@@ -377,8 +375,9 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		createdJob := batchv1.Job{}
+
 		ginkgo.By("Updating the worker job status to active=1", func() {
-			createdJob := batchv1.Job{}
 			startTime := metav1.NewTime(time.Now().Truncate(time.Second))
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
@@ -405,7 +404,6 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, highJob)
 
 		ginkgo.By("Checking that the manager job is suspended", func() {
-			createdJob := batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
@@ -413,7 +411,6 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		})
 
 		ginkgo.By("Checking that the worker job is suspended", func() {
-			createdJob := batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
@@ -421,7 +418,6 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		})
 
 		ginkgo.By("Updating the worker job status to active=0", func() {
-			createdJob := batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				createdJob.Status.Active = 0

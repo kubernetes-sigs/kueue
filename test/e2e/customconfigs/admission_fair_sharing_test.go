@@ -127,9 +127,9 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Ordered, ginkgo.Continu
 			})
 
 			ginkgo.By("Verifying lq-a has accumulated usage", func() {
+				updatedLqA := &kueue.LocalQueue{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var updatedLqA kueue.LocalQueue
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), &updatedLqA)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), updatedLqA)).Should(gomega.Succeed())
 					g.Expect(updatedLqA.Status.FairSharing).ShouldNot(gomega.BeNil())
 					g.Expect(updatedLqA.Status.FairSharing.AdmissionFairSharingStatus).ShouldNot(gomega.BeNil())
 					cpuUsage := updatedLqA.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
@@ -247,9 +247,9 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Ordered, ginkgo.Continu
 			})
 
 			ginkgo.By("Verifying lq1-a has accumulated usage", func() {
+				updatedLq1A := &kueue.LocalQueue{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var updatedLq1A kueue.LocalQueue
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq1A), &updatedLq1A)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq1A), updatedLq1A)).Should(gomega.Succeed())
 					g.Expect(updatedLq1A.Status.FairSharing).ShouldNot(gomega.BeNil())
 					g.Expect(updatedLq1A.Status.FairSharing.AdmissionFairSharingStatus).ShouldNot(gomega.BeNil())
 					cpuUsage := updatedLq1A.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]

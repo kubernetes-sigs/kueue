@@ -164,8 +164,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			})
 
 			ginkgo.By("Await for pods to be running", func() {
+				createdJob := &batchv1.Job{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := &batchv1.Job{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
 					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](1)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
@@ -212,8 +212,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			})
 
 			ginkgo.By("Await for pods to be running", func() {
+				createdJob := &batchv1.Job{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := &batchv1.Job{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
 					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](1)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
@@ -335,8 +335,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			})
 
 			ginkgo.By("Await for pods to be running", func() {
+				createdJob := &batchv1.Job{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := &batchv1.Job{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
 					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](1)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())

@@ -92,8 +92,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 	ginkgo.When("manageJobsWithoutQueueName=true", func() {
 		ginkgo.It("should not suspend a job", func() {
-			var testJob, createdJob *batchv1.Job
-			var jobLookupKey types.NamespacedName
+			var testJob *batchv1.Job
 
 			ginkgo.By("creating a default LocalQueue", func() {
 				localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
@@ -108,9 +107,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				util.MustCreate(ctx, k8sClient, testJob)
 			})
 
+			jobLookupKey := types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
+			createdJob := &batchv1.Job{}
+
 			ginkgo.By("verifying that the job does not get suspended", func() {
-				createdJob = &batchv1.Job{}
-				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
 					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeFalse())
@@ -127,18 +127,12 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 			ginkgo.By("verifying that the job has been admitted", func() {
 				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(testJob.Name, testJob.UID), Namespace: ns.Name}
-				createdWorkload := &kueue.Workload{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
 			})
 		})
 
 		ginkgo.It("should suspend a job", func() {
-			var testJob, createdJob *batchv1.Job
-			var jobLookupKey types.NamespacedName
+			var testJob *batchv1.Job
 			ginkgo.By("creating an unsuspended job without a queue name", func() {
 				testJob = testingjob.MakeJob("test-job", ns.Name).
 					Suspend(false).
@@ -147,9 +141,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				util.MustCreate(ctx, k8sClient, testJob)
 			})
 
+			createdJob := &batchv1.Job{}
+			jobLookupKey := types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
+
 			ginkgo.By("verifying that the job gets suspended", func() {
-				createdJob = &batchv1.Job{}
-				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
 					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
@@ -157,7 +152,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("setting the queue-name label", func() {
-				jobLookupKey = types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
 					createdJob.Labels[controllerconstants.QueueLabel] = localQueue.Name
@@ -172,11 +166,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 			ginkgo.By("verifying that the job has been admitted", func() {
 				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(testJob.Name, testJob.UID), Namespace: ns.Name}
-				createdWorkload := &kueue.Workload{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
 			})
 		})
 
@@ -484,8 +474,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("verifying that the pods of the deployment are gated", func() {
+				pods := &corev1.PodList{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					pods := &corev1.PodList{}
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
 						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(2))
@@ -510,9 +500,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				util.MustCreate(ctx, k8sClient, testDeploy)
 			})
 
+			pods := &corev1.PodList{}
+
 			ginkgo.By("verifying that the pods of the deployment are running", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					pods := &corev1.PodList{}
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kube-system"),
 						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(2))
@@ -523,7 +514,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("verifying that deleting the deployment removes the pods", func() {
-				pods := &corev1.PodList{}
 				gomega.Expect(k8sClient.Delete(ctx, testDeploy)).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kube-system"),
@@ -626,9 +616,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				util.MustCreate(ctx, k8sClient, testSts)
 			})
 
+			pods := &corev1.PodList{}
+
 			ginkgo.By("verifying that the pods of the StatefulSet are ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					pods := &corev1.PodList{}
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kube-system"),
 						client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(2))
@@ -645,7 +636,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("verifying that deleting the StatefulSet removes the pods", func() {
-				pods := &corev1.PodList{}
 				gomega.Expect(k8sClient.Delete(ctx, testSts)).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kube-system"),
@@ -943,8 +933,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with ManagedJobsNamespaceSel
 		})
 
 		ginkgo.By("verifying that the JobSet is completed", func() {
+			createdJobSet := &v1alpha2.JobSet{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJobSet := &v1alpha2.JobSet{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).To(gomega.Succeed())
 				g.Expect(createdJobSet.Status.TerminalState).To(gomega.Equal(string(v1alpha2.JobSetCompleted)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())

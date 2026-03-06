@@ -36,17 +36,16 @@ import (
 var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
 	ginkgo.It("should have completed upgrade successfully", func() {
 		ginkgo.By("Waiting for conversion webhook to be ready to list LocalQueues")
+		localQueues := &kueue.LocalQueueList{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			lqList := &kueue.LocalQueueList{}
-			g.Expect(k8sClient.List(ctx, lqList)).To(gomega.Succeed(), "Should be able to list LocalQueues (conversion webhook should be ready)")
-			g.Expect(lqList.Items).NotTo(gomega.BeEmpty(), "Should have at least one LocalQueue")
+			g.Expect(k8sClient.List(ctx, localQueues)).To(gomega.Succeed(), "Should be able to list LocalQueues (conversion webhook should be ready)")
+			g.Expect(localQueues.Items).NotTo(gomega.BeEmpty(), "Should have at least one LocalQueue")
 		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Waiting for mutating webhook to be ready")
+		mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "kueue-mutating-webhook-configuration"}, mwc)).To(gomega.Succeed())
-
 			for _, webhook := range mwc.Webhooks {
 				g.Expect(webhook.ClientConfig.CABundle).ToNot(gomega.BeEmpty())
 			}

@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -64,12 +63,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 	ginkgo.It("forcefully terminates pods that opt-in, scheduled on unreachable nodes", func() {
 		matchingPod := matchingPodWrapper.Clone().Obj()
 		util.MustCreate(ctx, k8sClient, matchingPod)
-		gomega.Expect(k8sClient.Delete(ctx, matchingPod)).To(gomega.Succeed())
-
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: matchingPod.Name, Namespace: matchingPod.Namespace}, matchingPod)).
-				To(utiltesting.BeNotFoundError())
-		}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, matchingPod, true, forcefulTerminationCheckTimeout)
 	})
 
 	ginkgo.It("does not forcefully terminate matching pods that did not opt-in or are running on healthy nodes", func() {

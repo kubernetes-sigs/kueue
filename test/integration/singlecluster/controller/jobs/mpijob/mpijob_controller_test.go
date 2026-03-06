@@ -128,8 +128,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		secondWl.Spec.PodSets[0].Count++
 
 		util.MustCreate(ctx, k8sClient, secondWl)
+		wl := &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secondWl), wl)).Should(utiltesting.BeNotFoundError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		// check the original wl is still there
@@ -201,8 +201,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Eventually(func(g gomega.Gomega) {
 			ok, _ := utiltesting.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
 			g.Expect(ok).Should(gomega.BeTrue())
-			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 		ginkgo.By("checking the workload is updated with new count")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -340,9 +340,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			ginkgo.By("add labels & annotations for the workers to the admission check", func() {
+				newWL := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var newWL kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), newWL)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -369,7 +369,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							},
 						},
 					}, util.RealClock)
-					g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Status().Update(ctx, newWL)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

@@ -219,8 +219,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 				finishJobReason := "Job finished successfully"
 				now := metav1.Now()
 
+				createdJob := batchv1.Job{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := batchv1.Job{}
 					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
 					createdJob.Status.Conditions = append(createdJob.Status.Conditions,
 						batchv1.JobCondition{

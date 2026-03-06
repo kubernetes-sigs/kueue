@@ -170,8 +170,8 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 			secondWl.Spec.PodSets[0].Count++
 			util.MustCreate(ctx, k8sClient, secondWl)
 			key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
+			wl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				wl := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, key, wl)).Should(utiltesting.BeNotFoundError())
 				// check the original wl is still there
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -550,9 +550,9 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 			})
 
 			ginkgo.By("add labels & annotations to the admission check in PodSetUpdates", func() {
+				newWL := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var newWL kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), newWL)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -591,7 +591,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 							},
 						},
 					}, util.RealClock)
-					g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Status().Update(ctx, newWL)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

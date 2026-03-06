@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			createdAppWrapper := &awv1beta2.AppWrapper{}
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: awName, Namespace: ns.Name}, createdAppWrapper)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
 				g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -151,8 +151,11 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 			ginkgo.By("checking the workload is updated with queue name when the AppWrapper does")
 			awQueueName := "test-queue"
-			createdAppWrapper.Labels = map[string]string{constants.QueueLabel: awQueueName}
-			gomega.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
+				createdAppWrapper.Labels = map[string]string{constants.QueueLabel: awQueueName}
+				g.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				g.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName(awQueueName)))
@@ -247,11 +250,10 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 				Obj()
 
 			createdWorkload := &kueue.Workload{}
-			var wlLookupKey types.NamespacedName
+			wlLookupKey := types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: ns.Name}
 
 			ginkgo.By("create the appwrapper and admit the workload", func() {
 				util.MustCreate(ctx, k8sClient, aw)
-				wlLookupKey = types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -394,9 +396,9 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			})
 
 			ginkgo.By("add labels & annotations to the admission check in PodSetUpdates", func() {
+				newWL := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var newWL kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), newWL)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
@@ -435,7 +437,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 							},
 						},
 					}, util.RealClock)
-					g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Status().Update(ctx, newWL)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -654,9 +656,11 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 
 			if podsReadyTestSpec.beforeAppWrapperStatus != nil {
 				ginkgo.By("Update the AppWrapper status to simulate its initial progress towards completion")
-				createdAppWrapper.Status = *podsReadyTestSpec.beforeAppWrapperStatus
-				gomega.Expect(k8sClient.Status().Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
+					createdAppWrapper.Status = *podsReadyTestSpec.beforeAppWrapperStatus
+					g.Expect(k8sClient.Status().Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
 
 			if podsReadyTestSpec.beforeCondition != nil {

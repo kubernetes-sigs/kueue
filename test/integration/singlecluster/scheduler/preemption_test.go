@@ -1121,12 +1121,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(highWl))
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWlScaledUp)
 
+			updatedHighWlScaledUp := &kueue.Workload{}
+
 			ginkgo.By("Scale down a high priority workload")
 			gomega.Eventually(func(g gomega.Gomega) {
-				wl := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highWlScaledUp), wl)).To(gomega.Succeed())
-				wl.Spec.PodSets[0].Count = 1 // Scaled down.
-				g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highWlScaledUp), updatedHighWlScaledUp)).To(gomega.Succeed())
+				updatedHighWlScaledUp.Spec.PodSets[0].Count = 1 // Scaled down.
+				g.Expect(k8sClient.Update(ctx, updatedHighWlScaledUp)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowWl)

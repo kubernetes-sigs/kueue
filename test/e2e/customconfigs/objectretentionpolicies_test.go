@@ -208,7 +208,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 
 			ginkgo.By("Checking that the Job is not deleted", func() {
 				createdJob := &batchv1.Job{}
-				gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
@@ -250,13 +250,13 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 
 			ginkgo.By("Checking that the Job is not deleted", func() {
 				createdJob := &batchv1.Job{}
-				gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the Workload is not deleted", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})

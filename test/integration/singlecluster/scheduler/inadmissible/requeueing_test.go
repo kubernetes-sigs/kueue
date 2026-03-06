@@ -87,9 +87,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			for range 10 {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
-
 					cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.Add(resource.MustParse("1m"))
-
 					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 			}
@@ -135,9 +133,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			for range 10 {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), cohort)).Should(gomega.Succeed())
-
 					cohort.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.Add(resource.MustParse("1m"))
-
 					g.Expect(k8sClient.Update(ctx, cohort)).Should(gomega.Succeed())
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 			}

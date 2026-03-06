@@ -80,9 +80,10 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 			gomega.Expect(caBundle).NotTo(gomega.BeEmpty())
 		})
 
+		mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
+
 		ginkgo.By("verify the caBundle is set after startup for webhooks", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "kueue-mutating-webhook-configuration"}, mwc)).To(gomega.Succeed())
 				for _, webhook := range mwc.Webhooks {
 					g.Expect(webhook.ClientConfig.CABundle).ToNot(gomega.BeEmpty())
@@ -100,7 +101,6 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 
 		ginkgo.By("clear the caBundle fields for webhooks", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
 				g.Expect(k8sClient.Get(ctx, mvcKey, mwc)).To(gomega.Succeed())
 				for _, webhook := range mwc.Webhooks {
 					webhook.ClientConfig.CABundle = nil
@@ -112,7 +112,6 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 		ginkgo.By("verify the caBundle is set again for CRD", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, localQueueCRDKey, localQueueCRD)).To(gomega.Succeed())
-
 				caBundle := localQueueCRD.Spec.Conversion.Webhook.ClientConfig.CABundle
 				g.Expect(caBundle).NotTo(gomega.BeEmpty())
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
@@ -120,7 +119,6 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 
 		ginkgo.By("verify the caBundle is set again for mutating webhooks", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
 				g.Expect(k8sClient.Get(ctx, mvcKey, mwc)).To(gomega.Succeed())
 				for _, webhook := range mwc.Webhooks {
 					g.Expect(webhook.ClientConfig.CABundle).ToNot(gomega.BeEmpty())
@@ -174,9 +172,10 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
+
 		ginkgo.By("clear the caBundle fields for webhooks", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
 				g.Expect(k8sClient.Get(ctx, mvcKey, mwc)).To(gomega.Succeed())
 				for i := range mwc.Webhooks {
 					mwc.Webhooks[i].ClientConfig.CABundle = nil
@@ -214,7 +213,6 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 
 		ginkgo.By("verify the caBundle is set again for mutating webhooks", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
 				g.Expect(k8sClient.Get(ctx, mvcKey, mwc)).To(gomega.Succeed())
 				for _, webhook := range mwc.Webhooks {
 					g.Expect(webhook.ClientConfig.CABundle).ToNot(gomega.BeEmpty())

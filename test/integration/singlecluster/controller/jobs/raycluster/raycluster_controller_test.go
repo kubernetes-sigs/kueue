@@ -134,8 +134,8 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 		secondWl.Spec.PodSets[0].Count++
 
 		util.MustCreate(ctx, k8sClient, secondWl)
+		wl := &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secondWl), wl)).Should(utiltesting.BeNotFoundError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		// check the original wl is still there
@@ -751,8 +751,8 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		util.MustCreate(ctx, k8sClient, testRayCluster)
 
 		ginkgo.By("admitting the raycluster's workload")
+		workloads := &kueue.WorkloadList{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayCluster.Namespace))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			testRayClusterWorkload = &workloads.Items[0]
@@ -771,8 +771,8 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("resource flavor utilization is correctly recorded")
+		cq := &kueue.ClusterQueue{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			cq := &kueue.ClusterQueue{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
 			g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
 			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
@@ -788,7 +788,6 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 		ginkgo.By("resource flavor utilization is correctly updated")
 		gomega.Eventually(func(g gomega.Gomega) {
-			cq := &kueue.ClusterQueue{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
 			g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
 			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
@@ -797,7 +796,6 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 		ginkgo.By("assert the raycluster's workload is updated and still admitted")
 		gomega.Eventually(func(g gomega.Gomega) {
-			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayCluster.Namespace))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 
@@ -820,7 +818,6 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 		ginkgo.By("resource flavor utilization is correctly updated")
 		gomega.Eventually(func(g gomega.Gomega) {
-			cq := &kueue.ClusterQueue{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
 			g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
 			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
@@ -830,7 +827,6 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 		ginkgo.By("old workload is finished and new workload is admitted")
 		gomega.Eventually(func(g gomega.Gomega) {
-			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayCluster.Namespace))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(2))
 
@@ -885,8 +881,8 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		util.MustCreate(ctx, k8sClient, testRayClusterA)
 
 		ginkgo.By("admitting the raycluster-a's workload")
+		workloads := &kueue.WorkloadList{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayClusterA.Namespace))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			testRayClusterAWorkload = &workloads.Items[0]
@@ -919,7 +915,6 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 		ginkgo.By("raycluster-b's workload remains pending with unreserved quota")
 		gomega.Eventually(func(g gomega.Gomega) {
-			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayClusterA.Namespace), client.MatchingLabels{constants.JobUIDLabel: string(testRayClusterB.UID)})).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			testRayClusterBWorkload = &workloads.Items[0]

@@ -302,11 +302,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("terminate the non-TAS pod", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(nonTasPod), nonTasPod)).To(gomega.Succeed())
-					util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, nonTasPod)
-					g.Expect(k8sClient.Update(ctx, nonTasPod)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, nonTasPod)
 			})
 
 			// https://github.com/kubernetes-sigs/kueue/issues/8653
@@ -827,9 +823,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("await for the CQ to become inactive", func() {
+					updatedCq := &kueue.ClusterQueue{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						var updatedCq kueue.ClusterQueue
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), updatedCq)).To(gomega.Succeed())
 						g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
 							{
 								Type:    kueue.ClusterQueueActive,
@@ -881,11 +877,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			ginkgo.It("should not admit the workload after the TAS RF is deleted and admit it after the RF is re-created", framework.SlowSpec, func() {
 				ginkgo.By("remove TAS RF finalizers to allow deletion", func() {
+					updatedFlavor := &kueue.ResourceFlavor{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						var updatedFlavor kueue.ResourceFlavor
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updatedFlavor)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), updatedFlavor)).To(gomega.Succeed())
 						updatedFlavor.Finalizers = nil
-						g.Expect(k8sClient.Update(ctx, &updatedFlavor)).To(gomega.Succeed())
+						g.Expect(k8sClient.Update(ctx, updatedFlavor)).To(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -894,9 +890,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("await for the CQ to become inactive", func() {
+					updatedCq := &kueue.ClusterQueue{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						var updatedCq kueue.ClusterQueue
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), updatedCq)).To(gomega.Succeed())
 						g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
 							{
 								Type:    kueue.ClusterQueueActive,
@@ -1618,8 +1614,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is evicted due to multiple node failures", func() {
 					util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+					updatedWl := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						updatedWl := &kueue.Workload{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
 						g.Expect(updatedWl.Status.UnhealthyNodes).To(gomega.BeEmpty(), "UnhealthyNodes should be cleared after eviction due to multiple node failures")
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1675,8 +1671,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is evicted due to multiple node failures", func() {
 					util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+					updatedWl := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						updatedWl := &kueue.Workload{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
 						g.Expect(updatedWl.Status.UnhealthyNodes).To(gomega.BeEmpty(), "UnhealthyNodes should be cleared after eviction due to multiple node failures")
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1742,8 +1738,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("verify p0 is ungated and assigned to a node other than x3 since x3 is occupied", func() {
+					pod := &corev1.Pod{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						pod := &corev1.Pod{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "p0-replacement"}, pod)).To(gomega.Succeed())
 						g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())
 						g.Expect(pod.Spec.NodeSelector).Should(gomega.HaveKey(corev1.LabelHostname))
@@ -1886,8 +1882,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("verify the workload is evicted due to no replacement possible", func() {
 					util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
 					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedDueToNodeFailures, "", "", 1)
+					updatedWl := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						updatedWl := &kueue.Workload{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
 						g.Expect(wl1.Status.UnhealthyNodes).To(gomega.BeEmpty())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2109,8 +2105,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is evicted due to multiple node failures", func() {
 					util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+					updatedWl := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						updatedWl := &kueue.Workload{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
 						g.Expect(updatedWl.Status.UnhealthyNodes).To(gomega.BeEmpty(), "UnhealthyNodes should be cleared after eviction due to multiple node failures")
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2190,8 +2186,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is evicted due to no replacement possible", func() {
 					util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+					updatedWl := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						updatedWl := &kueue.Workload{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
 						g.Expect(updatedWl.Status.UnhealthyNodes).To(gomega.BeEmpty())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -3937,9 +3933,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				// Verify all nodes are properly recognized by TAS system
+				nodeList := &corev1.NodeList{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var nodeList corev1.NodeList
-					g.Expect(k8sClient.List(ctx, &nodeList)).To(gomega.Succeed())
+					g.Expect(k8sClient.List(ctx, nodeList)).To(gomega.Succeed())
 					g.Expect(nodeList.Items).To(gomega.HaveLen(8))
 					for _, node := range nodeList.Items {
 						g.Expect(utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)).To(gomega.BeTrue())
@@ -4101,9 +4097,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					})
 
 					// Verify all nodes are properly recognized by TAS system
+					nodeList := &corev1.NodeList{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						var nodeList corev1.NodeList
-						g.Expect(k8sClient.List(ctx, &nodeList)).To(gomega.Succeed())
+						g.Expect(k8sClient.List(ctx, nodeList)).To(gomega.Succeed())
 						g.Expect(nodeList.Items).To(gomega.HaveLen(8))
 						for _, node := range nodeList.Items {
 							g.Expect(utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)).To(gomega.BeTrue())
@@ -4229,9 +4225,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}
 					util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
+					nodeList := &corev1.NodeList{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						var nodeList corev1.NodeList
-						g.Expect(k8sClient.List(ctx, &nodeList, client.MatchingLabels{
+						g.Expect(k8sClient.List(ctx, nodeList, client.MatchingLabels{
 							"nodepool": "preemption-gpu-nodes",
 						})).To(gomega.Succeed())
 						g.Expect(nodeList.Items).To(gomega.HaveLen(4))
@@ -4475,9 +4471,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.MustCreate(ctx, k8sClient, localQueue)
 
 					// Verify all nodes are properly recognized by TAS system
+					nodeList := &corev1.NodeList{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						var nodeList corev1.NodeList
-						g.Expect(k8sClient.List(ctx, &nodeList)).To(gomega.Succeed())
+						g.Expect(k8sClient.List(ctx, nodeList)).To(gomega.Succeed())
 						g.Expect(nodeList.Items).To(gomega.HaveLen(8))
 						for _, node := range nodeList.Items {
 							g.Expect(utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)).To(gomega.BeTrue())
