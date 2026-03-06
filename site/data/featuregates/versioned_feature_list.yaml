@@ -237,6 +237,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.17"
+- name: SchedulingEquivalenceHashing
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.17"
 - name: SkipFinalizersForPodsSuspendedByParent
   versionedSpecs:
   - default: true

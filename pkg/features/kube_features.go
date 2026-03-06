@@ -276,6 +276,12 @@ const (
 	// layers (in addition to the podset-level constraint) for fine-grained
 	// placement across deep topology hierarchies.
 	TASMultiLayerTopology featuregate.Feature = "TASMultiLayerTopology"
+
+	// owner: @sohankunkerkar
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/9694
+	// Skip equivalent inadmissible workloads in BestEffortFIFO scheduling.
+	SchedulingEquivalenceHashing featuregate.Feature = "SchedulingEquivalenceHashing"
 )
 
 func init() {
@@ -432,6 +438,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASMultiLayerTopology: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	SchedulingEquivalenceHashing: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
