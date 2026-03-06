@@ -27,6 +27,15 @@ controllerManager:
     enabled: false
     minAvailable: 1
 kubernetesClusterDomain: cluster.local
+featureGates:
+- name: LocalQueueMetrics
+  enabled: true
+- name: ElasticJobsViaWorkloadSlices
+  enabled: true
+- name: ElasticJobsViaWorkloadSlicesWithTAS
+  enabled: true
+- name: SparkApplicationIntegration
+  enabled: true
 managerConfig:
   controllerManagerConfigYaml: |-
     apiVersion: config.kueue.x-k8s.io/v1beta2
@@ -64,7 +73,4 @@ managerConfig:
         - "deployment"
         - "statefulset"
         - "leaderworkerset.x-k8s.io/leaderworkerset"
-    featureGates:
-      LocalQueueMetrics: true
-      ElasticJobsViaWorkloadSlices: true
-      ElasticJobsViaWorkloadSlicesWithTAS: true
+        - "sparkoperator.k8s.io/sparkapplication"

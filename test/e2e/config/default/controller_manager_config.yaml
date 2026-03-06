@@ -36,9 +36,11 @@ integrations:
   - "deployment"
   - "statefulset"
   - "leaderworkerset.x-k8s.io/leaderworkerset"
+  - "sparkoperator.k8s.io/sparkapplication"
 featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
+  SparkApplicationIntegration: true
 tls:
   minVersion: "VersionTLS12"
   # this is the default ciphersuite for golang 1.25
