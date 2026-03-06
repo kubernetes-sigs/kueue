@@ -41,7 +41,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
   - [JSON values for AdmissionGatedBy annotation](#json-values-for-admissiongatedby-annotation)
-  - [Decoupling Workload Creation from Admission Gating](#decoupling-workload-creation-from-admission-gating)
+  - [Gating the admission of Jobs past their creation time](#gating-the-admission-of-jobs-past-their-creation-time)
     - [Example Implementation: Annotation-based Activation](#example-implementation-annotation-based-activation)
       - [Job Controller State Transitions](#job-controller-state-transitions)
       - [Workload Controller State Transitions](#workload-controller-state-transitions)
@@ -382,13 +382,7 @@ We ultimately decided against this approach because:
 - We may eventually use [batch/v1 Job readinessGates](#batchv1-job-readinessgates-discussion),
   which reduces the need for adding structured metadata directly into this annotation.
 
-### Decoupling Workload Creation from Admission Gating
-
-An alternative design would decouple the creation of the Workload object from
-the gating of admission. In this approach, Kueue would create the Workload
-when it observes that a Job is created, just like it currently does.
-However, the Workload would remain in an inactive state until explicitly 
-activated by the user or an external controller.
+### Gating the admission of Jobs past their creation time
 
 Implementing this alternative requires new mechanisms to manage Workload
 activation/deactivation, which would need careful design to ensure they do not
@@ -507,10 +501,8 @@ This alternate mechanism must handle scenarios like:
 
 #### Recommendation for Beta
 
-The proposed `AdmissionGatedBy` approach (deferring Workload creation) is
-simpler and sufficient for the alpha release. It addresses the primary use
-case of gating admission at Job creation time without introducing significant
-complexity.
+The proposed `AdmissionGatedBy` approach addresses the primary use case of gating
+admission at Job creation time without introducing significant complexity.
 
 Prior to promoting the feature to beta, we should re-evaluate whether to support
 decoupling Workload creation from admission gating. For example, this would be
