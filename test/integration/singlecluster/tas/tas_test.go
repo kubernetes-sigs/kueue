@@ -3673,13 +3673,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						for i := range evList.Items {
 							ev := evList.Items[i]
 							if ev.Reason == "SecondPassFailed" && ev.Regarding.Name == wl1.Name {
-								if ev.Series != nil && ev.Series.Count > count {
-									count = ev.Series.Count
+								if ev.Series != nil {
+									count += ev.Series.Count
+								} else {
+									count++
 								}
 							}
 						}
 						g.Expect(count).Should(gomega.Equal(int32(3)))
-					}, 2*util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("make the node Ready", func() {
