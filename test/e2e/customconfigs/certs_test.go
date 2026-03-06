@@ -112,7 +112,6 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 		ginkgo.By("verify the caBundle is set again for CRD", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, localQueueCRDKey, localQueueCRD)).To(gomega.Succeed())
-
 				caBundle := localQueueCRD.Spec.Conversion.Webhook.ClientConfig.CABundle
 				g.Expect(caBundle).NotTo(gomega.BeEmpty())
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())

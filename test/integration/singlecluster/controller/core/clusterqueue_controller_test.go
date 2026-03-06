@@ -232,11 +232,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				nil,
 			}
 			for i, w := range workloads {
-				gomega.Eventually(func(g gomega.Gomega) {
-					if admissions[i] != nil {
-						util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
-					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				if admissions[i] != nil {
+					util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
+				}
 			}
 
 			totalUsage := []kueue.FlavorUsage{

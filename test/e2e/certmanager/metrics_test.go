@@ -291,7 +291,6 @@ func expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName string
 	gomega.Eventually(func(g gomega.Gomega) {
 		metricsOutput, err := getKueueMetricsSecure(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
-
 		g.Expect(string(metricsOutput)).Should(utiltesting.ContainMetrics(metrics))
 	}, timeout, util.Interval).Should(gomega.Succeed())
 }

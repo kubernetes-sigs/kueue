@@ -48,10 +48,8 @@ type objAsPtr[T any] interface {
 
 func expectObjectToBeDeletedOnWorkerClusters[PtrT objAsPtr[T], T any](ctx context.Context, obj PtrT) {
 	ginkgo.GinkgoHelper()
-	gomega.Eventually(func(g gomega.Gomega) {
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, obj, false)
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, obj, false)
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, obj, false)
+	util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, obj, false)
 }
 
 var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area:multikueue", "feature:multikueue"), ginkgo.Ordered, func() {
