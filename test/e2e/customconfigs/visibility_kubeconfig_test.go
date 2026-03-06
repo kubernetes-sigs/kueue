@@ -40,6 +40,8 @@ const (
 	configMapName    = "visibility-kubeconfig-test"
 	customSAName     = "visibility-test-sa"
 	customSecretName = "visibility-test-sa-token"
+	testLabelKey     = "visibility-test-rbac"
+	testLabelValue   = "true"
 )
 
 // This kubeconfig uses the token of our custom ServiceAccount mounted at /etc/custom-sa/token.
@@ -75,7 +77,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 
 		// Create Custom ServiceAccount
 		sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: customSAName, Namespace: kueueNamespace}}
-		gomega.Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, sa))).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, sa)
 
 		// Create a token Secret for the custom SA
 		secret := &corev1.Secret{
@@ -86,14 +88,26 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 			},
 			Type: corev1.SecretTypeServiceAccountToken,
 		}
-		gomega.Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, secret))).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, secret)
 
 		// Create the ConfigMap for the KubeConfig
 		cm := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: kueueNamespace},
 			Data:       map[string]string{"config": rbacKubeConfig},
 		}
-		gomega.Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, cm))).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, cm)
+
+		// Clone all base permissions to our custom SA so the main controller can boot,
+		// explicitly holding back the auth delegation permission for our negative test.
+		cloneControllerRBAC(ctx)
+
+		// Create the auth-reader binding so the visibility server can start up.
+		authReaderBinding := &rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{Name: "visibility-test-auth-reader", Namespace: "kube-system"},
+			RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "extension-apiserver-authentication-reader"},
+			Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNamespace}},
+		}
+		util.MustCreate(ctx, k8sClient, authReaderBinding)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -102,11 +116,15 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		// Clean up created resources
-		_ = k8sClient.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: kueueNamespace}})
-		_ = k8sClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: customSecretName, Namespace: kueueNamespace}})
-		_ = k8sClient.Delete(ctx, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: customSAName, Namespace: kueueNamespace}})
-		_ = k8sClient.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "visibility-test-auth-delegator"}})
-		_ = k8sClient.Delete(ctx, &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "visibility-test-auth-reader", Namespace: "kube-system"}})
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: kueueNamespace}}, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: customSecretName, Namespace: kueueNamespace}}, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: customSAName, Namespace: kueueNamespace}}, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "visibility-test-auth-delegator"}}, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "visibility-test-auth-reader", Namespace: "kube-system"}}, true)
+
+		// Clean up our dynamically cloned roles
+		_ = k8sClient.DeleteAllOf(ctx, &rbacv1.ClusterRoleBinding{}, client.MatchingLabels{testLabelKey: testLabelValue})
+		_ = k8sClient.DeleteAllOf(ctx, &rbacv1.RoleBinding{}, client.InNamespace(kueueNamespace), client.MatchingLabels{testLabelKey: testLabelValue})
 	})
 
 	ginkgo.It("Should use the RBAC identity from the provided kubeconfig", func() {
@@ -142,8 +160,8 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: cqName},
 			Spec:       kueue.ClusterQueueSpec{CohortName: "test-cohort"},
 		}
-		gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
-		defer k8sClient.Delete(ctx, cq)
+		util.MustCreate(ctx, k8sClient, cq)
+		defer util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 
 		// NEGATIVE TEST: The custom SA lacks 'system:auth-delegator'. The visibility server
 		// is forced to use it, so it cannot perform SubjectAccessReviews.
@@ -152,8 +170,14 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 			var visCQ visibility.ClusterQueue
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName}, &visCQ)
 			g.Expect(err).To(gomega.HaveOccurred())
-			// Generally surfaces as InternalError when SAR fails
-			g.Expect(k8serrors.IsInternalError(err) || k8serrors.IsServiceUnavailable(err)).To(gomega.BeTrue())
+
+			// Check for standard auth failures (401/403) or generic server errors (500/503)
+			isExpectedError := k8serrors.IsUnauthorized(err) ||
+				k8serrors.IsForbidden(err) ||
+				k8serrors.IsInternalError(err) ||
+				k8serrors.IsServiceUnavailable(err)
+
+			g.Expect(isExpectedError).To(gomega.BeTrue(), "Expected an auth or internal error, but got: %v", err)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		// POSITIVE TEST: Grant the required permissions to our custom ServiceAccount
@@ -163,14 +187,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 			RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: "system:auth-delegator"},
 			Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNamespace}},
 		}
-		gomega.Expect(k8sClient.Create(ctx, authDelegatorBinding)).To(gomega.Succeed())
-
-		authReaderBinding := &rbacv1.RoleBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: "visibility-test-auth-reader", Namespace: "kube-system"},
-			RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "extension-apiserver-authentication-reader"},
-			Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNamespace}},
-		}
-		gomega.Expect(k8sClient.Create(ctx, authReaderBinding)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, authDelegatorBinding)
 
 		ginkgo.By("Now the requests should pass successfully")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -181,3 +198,50 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
+
+// cloneControllerRBAC dynamically copies all RoleBindings and ClusterRoleBindings
+// from the default Kueue SA to our custom SA, explicitly omitting system:auth-delegator.
+func cloneControllerRBAC(ctx context.Context) {
+	// Clone ClusterRoleBindings
+	var crbs rbacv1.ClusterRoleBindingList
+	gomega.Expect(k8sClient.List(ctx, &crbs)).To(gomega.Succeed())
+	for _, crb := range crbs.Items {
+		for _, sub := range crb.Subjects {
+			if sub.Kind == "ServiceAccount" && sub.Name == "kueue-controller-manager" && sub.Namespace == kueueNamespace {
+				// We intentionally skip this so the negative test catches the missing permission
+				if crb.RoleRef.Name == "system:auth-delegator" {
+					continue
+				}
+				newCRB := &rbacv1.ClusterRoleBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   "vistest-copy-" + crb.Name,
+						Labels: map[string]string{testLabelKey: testLabelValue},
+					},
+					RoleRef:  crb.RoleRef,
+					Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNamespace}},
+				}
+				_ = client.IgnoreAlreadyExists(k8sClient.Create(ctx, newCRB))
+			}
+		}
+	}
+
+	// Clone RoleBindings (mostly for leader election in the kueue-system namespace)
+	var rbs rbacv1.RoleBindingList
+	gomega.Expect(k8sClient.List(ctx, &rbs, client.InNamespace(kueueNamespace))).To(gomega.Succeed())
+	for _, rb := range rbs.Items {
+		for _, sub := range rb.Subjects {
+			if sub.Kind == "ServiceAccount" && sub.Name == "kueue-controller-manager" && sub.Namespace == kueueNamespace {
+				newRB := &rbacv1.RoleBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "vistest-copy-" + rb.Name,
+						Namespace: kueueNamespace,
+						Labels:    map[string]string{testLabelKey: testLabelValue},
+					},
+					RoleRef:  rb.RoleRef,
+					Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNamespace}},
+				}
+				_ = client.IgnoreAlreadyExists(k8sClient.Create(ctx, newRB))
+			}
+		}
+	}
+}
