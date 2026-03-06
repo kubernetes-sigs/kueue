@@ -62,3 +62,13 @@ func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {
 	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(string(name), namespace, role).Set(float64(q.admittedWorkloads))
 	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(string(name), namespace, role).Set(float64(q.reservingWorkloads))
 }
+
+func (q *LocalQueue) reportResourceMetrics(cqQuotas map[resources.FlavorResource]ResourceQuota, tracker *roletracker.RoleTracker) {
+	namespace, name := queue.MustParseLocalQueueReference(q.key)
+	lqRef := metrics.LocalQueueReference{Name: name, Namespace: namespace}
+	for fr := range cqQuotas {
+		fName, rName := string(fr.Flavor), string(fr.Resource)
+		metrics.ReportLocalQueueResourceReservations(lqRef, fName, rName, resourceFloat(fr.Resource, q.totalReserved[fr]), tracker)
+		metrics.ReportLocalQueueResourceUsage(lqRef, fName, rName, resourceFloat(fr.Resource, q.admittedUsage[fr]), tracker)
+	}
+}
