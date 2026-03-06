@@ -489,7 +489,6 @@ milestones with these graduation criteria:
 #### Alpha
 
 - support the `AdmissionGatedBy` feature gate, disabled by default
-- implement gating of admission by deferring Workload creation
 
 #### Beta
 
