@@ -27,11 +27,9 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -65,10 +63,6 @@ contexts:
     user: custom-sa
 current-context: default
 `
-
-func init() {
-	_ = visibility.AddToScheme(scheme.Scheme)
-}
 
 var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 	var ctx context.Context
@@ -117,7 +111,10 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 
 	ginkgo.AfterEach(func() {
 		// Restore the original deployment
-		gomega.Expect(k8sClient.Update(ctx, &originalDeployment)).To(gomega.Succeed())
+		latestDeployment := &appsv1.Deployment{}
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&originalDeployment), latestDeployment)).To(gomega.Succeed())
+		latestDeployment.Spec = originalDeployment.Spec
+		gomega.Expect(k8sClient.Update(ctx, latestDeployment)).To(gomega.Succeed())
 		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		// Clean up created resources
@@ -172,8 +169,8 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		// is forced to use it, so it cannot perform SubjectAccessReviews.
 		ginkgo.By("Expecting API requests to fail due to lack of auth delegation permissions")
 		gomega.Eventually(func(g gomega.Gomega) {
-			var visCQ visibility.ClusterQueue
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName}, &visCQ)
+			visClient := util.CreateVisibilityClient("")
+			_, err := visClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, cqName, metav1.GetOptions{})
 			g.Expect(err).To(gomega.HaveOccurred())
 
 			// Check for standard auth failures (401/403) or generic server errors (500/503)
@@ -196,10 +193,10 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 
 		ginkgo.By("Now the requests should pass successfully")
 		gomega.Eventually(func(g gomega.Gomega) {
-			var visCQ visibility.ClusterQueue
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName}, &visCQ)
+			visClient := util.CreateVisibilityClient("")
+			pw, err := visClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, cqName, metav1.GetOptions{})
 			g.Expect(err).NotTo(gomega.HaveOccurred())
-			g.Expect(visCQ.Name).To(gomega.Equal(cqName))
+			g.Expect(pw).NotTo(gomega.BeNil())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
