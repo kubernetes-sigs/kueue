@@ -27,6 +27,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -64,6 +65,10 @@ contexts:
     user: custom-sa
 current-context: default
 `
+
+func init() {
+	_ = visibility.AddToScheme(scheme.Scheme)
+}
 
 var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 	var ctx context.Context
