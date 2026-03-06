@@ -129,4 +129,5 @@ func managerSetup(resourceTransformations ...config.ResourceTransformation) func
 		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 }
