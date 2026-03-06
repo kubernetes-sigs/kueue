@@ -478,7 +478,8 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	if q == nil {
 		return false
 	}
-	info.Update(&w)
+	log := ctrl.LoggerFrom(ctx)
+	info.Update(log, &w)
 	q.AddOrUpdate(info)
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {

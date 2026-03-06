@@ -278,7 +278,8 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 	return info
 }
 
-func (i *Info) Update(wl *kueue.Workload) {
+func (i *Info) Update(log logr.Logger, wl *kueue.Workload) {
+	log.V(5).Info("Workload info updated", "workload", klog.KObj(wl))
 	i.Obj = wl
 }
 
