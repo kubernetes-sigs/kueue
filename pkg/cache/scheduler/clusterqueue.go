@@ -456,7 +456,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, k)
 	}
-	wi := workload.NewInfo(w, c.workloadInfoOptions...)
+	wi := workload.NewInfo(log, w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
 	c.updateWorkloadUsage(log, wi, add)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {

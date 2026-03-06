@@ -19,6 +19,7 @@ package preemption
 import (
 	"context"
 	"fmt"
+	"github.com/go-logr/logr"
 	"slices"
 	"testing"
 	"time"
@@ -4143,7 +4144,7 @@ func TestPreemption(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error while building snapshot: %v", err)
 				}
-				wlInfo := workload.NewInfo(tc.incoming)
+				wlInfo := workload.NewInfo(logr.Discard(), tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
 				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
@@ -4365,7 +4366,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error while building snapshot: %v", err)
 				}
-				wlInfo := workload.NewInfo(tc.incoming)
+				wlInfo := workload.NewInfo(logr.Discard(), tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
 				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
 				_, _, err = preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
@@ -4485,7 +4486,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error while building snapshot: %v", err)
 				}
-				wlInfo := workload.NewInfo(tc.incoming)
+				wlInfo := workload.NewInfo(logr.Discard(), tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
 				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshot)
 
@@ -4527,21 +4528,21 @@ func TestCandidatesOrdering(t *testing.T) {
 
 	preemptorCq := "preemptor"
 
-	wlLowUsageLq := workload.NewInfo(utiltestingapi.MakeWorkload("low_lq_usage", "").
+	wlLowUsageLq := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("low_lq_usage", "").
 		Queue("low_usage_lq").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 		Priority(1).
 		Obj())
 	wlLowUsageLq.LocalQueueFSUsage = ptr.To(0.1)
 
-	wlMidUsageLq := workload.NewInfo(utiltestingapi.MakeWorkload("mid_lq_usage", "").
+	wlMidUsageLq := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("mid_lq_usage", "").
 		Queue("mid_usage_lq").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 		Priority(10).
 		Obj())
 	wlMidUsageLq.LocalQueueFSUsage = ptr.To(0.5)
 
-	wlHighUsageLqDifCQ := workload.NewInfo(utiltestingapi.MakeWorkload("high_lq_usage_different_cq", "").
+	wlHighUsageLqDifCQ := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("high_lq_usage_different_cq", "").
 		Queue("high_usage_lq_different_cq").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("different_cq").Obj(), now).
 		Priority(1).
@@ -4555,11 +4556,11 @@ func TestCandidatesOrdering(t *testing.T) {
 	}{
 		"workloads sorted by priority": {
 			candidates: []workload.Info{
-				*workload.NewInfo(utiltestingapi.MakeWorkload("high", "").
+				*workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("high", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 					Priority(10).
 					Obj()),
-				*workload.NewInfo(utiltestingapi.MakeWorkload("low", "").
+				*workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("low", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 					Priority(-10).
 					Obj()),
@@ -4568,11 +4569,11 @@ func TestCandidatesOrdering(t *testing.T) {
 		},
 		"evicted workload first": {
 			candidates: []workload.Info{
-				*workload.NewInfo(utiltestingapi.MakeWorkload("other", "").
+				*workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("other", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 					Priority(10).
 					Obj()),
-				*workload.NewInfo(utiltestingapi.MakeWorkload("evicted", "").
+				*workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("evicted", "").
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
@@ -4584,11 +4585,11 @@ func TestCandidatesOrdering(t *testing.T) {
 		},
 		"workload from different CQ first": {
 			candidates: []workload.Info{
-				*workload.NewInfo(utiltestingapi.MakeWorkload("preemptorCq", "").
+				*workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("preemptorCq", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 					Priority(10).
 					Obj()),
-				*workload.NewInfo(utiltestingapi.MakeWorkload("other", "").
+				*workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("other", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("other").Obj(), now).
 					Priority(10).
 					Obj()),
@@ -4597,13 +4598,13 @@ func TestCandidatesOrdering(t *testing.T) {
 		},
 		"old workloads last": {
 			candidates: []workload.Info{
-				*workload.NewInfo(utiltestingapi.MakeWorkload("older", "").
+				*workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("older", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now.Add(-time.Second)).
 					Obj()),
-				*workload.NewInfo(utiltestingapi.MakeWorkload("younger", "").
+				*workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("younger", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now.Add(time.Second)).
 					Obj()),
-				*workload.NewInfo(utiltestingapi.MakeWorkload("current", "").
+				*workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("current", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 					Obj()),
 			},

@@ -1017,7 +1017,7 @@ func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload])
 
 func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.Workload) {
 	lqKey := qutil.KeyFromWorkload(wl)
-	penalty := afs.CalculateEntryPenalty(workload.NewInfo(wl).SumTotalRequests(), r.admissionFSConfig)
+	penalty := afs.CalculateEntryPenalty(workload.NewInfo(log, wl).SumTotalRequests(), r.admissionFSConfig)
 	now := r.clock.Now()
 
 	oldEntry, found := r.queues.AfsConsumedResources.Get(lqKey)

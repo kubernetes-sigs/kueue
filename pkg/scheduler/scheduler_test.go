@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-logr/logr"
 	"reflect"
 	"sync"
 	"testing"
@@ -9863,7 +9864,7 @@ func TestResourcesToReserve(t *testing.T) {
 				Borrowing: tc.borrowing,
 				Usage:     workload.Usage{Quota: tc.assignmentUsage},
 			}
-			e := &entry{assignment: assignment, Info: *workload.NewInfo(
+			e := &entry{assignment: assignment, Info: *workload.NewInfo(logr.Discard(),
 				&kueue.Workload{},
 			)}
 			cl := utiltesting.NewClientBuilder().

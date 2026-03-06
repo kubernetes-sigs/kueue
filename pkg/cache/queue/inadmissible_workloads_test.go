@@ -17,6 +17,7 @@ limitations under the License.
 package queue
 
 import (
+	"github.com/go-logr/logr"
 	"maps"
 	"testing"
 
@@ -25,8 +26,8 @@ import (
 )
 
 func TestInadmissibleWorkloads_Get(t *testing.T) {
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
-	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
+	wl1 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
+	wl2 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
@@ -74,8 +75,8 @@ func TestInadmissibleWorkloads_Get(t *testing.T) {
 }
 
 func TestInadmissibleWorkloads_Insert(t *testing.T) {
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
-	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
+	wl1 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
+	wl2 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
@@ -131,8 +132,8 @@ func TestInadmissibleWorkloads_Insert(t *testing.T) {
 }
 
 func TestInadmissibleWorkloads_Delete(t *testing.T) {
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
-	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
+	wl1 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
+	wl2 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
@@ -193,8 +194,8 @@ func TestInadmissibleWorkloads_Delete(t *testing.T) {
 }
 
 func TestInadmissibleWorkloads_Len(t *testing.T) {
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
-	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
+	wl1 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
+	wl2 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
@@ -238,7 +239,7 @@ func TestInadmissibleWorkloads_Len(t *testing.T) {
 }
 
 func TestInadmissibleWorkloads_Empty(t *testing.T) {
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
+	wl1 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
 	key1 := workload.Key(wl1.Obj)
 
 	testcases := []struct {
@@ -273,9 +274,9 @@ func TestInadmissibleWorkloads_Empty(t *testing.T) {
 }
 
 func TestInadmissibleWorkloads_ReplaceAll(t *testing.T) {
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
-	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
-	wl3 := workload.NewInfo(utiltestingapi.MakeWorkload("wl3", "ns3").Obj())
+	wl1 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
+	wl2 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
+	wl3 := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("wl3", "ns3").Obj())
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 	key3 := workload.Key(wl3.Obj)

@@ -178,7 +178,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 		if err := cl.Create(ctx, w); err != nil {
 			t.Fatalf("Failed adding workload to client: %v", err)
 		}
-		manager.RequeueWorkload(ctx, workload.NewInfo(w), RequeueReasonGeneric)
+		manager.RequeueWorkload(ctx, workload.NewInfo(logr.Discard(), w), RequeueReasonGeneric)
 	}
 
 	// Verify that all workloads are marked as inadmissible after creation.
@@ -263,7 +263,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	}
 	// This test will pass with the removal of this line.
 	// Update once we find a solution to #3066.
-	manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric)
+	manager.RequeueWorkload(ctx, workload.NewInfo(logr.Discard(), wl), RequeueReasonGeneric)
 
 	// This method is where we do a cycle check. We call it to ensure
 	// it behaves properly when a cycle exists
@@ -416,7 +416,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 				if err := cl.Create(ctx, wl); err != nil {
 					t.Fatalf("Failed adding workload to client: %v", err)
 				}
-				manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric)
+				manager.RequeueWorkload(ctx, workload.NewInfo(logr.Discard(), wl), RequeueReasonGeneric)
 			}
 
 			// Reset the counter before testing. Setup operations also trigger the log.
@@ -723,7 +723,7 @@ func TestDeleteWorkload(t *testing.T) {
 
 		q := manager.localQueues[queue.Key(queues[0])]
 		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
-			workload.Key(wl2): workload.NewInfo(wl2),
+			workload.Key(wl2): workload.NewInfo(logr.Discard(), wl2),
 		}, q.items); diff != "" {
 			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
 		}
@@ -774,7 +774,7 @@ func TestDeleteAndForgetWorkload(t *testing.T) {
 
 		q := manager.localQueues[queue.Key(queues[0])]
 		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
-			workload.Key(wl2): workload.NewInfo(wl2),
+			workload.Key(wl2): workload.NewInfo(logr.Discard(), wl2),
 		}, q.items); diff != "" {
 			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
 		}
@@ -962,7 +962,7 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 			if tc.inQueue {
 				_ = manager.AddOrUpdateWorkload(log, tc.workload)
 			}
-			info := workload.NewInfo(tc.workload)
+			info := workload.NewInfo(logr.Discard(), tc.workload)
 			if requeued := manager.RequeueWorkload(ctx, info, RequeueReasonGeneric); requeued != tc.wantRequeued {
 				t.Errorf("RequeueWorkload returned %t, want %t", requeued, tc.wantRequeued)
 			}
@@ -1440,7 +1440,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(logr.Discard(), &wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -1468,7 +1468,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(logr.Discard(), &wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -1500,7 +1500,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(logr.Discard(), &wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{

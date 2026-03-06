@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"github.com/go-logr/logr"
 	"testing"
 	"time"
 
@@ -77,7 +78,7 @@ func TestSnapshot(t *testing.T) {
 							FlavorFungibility:             defaultFlavorFungibility,
 							AllocatableResourceGeneration: 1,
 							Workloads: map[workload.Reference]*workload.Info{
-								"/alpha": workload.NewInfo(
+								"/alpha": workload.NewInfo(logr.Discard(),
 									utiltestingapi.MakeWorkload("alpha", "").
 										ReserveQuotaAt(&kueue.Admission{ClusterQueue: "a"}, now).Obj()),
 							},
@@ -91,7 +92,7 @@ func TestSnapshot(t *testing.T) {
 							FlavorFungibility:             defaultFlavorFungibility,
 							AllocatableResourceGeneration: 1,
 							Workloads: map[workload.Reference]*workload.Info{
-								"/beta": workload.NewInfo(
+								"/beta": workload.NewInfo(logr.Discard(),
 									utiltestingapi.MakeWorkload("beta", "").
 										ReserveQuotaAt(&kueue.Admission{ClusterQueue: "b"}, now).Obj()),
 							},
@@ -260,7 +261,7 @@ func TestSnapshot(t *testing.T) {
 								},
 								FlavorFungibility: defaultFlavorFungibility,
 								Workloads: map[workload.Reference]*workload.Info{
-									"/alpha": workload.NewInfo(utiltestingapi.MakeWorkload("alpha", "").
+									"/alpha": workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("alpha", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
 										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
@@ -306,7 +307,7 @@ func TestSnapshot(t *testing.T) {
 								},
 								FlavorFungibility: defaultFlavorFungibility,
 								Workloads: map[workload.Reference]*workload.Info{
-									"/beta": workload.NewInfo(utiltestingapi.MakeWorkload("beta", "").
+									"/beta": workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("beta", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "1").
 											Request("example.com/gpu", "2").
@@ -319,7 +320,7 @@ func TestSnapshot(t *testing.T) {
 												Obj()).
 											Obj(), now).
 										Obj()),
-									"/gamma": workload.NewInfo(utiltestingapi.MakeWorkload("gamma", "").
+									"/gamma": workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("gamma", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "1").
 											Request("example.com/gpu", "1").
@@ -524,7 +525,7 @@ func TestSnapshot(t *testing.T) {
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
 								Workloads: map[workload.Reference]*workload.Info{
-									"/alpha": workload.NewInfo(utiltestingapi.MakeWorkload("alpha", "").
+									"/alpha": workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("alpha", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
 										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
@@ -534,7 +535,7 @@ func TestSnapshot(t *testing.T) {
 												Obj()).
 											Obj(), now).
 										Obj()),
-									"/beta": workload.NewInfo(utiltestingapi.MakeWorkload("beta", "").
+									"/beta": workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("beta", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "1").Obj()).
 										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
@@ -544,7 +545,7 @@ func TestSnapshot(t *testing.T) {
 												Obj()).
 											Obj(), now).
 										Obj()),
-									"/gamma": workload.NewInfo(utiltestingapi.MakeWorkload("gamma", "").
+									"/gamma": workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("gamma", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
 										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
