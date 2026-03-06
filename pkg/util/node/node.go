@@ -14,19 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tas
+package node
 
-import "time"
+import (
+	corev1 "k8s.io/api/core/v1"
 
-const (
-	TASNodeController           = "tas-node-controller"
-	TASTopologyController       = "tas-topology-controller"
-	TASResourceFlavorController = "tas-resource-flavor-controller"
-	TASTopologyUngater          = "tas-topology-ungater"
-	TASNodeFailureController    = "tas-node-failure-controller"
-	TASNonTasUsageController    = "tas-non-tas-usage-controller"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
-const (
-	NodeFailureDelay = 30 * time.Second
-)
+// IsActive checks if a Kubernetes node is schedulable and has a "Ready" status condition set to true.
+func IsActive(node *corev1.Node) bool {
+	return node != nil &&
+		!node.Spec.Unschedulable &&
+		utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)
+}

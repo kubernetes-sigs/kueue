@@ -163,6 +163,11 @@ generate-mocks: mockgen ## Generate mockgen mocks
 		-copyright_file hack/boilerplate.txt \
 		-package mocks \
 		sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation
+	$(MOCKGEN) \
+		-destination=$(MOCKS_DIR)/tas/interface.go \
+		-copyright_file hack/boilerplate.txt \
+		-package mocks \
+		sigs.k8s.io/kueue/pkg/controller/tas NodeTASCache
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.

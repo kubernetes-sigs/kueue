@@ -27,12 +27,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utilnode "sigs.k8s.io/kueue/pkg/util/node"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 type tasCache struct {
 	sync.RWMutex
 	client      client.Client
+	nodes       map[string]*nodeInfo
 	flavors     map[kueue.ResourceFlavorReference]flavorInformation
 	topologies  map[kueue.TopologyReference]topologyInformation
 	flavorCache map[kueue.ResourceFlavorReference]*TASFlavorCache
@@ -43,6 +45,7 @@ type tasCache struct {
 func NewTASCache(client client.Client) tasCache {
 	return tasCache{
 		client:      client,
+		nodes:       make(map[string]*nodeInfo),
 		flavors:     make(map[kueue.ResourceFlavorReference]flavorInformation),
 		topologies:  make(map[kueue.TopologyReference]topologyInformation),
 		flavorCache: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
@@ -126,4 +129,18 @@ func (t *tasCache) Update(pod *corev1.Pod, log logr.Logger) {
 
 func (t *tasCache) DeletePodByKey(key client.ObjectKey) {
 	t.nonTasUsageCache.delete(key)
+}
+
+func (t *tasCache) AddOrUpdateNode(node *corev1.Node) {
+	t.Lock()
+	defer t.Unlock()
+	if utilnode.IsActive(node) {
+		t.nodes[node.Name] = newNodeInfo(node)
+	}
+}
+
+func (t *tasCache) DeleteNode(nodeName string) {
+	t.Lock()
+	defer t.Unlock()
+	delete(t.nodes, nodeName)
 }
