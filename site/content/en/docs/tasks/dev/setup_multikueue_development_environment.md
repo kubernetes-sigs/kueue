@@ -20,7 +20,15 @@ For example:
 E2E_MODE=dev make kind-image-build test-multikueue-e2e
 ```
 
-For more information about the DEV mode, refer to the testing documentation.
+To use a released or staging Kueue image without building (no `kind-image-build` needed), pass `IMAGE_TAG`:
+```sh
+# Released
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e
+# Staging (e.g. from a PR or nightly)
+E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.17.0-devel-332-g701268f80 make test-multikueue-e2e
+```
+
+For the correct manifests for a given release, see [Install a released version](/docs/installation/#install-a-released-version). For more information about the DEV mode, refer to the testing documentation.
 
 ## Setup MultiKueue with TAS
 

@@ -134,6 +134,21 @@ E2E_MODE=dev make test-multikueue-e2e
 E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make test-e2e
 ```
 
+若希望使用**已发布**或**预发布（staging）**的 Kueue 镜像而非从源码构建（无需执行 `kind-image-build`），可传入 `IMAGE_TAG` 并指定所需镜像：
+
+```shell
+# 已发布版本
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e
+
+# 预发布镜像（例如来自 PR 或每日构建）
+E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.17.0-devel-332-g701268f80 make test-e2e
+```
+
+某版本对应的正确 manifest（如与该镜像匹配的 CRD 等）请参阅[安装已发布版本](/zh-CN/docs/installation/#install-a-released-version)。
+
+若需复现用户在某已发布版本上报告的问题（例如值班排查），请先检出该版本的 tag、构建 manifest，再执行上述 `E2E_MODE=dev IMAGE_TAG=...` 命令，这样 e2e 框架会使用构建出的 manifest 与指定镜像。
+
 {{% alert title="Note" color="primary" %}}
 当在 `E2E_MODE=dev` 下复用保留的集群时，外部算子（MPI、KubeRay 等）只会安装一次。
 如需在每次运行时强制重新安装它们，请设置 `E2E_ENFORCE_OPERATOR_UPDATE=true`。
