@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 	ginkgo.AfterEach(func() {
 		// Restore the original deployment
 		gomega.Expect(k8sClient.Update(ctx, &originalDeployment)).To(gomega.Succeed())
-		waitForDeployment(ctx, kueueManagerName, kueueNamespace)
+		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		// Clean up created resources
 		_ = k8sClient.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: kueueNamespace}})
@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		}
 
 		gomega.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
-		waitForDeployment(ctx, kueueManagerName, kueueNamespace)
+		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		cqName := "test-kubeconfig-cq"
 		cq := &kueue.ClusterQueue{
@@ -181,13 +181,3 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
-
-func waitForDeployment(ctx context.Context, name, namespace string) {
-	gomega.Eventually(func(g gomega.Gomega) {
-		var d appsv1.Deployment
-		err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &d)
-		g.Expect(err).NotTo(gomega.HaveOccurred())
-		g.Expect(d.Status.UpdatedReplicas).To(gomega.Equal(d.Status.Replicas))
-		g.Expect(d.Status.ReadyReplicas).To(gomega.Equal(d.Status.Replicas))
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
-}
