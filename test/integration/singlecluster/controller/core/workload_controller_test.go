@@ -382,9 +382,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
-					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
-					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
+				util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
 			})
 		})
 

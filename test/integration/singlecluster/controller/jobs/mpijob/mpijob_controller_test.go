@@ -201,8 +201,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Eventually(func(g gomega.Gomega) {
 			ok, _ := utiltesting.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
 			g.Expect(ok).Should(gomega.BeTrue())
-			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 		ginkgo.By("checking the workload is updated with new count")
 		gomega.Eventually(func(g gomega.Gomega) {
