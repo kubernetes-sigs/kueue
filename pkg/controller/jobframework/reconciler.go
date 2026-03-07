@@ -476,6 +476,17 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
+			// Decrement pods-ready gauge if finishing while PodsReady=True
+			if r.waitForPodsReady {
+				podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
+				if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionTrue {
+					cqName := wl.Status.Admission.ClusterQueue
+					metrics.DecrementPodsReadyWorkloads(cqName, r.roleTracker)
+					if features.Enabled(features.LocalQueueMetrics) {
+						metrics.DecrementLocalQueuePodsReadyWorkloads(metrics.LQRefFromWorkload(wl), r.roleTracker)
+					}
+				}
+			}
 			r.record.Eventf(object, corev1.EventTypeNormal, ReasonFinishedWorkload,
 				"Workload '%s' is declared finished", workload.Key(wl))
 		}
@@ -533,6 +544,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		condition := generatePodsReadyCondition(ctx, job, wl, r.clock)
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
 			log.V(3).Info("Updating the PodsReady condition", "reason", condition.Reason, "status", condition.Status)
+			oldPodsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
+			wasPodsReady := oldPodsReadyCond != nil && oldPodsReadyCond.Status == metav1.ConditionTrue
 			err := workload.SetConditionAndUpdate(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
 			if err != nil {
 				log.Error(err, "Updating workload status")
@@ -551,6 +564,21 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, queuedUntilReadyWaitTime, r.roleTracker)
 					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, admittedUntilReadyWaitTime, r.roleTracker)
 				}
+				// Increment pods-ready gauge on False→True transition
+				if !wasPodsReady {
+					metrics.IncrementPodsReadyWorkloads(cqName, r.roleTracker)
+					if features.Enabled(features.LocalQueueMetrics) {
+						metrics.IncrementLocalQueuePodsReadyWorkloads(metrics.LQRefFromWorkload(wl), r.roleTracker)
+					}
+				}
+			}
+			// Decrement pods-ready gauge on True→False transition
+			if wasPodsReady && condition.Status == metav1.ConditionFalse {
+				cqName := wl.Status.Admission.ClusterQueue
+				metrics.DecrementPodsReadyWorkloads(cqName, r.roleTracker)
+				if features.Enabled(features.LocalQueueMetrics) {
+					metrics.DecrementLocalQueuePodsReadyWorkloads(metrics.LQRefFromWorkload(wl), r.roleTracker)
+				}
 			}
 			return ctrl.Result{}, nil
 		} else {
@@ -563,6 +591,16 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		log.V(3).Info("Handling a job with evicted condition")
 		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
 			return ctrl.Result{}, err
+		}
+		if r.waitForPodsReady {
+			podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
+			if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionTrue {
+				cqName := wl.Status.Admission.ClusterQueue
+				metrics.DecrementPodsReadyWorkloads(cqName, r.roleTracker)
+				if features.Enabled(features.LocalQueueMetrics) {
+					metrics.DecrementLocalQueuePodsReadyWorkloads(metrics.LQRefFromWorkload(wl), r.roleTracker)
+				}
+			}
 		}
 		if workload.HasQuotaReservation(wl) {
 			if !job.IsActive() {

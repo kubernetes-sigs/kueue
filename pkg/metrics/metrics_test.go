@@ -175,6 +175,20 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
 }
 
+func TestReportAndCleanupPodsReadyWorkloads(t *testing.T) {
+	cqName := kueue.ClusterQueueReference("cluster_queue1")
+
+	IncrementPodsReadyWorkloads(cqName, nil)
+	IncrementPodsReadyWorkloads(cqName, nil)
+	expectFilteredMetricsCount(t, PodsReadyWorkloads, 1, "cluster_queue", "cluster_queue1", "replica_role", "standalone")
+
+	DecrementPodsReadyWorkloads(cqName, nil)
+	expectFilteredMetricsCount(t, PodsReadyWorkloads, 1, "cluster_queue", "cluster_queue1")
+
+	ClearClusterQueueMetrics(cqName)
+	expectFilteredMetricsCount(t, PodsReadyWorkloads, 0, "cluster_queue", "cluster_queue1")
+}
+
 func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {
 	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
 	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "", nil)
@@ -183,6 +197,19 @@ func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {
 
 	ClearLocalQueueMetrics(lq)
 	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 0, "name", "lq1", "namespace", "ns1")
+}
+
+func TestReportAndCleanupLocalQueuePodsReadyWorkloads(t *testing.T) {
+	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
+
+	IncrementLocalQueuePodsReadyWorkloads(lq, nil)
+	expectFilteredMetricsCount(t, LocalQueuePodsReadyWorkloads, 1, "name", "lq1", "namespace", "ns1", "replica_role", "standalone")
+
+	DecrementLocalQueuePodsReadyWorkloads(lq, nil)
+	expectFilteredMetricsCount(t, LocalQueuePodsReadyWorkloads, 1, "name", "lq1", "namespace", "ns1")
+
+	ClearLocalQueueMetrics(lq)
+	expectFilteredMetricsCount(t, LocalQueuePodsReadyWorkloads, 0, "name", "lq1", "namespace", "ns1")
 }
 
 func TestGitVersionMetric(t *testing.T) {
@@ -235,6 +262,12 @@ func TestMetricsWithReplicaRoleLabel(t *testing.T) {
 	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "", nil)
 	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 1, "name", "lq_standalone", "replica_role", "standalone")
 
+	IncrementPodsReadyWorkloads("cq_standalone", nil)
+	expectFilteredMetricsCount(t, PodsReadyWorkloads, 1, "cluster_queue", "cq_standalone", "replica_role", "standalone")
+
+	IncrementLocalQueuePodsReadyWorkloads(lq, nil)
+	expectFilteredMetricsCount(t, LocalQueuePodsReadyWorkloads, 1, "name", "lq_standalone", "replica_role", "standalone")
+
 	ClearClusterQueueResourceMetrics("queue_standalone")
 	ClearClusterQueueMetrics("cq_standalone")
 	ClearLocalQueueMetrics(lq)
@@ -255,6 +288,11 @@ func TestMetricsWithDifferentRoles(t *testing.T) {
 
 	ReportEvictedWorkloads("cq_follower", "Preempted", "", "", followerTracker)
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cq_follower", "replica_role", "follower")
+
+	IncrementPodsReadyWorkloads("cq_leader", leaderTracker)
+	IncrementPodsReadyWorkloads("cq_follower", followerTracker)
+	expectFilteredMetricsCount(t, PodsReadyWorkloads, 1, "cluster_queue", "cq_leader", "replica_role", "leader")
+	expectFilteredMetricsCount(t, PodsReadyWorkloads, 1, "cluster_queue", "cq_follower", "replica_role", "follower")
 
 	ClearClusterQueueResourceMetrics("queue_leader")
 	ClearClusterQueueResourceMetrics("queue_follower")
