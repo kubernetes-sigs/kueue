@@ -44,6 +44,9 @@ type DRS struct {
 	fairWeight       float64
 	unweightedRatio  float64
 	dominantResource corev1.ResourceName
+	// borrowing tracks whether the node's current usage
+	// exceeds its quota for any resource.
+	borrowing bool
 }
 
 // NegativeDRS is used as a starting point for comparisons.
@@ -51,11 +54,15 @@ func NegativeDRS() DRS {
 	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
 }
 
-// IsZero returns whether the DRS is 0. In other words,
-// the node for which this function was called is not
-// borrowing any resources.
+// IsZero returns whether the DRS ratio is 0.
 func (d DRS) IsZero() bool {
 	return d.unweightedRatio == 0
+}
+
+// IsBorrowing returns whether the node's current usage exceeds
+// its quota for any resource.
+func (d DRS) IsBorrowing() bool {
+	return d.borrowing
 }
 
 func (d DRS) isWeightZero() bool {
@@ -114,7 +121,7 @@ func (d DRS) zeroWeightBorrows() bool {
 }
 
 func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) DRS {
-	drs := DRS{fairWeight: node.fairWeight(), unweightedRatio: 0, dominantResource: ""}
+	drs := DRS{fairWeight: node.fairWeight(), unweightedRatio: 0, dominantResource: "", borrowing: false}
 	if !node.HasParent() {
 		return drs
 	}
@@ -129,6 +136,7 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	if len(borrowing) == 0 {
 		return drs
 	}
+	drs.borrowing = true
 
 	lendable := calculateLendable(node.parentHRN())
 	for rName, b := range borrowing {
