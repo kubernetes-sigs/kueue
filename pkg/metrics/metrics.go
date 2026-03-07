@@ -615,6 +615,26 @@ If zero, it means that the usage of the Cohort is below the nominal quota.
 If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, []string{"cohort", "replica_role"},
 	)
+
+	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortNominalQuota = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_nominal_quota",
+			Help:      `Reports the cohort's resource nominal quota within all the flavors`,
+		}, []string{"cohort", "flavor", "resource", "replica_role"},
+	)
+
+	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortBorrowingLimit = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_borrowing_limit",
+			Help:      `Reports the cohort's resource borrowing limit within all the flavors`,
+		}, []string{"cohort", "flavor", "resource", "replica_role"},
+	)
 )
 
 func init() {
@@ -780,6 +800,12 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 }
 
+func ClearCohortMetrics(cohortName string) {
+	CohortBorrowingLimit.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
+	CohortNominalQuota.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
+	CohortWeightedShare.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
+}
+
 func ReportClusterQueueStatus(cqName kueue.ClusterQueueReference, cqStatus ClusterQueueStatus, tracker *roletracker.RoleTracker) {
 	for _, status := range CQStatuses {
 		var v float64
@@ -821,6 +847,22 @@ func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resou
 	ClusterQueueResourceNominalQuota.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(nominal)
 	ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(borrowing)
 	ClusterQueueResourceLendingLimit.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(lending)
+}
+
+func ReportCohortNominalQuotas(cohort kueue.CohortReference, flavor, resource string, quota float64, tracker *roletracker.RoleTracker) {
+	CohortNominalQuota.WithLabelValues(string(cohort), flavor, resource, roletracker.GetRole(tracker)).Set(quota)
+}
+
+func ClearCohortNominalQuotas(cohort kueue.CohortReference) {
+	CohortNominalQuota.DeletePartialMatch(prometheus.Labels{"cohort": string(cohort)})
+}
+
+func ReportCohortBorrowingLimit(cohort kueue.CohortReference, flavor, resource string, borrowing float64, tracker *roletracker.RoleTracker) {
+	CohortBorrowingLimit.WithLabelValues(string(cohort), flavor, resource, roletracker.GetRole(tracker)).Set(borrowing)
+}
+
+func ClearCohortBorrowingLimit(cohort kueue.CohortReference) {
+	CohortBorrowingLimit.DeletePartialMatch(prometheus.Labels{"cohort": string(cohort)})
 }
 
 func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
@@ -938,6 +980,8 @@ func Register() {
 		ClusterQueueResourceLendingLimit,
 		ClusterQueueWeightedShare,
 		CohortWeightedShare,
+		CohortNominalQuota,
+		CohortBorrowingLimit,
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
