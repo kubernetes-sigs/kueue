@@ -77,10 +77,14 @@ func (h *Handlers) fetchCohorts(ctx context.Context) (any, error) {
 		if queues == nil {
 			queues = []map[string]any{}
 		}
-		result = append(result, map[string]any{
+		item := map[string]any{
 			"name":          cohort.Name,
 			"clusterQueues": queues,
-		})
+		}
+		if cohort.Spec.ParentName != "" {
+			item["parentName"] = string(cohort.Spec.ParentName)
+		}
+		result = append(result, item)
 	}
 
 	return result, nil
