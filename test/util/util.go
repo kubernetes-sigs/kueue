@@ -86,6 +86,10 @@ var SetupLogger = sync.OnceFunc(func() {
 	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter))
 })
 
+func toJSON(obj any) string {
+	return format.Object(obj, 1)
+}
+
 type objAsPtr[T any] interface {
 	client.Object
 	*T
@@ -117,7 +121,7 @@ func expectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Con
 	}
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		newObj := PtrT(new(T))
-		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)).Should(utiltesting.BeNotFoundError())
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)).Should(utiltesting.BeNotFoundError(), "Object still exists\n%s", toJSON(newObj))
 	}, timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -1020,7 +1024,7 @@ func ExpectPodsJustFinalized(ctx context.Context, k8sClient client.Client, keys 
 		createdPod := &corev1.Pod{}
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, key, createdPod)).To(gomega.Succeed())
-			g.Expect(createdPod.Finalizers).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+			g.Expect(createdPod.Finalizers).To(gomega.BeEmpty(), "Expected pod to be finalized\n%s", toJSON(createdPod))
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
@@ -1035,7 +1039,7 @@ func ExpectPodsFinalizedOrGone(ctx context.Context, k8sClient client.Client, key
 				return
 			}
 			g.Expect(err).To(gomega.Succeed())
-			g.Expect(createdPod.Finalizers).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+			g.Expect(createdPod.Finalizers).To(gomega.BeEmpty(), "Expected pod to be finalized\n%s", toJSON(createdPod))
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
@@ -1050,7 +1054,7 @@ func ExpectWorkloadsFinalizedOrGone(ctx context.Context, k8sClient client.Client
 				return
 			}
 			g.Expect(err).To(gomega.Succeed())
-			g.Expect(createdWorkload.Finalizers).Should(gomega.BeEmpty(), "Expected workload to be finalized")
+			g.Expect(createdWorkload.Finalizers).To(gomega.BeEmpty(), "Expected workload to be finalized\n%s", toJSON(createdWorkload))
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
