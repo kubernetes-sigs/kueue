@@ -31,6 +31,9 @@ aliases:
 |       [Innovatrics](https://www.innovatrics.com/)       | 最终用户 |                     企业内部 ML 平台                  |          batch/job </br> pod          |    [@mmolisch](https://github.com/mmolisch)      |
 | [Red Hat, Inc.](https://www.redhat.com/en)              | 最终用户 | 云/企业内部 ML 平台 | Ray Cluster <br> RayJob <br> Pytorch Job <br> TensorFlow Job <br> ... | [@varshaprasad96](https://github.com/varshaprasad96) |
 | [Octue](https://octue.com)                              | 最终用户 | [科学数据服务框架][octue-sdk]                  |               batch/job               | [@cortadocodes](https://github.com/cortadocodes) |
+| [LY Corporation](https://www.lycorp.co.jp/en/)          | 最终用户 | 本地部署人工智能平台                   | batch/job</br>TensorFlow Job</br>Ray Cluster</br>pod</br>... | [@everpeace](https://github.com/everpeace)       |
+| [Preferred Networks, Inc.](https://www.preferred.jp/en) | 最终用户 |                  云端/本地部署机器学习平台                  |     batch/job </br> pod </br> ...     |     [@wafrelka](https://github.com/wafrelka)     |
+| [Wayve](https://wayve.ai/)                              | 最终用户 |       作为 Wayve AI 驱动背后 AI 平台的一部分          |          RayJob </br> pod             | [@mukund-wayve](https://github.com/mukund-wayve) |
 
 [gcmldemo]: https://cloud.google.com/blog/products/compute/the-worlds-largest-distributed-llm-training-job-on-tpu-v5e
 [mlbatch]: https://github.com/project-codeflare/mlbatch
