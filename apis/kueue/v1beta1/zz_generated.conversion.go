@@ -2278,6 +2278,7 @@ func autoConvert_v1beta1_ResourceFlavorSpec_To_v1beta2_ResourceFlavorSpec(in *Re
 	out.NodeTaints = *(*[]corev1.Taint)(unsafe.Pointer(&in.NodeTaints))
 	out.Tolerations = *(*[]corev1.Toleration)(unsafe.Pointer(&in.Tolerations))
 	out.TopologyName = (*v1beta2.TopologyReference)(unsafe.Pointer(in.TopologyName))
+	out.ResourceWeights = *(*map[corev1.ResourceName]resource.Quantity)(unsafe.Pointer(&in.ResourceWeights))
 	return nil
 }
 
@@ -2291,6 +2292,7 @@ func autoConvert_v1beta2_ResourceFlavorSpec_To_v1beta1_ResourceFlavorSpec(in *v1
 	out.NodeTaints = *(*[]corev1.Taint)(unsafe.Pointer(&in.NodeTaints))
 	out.Tolerations = *(*[]corev1.Toleration)(unsafe.Pointer(&in.Tolerations))
 	out.TopologyName = (*TopologyReference)(unsafe.Pointer(in.TopologyName))
+	out.ResourceWeights = *(*map[corev1.ResourceName]resource.Quantity)(unsafe.Pointer(&in.ResourceWeights))
 	return nil
 }
 

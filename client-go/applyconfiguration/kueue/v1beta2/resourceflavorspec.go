@@ -19,6 +19,8 @@ limitations under the License.
 package v1beta2
 
 import (
+	corev1 "k8s.io/api/core/v1"
+	resource "k8s.io/apimachinery/pkg/api/resource"
 	v1 "k8s.io/client-go/applyconfigurations/core/v1"
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
@@ -65,6 +67,13 @@ type ResourceFlavorSpecApplyConfiguration struct {
 	// When specified, it enables scraping of the topology information from the
 	// nodes matching to the Resource Flavor node labels.
 	TopologyName *kueuev1beta2.TopologyReference `json:"topologyName,omitempty"`
+	// resourceWeights is a map from resource name to a scalar multiplier
+	// used when computing Dominant Resource Share (DRS) for Fair Sharing.
+	// Higher weights cause borrowing/lendable for this flavor-resource pair
+	// to contribute more to the DRS ratio.
+	// Missing entries default to a multiplier of 1.0.
+	// Values must be strictly greater than 0.
+	ResourceWeights map[corev1.ResourceName]resource.Quantity `json:"resourceWeights,omitempty"`
 }
 
 // ResourceFlavorSpecApplyConfiguration constructs a declarative configuration of the ResourceFlavorSpec type for use with
@@ -118,5 +127,19 @@ func (b *ResourceFlavorSpecApplyConfiguration) WithTolerations(values ...*v1.Tol
 // If called multiple times, the TopologyName field is set to the value of the last call.
 func (b *ResourceFlavorSpecApplyConfiguration) WithTopologyName(value kueuev1beta2.TopologyReference) *ResourceFlavorSpecApplyConfiguration {
 	b.TopologyName = &value
+	return b
+}
+
+// WithResourceWeights puts the entries into the ResourceWeights field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the ResourceWeights field,
+// overwriting an existing map entries in ResourceWeights field with the same key.
+func (b *ResourceFlavorSpecApplyConfiguration) WithResourceWeights(entries map[corev1.ResourceName]resource.Quantity) *ResourceFlavorSpecApplyConfiguration {
+	if b.ResourceWeights == nil && len(entries) > 0 {
+		b.ResourceWeights = make(map[corev1.ResourceName]resource.Quantity, len(entries))
+	}
+	for k, v := range entries {
+		b.ResourceWeights[k] = v
+	}
 	return b
 }
