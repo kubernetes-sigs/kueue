@@ -19,6 +19,7 @@ package util
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -723,7 +724,8 @@ func ExpectPodsJustFinalized(ctx context.Context, k8sClient client.Client, keys 
 		createdPod := &corev1.Pod{}
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, key, createdPod)).To(gomega.Succeed())
-			g.Expect(createdPod.Finalizers).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+			podJSON, _ := json.MarshalIndent(createdPod, "", "  ")
+			g.Expect(createdPod).Should(gomega.HaveField("Finalizers", gomega.BeEmpty()), "Pod state:\n%s", string(podJSON))
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
@@ -738,7 +740,8 @@ func ExpectPodsFinalizedOrGone(ctx context.Context, k8sClient client.Client, key
 				return
 			}
 			g.Expect(err).To(gomega.Succeed())
-			g.Expect(createdPod.Finalizers).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+			podJSON, _ := json.MarshalIndent(createdPod, "", "  ")
+			g.Expect(createdPod).Should(gomega.HaveField("Finalizers", gomega.BeEmpty()), "Pod state:\n%s", string(podJSON))
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
@@ -753,7 +756,8 @@ func ExpectWorkloadsFinalizedOrGone(ctx context.Context, k8sClient client.Client
 				return
 			}
 			g.Expect(err).To(gomega.Succeed())
-			g.Expect(createdWorkload.Finalizers).Should(gomega.BeEmpty(), "Expected workload to be finalized")
+			wlJSON, _ := json.MarshalIndent(createdWorkload, "", "  ")
+			g.Expect(createdWorkload).Should(gomega.HaveField("Finalizers", gomega.BeEmpty()), "Workload state:\n%s", string(wlJSON))
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
