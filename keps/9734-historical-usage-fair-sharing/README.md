@@ -42,8 +42,8 @@ This KEP introduces an alternative strategy for Dominant Resource Share
 from KEP-4136 (Admission Fair Sharing) to cohort-level scheduling and
 preemption, while keeping the same DRS aggregation from KEP-1714.
 
-Where DRS with borrowing input answers "who is borrowing the most right now?",
-DRS with historical borrowing input answers "who has borrowed the most over
+Where DRS with borrowing strategy answers "who is borrowing the most right now?",
+DRS with historical borrowing strategy answers "who has borrowed the most over
 time?" — giving the system memory of past borrowing so that recent heavy
 consumption of shared capacity is appropriately penalised.
 
@@ -101,7 +101,7 @@ ClusterQueues within a cohort for either admission ordering or preemption.
 We introduce a new DRS strategy — `HistoricalBorrowing` — that replaces
 instantaneous borrowing with half-life decayed borrowing as input to the
 existing DRS aggregation (max ratio of borrowing to lendable capacity). The
-aggregation and all downstream behavior remain unchanged.
+aggregation and all downstream behavior — including fair sharing weights — remain unchanged.
 
 ### Historical borrowing computation
 
