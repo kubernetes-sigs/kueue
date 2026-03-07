@@ -150,7 +150,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		// we can't prune the preemptor ClusterQueue itself,
 		// until it runs out of candidates.
 		switch {
-		case (drs.IsZero() && cq != t.preemptorCq) || !t.hasWorkload(cq):
+		case (!drs.IsBorrowing() && cq != t.preemptorCq) || !t.hasWorkload(cq):
 			t.prunedClusterQueues.Insert(cq)
 		case schdcache.CompareDRS(drs, highestCqDrs) == 0:
 			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
@@ -173,14 +173,14 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 
 		drs := cohort.DominantResourceShare()
 
-		// we prune a Cohort when it is no longer borrowing
-		// (DRS=0). Even when not borrowing, we can't prune a
+		// we prune a Cohort when it is no longer borrowing.
+		// Even when not borrowing, we can't prune a
 		// Cohort on path from preemptor ClusterQueue to
 		// root, as there may be imbalance within some
 		// subtree, or a possible preemption within Preemptor
 		// CQ itself.  We will only prune such a Cohort if all
 		// of its children have been pruned.
-		if drs.IsZero() && !t.onPathFromRootToPreemptorCQ(cohort) {
+		if !drs.IsBorrowing() && !t.onPathFromRootToPreemptorCQ(cohort) {
 			t.prunedCohorts.Insert(cohort)
 		} else if schdcache.CompareDRS(drs, highestCohortDrs) >= 0 {
 			highestCohortDrs = drs
