@@ -229,7 +229,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler and preemption gates", ginkgo
 				g.Expect(workerHighWorkload.Spec.PreemptionGates).To(gomega.ContainElement(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}))
 				g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeFalse())
 				preemptionBlockedCondition := apimeta.FindStatusCondition(workerHighWorkload.Status.Conditions, kueue.WorkloadPreemptionBlocked)
-				g.Expect(preemptionBlockedCondition.Status).To(gomega.Equal(corev1.ConditionTrue))
+				g.Expect(preemptionBlockedCondition.Status).To(gomega.Equal(metav1.ConditionTrue))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -244,8 +244,8 @@ var _ = ginkgo.Describe("MultiKueue with scheduler and preemption gates", ginkgo
 		ginkgo.By("Opening the preemption gate in the high-priority workload", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, highWlKey, workerHighWorkload)).To(gomega.Succeed())
-				workload.SetPreemptionGateState(workerHighWorkload, constants.MultiKueuePreemptionGate, kueue.GateStateOpen, metav1.Now())
-				g.Expect(worker1TestCluster.client.Update(worker1TestCluster.ctx, workerHighWorkload)).To(gomega.Succeed())
+				g.Expect(workload.SetPreemptionGateState(workerHighWorkload, constants.MultiKueuePreemptionGate, kueue.GateStateOpen, metav1.Now())).To(gomega.BeTrue())
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, workerHighWorkload)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

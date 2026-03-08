@@ -1671,6 +1671,95 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"not opening preemption gate if timeout did not elapse": {
+			features: map[featuregate.Feature]bool{
+				features.MultiKueueOrchestratedPreemption: true,
+			},
+			reconcileFor: "wl1",
+
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Obj(),
+			},
+
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PreemptionGates(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}).
+					PreemptionGateStates(kueue.PreemptionGateState{
+						Name:               constants.MultiKueuePreemptionGate,
+						State:              kueue.GateStateOpen,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PreemptionGates(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}).
+					PreemptionGateStates(kueue.PreemptionGateState{
+						Name:               constants.MultiKueuePreemptionGate,
+						State:              kueue.GateStateClosed,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreemptionBlocked,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.PreemptionGated,
+						Message:            "Preemption gate closed",
+						LastTransitionTime: metav1.NewTime(earlier),
+					}).
+					Obj(),
+			},
+
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Obj(),
+			},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PreemptionGates(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}).
+					PreemptionGateStates(kueue.PreemptionGateState{
+						Name:               constants.MultiKueuePreemptionGate,
+						State:              kueue.GateStateOpen,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PreemptionGates(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}).
+					PreemptionGateStates(kueue.PreemptionGateState{
+						Name:               constants.MultiKueuePreemptionGate,
+						State:              kueue.GateStateClosed,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreemptionBlocked,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.PreemptionGated,
+						Message:            "Preemption gate closed",
+						LastTransitionTime: metav1.NewTime(earlier),
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -1752,7 +1841,7 @@ func TestWlReconcile(t *testing.T) {
 				helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 				recorder := &utiltesting.EventRecorder{}
 				mkDispatcherName := ptr.Deref(tc.dispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
-				reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, WithClock(t, fakeClock))
+				reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, time.Second, WithClock(t, fakeClock))
 
 				for _, val := range tc.managersDeletedWorkloads {
 					reconciler.Delete(event.DeleteEvent{

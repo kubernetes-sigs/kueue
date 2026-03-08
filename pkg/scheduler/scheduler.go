@@ -318,7 +318,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 			if features.Enabled(features.MultiKueueOrchestratedPreemption) && workload.HasClosedPreemptionGate(e.Obj) {
 				gatedMsg := "Workload requires preemption, but it's gated"
-				log.V(3).Info(gatedMsg, e.Obj.Spec.PreemptionGates)
+				log.V(3).Info(gatedMsg)
 				setPreemptionGated(e, gatedMsg)
 				continue
 			}

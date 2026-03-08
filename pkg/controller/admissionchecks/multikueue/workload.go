@@ -508,7 +508,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		remWl, remClient := w.workloadToOpenPreemptionGate(group)
 		if remClient != nil && remWl != nil {
 			workload.SetPreemptionGateState(remWl, constants.MultiKueuePreemptionGate, kueue.GateStateOpen, metav1.NewTime(w.clock.Now()))
-			if err := remClient.client.Update(ctx, remWl); err != nil {
+			if err := remClient.client.Status().Update(ctx, remWl); err != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 			}
 		}
