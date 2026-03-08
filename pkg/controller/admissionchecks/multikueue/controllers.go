@@ -37,14 +37,15 @@ const (
 )
 
 type SetupOptions struct {
-	gcInterval           time.Duration
-	origin               string
-	workerLostTimeout    time.Duration
-	eventsBatchPeriod    time.Duration
-	adapters             map[string]jobframework.MultiKueueAdapter
-	dispatcherName       string
-	clusterProfileConfig *configapi.ClusterProfile
-	roleTracker          *roletracker.RoleTracker
+	gcInterval                     time.Duration
+	origin                         string
+	workerLostTimeout              time.Duration
+	eventsBatchPeriod              time.Duration
+	adapters                       map[string]jobframework.MultiKueueAdapter
+	dispatcherName                 string
+	clusterProfileConfig           *configapi.ClusterProfile
+	roleTracker                    *roletracker.RoleTracker
+	singleClusterPreemptionTimeout time.Duration
 }
 
 type SetupOption func(o *SetupOptions)
@@ -70,6 +71,15 @@ func WithOrigin(origin string) SetupOption {
 func WithWorkerLostTimeout(d time.Duration) SetupOption {
 	return func(o *SetupOptions) {
 		o.workerLostTimeout = d
+	}
+}
+
+// WithSingleClusterPreemptionTimeout - sets the duration after which the
+// the controller can ungate the next replica requiring preemptiom, after
+// a previous ungating action.
+func WithSingleClusterPreemptionTimeout(d time.Duration) SetupOption {
+	return func(o *SetupOptions) {
+		o.singleClusterPreemptionTimeout = d
 	}
 }
 
@@ -161,6 +171,6 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorderFor(constants.WorkloadControllerName),
-		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker)
+		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker, options.singleClusterPreemptionTimeout)
 	return wlRec.setupWithManager(mgr)
 }
