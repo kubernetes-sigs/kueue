@@ -724,7 +724,7 @@ func TestDeleteWorkload(t *testing.T) {
 		q := manager.localQueues[queue.Key(queues[0])]
 		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
 			workload.Key(wl2): workload.NewInfo(wl2),
-		}, q.items); diff != "" {
+		}, q.items, ignoreSchedulingHash); diff != "" {
 			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
 		}
 
@@ -775,7 +775,7 @@ func TestDeleteAndForgetWorkload(t *testing.T) {
 		q := manager.localQueues[queue.Key(queues[0])]
 		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
 			workload.Key(wl2): workload.NewInfo(wl2),
-		}, q.items); diff != "" {
+		}, q.items, ignoreSchedulingHash); diff != "" {
 			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
 		}
 

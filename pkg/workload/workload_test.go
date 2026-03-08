@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -2612,7 +2613,9 @@ func TestSchedulingHash(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			info1 := NewInfo(tc.wl1)
+			info1.UpdateSchedulingHash(logr.Discard())
 			info2 := NewInfo(tc.wl2)
+			info2.UpdateSchedulingHash(logr.Discard())
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
 			}

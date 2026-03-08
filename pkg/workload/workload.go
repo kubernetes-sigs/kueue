@@ -288,8 +288,13 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 	} else {
 		info.TotalRequests = totalRequestsFromPodSets(w, &options)
 	}
-	info.SchedulingHash = computeSchedulingHash(log.Log, w, info.TotalRequests)
 	return info
+}
+
+// UpdateSchedulingHash computes and sets the scheduling hash using the
+// provided contextual logger. Call this after NewInfo in production code.
+func (i *Info) UpdateSchedulingHash(log logr.Logger) {
+	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests)
 }
 
 // Update refreshes the object reference and recomputes the scheduling hash
@@ -297,7 +302,7 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 func (i *Info) Update(log logr.Logger, wl *kueue.Workload) {
 	log.V(5).Info("Workload info updated", "workload", klog.KObj(wl))
 	i.Obj = wl
-	i.SchedulingHash = computeSchedulingHash(log, wl, i.TotalRequests)
+	i.UpdateSchedulingHash(log)
 }
 
 // computeSchedulingHash returns a deterministic hash of the workload's
