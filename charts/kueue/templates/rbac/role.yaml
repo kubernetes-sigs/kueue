@@ -366,6 +366,7 @@ rules:
     resources:
       - resourceclaims
       - resourceclaimtemplates
+      - resourceslices
     verbs:
       - get
       - list

@@ -34,6 +34,7 @@ require (
 	k8s.io/client-go v0.35.2
 	k8s.io/component-base v0.35.2
 	k8s.io/component-helpers v0.35.2
+	k8s.io/dynamic-resource-allocation v0.35.2
 	k8s.io/klog/v2 v2.140.0
 	k8s.io/kube-openapi v0.0.0-20260127142750-a19766b6e2d4
 	k8s.io/kubectl v0.35.2

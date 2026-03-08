@@ -18,6 +18,7 @@ package dra
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -25,12 +26,21 @@ import (
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	dracel "k8s.io/dynamic-resource-allocation/cel"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
+
+// celDeviceRequest tracks a device request that has CEL selectors,
+// along with the requested count, for validation against actual devices.
+type celDeviceRequest struct {
+	index     int
+	count     int64
+	selectors []resourcev1.DeviceSelector
+}
 
 // countDevicesPerClass returns a resources.Requests representing the
 // total number of devices requested for each DeviceClass inside the provided
@@ -66,10 +76,12 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 			return nil, allErrs
 		}
 
-		switch {
-		case len(req.Exactly.Selectors) > 0:
-			allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "requests").Index(i).Child("exactly", "selectors"), nil, "CEL selectors are not supported"))
+		if err := validateCELSelectors(req.Exactly.Selectors, field.NewPath("devices", "requests").Index(i).Child("exactly", "selectors")); err != nil {
+			allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "requests").Index(i).Child("exactly", "selectors"), nil, err.Error()))
 			return nil, allErrs
+		}
+
+		switch {
 		case req.Exactly.AdminAccess != nil && *req.Exactly.AdminAccess:
 			allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "requests").Index(i).Child("exactly", "adminAccess"), nil, "AdminAccess is not supported"))
 			return nil, allErrs
@@ -162,6 +174,20 @@ func GetResourceRequestsForResourceClaimTemplates(
 				return nil, allErrs
 			}
 
+			// Validate CEL selectors against actual devices in the cluster.
+			celBasePath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
+			if celErrs := validateCELSelectorsAgainstDevices(ctx, cl, spec, celBasePath); len(celErrs) > 0 {
+				for _, celErr := range celErrs {
+					allErrs = append(allErrs, &field.Error{
+						Type:     celErr.Type,
+						Field:    celErr.Field,
+						BadValue: celErr.BadValue,
+						Detail:   fmt.Sprintf("ResourceClaimTemplate %s: %s", *prc.ResourceClaimTemplateName, celErr.Detail),
+					})
+				}
+				return nil, allErrs
+			}
+
 			for dc, qty := range deviceCounts {
 				logical, found := Mapper().lookup(dc)
 				if !found {
@@ -181,4 +207,141 @@ func GetResourceRequestsForResourceClaimTemplates(
 	}
 
 	return perPodSet, nil
+}
+
+// validateCELSelectors compiles each CEL expression in the given selectors using
+// the upstream DRA CEL compiler. This catches invalid CEL syntax, type errors,
+// and other compilation issues before quota admission.
+func validateCELSelectors(selectors []resourcev1.DeviceSelector, fldPath *field.Path) error {
+	if len(selectors) == 0 {
+		return nil
+	}
+
+	compiler := dracel.GetCompiler(dracel.Features{})
+	var errs []error
+	for i, sel := range selectors {
+		if sel.CEL == nil {
+			continue
+		}
+		result := compiler.CompileCELExpression(sel.CEL.Expression, dracel.Options{})
+		if result.Error != nil {
+			errs = append(errs, field.Invalid(
+				fldPath.Index(i).Child("cel", "expression"),
+				sel.CEL.Expression,
+				fmt.Sprintf("CEL compilation failed: %s", result.Error.Detail),
+			))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// extractCELRequests returns the device requests from a claim spec that have CEL selectors.
+func extractCELRequests(claimSpec *resourcev1.ResourceClaimSpec) []celDeviceRequest {
+	if claimSpec == nil {
+		return nil
+	}
+	var result []celDeviceRequest
+	for i, req := range claimSpec.Devices.Requests {
+		if req.Exactly == nil || len(req.Exactly.Selectors) == 0 {
+			continue
+		}
+		hasCEL := false
+		for _, sel := range req.Exactly.Selectors {
+			if sel.CEL != nil {
+				hasCEL = true
+				break
+			}
+		}
+		if hasCEL {
+			result = append(result, celDeviceRequest{
+				index:     i,
+				count:     req.Exactly.Count,
+				selectors: req.Exactly.Selectors,
+			})
+		}
+	}
+	return result
+}
+
+// validateCELSelectorsAgainstDevices lists all ResourceSlices in the cluster and
+// evaluates the CEL selectors from each request against the actual devices.
+// If fewer devices match than requested, it returns field errors indicating the
+// workload is unsatisfiable, preventing quota from being consumed by workloads
+// whose pods can never be scheduled.
+func validateCELSelectorsAgainstDevices(ctx context.Context, cl client.Client, claimSpec *resourcev1.ResourceClaimSpec, basePath *field.Path) field.ErrorList {
+	celReqs := extractCELRequests(claimSpec)
+	if len(celReqs) == 0 {
+		return nil
+	}
+
+	var sliceList resourcev1.ResourceSliceList
+	if err := cl.List(ctx, &sliceList); err != nil {
+		return field.ErrorList{field.InternalError(basePath, fmt.Errorf("failed to list ResourceSlices: %w", err))}
+	}
+
+	// Build CEL device representations from ResourceSlices.
+	var clusterDevices []dracel.Device
+	for i := range sliceList.Items {
+		slice := &sliceList.Items[i]
+		for j := range slice.Spec.Devices {
+			dev := &slice.Spec.Devices[j]
+			clusterDevices = append(clusterDevices, dracel.Device{
+				Driver:     slice.Spec.Driver,
+				Attributes: dev.Attributes,
+				Capacity:   dev.Capacity,
+			})
+		}
+	}
+
+	compiler := dracel.GetCompiler(dracel.Features{})
+	var allErrs field.ErrorList
+
+	for _, cr := range celReqs {
+		// Compile all CEL selectors for this request.
+		var compiled []dracel.CompilationResult
+		for _, sel := range cr.selectors {
+			if sel.CEL == nil {
+				continue
+			}
+			result := compiler.CompileCELExpression(sel.CEL.Expression, dracel.Options{})
+			if result.Error != nil {
+				allErrs = append(allErrs, field.Invalid(
+					basePath.Child("devices", "requests").Index(cr.index).Child("exactly", "selectors"),
+					sel.CEL.Expression,
+					fmt.Sprintf("CEL compilation failed: %s", result.Error.Detail),
+				))
+				continue
+			}
+			compiled = append(compiled, result)
+		}
+		if len(compiled) == 0 {
+			continue
+		}
+
+		// Evaluate against all cluster devices.
+		var matchCount int64
+		for _, dev := range clusterDevices {
+			allMatch := true
+			for _, comp := range compiled {
+				matches, _, err := comp.DeviceMatches(ctx, dev)
+				if err != nil || !matches {
+					allMatch = false
+					break
+				}
+			}
+			if allMatch {
+				matchCount++
+			}
+		}
+
+		if matchCount < cr.count {
+			allErrs = append(allErrs, field.Invalid(
+				basePath.Child("devices", "requests").Index(cr.index).Child("exactly", "selectors"),
+				nil,
+				fmt.Sprintf("CEL selectors match only %d device(s) in the cluster but %d requested; workload cannot be satisfied", matchCount, cr.count),
+			))
+		}
+	}
+
+	return allErrs
 }
