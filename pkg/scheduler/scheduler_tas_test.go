@@ -3020,7 +3020,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
-					Message(`couldn't assign flavors to pod set one: topology "tas-three-level" doesn't allow to fit any of 1 slice(s)`).
+					Message(`couldn't assign flavors to pod set one: topology "tas-three-level" doesn't allow to fit; 0/1 slice(s) fit on level cloud.provider.com/rack; 2/3 slice(s) fit on level kubernetes.io/hostname`).
 					Obj(),
 			},
 		},
