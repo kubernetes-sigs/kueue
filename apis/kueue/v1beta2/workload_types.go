@@ -79,6 +79,9 @@ type WorkloadSpec struct {
 	// preemptionGates is a list of gates governing whether the workload
 	// can trigger preemptions.
 	// The gates are closed by default.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
 	// +optional
 	PreemptionGates []PreemptionGate `json:"preemptionGates,omitempty"`
 }
@@ -715,6 +718,9 @@ type WorkloadStatus struct {
 
 	// preemptionGates is a list of states of gates governing whether the workload
 	// can trigger preemptions.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
 	// +optional
 	PreemptionGates []PreemptionGateState `json:"preemptionGates,omitempty"`
 }
@@ -910,7 +916,7 @@ type PreemptionGateState struct {
 	// state of the preemption gate. One of
 	// +kubebuilder:validation:Enum=Closed;Open
 	// +required
-	State GateState `json:"state"`
+	State GateState `json:"state,omitempty"`
 
 	// lastTransitionTime is the last time the gate transitioned from one status to another.
 	// +required

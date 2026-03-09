@@ -18296,7 +18296,11 @@ spec:
                   required:
                   - name
                   type: object
+                maxItems: 8
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               priority:
                 description: |-
                   priority determines the order of access to the resources managed by the
@@ -18936,7 +18940,11 @@ spec:
                   - name
                   - state
                   type: object
+                maxItems: 8
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               reclaimablePods:
                 description: |-
                   reclaimablePods keeps track of the number pods within a podset for which

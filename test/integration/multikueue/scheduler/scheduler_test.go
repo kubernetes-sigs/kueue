@@ -626,7 +626,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				worker1Error := worker1TestCluster.client.Get(worker1TestCluster.ctx, highWlKey, workerHighWorkload)
 				worker2Error := worker2TestCluster.client.Get(worker2TestCluster.ctx, highWlKey, workerHighWorkload)
 
-				g.Expect((worker1Error == nil) != (worker2Error == nil)).To(gomega.BeTrue())
+				g.Expect(worker1Error == nil).NotTo(gomega.Equal(worker2Error == nil))
 				g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
