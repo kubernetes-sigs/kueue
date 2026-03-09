@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -55,6 +56,7 @@ var (
 	clusterProfileCredentialProvidersPath        = multiKueuePath.Child("clusterProfile").Child("credentialsProviders")
 	clusterProfileCredentialProvidersExecCfgPath = clusterProfileCredentialProvidersPath.Child("execConfig")
 	fsPreemptionStrategiesPath                   = field.NewPath("fairSharing", "preemptionStrategies")
+	fsMinAdmitDurationPath                       = field.NewPath("fairSharing", "minAdmitDuration")
 	afsResourceWeightsPath                       = field.NewPath("admissionFairSharing", "resourceWeights")
 	afsPath                                      = field.NewPath("admissionFairSharing")
 	internalCertManagementPath                   = field.NewPath("internalCertManagement")
@@ -343,6 +345,9 @@ func validateFairSharing(c *configapi.Configuration) field.ErrorList {
 		if !validStrategy {
 			allErrs = append(allErrs, field.NotSupported(fsPreemptionStrategiesPath, fs.PreemptionStrategies, validStrategySetsStr))
 		}
+	}
+	if fs.MinAdmitDuration != nil && fs.MinAdmitDuration.Duration < time.Minute {
+		allErrs = append(allErrs, field.Invalid(fsMinAdmitDurationPath, fs.MinAdmitDuration.Duration, "must be at least 1 minute"))
 	}
 	return allErrs
 }

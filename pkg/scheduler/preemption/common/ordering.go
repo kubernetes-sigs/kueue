@@ -70,7 +70,7 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 			)
 		},
 		func() int {
-			return quotaReservationTime(b.Obj, now).Compare(quotaReservationTime(a.Obj, now))
+			return QuotaReservationTime(b.Obj, now).Compare(QuotaReservationTime(a.Obj, now))
 		},
 		func() int {
 			// Arbitrary comparison for deterministic sorting.
@@ -90,7 +90,7 @@ func resourceUsagePreemptionEnabled(a, b *workload.Info) bool {
 	return a.ClusterQueue == b.ClusterQueue && a.Obj.Spec.QueueName != b.Obj.Spec.QueueName && a.LocalQueueFSUsage != nil && b.LocalQueueFSUsage != nil
 }
 
-func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
+func QuotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
 	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
 		// The condition wasn't populated yet, use the current time.

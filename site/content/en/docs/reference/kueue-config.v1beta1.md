@@ -441,6 +441,17 @@ The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThan
 </ul>
 </td>
 </tr>
+<tr><td><code>minAdmitDuration</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>minAdmitDuration is the minimum time a workload must be admitted before
+it becomes eligible for fair-sharing preemption. A workload whose
+QuotaReserved condition was set less than minAdmitDuration ago is
+skipped as a preemption candidate. When nil, no minimum is enforced.
+If set, must be at least 10 minutes.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
