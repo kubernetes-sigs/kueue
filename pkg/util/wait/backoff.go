@@ -86,9 +86,16 @@ const (
 	KeepGoing SpeedSignal = true
 	// SlowDown signals to backoff.
 	SlowDown SpeedSignal = false
+)
 
+// Constants configuring the scheduler's backoff between cycles.
+// This mechanism prevents busy-looping and excessive logging when no progress is made.
+const (
+	// initialBackoff is the base backoff reset after a successful cycle.
 	initialBackoff = time.Millisecond
-	maxBackoff     = time.Millisecond * 100
+
+	// maxBackoff is the maximum backoff used when repeated cycles make no progress.
+	maxBackoff = 10 * time.Millisecond
 )
 
 func (s *speedyBackoffManager) toggleBackoff(speedSignal SpeedSignal) {
