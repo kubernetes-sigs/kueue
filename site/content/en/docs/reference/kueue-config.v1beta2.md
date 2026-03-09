@@ -334,6 +334,63 @@ It can be set to &quot;0&quot; to disable the metrics serving.</p>
 metrics will be reported.</p>
 </td>
 </tr>
+<tr><td><code>customLabels</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ControllerMetricsCustomLabel"><code>[]ControllerMetricsCustomLabel</code></a>
+</td>
+<td>
+   <p>CustomLabels is a list of entries whose values will be added as extra
+Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
+Requires the CustomMetricLabels feature gate.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ControllerMetricsCustomLabel`     {#config-kueue-x-k8s-io-v1beta2-ControllerMetricsCustomLabel}
+    
+
+**Appears in:**
+
+- [ControllerMetrics](#config-kueue-x-k8s-io-v1beta2-ControllerMetrics)
+
+
+<p>ControllerMetricsCustomLabel defines a Kubernetes label or annotation to promote
+as a Prometheus metric label with a &quot;custom_&quot; prefix.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name is used as a suffix to build the Prometheus label: Kueue
+automatically prepends &quot;custom_&quot; (e.g., name: &quot;team&quot; becomes label &quot;custom_team&quot;).
+Must follow Prometheus label naming conventions: [a-zA-Z_][a-zA-Z0-9_]*.</p>
+</td>
+</tr>
+<tr><td><code>sourceLabelKey</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>SourceLabelKey is the Kubernetes label key to read the value from.
+Must be a valid Kubernetes qualified name.
+Mutually exclusive with SourceAnnotationKey.
+If neither is specified, defaults to Name.</p>
+</td>
+</tr>
+<tr><td><code>sourceAnnotationKey</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>SourceAnnotationKey is the Kubernetes annotation key to read the value from.
+Must be a valid Kubernetes qualified name.
+Mutually exclusive with SourceLabelKey.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

@@ -838,6 +838,22 @@ func (c *CohortWrapper) FairWeight(w resource.Quantity) *CohortWrapper {
 	return c
 }
 
+func (c *CohortWrapper) Label(k, v string) *CohortWrapper {
+	if c.Labels == nil {
+		c.Labels = make(map[string]string)
+	}
+	c.Labels[k] = v
+	return c
+}
+
+func (c *CohortWrapper) Annotation(k, v string) *CohortWrapper {
+	if c.Annotations == nil {
+		c.Annotations = make(map[string]string)
+	}
+	c.Annotations[k] = v
+	return c
+}
+
 // ClusterQueueWrapper wraps a ClusterQueue.
 type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 
@@ -995,6 +1011,14 @@ func (c *ClusterQueueWrapper) Label(k, v string) *ClusterQueueWrapper {
 		c.Labels = make(map[string]string)
 	}
 	c.Labels[k] = v
+	return c
+}
+
+func (c *ClusterQueueWrapper) Annotation(k, v string) *ClusterQueueWrapper {
+	if c.Annotations == nil {
+		c.Annotations = make(map[string]string)
+	}
+	c.Annotations[k] = v
 	return c
 }
 

@@ -176,6 +176,35 @@ type ControllerMetrics struct {
 	// metrics will be reported.
 	// +optional
 	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
+
+	// CustomLabels is a list of entries whose values will be added as extra
+	// Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
+	// Requires the CustomMetricLabels feature gate.
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	CustomLabels []ControllerMetricsCustomLabel `json:"customLabels,omitempty"`
+}
+
+// ControllerMetricsCustomLabel defines a Kubernetes label or annotation to promote
+// as a Prometheus metric label with a "custom_" prefix.
+type ControllerMetricsCustomLabel struct {
+	// Name is used as a suffix to build the Prometheus label: Kueue
+	// automatically prepends "custom_" (e.g., name: "team" becomes label "custom_team").
+	// Must follow Prometheus label naming conventions: [a-zA-Z_][a-zA-Z0-9_]*.
+	Name string `json:"name"`
+
+	// SourceLabelKey is the Kubernetes label key to read the value from.
+	// Must be a valid Kubernetes qualified name.
+	// Mutually exclusive with SourceAnnotationKey.
+	// If neither is specified, defaults to Name.
+	// +optional
+	SourceLabelKey string `json:"sourceLabelKey,omitempty"`
+
+	// SourceAnnotationKey is the Kubernetes annotation key to read the value from.
+	// Must be a valid Kubernetes qualified name.
+	// Mutually exclusive with SourceLabelKey.
+	// +optional
+	SourceAnnotationKey string `json:"sourceAnnotationKey,omitempty"`
 }
 
 // ControllerHealth defines the health configs.

@@ -554,14 +554,14 @@ func TestRecordResourceMetrics(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			recordResourceMetrics(tc.queue, nil)
+			recordResourceMetrics(tc.queue, nil, nil)
 			gotMetrics := allMetricsForQueue(tc.queue.Name)
 			if diff := cmp.Diff(tc.wantMetrics, gotMetrics, opts...); len(diff) != 0 {
 				t.Errorf("Unexpected metrics (-want,+got):\n%s", diff)
 			}
 
 			if tc.updatedQueue != nil {
-				updateResourceMetrics(tc.queue, tc.updatedQueue, nil)
+				updateResourceMetrics(tc.queue, tc.updatedQueue, nil, nil)
 				gotMetricsAfterUpdate := allMetricsForQueue(tc.queue.Name)
 				if diff := cmp.Diff(tc.wantUpdatedMetrics, gotMetricsAfterUpdate, opts...); len(diff) != 0 {
 					t.Errorf("Unexpected metrics (-want,+got):\n%s", diff)

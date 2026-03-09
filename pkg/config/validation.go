@@ -18,6 +18,7 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -64,6 +65,7 @@ var (
 	objectRetentionPoliciesWorkloadsPath         = objectRetentionPoliciesPath.Child("workloads")
 	tlsPath                                      = field.NewPath("tls")
 	featureGatesPath                             = field.NewPath("featureGates")
+	customLabelsPath                             = field.NewPath("metrics", "customLabels")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -79,6 +81,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
 	allErrs = append(allErrs, validateTLS(c)...)
+	allErrs = append(allErrs, validateCustomLabels(c)...)
 	return allErrs
 }
 
@@ -562,4 +565,47 @@ func validateTLS(c *configapi.Configuration) field.ErrorList {
 			c.TLS.CipherSuites, "may not be specified when `minVersion` is 'VersionTLS13'"))
 	}
 	return allErrs
+}
+
+var customLabelNameRegexp = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
+
+func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
+	if len(c.Metrics.CustomLabels) == 0 {
+		return nil
+	}
+	var allErrs field.ErrorList
+	seenNames := sets.New[string]()
+	for i, entry := range c.Metrics.CustomLabels {
+		fldPath := customLabelsPath.Index(i)
+
+		if !customLabelNameRegexp.MatchString(entry.Name) {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("name"), entry.Name,
+				"must match ^[a-zA-Z][a-zA-Z0-9_]*$"))
+		}
+		if seenNames.Has(entry.Name) {
+			allErrs = append(allErrs, field.Duplicate(fldPath.Child("name"), entry.Name))
+		} else {
+			seenNames.Insert(entry.Name)
+		}
+		if entry.SourceLabelKey != "" && entry.SourceAnnotationKey != "" {
+			allErrs = append(allErrs, field.Invalid(fldPath, entry,
+				"sourceLabelKey and sourceAnnotationKey are mutually exclusive"))
+		}
+		switch {
+		case entry.SourceLabelKey != "":
+			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("sourceLabelKey"), entry.SourceLabelKey)...)
+		case entry.SourceAnnotationKey != "":
+			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("sourceAnnotationKey"), entry.SourceAnnotationKey)...)
+		default:
+			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("name"), entry.Name)...)
+		}
+	}
+	return allErrs
+}
+
+func validateQualifiedName(fldPath *field.Path, value string) field.ErrorList {
+	if errs := apimachineryutilvalidation.IsQualifiedName(value); len(errs) > 0 {
+		return field.ErrorList{field.Invalid(fldPath, value, strings.Join(errs, "; "))}
+	}
+	return nil
 }

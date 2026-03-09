@@ -106,7 +106,7 @@ func managerAndControllersSetup(
 		cCache := schdcache.New(mgr.GetClient())
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptexpectations.New())
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptexpectations.New(), nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		if setupTASControllers {
