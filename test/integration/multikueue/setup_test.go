@@ -992,10 +992,9 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 			})
 
 			ginkgo.By("Status should remain as 'not found'", func() {
+				mkc := &kueue.MultiKueueCluster{}
 				gomega.Consistently(func(g gomega.Gomega) {
-					mkc := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, mkc)).To(gomega.Succeed())
-
 					active := apimeta.FindStatusCondition(mkc.Status.Conditions, kueue.MultiKueueClusterActive)
 					g.Expect(active).NotTo(gomega.BeNil())
 					g.Expect(active.Reason).To(gomega.Equal("BadClusterProfile"))
@@ -1142,10 +1141,9 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 				cp = utiltestingapi.MakeClusterProfile(cpName, managersConfigNamespace.Name).Obj()
 				gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cp)).To(gomega.Succeed())
 
+				mkc := &kueue.MultiKueueCluster{}
 				gomega.Consistently(func(g gomega.Gomega) {
-					mkc := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, mkc)).To(gomega.Succeed())
-
 					active := apimeta.FindStatusCondition(mkc.Status.Conditions, kueue.MultiKueueClusterActive)
 					g.Expect(active).NotTo(gomega.BeNil())
 					g.Expect(active.Reason).To(gomega.Equal("MultiKueueClusterProfileFeatureDisabled"))
