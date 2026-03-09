@@ -151,11 +151,11 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				for _, p := range group[:2] {
 					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
+				createdPod := &corev1.Pod{}
 				gomega.Consistently(func(g gomega.Gomega) {
 					for _, origPod := range group[:2] {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(gomega.Succeed())
+						g.Expect(createdPod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
 					}
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
