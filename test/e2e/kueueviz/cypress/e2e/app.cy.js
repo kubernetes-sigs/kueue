@@ -88,6 +88,16 @@ describe('Kueue Dashboard', () => {
     cy.contains('orphan-cohort-for-testing').should('exist')
   })
 
+  it('should toggle between list and tree view on cohorts page', { defaultCommandTimeout: 15000 }, () => {
+    cy.visit('/cohorts')
+    cy.get('table').should('exist')
+    cy.contains('button', 'Tree').click()
+    cy.get('ul').should('exist')
+    cy.contains(/\d+ child/).should('exist')
+    cy.contains('button', 'List').click()
+    cy.get('table').should('exist')
+  })
+
   it('should verify the presence of all main links', () => {
     const links = [
       '/workloads',
