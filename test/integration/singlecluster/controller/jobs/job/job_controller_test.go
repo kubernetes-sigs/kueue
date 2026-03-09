@@ -4225,30 +4225,6 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should not admit Job/Workload while admission gate annotation is present", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
-		gateValue := "example.com/controller1"
-
-		ginkgo.By("Creating a Job with admission gate annotation")
-		job := testingjob.MakeJob("gated-job", ns.Name).
-			Queue(kueue.LocalQueueName(localQueue.Name)).
-			SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, gateValue).
-			Request(corev1.ResourceCPU, "0.1").
-			Obj()
-		util.MustCreate(ctx, k8sClient, job)
-
-		workloadName := workloadjob.GetWorkloadNameForJob(job.Name, job.UID)
-		util.VerifyAdmissionGatedByJobIsInadmissible(ctx, k8sClient, job, workloadName, gateValue)
-
-		ginkgo.By("Checking the job remains suspended")
-		lookupKey := types.NamespacedName{Name: job.Name, Namespace: ns.Name}
-		createdJob := &batchv1.Job{}
-		gomega.Consistently(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
-	})
-
 	ginkgo.It("Should mark old pending workload-slice evicted by scheduler as finished", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
@@ -4349,6 +4325,102 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		util.ExpectLQFinishedWorkloadsTotalMetric(localQueue, lowPriorityClass.Name, 1)
 		util.ExpectFinishedWorkloadsTotalMetric(clusterQueue, highPriorityClass.Name, 0)
 		util.ExpectLQFinishedWorkloadsTotalMetric(localQueue, highPriorityClass.Name, 0)
+	})
+})
+
+var _ = ginkgo.Describe("AdmissionGatedBy controls whether Job is admissible", ginkgo.Label("admissiongatedby"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns             *corev1.Namespace
+		resourceFlavor *kueue.ResourceFlavor
+		clusterQueue   *kueue.ClusterQueue
+		localQueue     *kueue.LocalQueue
+	)
+	cpuNominalQuota := 5
+
+	ginkgo.BeforeAll(func() {
+		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.AdmissionGatedBy): true})).Should(gomega.Succeed())
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("default").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, strconv.Itoa(cpuNominalQuota)).Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+
+		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+	})
+
+	ginkgo.It("Should not admit Job while AdmissionGatedBy is present", func() {
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a Job with admission gate annotation")
+		job := testingjob.MakeJob("gated-job", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, gateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+		util.VerifyAdmissionGatedByJobIsInadmissible(ctx, k8sClient, job, wlLookupKey, gateValue)
+
+		ginkgo.By("Checking the job remains suspended")
+		lookupKey := types.NamespacedName{Name: job.Name, Namespace: ns.Name}
+		createdJob := &batchv1.Job{}
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should admit Job when AdmissionGatedBy is removed", func() {
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a Job with admission gate annotation")
+		job := testingjob.MakeJob("gated-job-2", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, gateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+		util.VerifyAdmissionGatedByJobIsInadmissible(ctx, k8sClient, job, wlLookupKey, gateValue)
+
+		util.VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(ctx, k8sClient, wlLookupKey)
+
+		ginkgo.By("Checking the job is unsuspended")
+		lookupKey := types.NamespacedName{Name: job.Name, Namespace: ns.Name}
+		createdJob := &batchv1.Job{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
 
