@@ -495,6 +495,22 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	return added
 }
 
+// HandleInadmissibleHash bulk-moves all workloads in the ClusterQueue's heap
+// that share the given scheduling hash to inadmissibleWorkloads.
+func (m *Manager) HandleInadmissibleHash(cqName kueue.ClusterQueueReference, hash string) int {
+	m.RLock()
+	defer m.RUnlock()
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return 0
+	}
+	moved := cq.handleInadmissibleHash(hash)
+	if moved > 0 {
+		reportPendingWorkloads(m, cqName)
+	}
+	return moved
+}
+
 func (m *Manager) DeleteWorkload(log logr.Logger, w *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
