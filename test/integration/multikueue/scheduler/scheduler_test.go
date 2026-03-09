@@ -535,7 +535,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		})
 	})
 
-	ginkgo.It("should not preempt a running low-priority workload when a high-priority workload is waiting for preemption gate", func() {
+	ginkgo.It("should not trigger concurrent preemptions when MultiKueueOrchestratedPreemption is enabled", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueOrchestratedPreemption, true)
 
 		// Fits only in worker1
