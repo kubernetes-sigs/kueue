@@ -169,6 +169,8 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 		}
+
+		r.cache.RecordCohortMetrics(log, cqObj.Spec.CohortName)
 	} else {
 		if !r.cache.ClusterQueueTerminating(kueue.ClusterQueueReference(cqObj.Name)) {
 			r.cache.TerminateClusterQueue(kueue.ClusterQueueReference(cqObj.Name))
@@ -332,6 +334,7 @@ func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQ
 
 	log := r.logger()
 	log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(e.Object))
+	r.cache.ClearCohortMetrics(log, e.Object.Spec.CohortName)
 	r.cache.DeleteClusterQueue(e.Object)
 	r.qManager.DeleteClusterQueue(e.Object)
 
@@ -356,6 +359,12 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 	}
 	if err := r.qManager.UpdateClusterQueue(context.Background(), e.ObjectNew, specUpdated); err != nil {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
+	}
+
+	if e.ObjectOld.Spec.CohortName != e.ObjectNew.Spec.CohortName {
+		// refresh metrics - clear existing series for the cohort and record current values from cache state
+		r.cache.ClearCohortMetrics(log, e.ObjectOld.Spec.CohortName)
+		r.cache.RecordCohortMetrics(log, e.ObjectOld.Spec.CohortName)
 	}
 
 	if r.reportResourceMetrics {
