@@ -95,9 +95,9 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 
 			ginkgo.By("verifying no localqueue is created initially")
 			createdLQ := &kueue.LocalQueue{}
-			gomega.Consistently(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{Name: "default", Namespace: ns.Name}, createdLQ)
-			}, util.Timeout, util.Interval).Should(gomega.Not(gomega.Succeed()))
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "default", Namespace: ns.Name}, createdLQ)).ToNot(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("updating the ClusterQueue to match the namespace")
 			gomega.Eventually(func() error {
@@ -146,14 +146,11 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 			gomega.Expect(k8sClient.Update(ctx, ns)).To(gomega.Succeed())
 
 			ginkgo.By("waiting to ensure controller doesn't modify it")
-			gomega.Consistently(func() string {
-				var lq kueue.LocalQueue
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: "default", Namespace: ns.Name}, &lq)
-				if err != nil {
-					return ""
-				}
-				return string(lq.Spec.ClusterQueue)
-			}, util.Timeout, util.Interval).Should(gomega.Equal("some-other-queue"))
+			createdLQ := &kueue.LocalQueue{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "default", Namespace: ns.Name}, createdLQ)).Should(gomega.Succeed())
+				g.Expect(string(createdLQ.Spec.ClusterQueue)).Should(gomega.Equal("some-other-queue"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should not delete LocalQueue when namespace no longer matches", func() {
@@ -183,8 +180,8 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 			gomega.Expect(k8sClient.Update(ctx, ns)).To(gomega.Succeed())
 
 			ginkgo.By("ensuring LocalQueue persists")
-			gomega.Consistently(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{Name: "default", Namespace: ns.Name}, &kueue.LocalQueue{})
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "default", Namespace: ns.Name}, createdLQ)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

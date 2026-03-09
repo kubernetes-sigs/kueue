@@ -163,8 +163,8 @@ var _ = ginkgo.Describe("KueuePopulator controller", ginkgo.Serial, func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 
+			createdLQ := &kueue.LocalQueue{}
 			gomega.Consistently(func(g gomega.Gomega) {
-				createdLQ := &kueue.LocalQueue{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "default-lq", Namespace: ns.Name}, createdLQ)).To(gomega.Succeed())
 				g.Expect(createdLQ.Spec.ClusterQueue).To(gomega.Equal(kueue.ClusterQueueReference("some-other-cq")), "LocalQueue should not be modified")
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
