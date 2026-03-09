@@ -43,8 +43,8 @@ const (
 	// need started and the time it takes for a change in ready probe response triggers
 	// a change in the deployment status.
 	StartUpTimeout          = 5 * time.Minute
-	ShortConsistentDuration = 10 * time.Millisecond
 	ConsistentDuration      = 1 * time.Second
+	ShortConsistentDuration = 100 * time.Millisecond
 	ShortInterval           = 10 * time.Millisecond
 	Interval                = time.Millisecond * 250
 	LongInterval            = time.Second * 1
