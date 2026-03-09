@@ -411,16 +411,14 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - elastic workloads which have been scaled down
 	// - workloads for which workload priority has changed
 	for rem, remWl := range group.remotes {
-		if remWl != nil && !equality.Semantic.DeepDerivative(group.local.Spec, remWl.Spec) {
+		if remWl != nil && isWorkerSpecOutOfSync(group.local, remWl) {
+			remoteSpecCopy := remWl.Spec.DeepCopy()
 			remClient := group.remoteClients[rem]
 
 			updateRemote := false
 
 			// For elastic workloads detect a scale-down event and propagate changes to the remote.
 			if group.IsElasticWorkload() && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCountsFromWorkload(group.local)) {
-				g := remWl.Spec.PreemptionGates
-				remWl.Spec = group.local.Spec
-				remWl.Spec.PreemptionGates = g
 				updateRemote = true
 			}
 
@@ -432,6 +430,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 
 			if updateRemote {
+				// Do not overwrite preemption gates which are managed by the worker.
+				remWl.Spec.PreemptionGates = remoteSpecCopy.PreemptionGates
+
 				if err := remClient.client.Update(ctx, remWl); err != nil {
 					return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 				}
@@ -515,6 +516,12 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	return w.nominateAndSynchronizeWorkers(ctx, group)
+}
+
+func isWorkerSpecOutOfSync(local, remote *kueue.Workload) bool {
+	remoteSpecCopy := remote.Spec.DeepCopy()
+	remoteSpecCopy.PreemptionGates = nil
+	return !equality.Semantic.DeepEqual(local.Spec, remoteSpecCopy)
 }
 
 func (w *wlReconciler) listComponentWorkloads(ctx context.Context, wl *kueue.Workload) (*kueue.WorkloadList, error) {
