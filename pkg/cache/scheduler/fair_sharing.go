@@ -54,7 +54,10 @@ func NegativeDRS() DRS {
 	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
 }
 
-// IsZero returns whether the DRS ratio is 0.
+// IsZero returns whether the DRS unweighted ratio is 0.
+// In the current implementation, DRS unweighted ratio is zero
+// if and only if it is not borrowing any resources.
+// This may change in the future if the DRS implementation changes.
 func (d DRS) IsZero() bool {
 	return d.unweightedRatio == 0
 }
