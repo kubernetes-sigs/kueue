@@ -20,6 +20,7 @@ export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
 export HELM="$ROOT_DIR"/bin/helm
 export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
+export KUEUE_DEPLOYMENT_NAME="kueue-controller-manager"
 
 # E2E_MODE controls e2e cluster lifecycle behavior:
 # - ci  (default): create cluster(s), run tests, delete cluster(s)
@@ -32,6 +33,9 @@ fi
 
 # When set (truthy), external operators are forcefully re-installed_version even in E2E_MODE=dev.
 export E2E_ENFORCE_OPERATOR_UPDATE="${E2E_ENFORCE_OPERATOR_UPDATE:-false}"
+
+# When set to value "true", skip Kueue re-install in E2E_MODE=dev if the controller deployment already exists.
+export E2E_SKIP_REINSTALL="${E2E_SKIP_REINSTALL:-false}"
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
@@ -502,6 +506,15 @@ function cluster_kueue_deploy {
         upgrade_test_flow "$1"
         return
     fi
+
+    if [[ "${E2E_MODE}" == "dev" && "${E2E_SKIP_REINSTALL}" == "true" ]]; then
+        if e2e_deployment_exists "$1" "${KUEUE_NAMESPACE}" "${KUEUE_DEPLOYMENT_NAME}"; then
+            echo "Kueue controller already exists in namespace '${KUEUE_NAMESPACE}', skipping reinstall"
+            return
+        fi
+        echo "E2E_SKIP_REINSTALL is enabled in E2E_MODE=dev but Kueue is not deployed yet; proceeding with install"
+    fi
+
     # Normal deployment flows
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         kubectl -n cert-manager wait --for condition=ready pod \
@@ -543,7 +556,15 @@ function build_and_apply_kueue_manifests {
     build_output=$($KUSTOMIZE build "$2")
     # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
     build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
-    echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
+
+    # Use --force-conflicts when Kueue is already deployed to handle SSA conflicts when reapplying.
+    local force_conflicts=""
+    if kubectl get deployment "${KUEUE_DEPLOYMENT_NAME}" -n "${KUEUE_NAMESPACE}" --kubeconfig="$1" >/dev/null 2>&1; then
+        echo "Kueue controller already exists, using --force-conflicts"
+        force_conflicts="--force-conflicts"
+    fi
+
+    echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side $force_conflicts -f -
 }
 
 # $1 cluster name
@@ -1045,7 +1066,7 @@ function upgrade_test_flow {
       sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g' | \
       kubectl apply --server-side -f -
 
-    kubectl wait --for=condition=available --timeout=180s deployment/kueue-controller-manager -n kueue-system
+    kubectl wait --for=condition=available --timeout=180s deployment/"${KUEUE_DEPLOYMENT_NAME}" -n kueue-system
     echo "✓ $old_version ready"
     
     # Step 2: Create test resources
@@ -1109,7 +1130,7 @@ EOF
     
     # Wait for the rolling update to complete.
     echo "Waiting for rolling update to complete..."
-    kubectl wait --for=condition=available --timeout=300s deployment/kueue-controller-manager -n "${KUEUE_NAMESPACE}"
+    kubectl wait --for=condition=available --timeout=300s deployment/"${KUEUE_DEPLOYMENT_NAME}" -n "${KUEUE_NAMESPACE}"
     echo "Upgrade complete (rolling update finished)"
     echo "========================================="
 }
