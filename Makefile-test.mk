@@ -364,6 +364,10 @@ ifdef SCALABILITY_CPU_PROFILE
 SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
 endif
 
+ifdef SCALABILITY_MEM_PROFILE
+SCALABILITY_EXTRA_ARGS += --withMemProfile=true
+endif
+
 ifndef NO_SCALABILITY_KUEUE_LOGS
 SCALABILITY_EXTRA_ARGS +=  --withLogs=true --logToFile=true
 endif

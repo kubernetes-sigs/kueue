@@ -72,6 +72,7 @@ var (
 	// related to minimalkueue
 	minimalKueuePath = flag.String("minimalKueue", "", "path to minimalkueue, run in the hosts default cluster if empty")
 	withCPUProfile   = flag.Bool("withCPUProfile", false, "generate a CPU profile for minimalkueue")
+	withMemProfile   = flag.Bool("withMemProfile", false, "generate a memory profile for minimalkueue")
 	withLogs         = flag.Bool("withLogs", false, "capture minimalkueue logs")
 	logLevel         = flag.Int("withLogsLevel", 2, "set minimalkueue logs level")
 	logToFile        = flag.Bool("logToFile", false, "capture minimalkueue logs to files")
@@ -167,7 +168,7 @@ func main() {
 		}
 
 		// start the minimal kueue manager process
-		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withLogs, *logToFile, *logLevel, *enableTAS, errCh, wg, metricsPort)
+		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withMemProfile, *withLogs, *logToFile, *logLevel, *enableTAS, errCh, wg, metricsPort)
 		if err != nil {
 			log.Error(err, "MinimalKueue start")
 			os.Exit(1)
@@ -262,7 +263,7 @@ func main() {
 	}
 }
 
-func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCPUProf, withLogs, logToFile bool, logLevel int, enableTAS bool, errCh chan<- error, wg *sync.WaitGroup, metricsPort int) error {
+func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCPUProf, withMemProfile, withLogs, logToFile bool, logLevel int, enableTAS bool, errCh chan<- error, wg *sync.WaitGroup, metricsPort int) error {
 	log := ctrl.LoggerFrom(ctx).WithName("Run command")
 
 	cmd := exec.CommandContext(ctx, cmdPath, "--kubeconfig", filepath.Join(workDir, kubeconfig))
@@ -275,6 +276,10 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 
 	if withCPUProf {
 		cmd.Args = append(cmd.Args, "--cpuprofile", filepath.Join(workDir, fmt.Sprintf("%s.cpu.prof", exe)))
+	}
+
+	if withMemProfile {
+		cmd.Args = append(cmd.Args, "--memprofile", filepath.Join(workDir, fmt.Sprintf("%s.mem.prof", exe)))
 	}
 
 	outWriter := os.Stdout
