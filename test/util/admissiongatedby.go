@@ -21,6 +21,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -48,6 +49,11 @@ func VerifyAdmissionGatedByJobIsInadmissible(
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(
 			kueueconstants.AdmissionGatedByAnnotation, admissionGateValue))
+		ExpectEventAppeared(ctx, k8sClient, corev1.Event{
+			Reason:  "AdmissionGated",
+			Type:    corev1.EventTypeNormal,
+			Message: "Workload admission is gated by: " + admissionGateValue,
+		})
 	}, Timeout, Interval).Should(gomega.Succeed())
 
 	ginkgo.By("Checking the Workload remains InAdmissible")
@@ -118,5 +124,10 @@ func VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(
 		cond := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 		g.Expect(cond).NotTo(gomega.BeNil())
 		g.Expect(cond.Reason).NotTo(gomega.Equal(kueue.WorkloadAdmissionGated))
+		ExpectEventAppeared(ctx, k8sClient, corev1.Event{
+			Reason:  "AdmissionGateCleared",
+			Type:    corev1.EventTypeNormal,
+			Message: "Admission gate cleared, workload is now admissible",
+		})
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
