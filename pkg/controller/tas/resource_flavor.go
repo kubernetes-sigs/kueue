@@ -127,7 +127,7 @@ func (h *nodeHandler) Generic(_ context.Context, e event.GenericEvent, q workque
 	}
 	// trigger reconcile for TAS flavors affected by the node being created or updated
 	for name, cache := range h.cache.CloneTASCache() {
-		if nodeBelongsToFlavor(node, cache.NodeLabels(), cache.TopologyLevels()) {
+		if utiltas.NodeMatchesFlavor(node.Labels, cache.NodeLabels(), cache.TopologyLevels()) {
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
 				Name: string(name),
 			}}, constants.UpdatesBatchPeriod)
@@ -185,20 +185,6 @@ func (r *rfReconciler) Update(event event.TypedUpdateEvent[*kueue.ResourceFlavor
 
 func (r *rfReconciler) Generic(event event.TypedGenericEvent[*kueue.ResourceFlavor]) bool {
 	return false
-}
-
-func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels []string) bool {
-	for k, v := range nodeLabels {
-		if node.Labels[k] != v {
-			return false
-		}
-	}
-	for i := range levels {
-		if _, ok := node.Labels[levels[i]]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 type eventType int64

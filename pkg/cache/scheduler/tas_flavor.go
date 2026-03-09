@@ -23,8 +23,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -117,44 +115,9 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 	return c.topology.Levels
 }
 
-func (c *TASFlavorCache) snapshot(log logr.Logger, nodes map[string]*nodeInfo) *TASFlavorSnapshot {
+func (c *TASFlavorCache) snapshot(log logr.Logger, nodes []*nodeInfo) *TASFlavorSnapshot {
 	c.RLock()
 	defer c.RUnlock()
-	return c.snapshotForNodes(log, c.filterNodes(nodes))
-}
-
-func (c *TASFlavorCache) filterNodes(nodes map[string]*nodeInfo) []*nodeInfo {
-	var reqs []labels.Requirement
-
-	// 1. Add Exact Match requirements (MatchingLabels).
-	for k, v := range c.flavor.NodeLabels {
-		req, _ := labels.NewRequirement(k, selection.Equals, []string{v})
-		reqs = append(reqs, *req)
-	}
-
-	// 2. Add Exists requirements (HasLabels).
-	for _, key := range c.topology.Levels {
-		if _, exists := c.flavor.NodeLabels[key]; !exists {
-			req, _ := labels.NewRequirement(key, selection.Exists, []string{})
-			reqs = append(reqs, *req)
-		}
-	}
-
-	// 3. Create a single selector from all combined requirements.
-	selector := labels.NewSelector().Add(reqs...)
-
-	// 4. Filter the nodes.
-	filteredNodes := make([]*nodeInfo, 0, len(nodes))
-	for _, node := range nodes {
-		if selector.Matches(labels.Set(node.Labels)) {
-			filteredNodes = append(filteredNodes, node)
-		}
-	}
-
-	return filteredNodes
-}
-
-func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []*nodeInfo) *TASFlavorSnapshot {
 	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.flavor.NodeLabels,
 		"levels", c.topology.Levels, "nodeCount", len(nodes))
 	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations)
