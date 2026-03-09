@@ -78,10 +78,12 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteAllLeaderWorkerSetsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		// RecreateGroupOnPodRestart can leave the whole pod group terminating while the
+		// LeaderWorkerSet controller finishes cleanup, so wait for pods before deleting the namespace.
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("LeaderWorkerSet created", func() {
