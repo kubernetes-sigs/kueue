@@ -50,17 +50,6 @@ import (
 	_ "k8s.io/component-base/metrics/prometheus/restclient" // for client-go metrics registration
 )
 
-type stringSlice []string
-
-func (s *stringSlice) String() string {
-	return fmt.Sprintf("%v", *s)
-}
-
-func (s *stringSlice) Set(value string) error {
-	*s = append(*s, value)
-	return nil
-}
-
 var (
 	scheme         = runtime.NewScheme()
 	codecs         = serializer.NewCodecFactory(scheme)
@@ -73,15 +62,13 @@ var (
 		validatingwebhook.PluginName,
 		mutatingwebhook.PluginName,
 	}
-	certDir               = "/visibility"
-	visibilityServerFlags = stringSlice{}
+	certDir = "/visibility"
 )
 
 func init() {
 	utilruntime.Must(visibilityv1beta2.AddToScheme(scheme))
 	utilruntime.Must(visibilityv1beta1.AddToScheme(scheme))
 	metav1.AddToGroupVersion(scheme, schema.GroupVersion{Version: "v1"})
-	flag.Var(&visibilityServerFlags, "visibility-server-flags", "A space-separated list of flags to pass to the embedded visibility API server.")
 }
 
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=prioritylevelconfigurations,verbs=list;watch
@@ -131,11 +118,18 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
 	}
 
-	if len(visibilityServerFlags) > 0 {
+	var visibilityServerFlags string
+	flag.StringVar(&visibilityServerFlags, "visibility-server-flags", "",
+		"A space-separated list of flags to pass to the embedded visibility API server. "+
+			"(e.g., '--secure-port=8443 --authentication-kubeconfig=/path/to/kubeconfig'). "+
+			"For a description of the available flags, please see https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/")
+
+	if visibilityServerFlags != "" {
 		fs := pflag.NewFlagSet("visibility-server", pflag.ContinueOnError)
 		o.AddFlags(fs)
 
-		if err := fs.Parse(visibilityServerFlags); err != nil {
+		args := strings.Fields(visibilityServerFlags)
+		if err := fs.Parse(args); err != nil {
 			return fmt.Errorf("failed to parse visibility-server-flags: %w", err)
 		}
 	}
