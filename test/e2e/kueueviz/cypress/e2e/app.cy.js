@@ -3,7 +3,7 @@ describe('Kueue Dashboard', () => {
     cy.visit('/')
   })
 
-  
+
   it('should have the correct title', () => {
     cy.title().should('contain', 'Kueue Dashboard')
   })
@@ -35,7 +35,7 @@ describe('Kueue Dashboard', () => {
     cy.get('th').contains('Queue Name')
 
     // Navigate to the first link in the table
-      cy.get('table').find('a').first().click()
+    cy.get('table').find('a').first().click()
   })
 
   it('should navigate to cluster-queue unused-cluster-queue', { defaultCommandTimeout: 15000 }, () => {
@@ -49,7 +49,7 @@ describe('Kueue Dashboard', () => {
     cy.get('th').contains('Queue Name')
     // the table has one empty row
     cy.get('table').find('td').should('have.text', 'No local queues using this cluster queue')
- 
+
   })
 
 
@@ -94,7 +94,8 @@ describe('Kueue Dashboard', () => {
       '/local-queues',
       '/cluster-queues',
       '/cohorts',
-      '/resource-flavors'
+      '/resource-flavors',
+      '/topologies'
     ];
 
     links.forEach(link => {
@@ -104,24 +105,53 @@ describe('Kueue Dashboard', () => {
 
   it('should open and close YAML viewer modal on resource-flavors page', { defaultCommandTimeout: 15000 }, () => {
     cy.visit('/resource-flavors')
-    
+
     cy.get('table').should('exist')
-    
+
     cy.contains('button', 'View YAML').first().click()
-    
+
     cy.get('[role="dialog"]').should('be.visible')
-    
+
     cy.get('[role="dialog"]').within(() => {
-      cy.get('h6').should('exist') 
+      cy.get('h6').should('exist')
       cy.get('button').find('svg').should('exist')
     })
-    
+
     cy.get('[role="dialog"]').within(() => {
       cy.get('button').find('svg').click()
     })
-    
+
     cy.get('[role="dialog"]').should('not.exist')
   })
 
   // Add more test cases here as needed
-}) 
+
+  it('should navigate to topologies and verify table content', { defaultCommandTimeout: 15000 }, () => {
+    cy.get('a[href="/topologies"]').should('exist')
+      .click()
+
+    cy.get('table').should('exist')
+    cy.get('th').contains('Topology Name')
+    cy.get('th').contains('Levels')
+    cy.get('th').contains('Resource Flavors')
+
+    cy.get('td').contains('block-rack-topology')
+    cy.get('td').contains('tas-flavor')
+  })
+
+  it('should navigate to topology detail and verify levels and resource flavors', { defaultCommandTimeout: 15000 }, () => {
+    cy.visit('/topology/block-rack-topology')
+
+    cy.contains('Topology Detail: block-rack-topology').should('exist')
+
+    cy.contains('Levels').should('exist')
+    cy.get('td').contains('cloud.provider.com/topology-block')
+    cy.get('td').contains('cloud.provider.com/topology-rack')
+    cy.get('td').contains('kubernetes.io/hostname')
+
+    cy.contains('Resource Flavors Using This Topology').should('exist')
+    cy.get('a[href="/resource-flavor/tas-flavor"]').should('exist')
+
+    cy.get('svg').find('rect').should('have.length.greaterThan', 0)
+  })
+})

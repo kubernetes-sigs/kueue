@@ -90,6 +90,15 @@ const ResourceFlavorDetail = () => {
         ) : (
           <Typography variant="body2">No specific tolerations.</Typography>
         )}
+
+        {details.topologyName && (
+          <>
+            <Typography variant="body1" mt={2}><strong>Topology:</strong></Typography>
+            <Typography variant="body2">
+              <Link to={`/topology/${details.topologyName}`}>{details.topologyName}</Link>
+            </Typography>
+          </>
+        )}
       </Box>
 
       {/* Display Queues Using This Flavor */}

@@ -1,0 +1,83 @@
+---
+# ClusterQueue that uses the TAS-enabled flavor.
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "tas-cluster-queue"
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "tas-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: "4"
+      - name: "memory"
+        nominalQuota: 4Gi
+
+---
+# LocalQueue pointing to the TAS ClusterQueue.
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: "tas-queue"
+  namespace: default
+spec:
+  clusterQueue: "tas-cluster-queue"
+
+---
+# Job 1: multi-pod TAS job requesting block-level affinity.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: tas-training-
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: tas-queue
+spec:
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    metadata:
+      annotations:
+        kueue.x-k8s.io/podset-preferred-topology: "cloud.provider.com/topology-block"
+    spec:
+      containers:
+      - name: trainer
+        image: gcr.io/google-containers/busybox:latest
+        command: ['sh', '-c', 'echo "TAS training pod running" && sleep 600']
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+      restartPolicy: Never
+
+---
+# Job 2: single-pod TAS job requesting rack-level affinity.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: tas-inference-
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: tas-queue
+spec:
+  parallelism: 2
+  completions: 2
+  suspend: true
+  template:
+    metadata:
+      annotations:
+        kueue.x-k8s.io/podset-required-topology: "cloud.provider.com/topology-rack"
+    spec:
+      containers:
+      - name: inference
+        image: gcr.io/google-containers/busybox:latest
+        command: ['sh', '-c', 'echo "TAS inference pod running" && sleep 600']
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      restartPolicy: Never

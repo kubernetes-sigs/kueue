@@ -16,7 +16,7 @@ limitations under the License.
 
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom'; 
-import { Typography,  Paper, CircularProgress, Grid, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import { Typography,  Paper, CircularProgress, Grid, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box } from '@mui/material';
 import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
@@ -98,6 +98,86 @@ const WorkloadDetail = () => {
             </TableBody>
           </Table>
         </TableContainer>
+      )}
+
+      {workload.status?.admission?.podSetAssignments?.some(ps => ps.topologyAssignment) && (
+        <Box mt={4}>
+          <Typography variant="h5" gutterBottom>Topology Assignments</Typography>
+          {workload.status.admission.podSetAssignments.map((ps) => {
+            const specPodSet = workload.spec?.podSets?.find(s => s.name === ps.name);
+            const tr = specPodSet?.topologyRequest;
+            return ps.topologyAssignment ? (
+              <Box key={ps.name} mt={2}>
+                <Typography variant="h6" gutterBottom>PodSet: {ps.name}</Typography>
+                {tr && (
+                  <Box mb={1}>
+                    {tr.required && (
+                      <Typography variant="body2">
+                        <strong>Required topology level:</strong> {tr.required}
+                      </Typography>
+                    )}
+                    {tr.preferred && (
+                      <Typography variant="body2">
+                        <strong>Preferred topology level:</strong> {tr.preferred}
+                      </Typography>
+                    )}
+                    {tr.unconstrained && (
+                      <Typography variant="body2">
+                        <strong>Topology constraint:</strong> unconstrained
+                      </Typography>
+                    )}
+                    {tr.podIndexLabel && (
+                      <Typography variant="body2">
+                        <strong>Pod index label:</strong> {tr.podIndexLabel}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+                <Typography variant="body2" gutterBottom>
+                  <strong>Assigned levels:</strong> {ps.topologyAssignment.levels?.join(' → ') || 'N/A'}
+                </Typography>
+                {ps.topologyAssignment.slices && ps.topologyAssignment.slices.length > 0 && (
+                  <TableContainer component={Paper} className="tableContainerWithBorder">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          {ps.topologyAssignment.levels?.map((level, i) => (
+                            <TableCell key={i}>{level}</TableCell>
+                          ))}
+                          <TableCell>Pod Count</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {ps.topologyAssignment.slices.map((slice, si) => {
+                          const podCount = slice.podCounts?.universal != null
+                            ? `${slice.podCounts.universal} × ${slice.domainCount} domain(s)`
+                            : slice.podCounts?.individual?.join(', ') || 'N/A';
+                          const levelValues = (slice.valuesPerLevel || []).map(vpl => {
+                            if (vpl.universal != null) return vpl.universal;
+                            if (vpl.individual) {
+                              const prefix = vpl.individual.prefix || '';
+                              const suffix = vpl.individual.suffix || '';
+                              return (vpl.individual.roots || []).map(r => `${prefix}${r}${suffix}`).join(', ');
+                            }
+                            return 'N/A';
+                          });
+                          return (
+                            <TableRow key={si}>
+                              {levelValues.map((v, i) => (
+                                <TableCell key={i}>{v}</TableCell>
+                              ))}
+                              <TableCell>{podCount}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </Box>
+            ) : null;
+          })}
+        </Box>
       )}
     </Paper>
   );

@@ -60,6 +60,10 @@ func (h *Handlers) InitializeWebSocketRoutes(router gin.IRoutes) {
 	// Resource Flavors
 	router.GET("/ws/resource-flavors", h.ResourceFlavorsWebSocketHandler())
 	router.GET("/ws/resource-flavor/:flavor_name", h.ResourceFlavorDetailsWebSocketHandler())
+
+	// Topologies
+	router.GET("/ws/topologies", h.TopologiesWebSocketHandler())
+	router.GET("/ws/topology/:topology_name", h.TopologyDetailsWebSocketHandler())
 }
 
 func (h *Handlers) InitializeAPIRoutes(router gin.IRoutes, dynamicClient dynamic.Interface) {
