@@ -37,16 +37,12 @@ func VerifyAdmissionGatedByJobIsInadmissible(
 	ctx context.Context,
 	k8sClient client.Client,
 	job client.Object,
-	workloadName string,
+	wlLookupKey types.NamespacedName,
 	admissionGateValue string,
 ) {
 	lookupKey := types.NamespacedName{Name: job.GetName(), Namespace: job.GetNamespace()}
 
 	ginkgo.By("Checking the workload is created with the admission gate annotation")
-	wlLookupKey := types.NamespacedName{
-		Name:      workloadName,
-		Namespace: job.GetNamespace(),
-	}
 	createdWorkload := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -76,4 +72,51 @@ func VerifyAdmissionGatedByJobIsInadmissible(
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 	}, ConsistentDuration, ShortInterval).Should(gomega.Succeed())
+}
+
+// Verify that removing the AdmissionGatedBy annotation allows the job to be admitted.
+// This can be used across all job types.
+func VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(
+	ctx context.Context,
+	k8sClient client.Client,
+	wlLookupKey types.NamespacedName,
+) {
+	createdWorkload := &kueue.Workload{}
+
+	ginkgo.By("The workload has non-empty AdmissionGatedBy before removal")
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		g.Expect(createdWorkload.Annotations[kueueconstants.AdmissionGatedByAnnotation]).ShouldNot(gomega.BeEmpty())
+	}, Timeout, Interval).Should(gomega.Succeed())
+
+	ginkgo.By("Removing the admission gate annotation from the workload")
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		delete(createdWorkload.Annotations, kueueconstants.AdmissionGatedByAnnotation)
+		g.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
+		// Ensure that the AdmissionGatedBy annotation is removed.
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		g.Expect(createdWorkload.Annotations).ShouldNot(gomega.HaveKey(kueueconstants.AdmissionGatedByAnnotation))
+	}, Timeout, Interval).Should(gomega.Succeed())
+
+	ginkgo.By("Checking the workload becomes admissible")
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		admissible := workload.IsAdmissible(createdWorkload)
+		g.Expect(admissible).Should(gomega.BeTrue())
+	}, Timeout, Interval).Should(gomega.Succeed())
+
+	ginkgo.By("Checking the workload gets admitted")
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+	}, Timeout, Interval).Should(gomega.Succeed())
+
+	ginkgo.By("Checking the QuotaReserved condition is no longer AdmissionGated")
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		cond := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
+		g.Expect(cond).NotTo(gomega.BeNil())
+		g.Expect(cond.Reason).NotTo(gomega.Equal(kueue.WorkloadAdmissionGated))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
