@@ -841,7 +841,11 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	if !useBalancedPlacement {
-		fitLevelIdx, currFitDomain, reason = s.findLevelWithFitDomains(levelIdx, required, count, leaderCount, sliceSize, unconstrained, stats)
+		var multiLayerConstraints []kueue.PodsetSliceRequiredTopologyConstraint
+		if features.Enabled(features.TASMultiLayerTopology) && len(sliceSizeAtLevel) > 0 {
+			multiLayerConstraints = workersTasPodSetRequests.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+		}
+		fitLevelIdx, currFitDomain, reason = s.findLevelWithFitDomains(levelIdx, required, count, leaderCount, sliceSize, unconstrained, stats, multiLayerConstraints)
 		if len(reason) > 0 {
 			return nil, reason
 		}
@@ -1154,7 +1158,7 @@ func findBestFitDomainBy(domains []*domain, needed int32, state domainState) *do
 	return bestDomain
 }
 
-func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, podSetSize int32, leaderPodSetSize int32, sliceSize int32, unconstrained bool, stats *ExclusionStats) (int, []*domain, string) {
+func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, podSetSize int32, leaderPodSetSize int32, sliceSize int32, unconstrained bool, stats *ExclusionStats, multiLayerConstraints []kueue.PodsetSliceRequiredTopologyConstraint) (int, []*domain, string) {
 	domains := s.domainsPerLevel[levelIdx]
 	if len(domains) == 0 {
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
@@ -1168,6 +1172,13 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		// optimize the potentially last domain
 		topDomain = findBestFitDomainForSlices(sortedDomain, sliceCount, leaderPodSetSize)
 	}
+	notFitReason := func(slicesFitCount, totalRequestsSlicesCount int32) string {
+		if len(multiLayerConstraints) > 0 {
+			return s.multiLayerNotFitMessage(levelIdx, podSetSize, multiLayerConstraints, stats)
+		}
+		return s.notFitMessage(slicesFitCount, totalRequestsSlicesCount, sliceSize, stats)
+	}
+
 	if useLeastFreeCapacityAlgorithm(unconstrained) {
 		for _, candidateDomain := range sortedDomain {
 			if candidateDomain.sliceState >= sliceCount {
@@ -1176,15 +1187,15 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		}
 		if required {
 			maxCapacityFound := sortedDomain[len(sortedDomain)-1].state
-			return 0, nil, s.notFitMessage(maxCapacityFound, sliceCount, sliceSize, stats)
+			return 0, nil, notFitReason(maxCapacityFound, sliceCount)
 		}
 	}
 	if topDomain.sliceStateWithLeader < sliceCount || topDomain.leaderState < leaderPodSetSize {
 		if required {
-			return 0, nil, s.notFitMessage(topDomain.sliceState, sliceCount, sliceSize, stats)
+			return 0, nil, notFitReason(topDomain.sliceState, sliceCount)
 		}
 		if levelIdx > 0 && !unconstrained {
-			return s.findLevelWithFitDomains(levelIdx-1, required, podSetSize, leaderPodSetSize, sliceSize, unconstrained, stats)
+			return s.findLevelWithFitDomains(levelIdx-1, required, podSetSize, leaderPodSetSize, sliceSize, unconstrained, stats, multiLayerConstraints)
 		}
 		results := []*domain{}
 		remainingSliceCount := sliceCount
@@ -1207,7 +1218,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 			remainingSliceCount -= domain.sliceStateWithLeader
 		}
 		if remainingLeaderCount > 0 {
-			return 0, nil, s.notFitMessage(leaderPodSetSize-remainingLeaderCount, sliceCount, sliceSize, stats)
+			return 0, nil, notFitReason(leaderPodSetSize-remainingLeaderCount, sliceCount)
 		}
 
 		// At this point we have assigned all leaders, so we sort remaining domains based on worker capacity
@@ -1224,7 +1235,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 			remainingSliceCount -= domain.sliceState
 		}
 		if remainingSliceCount > 0 {
-			return 0, nil, s.notFitMessage(sliceCount-remainingSliceCount, sliceCount, sliceSize, stats)
+			return 0, nil, notFitReason(sliceCount-remainingSliceCount, sliceCount)
 		}
 		return levelIdx, results, ""
 	}
@@ -1635,6 +1646,58 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 		fmt.Fprintf(&builder, "topology %q doesn't allow to fit any of %d %s(s)", s.topologyName, totalRequestsSlicesCount, unit)
 	} else {
 		fmt.Fprintf(&builder, "topology %q allows to fit only %d out of %d %s(s)", s.topologyName, slicesFitCount, totalRequestsSlicesCount, unit)
+	}
+
+	// Append exclusion stats if available.
+	if stats.hasExclusions() {
+		fmt.Fprintf(&builder, ". Total nodes: %d; excluded: %s", stats.TotalNodes, stats.formatReasons())
+	}
+
+	return builder.String()
+}
+
+func countSlicesInSubtree(d *domain, currentLevel, targetLevel int, sliceSize int32) int32 {
+	if currentLevel == targetLevel {
+		return d.state / sliceSize
+	}
+	var total int32
+	for _, child := range d.children {
+		total += countSlicesInSubtree(child, currentLevel+1, targetLevel, sliceSize)
+	}
+	return total
+}
+
+func (s *TASFlavorSnapshot) multiLayerNotFitMessage(
+	requiredLevelIdx int,
+	count int32,
+	constraints []kueue.PodsetSliceRequiredTopologyConstraint,
+	stats *ExclusionStats,
+) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "topology %q doesn't allow to fit", s.topologyName)
+
+	// Pick the domain with the highest sliceState to report the best-case
+	// fit counts. Tie-break on domain ID for deterministic messages, since
+	// domainsPerLevel is map-backed and iteration order is random.
+	var bestDomain *domain
+	for _, d := range s.domainsPerLevel[requiredLevelIdx] {
+		if bestDomain == nil || d.sliceState > bestDomain.sliceState ||
+			(d.sliceState == bestDomain.sliceState && d.id < bestDomain.id) {
+			bestDomain = d
+		}
+	}
+	if bestDomain == nil {
+		return builder.String()
+	}
+
+	for _, c := range constraints {
+		targetLevelIdx, found := s.resolveLevelIdx(c.Topology)
+		if !found {
+			continue
+		}
+		neededSlices := count / c.Size
+		fitSlices := countSlicesInSubtree(bestDomain, requiredLevelIdx, targetLevelIdx, c.Size)
+		fmt.Fprintf(&builder, "; %d/%d slice(s) fit on level %s", fitSlices, neededSlices, c.Topology)
 	}
 
 	// Append exclusion stats if available.
