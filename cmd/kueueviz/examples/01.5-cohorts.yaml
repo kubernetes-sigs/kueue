@@ -1,0 +1,14 @@
+---
+# Cohort referenced by multiple ClusterQueues
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Cohort
+metadata:
+  name: ai-for-humanity-foundation
+spec: {}
+---
+# Orphan cohort with no ClusterQueues
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Cohort
+metadata:
+  name: orphan-cohort-for-testing
+spec: {}
