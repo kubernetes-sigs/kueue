@@ -850,6 +850,10 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 		changed = true
 	}
 
+	if resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadPreemptionBlocked, reason, clock) {
+		changed = true
+	}
+
 	return changed
 }
 
@@ -1001,7 +1005,7 @@ func SetPreemptionGateState(w *kueue.Workload, gateName string, gateState kueue.
 			LastTransitionTime: transitionTime,
 		})
 	} else {
-		w.Status.PreemptionGates[gateStateIdx].State = kueue.GateStateOpen
+		w.Status.PreemptionGates[gateStateIdx].State = gateState
 		w.Status.PreemptionGates[gateStateIdx].LastTransitionTime = transitionTime
 	}
 
