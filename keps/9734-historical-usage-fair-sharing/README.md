@@ -21,8 +21,8 @@
     - [ClusterQueue status](#clusterqueue-status)
   - [DominantResourceShare with strategy delegation](#dominantresourceshare-with-strategy-delegation)
   - [Preemption behavior](#preemption-behavior)
+  - [Preemption frequency bounds](#preemption-frequency-bounds)
   - [CQ-level borrowing tracking](#cq-level-borrowing-tracking)
-  - [Preemption loop safety](#preemption-loop-safety)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -79,8 +79,9 @@ ClusterQueues within a cohort for either admission ordering or preemption.
 * Apply the same historical borrowing score to both admission ordering and
   preemption target selection, so that the two mechanisms are consistent.
 
-* Preserve the preemption loop-free property that the current DRS-based fair
-  sharing guarantees.
+* Prevent destructive preemption oscillation under sustained contention,
+  ensuring workloads get meaningful runtime before being eligible for
+  fair-sharing preemption.
 
 * Be complementary to the existing preemption-based fair sharing (KEP-1714) and
   admission fair sharing (KEP-4136).
@@ -215,6 +216,11 @@ them identically based only on their current borrowing.
   aggregation and the existing `DRS` struct is reused, so they share all
   downstream code. Only the input computation differs.
 
+* **Preemption cycling under sustained contention.** Historical borrowing
+  scores evolve over time, causing score reversals that lead to preemption
+  oscillation. A mandatory `minAdmitDuration` field prevents this. See
+  [Preemption frequency bounds](#preemption-frequency-bounds) for analysis.
+
 ## Design Details
 
 ### API changes
@@ -236,6 +242,14 @@ type FairSharing struct {
     // +optional
     Strategy DRSStrategy `json:"strategy,omitempty"`
 
+    // minAdmitDuration is the minimum time a workload must run before it
+    // becomes eligible for fair-sharing preemption. A workload admitted
+    // less than minAdmitDuration ago is skipped as a preemption candidate.
+    // Required when Strategy = HistoricalBorrowing.
+    // Inspired by Slurm's PreemptExemptTime.
+    // +optional
+    MinAdmitDuration *metav1.Duration `json:"minAdmitDuration,omitempty"`
+
     // historicalBorrowing configures the half-life decay parameters for
     // cohort-level historical borrowing scoring.
     // Only used when Strategy = HistoricalBorrowing.
@@ -252,7 +266,7 @@ const (
 
 type HistoricalBorrowingConfig struct {
     // borrowingHalfLifeTime is the time after which historical borrowing
-    // decays by half.
+    // decays by half. Must be at least 30 minutes.
     // +optional
     BorrowingHalfLifeTime metav1.Duration `json:"borrowingHalfLifeTime"`
 
@@ -266,6 +280,22 @@ type HistoricalBorrowingConfig struct {
 `admissionFairSharing` config because they operate at different levels
 (cohort vs ClusterQueue) and track different quantities (borrowing beyond
 quota vs total usage).
+
+Validation rules:
+
+* `borrowingHalfLifeTime >= 30m`. Below this, the EMA needs several sampling
+  intervals per half-life to track properly. `borrowingHalfLifeTime` should be
+  at least 5-6x `borrowingSamplingInterval`. Recommended values range from
+  4 hours (iterative workloads with frequent checkpoints) to 7 days (weekly
+  capacity planning); a value of 1 day is a good starting point.
+
+* `minAdmitDuration` is **required** when `Strategy = HistoricalBorrowing`
+  (see [Preemption frequency bounds](#preemption-frequency-bounds)).
+  `minAdmitDuration >= 10m` is enforced as a floor.
+
+* When `Strategy = Borrowing` (default), `minAdmitDuration` is optional.
+  Instantaneous DRS is loop-free and does not require a minimum runtime guard,
+  but admins may still set one if desired.
 
 #### ClusterQueue status
 
@@ -305,14 +335,6 @@ The same delegation pattern applies to `CohortSnapshot`: it carries
 `drsStrategy` and aggregates historical borrowing from its child
 ClusterQueues.
 
-### Preemption behavior
-
-With historical borrowing, removing a workload does not immediately change
-the target CQ's score (inertia). This means the existing preemption strategies
-(S2-a and S2-b) collapse into a single condition and continue to work without
-code changes. Preemption candidates are filtered to CQs that are currently
-borrowing, regardless of DRS strategy.
-
 ### CQ-level borrowing tracking
 
 A periodic sampling reconciler on the ClusterQueue controller computes
@@ -321,21 +343,48 @@ as Admission Fair Sharing. When the strategy is switched to
 `HistoricalBorrowing`, the store is seeded from current borrowing to avoid a
 cold start.
 
-### Preemption loop safety
+### Preemption behavior
 
-Historical borrowing fair sharing does not introduce preemption loops. The
-argument relies on two key properties:
+With historical borrowing, removing a workload does not immediately change
+the target CQ's score (inertia). This means the existing preemption strategies
+(S2-a and S2-b) collapse into a single condition and continue to work without
+code changes. Preemption candidates are filtered to CQs that are currently
+borrowing, regardless of DRS strategy.
 
-* **Monotonicity:** Admitting a borrowing workload increases the CQ's
-  historical borrowing score via the entry penalty.
-* **Inertia:** Preempting (removing) a workload does not immediately decrease
-  the target CQ's historical borrowing score — decay only occurs at future
-  sampling intervals.
+When `minAdmitDuration` is set, the preemption path adds one additional
+filter: a workload whose `QuotaReserved` condition was set less than
+`minAdmitDuration` ago is skipped as a preemption candidate. This uses the
+same `quotaReservationTime` helper already used for workload ordering in
+`pkg/scheduler/preemption/common/ordering.go`. The filter applies to
+fair-sharing preemption only; reclaim-within-cohort and within-CQ preemption
+are unaffected.
 
-Together these properties ensure that if Workload A preempts Workload B, then
-Workload B cannot preempt Workload A afterwards. A full proof following the
-structure of the existing DRS proof will be added to
-`site/content/en/docs/concepts/fair_sharing.md`.
+### Preemption frequency bounds
+
+Instantaneous DRS is stateless and loop-free. Historical borrowing scores
+evolve over time via decay, so score reversal — and therefore
+time-multiplexing — is expected when demand exceeds supply. This is
+intentional: it is fairer than letting the first-admitted workload run
+indefinitely.
+
+However, without a guard the oscillation period is **2 ×
+`borrowingSamplingInterval`** (e.g., 10 minutes with 5-min sampling),
+regardless of the half-life. After each swap the running and idle CQ scores
+are within one entry-penalty step (α) of each other, and two sampling ticks
+are always sufficient for crossover.
+
+`minAdmitDuration` solves this by skipping workloads admitted less than
+`minAdmitDuration` ago as preemption candidates, decoupling preemption
+*frequency* from preemption *decisions*. This is the same approach as Slurm's
+`PreemptExemptTime`.
+
+Immediate loop-freedom still holds within a single scheduling cycle:
+monotonicity (entry penalty increases the preempting CQ's score) and inertia
+(removing a workload does not immediately decrease the target CQ's score)
+prevent A→B→A preemption in the same cycle.
+
+A per-CQ override of `minAdmitDuration` (in `ClusterQueuePreemption`) can be
+added in a future iteration if different CQs need different minimum runtimes.
 
 ### Test Plan
 
@@ -350,7 +399,10 @@ The code will be thoroughly covered with unit tests.
 In particular:
 * Historical borrowing score computation and decay mechanics.
 * Entry penalty calculation and simulation (addition and removal).
-* Preemption loop-free property across DRS strategies.
+* `minAdmitDuration` filtering: workloads admitted less than `minAdmitDuration`
+  ago are skipped as fair-sharing preemption candidates.
+* Validation: `minAdmitDuration` required when `Strategy = HistoricalBorrowing`,
+  floor of 10 minutes enforced.
 * Borrowing filter behavior with historical borrowing strategy.
 
 #### Integration tests
@@ -362,6 +414,8 @@ In particular:
 * Cohort-level admission ordering and preemption targeting based on historical
   borrowing scores.
 * Decay behavior over time (burst-then-idle scenarios).
+* `minAdmitDuration` prevents preemption of recently admitted workloads
+  under sustained contention.
 * Coexistence with Admission Fair Sharing (KEP-4136).
 * Strategy switching from Borrowing to HistoricalBorrowing.
 
@@ -380,6 +434,7 @@ CQ). The entry penalty is O(R) per admission, matching AFS. When
 
 * Historical borrowing DRS strategy for admission ordering and preemption.
 * CQ-level borrowing tracking with decay and entry penalty.
+* Mandatory `minAdmitDuration` with preemption candidate filtering.
 * CQ status fields and metrics to track historical borrowing.
 * Unit and integration tests.
 * Feature gate: `HistoricalBorrowingFairSharing`.
