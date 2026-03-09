@@ -511,9 +511,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		} else {
 			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote lost")
 		}
-	} else {
+	} else if features.Enabled(features.MultiKueueOrchestratedPreemption) {
 		remWl, remClient := w.workloadToOpenPreemptionGate(group)
-		if remClient != nil && remWl != nil {
+
+		if remWl != nil && remClient != nil {
 			workload.SetPreemptionGateState(remWl, constants.MultiKueuePreemptionGate, kueue.GateStateOpen, metav1.NewTime(w.clock.Now()))
 			if err := remClient.client.Status().Update(ctx, remWl); err != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
