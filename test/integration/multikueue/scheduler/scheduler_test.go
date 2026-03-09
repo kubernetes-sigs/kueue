@@ -51,7 +51,7 @@ var defaultEnabledIntegrations = sets.New(
 	"pod", "workload.codeflare.dev/appwrapper", "trainer.kubeflow.org/trainjob",
 )
 
-var _ = ginkgo.FDescribe("MultiKueue with scheduler", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace
