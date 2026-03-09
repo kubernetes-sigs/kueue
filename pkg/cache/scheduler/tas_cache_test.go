@@ -6006,7 +6006,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 
 			tasCache := NewTASCache(client)
 			for i := range tc.nodes {
-				tasCache.AddOrUpdateNode(&tc.nodes[i])
+				tasCache.SyncNode(&tc.nodes[i])
 			}
 
 			topologyInformation := topologyInformation{
@@ -6020,7 +6020,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				tasCache.Update(&pod, log)
 			}
 			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
-			snapshot := tasFlavorCache.snapshot(log, tasCache.nodes)
+			snapshot := tasFlavorCache.snapshot(log, tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels))
 			flavorTASRequests := make([]TASPodSetRequests, 0, len(tc.podSets))
 			wantResult := make(TASAssignmentsResult)
 			for _, ps := range tc.podSets {

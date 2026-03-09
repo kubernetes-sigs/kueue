@@ -162,13 +162,13 @@ func (r *nodeReconciler) Generic(event.TypedGenericEvent[*corev1.Node]) bool {
 }
 
 func (r *nodeReconciler) Create(e event.TypedCreateEvent[*corev1.Node]) bool {
-	r.cache.TASCache().AddOrUpdateNode(e.Object)
+	r.cache.TASCache().SyncNode(e.Object)
 	r.notifyWatchers(nil, e.Object)
 	return features.Enabled(features.TASFailedNodeReplacement)
 }
 
 func (r *nodeReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) bool {
-	r.cache.TASCache().AddOrUpdateNode(e.ObjectNew)
+	r.cache.TASCache().SyncNode(e.ObjectNew)
 	r.notifyWatchers(e.ObjectOld, e.ObjectNew)
 	if !features.Enabled(features.TASFailedNodeReplacement) {
 		return false
@@ -187,7 +187,7 @@ func (r *nodeReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) bool {
 }
 
 func (r *nodeReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) bool {
-	r.cache.TASCache().DeleteNode(e.Object.Name)
+	r.cache.TASCache().DeleteNodeByName(e.Object.Name)
 	r.notifyWatchers(e.Object, nil)
 	return features.Enabled(features.TASFailedNodeReplacement)
 }

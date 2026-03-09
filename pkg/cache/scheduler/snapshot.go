@@ -186,7 +186,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		for flavor, cache := range c.tasCache.Clone() {
-			tasSnapshots[flavor] = cache.snapshot(log, c.tasCache.nodes)
+			tasSnapshots[flavor] = cache.snapshot(log, c.tasCache.nodesCache.find(cache.flavor.NodeLabels, cache.topology.Levels))
 		}
 	}
 	for _, cq := range cqNames {
