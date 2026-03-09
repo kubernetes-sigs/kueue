@@ -1808,6 +1808,7 @@ func TestWlReconcile(t *testing.T) {
 				if tc.useSecondWorker {
 					worker2Builder := getClientBuilder(ctx)
 					worker2Builder = worker2Builder.WithLists(&kueue.WorkloadList{Items: tc.worker2Workloads}, &batchv1.JobList{Items: tc.worker2Jobs})
+					worker2Builder = worker2Builder.WithStatusSubresource(&kueue.Workload{})
 					worker2Builder = worker2Builder.WithInterceptorFuncs(interceptor.Funcs{
 						Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 							if tc.worker2OnGetError != nil {
