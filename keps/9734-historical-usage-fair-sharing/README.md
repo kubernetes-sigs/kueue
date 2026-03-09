@@ -20,9 +20,9 @@
     - [Kueue configuration](#kueue-configuration)
     - [ClusterQueue status](#clusterqueue-status)
   - [DominantResourceShare with strategy delegation](#dominantresourceshare-with-strategy-delegation)
+  - [CQ-level borrowing tracking](#cq-level-borrowing-tracking)
   - [Preemption behavior](#preemption-behavior)
   - [Preemption frequency bounds](#preemption-frequency-bounds)
-  - [CQ-level borrowing tracking](#cq-level-borrowing-tracking)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -291,7 +291,7 @@ Validation rules:
 
 * `minAdmitDuration` is **required** when `Strategy = HistoricalBorrowing`
   (see [Preemption frequency bounds](#preemption-frequency-bounds)).
-  `minAdmitDuration >= 10m` is enforced as a floor.
+  `minAdmitDuration >= 1m` is enforced as a floor.
 
 * When `Strategy = Borrowing` (default), `minAdmitDuration` is optional.
   Instantaneous DRS is loop-free and does not require a minimum runtime guard,
@@ -402,7 +402,7 @@ In particular:
 * `minAdmitDuration` filtering: workloads admitted less than `minAdmitDuration`
   ago are skipped as fair-sharing preemption candidates.
 * Validation: `minAdmitDuration` required when `Strategy = HistoricalBorrowing`,
-  floor of 10 minutes enforced.
+  floor of 1 minute enforced.
 * Borrowing filter behavior with historical borrowing strategy.
 
 #### Integration tests
