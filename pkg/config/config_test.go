@@ -294,6 +294,7 @@ multiKueue:
   origin: multikueue-manager1
   workerLostTimeout: 10m
   dispatcherName: kueue.x-k8s.io/multikueue-dispatcher-incremental
+  singleClusterPreemptionTimeout: 1m
   clusterProfile:
     credentialsProviders:
       - name: test-provider
@@ -408,10 +409,11 @@ objectRetentionPolicies:
 	}
 
 	defaultMultiKueue := &configapi.MultiKueue{
-		GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-		Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+		GCInterval:                     &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+		Origin:                         ptr.To(configapi.DefaultMultiKueueOrigin),
+		WorkerLostTimeout:              &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+		DispatcherName:                 ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+		SingleClusterPreemptionTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueSingleClusterPreemptionTimeout},
 	}
 
 	testcases := []struct {
@@ -726,10 +728,11 @@ objectRetentionPolicies:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
-					Origin:            ptr.To("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					GCInterval:                     &metav1.Duration{Duration: 90 * time.Second},
+					Origin:                         ptr.To("multikueue-manager1"),
+					WorkerLostTimeout:              &metav1.Duration{Duration: 10 * time.Minute},
+					DispatcherName:                 ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					SingleClusterPreemptionTimeout: &metav1.Duration{Duration: 1 * time.Minute},
 					ClusterProfile: &configapi.ClusterProfile{
 						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
 							{
@@ -919,10 +922,11 @@ webhook:
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					GCInterval:                     &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+					Origin:                         ptr.To(configapi.DefaultMultiKueueOrigin),
+					WorkerLostTimeout:              &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:                 ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					SingleClusterPreemptionTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueSingleClusterPreemptionTimeout},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -969,10 +973,11 @@ webhook:
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					GCInterval:                     &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+					Origin:                         ptr.To(configapi.DefaultMultiKueueOrigin),
+					WorkerLostTimeout:              &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:                 ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					SingleClusterPreemptionTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueSingleClusterPreemptionTimeout},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1019,10 +1024,11 @@ webhook:
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					GCInterval:                     &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+					Origin:                         ptr.To(configapi.DefaultMultiKueueOrigin),
+					WorkerLostTimeout:              &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:                 ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					SingleClusterPreemptionTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueSingleClusterPreemptionTimeout},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1065,10 +1071,11 @@ webhook:
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					GCInterval:                     &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+					Origin:                         ptr.To(configapi.DefaultMultiKueueOrigin),
+					WorkerLostTimeout:              &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:                 ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					SingleClusterPreemptionTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueSingleClusterPreemptionTimeout},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1213,10 +1220,11 @@ func TestEncode(t *testing.T) {
 					"frameworks": []any{"batch/job"},
 				},
 				"multiKueue": map[string]any{
-					"gcInterval":        "1m0s",
-					"origin":            "multikueue",
-					"workerLostTimeout": "15m0s",
-					"dispatcherName":    configapi.MultiKueueDispatcherModeAllAtOnce,
+					"gcInterval":                     "1m0s",
+					"origin":                         "multikueue",
+					"workerLostTimeout":              "15m0s",
+					"dispatcherName":                 configapi.MultiKueueDispatcherModeAllAtOnce,
+					"singleClusterPreemptionTimeout": "5m0s",
 				},
 			},
 		},
