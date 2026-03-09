@@ -177,6 +177,7 @@ func managerAndMultiKueueSetup(
 		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
 		multikueue.WithAdapters(adapters),
 		multikueue.WithDispatcherName(dispatcherName),
+		multikueue.WithSingleClusterPreemptionTimeout(config.DefaultMultiKueueSingleClusterPreemptionTimeout),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
