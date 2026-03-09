@@ -1048,7 +1048,7 @@ func (w *wlReconciler) workloadToOpenPreemptionGate(group *wlGroup) (*kueue.Work
 		}
 	}
 
-	// If the timeout elapsed or no workload was ungated yet, return the workload with he oldest signal.
+	// If the timeout elapsed or no workload was ungated yet, return the workload with the oldest signal.
 	if previousUngateTime == nil || previousUngateTime.Add(w.singleClusterPreemptionTimeout).Before(w.clock.Now()) {
 		return workloadToUngate, remote
 	}

@@ -24,7 +24,6 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -622,7 +621,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Checking that the high-priority workload is admitted in exactly one of the workers", func() {
+		ginkgo.By("Checking that the high-priority workload is admitted in one of the workers", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				worker1Error := worker1TestCluster.client.Get(worker1TestCluster.ctx, highWlKey, workerHighWorkload)
 				worker2Error := worker2TestCluster.client.Get(worker2TestCluster.ctx, highWlKey, workerHighWorkload)
@@ -637,18 +636,22 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey1, workerLowW1)).To(gomega.Succeed())
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lowWlKey2, workerLowW2)).To(gomega.Succeed())
 
-				w1Requeued := apimeta.IsStatusConditionTrue(workerLowW1.Status.Conditions, kueue.WorkloadRequeued)
-				w2Requeued := apimeta.IsStatusConditionTrue(workerLowW2.Status.Conditions, kueue.WorkloadRequeued)
-				g.Expect(w1Requeued != w2Requeued).To(gomega.BeTrue())
-
-				g.Expect(workload.IsEvicted(workerLowW1) != workload.IsEvicted(workerLowW2)).To(gomega.BeTrue())
 				var evictedWorkload *kueue.Workload
+				var otherWorkload *kueue.Workload
 				if workload.IsEvicted(workerLowW1) {
 					evictedWorkload = workerLowW1
+					otherWorkload = workerLowW2
 				} else {
 					evictedWorkload = workerLowW2
+					otherWorkload = workerLowW1
 				}
+				g.Expect(evictedWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted))
 				g.Expect(evictedWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
+				g.Expect(evictedWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
+
+				g.Expect(otherWorkload.Status.Conditions).NotTo(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+				g.Expect(otherWorkload.Status.Conditions).NotTo(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
+				g.Expect(otherWorkload.Status.Conditions).NotTo(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 		})
 	})
