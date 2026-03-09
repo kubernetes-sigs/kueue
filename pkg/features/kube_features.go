@@ -262,6 +262,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8828
 	// Enable workload eviction when node is tainted and pods are not able to run.
 	TASReplaceNodeOnNodeTaints featuregate.Feature = "TASReplaceNodeOnNodeTaints"
+
+	// owner: @sohankunkerkar
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/9694
+	// Skip equivalent inadmissible workloads in BestEffortFIFO scheduling.
+	SchedulingEquivalenceHashing featuregate.Feature = "SchedulingEquivalenceHashing"
 )
 
 func init() {
@@ -405,6 +411,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASReplaceNodeOnNodeTaints: {
 		{Version: version.MustParse("0.16"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	SchedulingEquivalenceHashing: {
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

@@ -93,6 +93,10 @@ type ClusterQueue struct {
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads inadmissibleWorkloads
 
+	// noFitSchedulingHashes tracks scheduling equivalence classes that received NoFit.
+	// Cleared when queueInadmissibleWorkloads runs.
+	noFitSchedulingHashes sets.Set[string]
+
 	finishedWorkloads sets.Set[workload.Reference]
 
 	// popCycle identifies the last call to Pop. It's incremented when calling Pop.
@@ -195,6 +199,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:     make(inadmissibleWorkloads),
+		noFitSchedulingHashes:     sets.New[string](),
 		finishedWorkloads:         sets.New[workload.Reference](),
 		queueInadmissibleCycle:    -1,
 		compareFunc:               compareFunc,
@@ -270,6 +275,12 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		c.inadmissibleWorkloads.delete(key)
 	}
 	if c.heap.GetByKey(key) == nil && !c.backoffWaitingTimeExpired(wInfo) {
+		c.inadmissibleWorkloads.insert(key, wInfo)
+		return
+	}
+	// Skip to inadmissible if the workload's equivalence class is already known to be NoFit
+	// (only for BestEffortFIFO; StrictFIFO preserves strict ordering).
+	if c.queueingStrategy == kueue.BestEffortFIFO && c.heap.GetByKey(key) == nil && wInfo.SchedulingHash != workload.SchedulingHashUnknown && c.noFitSchedulingHashes.Has(wInfo.SchedulingHash) {
 		c.inadmissibleWorkloads.insert(key, wInfo)
 		return
 	}
@@ -381,6 +392,29 @@ func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
 		c.inflight = nil
 	}
+}
+
+// handleInadmissibleHash bulk-moves all heap workloads matching the given
+// scheduling hash to inadmissibleWorkloads. Returns the number moved.
+// Only applies to BestEffortFIFO queues; in StrictFIFO the head workload
+// stays in the heap and must not cause equivalent workloads to be skipped.
+func (c *ClusterQueue) handleInadmissibleHash(hash string) int {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
+	if c.queueingStrategy != kueue.BestEffortFIFO {
+		return 0
+	}
+	c.noFitSchedulingHashes.Insert(hash)
+	moved := 0
+	for _, wInfo := range c.heap.List() {
+		if wInfo.SchedulingHash == hash {
+			key := workloadKey(wInfo)
+			c.heap.Delete(key)
+			c.inadmissibleWorkloads.insert(key, wInfo)
+			moved++
+		}
+	}
+	return moved
 }
 
 // PendingTotal returns the total number of pending workloads.

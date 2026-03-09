@@ -193,6 +193,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.13"
+- name: SchedulingEquivalenceHashing
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.16"
 - name: SkipFinalizersForPodsSuspendedByParent
   versionedSpecs:
   - default: true
