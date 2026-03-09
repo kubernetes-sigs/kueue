@@ -23,7 +23,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 type cohortMetricPoint struct {
@@ -65,7 +64,7 @@ func (c *Cache) collectCohortMetricPoints(cohortName kueue.CohortReference, simu
 	c.RLock()
 	defer c.RUnlock()
 
-	ch := c.hm.CohortByName(cohortName)
+	ch := c.hm.Cohort(cohortName)
 	if ch == nil || hierarchy.HasCycle(ch) {
 		if simulateRemoval {
 			return []cohortMetricPoint{{cohortName: cohortName}}
@@ -96,7 +95,7 @@ func (c *Cache) collectCohortMetricPoints(cohortName kueue.CohortReference, simu
 }
 
 func (c *Cache) withCohortLogger(log logr.Logger, cohortName kueue.CohortReference) logr.Logger {
-	return roletracker.WithReplicaRole(log, c.roleTracker).WithValues("cohort", cohortName)
+	return log.WithValues("cohort", cohortName)
 }
 
 func (c *Cache) applyCohortMetricPoint(p cohortMetricPoint) {

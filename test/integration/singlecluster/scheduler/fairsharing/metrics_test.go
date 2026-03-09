@@ -40,9 +40,9 @@ var _ = ginkgo.Describe("Cohorts", func() {
 		flavor2       *kueue.ResourceFlavor
 		ns            *corev1.Namespace
 
-		cohorts = make(map[string]*kueue.Cohort)
-		cqs     = make(map[string]*kueue.ClusterQueue)
-		lqs     = make(map[string]*kueue.LocalQueue)
+		cohorts map[string]*kueue.Cohort
+		cqs     map[string]*kueue.ClusterQueue
+		lqs     map[string]*kueue.LocalQueue
 	)
 
 	var createCohort = func(cohort *kueue.Cohort) *kueue.Cohort {
@@ -52,19 +52,21 @@ var _ = ginkgo.Describe("Cohorts", func() {
 	}
 
 	var createQueue = func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
-		util.MustCreate(ctx, k8sClient, cq)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 		cqs[cq.Name] = cq
 
 		lq := utiltestingapi.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq)
-		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 		lqs[lq.Name] = lq
 		return cq
 	}
 
 	ginkgo.When("creating, modifying and removing", func() {
 		ginkgo.BeforeEach(func() {
+			cohorts = make(map[string]*kueue.Cohort)
+			cqs = make(map[string]*kueue.ClusterQueue)
+			lqs = make(map[string]*kueue.LocalQueue)
+
 			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 				&config.AdmissionFairSharing{
 					UsageHalfLifeTime: metav1.Duration{
@@ -121,9 +123,9 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			ginkgo.By("Setting cqa cohort to ch1", func() {
 				var cq kueue.ClusterQueue
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cqa"]), &cq)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cqa"]), &cq)).To(gomega.Succeed())
 					cq.Spec.CohortName = "ch1"
-					gomega.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+					g.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 				util.ExpectCohortNominalQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 10_000)
@@ -196,13 +198,13 @@ var _ = ginkgo.Describe("Cohorts", func() {
 
 				var ch1, ch2 kueue.Cohort
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ch1"}, &ch1)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ch1"}, &ch1)).To(gomega.Succeed())
 					ch1.Spec.ParentName = "root"
-					gomega.Expect(k8sClient.Update(ctx, &ch1)).To(gomega.Succeed())
+					g.Expect(k8sClient.Update(ctx, &ch1)).To(gomega.Succeed())
 
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ch2"}, &ch2)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ch2"}, &ch2)).To(gomega.Succeed())
 					ch2.Spec.ParentName = "root"
-					gomega.Expect(k8sClient.Update(ctx, &ch2)).To(gomega.Succeed())
+					g.Expect(k8sClient.Update(ctx, &ch2)).To(gomega.Succeed())
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 				// combined values of resources of ch1(30 cpu, 30Gi) and ch2(20 cpu, 20Gi) and root cohort flavor1 (20 cpu, 5 gpu)
@@ -281,12 +283,12 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			ginkgo.By("Re-assign cohort ch2 cluster queues to ch3", func() {
 				var cqD, cqE kueue.ClusterQueue
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cqd"]), &cqD)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cqd"]), &cqD)).To(gomega.Succeed())
 					cqD.Spec.CohortName = "ch3"
-					gomega.Expect(k8sClient.Update(ctx, &cqD)).To(gomega.Succeed())
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cqe"]), &cqE)).To(gomega.Succeed())
+					g.Expect(k8sClient.Update(ctx, &cqD)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cqe"]), &cqE)).To(gomega.Succeed())
 					cqE.Spec.CohortName = "ch3"
-					gomega.Expect(k8sClient.Update(ctx, &cqE)).To(gomega.Succeed())
+					g.Expect(k8sClient.Update(ctx, &cqE)).To(gomega.Succeed())
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 				// updated values for ch3 with cqd and cqe added, and root with ch3 updated
@@ -321,7 +323,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				var ch1 kueue.Cohort
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ch1"}, &ch1)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ch1"}, &ch1)).To(gomega.Succeed())
 					ch1Flavors := ch1.Spec.ResourceGroups[0].Flavors
 					ch1Flavors[0] = kueue.FlavorQuotas{
 						Name: kueue.ResourceFlavorReference(defaultFlavor.Name),
@@ -337,7 +339,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 						},
 					}
 					ch1.Spec.ResourceGroups[0].Flavors = ch1Flavors
-					gomega.Expect(k8sClient.Update(ctx, &ch1)).To(gomega.Succeed())
+					g.Expect(k8sClient.Update(ctx, &ch1)).To(gomega.Succeed())
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 				util.ExpectCohortNominalQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 35_000)
@@ -392,9 +394,9 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			ginkgo.By("Re-assign cq1 from ch0 to ch1", func() {
 				var cq1 kueue.ClusterQueue
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cq1"]), &cq1)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cq1"]), &cq1)).To(gomega.Succeed())
 					cq1.Spec.CohortName = "ch1"
-					gomega.Expect(k8sClient.Update(ctx, &cq1)).To(gomega.Succeed())
+					g.Expect(k8sClient.Update(ctx, &cq1)).To(gomega.Succeed())
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 				// updated values for ch1 with cq1 added
@@ -409,9 +411,9 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			ginkgo.By("Re-assign cq1 from ch1 to ch2", func() {
 				var cq1 kueue.ClusterQueue
 				gomega.Eventually(func(g gomega.Gomega) {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cq1"]), &cq1)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqs["cq1"]), &cq1)).To(gomega.Succeed())
 					cq1.Spec.CohortName = "ch2"
-					gomega.Expect(k8sClient.Update(ctx, &cq1)).To(gomega.Succeed())
+					g.Expect(k8sClient.Update(ctx, &cq1)).To(gomega.Succeed())
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 				// updated values for ch2 with cq1 added

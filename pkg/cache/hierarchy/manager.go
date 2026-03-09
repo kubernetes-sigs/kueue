@@ -168,14 +168,6 @@ func (m *Manager[CQ, C]) cleanupCohort(cohort C) {
 	}
 }
 
-func (m *Manager[CQ, C]) CohortByName(name kueue.CohortReference) C {
-	if cohort, exists := m.cohorts[name]; exists {
-		return cohort
-	}
-	var zero C
-	return zero
-}
-
 // NewManagerForTest is a special constructor for using in tests
 func NewManagerForTest[CQ clusterQueueNode[C], C cohortNode[CQ, C]](cohorts map[kueue.CohortReference]C, clusterQueues map[kueue.ClusterQueueReference]CQ) Manager[CQ, C] {
 	return Manager[CQ, C]{
