@@ -313,9 +313,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 
 			ginkgo.By("Verifying workloads on workers don't get admitted (missing RCT)")
 			gomega.Consistently(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
-				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				g.Expect(managerWl.Status.ClusterName).To(gomega.BeNil())
+				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Status.ClusterName).To(gomega.BeNil())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
