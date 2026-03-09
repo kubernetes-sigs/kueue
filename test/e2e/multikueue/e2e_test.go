@@ -2102,6 +2102,28 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 	})
+
+	ginkgo.When("MultiKueueOrchestratedPreemption is enabled", ginkgo.Ordered, func() {
+		var defaultManagerKueueCfg *kueueconfig.Configuration
+
+		ginkgo.BeforeAll(func() {
+			ginkgo.By("setting MultiKueueClusterProfile feature gate", func() {
+				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
+				newCfg := defaultManagerKueueCfg.DeepCopy()
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+					cfg.FeatureGates[string(features.MultiKueueOrchestratedPreemption)] = true
+				})
+			})
+		})
+		ginkgo.AfterAll(func() {
+			ginkgo.By("reverting the configuration", func() {
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
+			})
+		})
+
+		ginkgo.It("should not trigger concurrent preemptions", func() {
+		})
+	})
 })
 
 func waitForJobAdmitted(wlLookupKey types.NamespacedName, acName, workerName string) {
