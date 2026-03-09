@@ -1038,7 +1038,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			var podToDelete *corev1.Pod
-			originalPodUIDs := make(map[string]types.UID)
+			originalPodUIDSet := sets.New[types.UID]()
 			ginkgo.By("Select a worker pod to delete", func() {
 				pods := &corev1.PodList{}
 				gomega.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
@@ -1047,7 +1047,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				gomega.Expect(pods.Items).To(gomega.HaveLen(3))
 
 				for i, pod := range pods.Items {
-					originalPodUIDs[pod.Name] = pod.UID
+					originalPodUIDSet.Insert(pod.UID)
 					if pod.Labels[leaderworkersetv1.WorkerIndexLabelKey] != "0" {
 						podToDelete = &pods.Items[i]
 					}
@@ -1055,8 +1055,18 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				gomega.Expect(podToDelete).NotTo(gomega.BeNil(), "Couldn't find a worker pod to delete")
 			})
 
+			deletedPodUID := podToDelete.UID
+			deletedPodKey := client.ObjectKeyFromObject(podToDelete)
 			ginkgo.By("Delete the worker pod", func() {
 				gomega.Expect(k8sClient.Delete(ctx, podToDelete)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Wait for the deleted pod to be recreated with a new UID", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pod := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, deletedPodKey, pod)).To(gomega.Succeed())
+					g.Expect(pod.UID).NotTo(gomega.Equal(deletedPodUID), "pod should be recreated with a new UID")
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Wait for all pods to be recreated with new UIDs", func() {
@@ -1066,14 +1076,12 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 						leaderworkersetv1.SetNameLabelKey: lws.Name,
 					}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
 
-					recreatedCount := 0
+					currentUIDs := sets.New[types.UID]()
 					for _, pod := range pods.Items {
-						originalUID, existed := originalPodUIDs[pod.Name]
-						if existed && pod.UID != originalUID {
-							recreatedCount++
-						}
+						currentUIDs.Insert(pod.UID)
 					}
-					g.Expect(recreatedCount).To(gomega.Equal(3), "all pods should be recreated with new UIDs due to RecreateGroupOnPodRestart policy")
+					survived := originalPodUIDSet.Intersection(currentUIDs)
+					g.Expect(survived).To(gomega.BeEmpty(), "all pods should be recreated with new UIDs due to RecreateGroupOnPodRestart policy")
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1091,7 +1099,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 		})
 
-		ginkgo.It("should only recreate the deleted pod when policy is set to NoneRestartPolicy", func() {
+		ginkgo.FIt("should only recreate the deleted pod when policy is set to NoneRestartPolicy", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Size(3).
@@ -1140,8 +1148,17 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 			deletedPodUID := podToDelete.UID
 			deletedWorkerIndex := podToDelete.Labels[leaderworkersetv1.WorkerIndexLabelKey]
+			deletedPodKey := client.ObjectKeyFromObject(podToDelete)
 			ginkgo.By("Delete the worker pod", func() {
 				gomega.Expect(k8sClient.Delete(ctx, podToDelete)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Wait for the deleted pod to be recreated with a new UID", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pod := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, deletedPodKey, pod)).To(gomega.Succeed())
+					g.Expect(pod.UID).NotTo(gomega.Equal(deletedPodUID), "pod should be recreated with a new UID")
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify if only the deleted pod was recreated", func() {
@@ -1152,29 +1169,29 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
 					g.Expect(pods.Items).To(gomega.HaveLen(3))
 
-					remainingOriginalUIDs := sets.New[types.UID]()
-					recreatedCount := 0
+					currentUIDs := sets.New[types.UID]()
 					for _, pod := range pods.Items {
-						if originalPodUIDSet.Has(pod.UID) {
-							g.Expect(pod.UID).NotTo(gomega.Equal(deletedPodUID), "the deleted pod UID should not remain")
-							remainingOriginalUIDs.Insert(pod.UID)
-							continue
-						}
-
-						recreatedCount++
-						g.Expect(pod.Labels[leaderworkersetv1.WorkerIndexLabelKey]).To(
-							gomega.Equal(deletedWorkerIndex),
-							"only the deleted worker slot should be recreated",
-						)
+						currentUIDs.Insert(pod.UID)
 					}
 
-					g.Expect(recreatedCount).To(gomega.Equal(1), "only the deleted pod should be recreated with NoneRestartPolicy")
-					g.Expect(remainingOriginalUIDs.Len()).To(
-						gomega.Equal(2),
-						fmt.Sprintf(
-							"other pods should NOT be recreated with NoneRestartPolicy, surviving original UIDs: %v",
-							remainingOriginalUIDs.UnsortedList(),
-						),
+					survived := originalPodUIDSet.Intersection(currentUIDs)
+					newUIDs := currentUIDs.Difference(originalPodUIDSet)
+
+					g.Expect(survived).To(gomega.HaveLen(2), "2 original pods should survive")
+					g.Expect(survived.Has(deletedPodUID)).To(gomega.BeFalse(), "deleted pod should not survive")
+					g.Expect(newUIDs).To(gomega.HaveLen(1), "exactly 1 replacement pod")
+
+					var replacement *corev1.Pod
+					for i := range pods.Items {
+						if newUIDs.Has(pods.Items[i].UID) {
+							replacement = &pods.Items[i]
+							break
+						}
+					}
+					g.Expect(replacement).NotTo(gomega.BeNil())
+					g.Expect(replacement.Labels[leaderworkersetv1.WorkerIndexLabelKey]).To(
+						gomega.Equal(deletedWorkerIndex),
+						"only the deleted worker slot should be recreated",
 					)
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})

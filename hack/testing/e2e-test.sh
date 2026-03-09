@@ -68,7 +68,11 @@ if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
   exit 0
 fi
 
-# Quote GINKGO_ARGS so values with spaces (e.g. --focus='should ensure the eviction') are not
-# word-split; otherwise fragments get interpreted as packages and cause "flag after package list".
-$GINKGO ${GINKGO_ARGS:+"$GINKGO_ARGS"} --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
+# Echo command to be executed, which is useful for debugging and understanding the test execution flow.
+echo "Running Ginkgo with the following command:"
+echo "$GINKGO ${GINKGO_ARGS:+$GINKGO_ARGS} --junit-report=junit.xml --json-report=e2e.json --output-dir=\"$ARTIFACTS\" -v ./test/e2e/\"${E2E_TARGET_FOLDER}\"/..."
+
+# Pass GINKGO_ARGS unquoted so multiple flags become separate arguments (avoids "invalid value for flag -procs").
+# Note: values with spaces (e.g. --focus='some spec') will need to be passed as a single arg from the caller.
+$GINKGO ${GINKGO_ARGS:+$GINKGO_ARGS} --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
 "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
