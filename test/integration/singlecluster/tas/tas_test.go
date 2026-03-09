@@ -1099,7 +1099,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).To(gomega.Succeed())
 						g.Expect(workload.IsAdmitted(wl2)).To(gomega.BeFalse())
-					}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 			})
 
@@ -1165,7 +1165,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).To(gomega.Succeed())
 						g.Expect(workload.IsAdmitted(wl2)).To(gomega.BeFalse())
-					}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 			})
 
@@ -4360,10 +4360,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 
 					ginkgo.By("Verifying workload stays pending (no quota reservation)")
+					updatedWl := &kueue.Workload{}
 					gomega.Consistently(func(g gomega.Gomega) {
-						var updatedWl kueue.Workload
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-						g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
+						g.Expect(workload.HasQuotaReservation(updatedWl)).To(gomega.BeFalse())
 					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 					ginkgo.By("Verifying no low-priority workloads were evicted")

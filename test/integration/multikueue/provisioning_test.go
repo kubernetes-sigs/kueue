@@ -322,6 +322,9 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 			Namespace: worker2Ns.Name,
 		}
 
+		worker1Wl := &kueue.Workload{}
+		worker2Wl := &kueue.Workload{}
+
 		ginkgo.By("setting quota reservation on manager cluster", func() {
 			admission := utiltestingapi.MakeAdmission(managerCq.Name).
 				PodSets(
@@ -335,7 +338,6 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 
 		ginkgo.By("verifying workloads are created on both worker clusters", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				worker1Wl := &kueue.Workload{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, worker1WlKey, worker1Wl)).To(gomega.Succeed())
 				worker2Wl := &kueue.Workload{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, worker2WlKey, worker2Wl)).To(gomega.Succeed())
@@ -355,7 +357,6 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 
 		ginkgo.By("verifying worker2 workload still exists while worker1 is not admitted", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
-				worker2Wl := &kueue.Workload{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, worker2WlKey, worker2Wl)).To(gomega.Succeed())
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 		})
@@ -380,7 +381,6 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 
 		ginkgo.By("verifying worker1 workload is admitted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				worker1Wl := &kueue.Workload{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, worker1WlKey, worker1Wl)).To(gomega.Succeed())
 				g.Expect(apimeta.IsStatusConditionTrue(worker1Wl.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -388,7 +388,6 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 
 		ginkgo.By("verifying worker2 workload is deleted after worker1 is admitted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				worker2Wl := &kueue.Workload{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, worker2WlKey, worker2Wl)).To(utiltesting.BeNotFoundError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
