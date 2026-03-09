@@ -29,7 +29,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [batch/v1 Job readinessGates discussion](#batchv1-job-readinessgates-discussion)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
-  - [Implementation](#implementation)
+  - [Implementation Overview](#implementation-overview)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -230,11 +230,24 @@ Validation enforces:
   first "/" must follow RFC 3986.
 - Feature gate: `AdmissionGatedBy` (Alpha, default off)
 
-### Implementation
+### Implementation Overview
 
 The Job reconciler copies the `kueue.x-k8s.io/admission-gated-by` annotation to the 
 corresponding Workload object. As long as this annotation is present on the Workload, 
 its `IsAdmissible()` method will return `false`.
+
+For improved observability, Kueue emits events to the Workload object of such a Job:
+
+- `AdmissionGated` when the workload is created with a non-empty `AdmissionGatedBy` annotation.
+- `AdmissionGateCleared` when the workload is updated to remove the `AdmissionGatedBy` annotation.
+
+Additionally, while the admission gate is active, the Workload will have a condition:
+
+```yaml
+type: QuotaReserved
+status: False
+reason: AdmissionGated
+```
 
 ### Test Plan
 
