@@ -39,6 +39,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -334,7 +335,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		ginkgo.By("Checking that the low-priority workload is preempted in the manager cluster", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
-				g.Expect(workload.IsEvicted(managerLowWl)).To(gomega.BeTrue())
+				g.Expect(workloadevict.IsEvicted(managerLowWl)).To(gomega.BeTrue())
 				g.Expect(managerLowWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -467,7 +468,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		ginkgo.By("Checking that the low-priority workload is preempted in the manager cluster", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
-				g.Expect(workload.IsEvicted(managerLowWl)).To(gomega.BeTrue())
+				g.Expect(workloadevict.IsEvicted(managerLowWl)).To(gomega.BeTrue())
 				g.Expect(managerLowWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

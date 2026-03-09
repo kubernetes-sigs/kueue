@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
 const parallelPreemptions = 8
@@ -176,7 +177,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
 		targetKey := types.NamespacedName{Name: target.WorkloadInfo.Obj.Name, Namespace: target.WorkloadInfo.Obj.Namespace}
-		if workload.IsEvicted(target.WorkloadInfo.Obj) {
+		if workloadevict.IsEvicted(target.WorkloadInfo.Obj) {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
 			successfullyPreempted.Add(1)
 			return
@@ -196,13 +197,13 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 
 		message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
-		err := workload.Evict(
+		err := workloadevict.Evict(
 			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "",
-			workload.EvictWithClock(p.clock), workload.EvictWithRoleTracker(p.roleTracker),
-			workload.WithCustomPrepare(func(wl *kueue.Workload) {
+			workloadevict.WithClock(p.clock), workloadevict.WithRoleTracker(p.roleTracker),
+			workloadevict.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),
-			workload.EvictWithLooseOnApply(), workload.EvictWithRetryOnConflictForPatch(),
+			workloadevict.WithLooseOnApply(), workloadevict.WithRetryOnConflictForPatch(),
 		)
 		if err != nil {
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)

@@ -29,6 +29,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
 type candidateIterator struct {
@@ -64,7 +65,7 @@ func WorkloadUsesResources(wl *workload.Info, frsNeedPreemption sets.Set[resourc
 // assume a prefix of the elements has condition WorkloadEvicted = true
 func splitEvicted(workloads []*candidateElem) ([]*candidateElem, []*candidateElem) {
 	firstFalse := sort.Search(len(workloads), func(i int) bool {
-		return !workload.IsEvicted(workloads[i].wl.Obj)
+		return !workloadevict.IsEvicted(workloads[i].wl.Obj)
 	})
 	return workloads[:firstFalse], workloads[firstFalse:]
 }

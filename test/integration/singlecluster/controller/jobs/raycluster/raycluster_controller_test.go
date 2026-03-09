@@ -45,6 +45,7 @@ import (
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -837,7 +838,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			nameBeforeScaleUp := testRayClusterWorkload.Name
 
 			for i := range workloads.Items {
-				if workload.IsFinished(&workloads.Items[i]) {
+				if workloadfinish.IsFinished(&workloads.Items[i]) {
 					g.Expect(workloads.Items[i].Name).Should(gomega.Equal(nameBeforeScaleUp))
 
 					// The original workload had 1 head node, and a single worker group with a single worker
@@ -858,7 +859,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		ginkgo.By("the new workload has the correct podSets count")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(workload.IsAdmitted(testRayClusterWorkload)).Should(gomega.BeTrue())
-			g.Expect(workload.IsFinished(testRayClusterWorkload)).Should(gomega.BeFalse())
+			g.Expect(workloadfinish.IsFinished(testRayClusterWorkload)).Should(gomega.BeFalse())
 
 			g.Expect(testRayClusterWorkload.Spec.PodSets).Should(gomega.HaveLen(2))
 			g.Expect(testRayClusterWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(int32(1)))
