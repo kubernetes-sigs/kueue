@@ -981,6 +981,7 @@ func HasClosedPreemptionGate(w *kueue.Workload) bool {
 	})
 }
 
+// SetPreemptionGateState sets the state of a preemption gate with the given name.
 func SetPreemptionGateState(w *kueue.Workload, gateName string, gateState kueue.GateState, transitionTime metav1.Time) bool {
 	gateIdx := slices.IndexFunc(w.Spec.PreemptionGates, func(gate kueue.PreemptionGate) bool {
 		return gate.Name == gateName

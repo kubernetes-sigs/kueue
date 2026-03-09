@@ -1005,9 +1005,9 @@ func updateDelayedTopologyRequest(local, remote *kueue.Workload) {
 
 func (w *wlReconciler) workloadToOpenPreemptionGate(group *wlGroup) (*kueue.Workload, *remoteClient) {
 	var previousUngateTime *metav1.Time
+	var oldestPreemptionSignalTime *metav1.Time
 	var workloadToUngate *kueue.Workload
 	var remote *remoteClient
-	var oldestPreemptionSignalTime *metav1.Time
 
 	for name, wl := range group.remotes {
 		if wl == nil {
@@ -1035,11 +1035,12 @@ func (w *wlReconciler) workloadToOpenPreemptionGate(group *wlGroup) (*kueue.Work
 		}
 	}
 
-	if previousUngateTime != nil && previousUngateTime.Add(w.singleClusterPreemptionTimeout).After(w.clock.Now()) {
-		return nil, nil
+	// If the timeout elapsed or no workload was ungated yet, return the workload with he oldest signal.
+	if previousUngateTime == nil || previousUngateTime.Add(w.singleClusterPreemptionTimeout).Before(w.clock.Now()) {
+		return workloadToUngate, remote
 	}
 
-	return workloadToUngate, remote
+	return nil, nil
 }
 
 func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *kueue.Workload {
