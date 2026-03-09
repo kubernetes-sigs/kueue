@@ -325,7 +325,8 @@ type lwsWorkloadHandler struct{}
 
 var _ handler.EventHandler = (*lwsWorkloadHandler)(nil)
 
-func (h *lwsWorkloadHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *lwsWorkloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.enqueue(ctx, e.Object, q)
 }
 
 func (h *lwsWorkloadHandler) Update(_ context.Context, _ event.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -335,7 +336,12 @@ func (h *lwsWorkloadHandler) Generic(_ context.Context, _ event.GenericEvent, _ 
 }
 
 func (h *lwsWorkloadHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	wl, ok := e.Object.(*kueue.Workload)
+	h.enqueue(ctx, e.Object, q)
+}
+
+// enqueue is a helper function to add the owning LeaderWorkerSet to the reconcile queue.
+func (h *lwsWorkloadHandler) enqueue(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	wl, ok := obj.(*kueue.Workload)
 	if !ok {
 		return
 	}
