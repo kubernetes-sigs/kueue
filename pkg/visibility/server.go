@@ -62,10 +62,15 @@ var (
 		validatingwebhook.PluginName,
 		mutatingwebhook.PluginName,
 	}
-	certDir = "/visibility"
+	certDir               = "/visibility"
+	visibilityServerFlags string
 )
 
 func init() {
+	flag.StringVar(&visibilityServerFlags, "visibility-server-flags", "",
+		"A space-separated list of flags to pass to the embedded visibility API server. "+
+			"(e.g., '--secure-port=8443 --authentication-kubeconfig=/path/to/kubeconfig'). "+
+			"For a description of the available flags, please see https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/")
 	utilruntime.Must(visibilityv1beta2.AddToScheme(scheme))
 	utilruntime.Must(visibilityv1beta1.AddToScheme(scheme))
 	metav1.AddToGroupVersion(scheme, schema.GroupVersion{Version: "v1"})
@@ -117,12 +122,6 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
 	}
-
-	var visibilityServerFlags string
-	flag.StringVar(&visibilityServerFlags, "visibility-server-flags", "",
-		"A space-separated list of flags to pass to the embedded visibility API server. "+
-			"(e.g., '--secure-port=8443 --authentication-kubeconfig=/path/to/kubeconfig'). "+
-			"For a description of the available flags, please see https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/")
 
 	if visibilityServerFlags != "" {
 		fs := pflag.NewFlagSet("visibility-server", pflag.ContinueOnError)
