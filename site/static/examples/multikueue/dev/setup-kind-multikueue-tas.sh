@@ -23,6 +23,7 @@ KUEUE_VERSION="${KUEUE_VERSION:-${DEFAULT_KUEUE_VERSION}}"
 USE_MAIN_BRANCH="${USE_MAIN_BRANCH:-false}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKER_CLUSTERS="worker1 worker2"
+SERVICE_ACCOUNT="multikueue-sa"
 
 # Parse command line flags
 while [[ $# -gt 0 ]]; do
@@ -127,7 +128,7 @@ done
 echo "[4/5] Creating worker kubeconfigs..."
 for cluster in ${WORKER_CLUSTERS}; do
     # Create ServiceAccount
-    kubectl --context "kind-${cluster}" create sa multikueue-sa -n kueue-system 2>/dev/null || true
+    kubectl --context "kind-${cluster}" create sa ${SERVICE_ACCOUNT} -n kueue-system 2>/dev/null || true
 
     # Create ClusterRole for Jobs
     kubectl --context "kind-${cluster}" create clusterrole multikueue-role \
@@ -141,14 +142,25 @@ for cluster in ${WORKER_CLUSTERS}; do
     # Create ClusterRoleBindings
     kubectl --context "kind-${cluster}" create clusterrolebinding multikueue-crb \
       --clusterrole=multikueue-role \
-      --serviceaccount=kueue-system:multikueue-sa 2>/dev/null || true
+      --serviceaccount=kueue-system:${SERVICE_ACCOUNT} 2>/dev/null || true
 
     kubectl --context "kind-${cluster}" create clusterrolebinding multikueue-crb-status \
       --clusterrole=multikueue-role-status \
-      --serviceaccount=kueue-system:multikueue-sa 2>/dev/null || true
-
-    # Create token
-    TOKEN=$(kubectl --context "kind-${cluster}" create token multikueue-sa -n kueue-system --duration=24h)
+      --serviceaccount=kueue-system:${SERVICE_ACCOUNT} 2>/dev/null || true
+    
+    # Create a secret bound to the new service account
+    kubectl --context "kind-${cluster}" apply -f - <<EOF 
+apiVersion: v1
+kind: Secret
+metadata:
+  name: multikueue-sa-token
+  namespace: kueue-system
+  annotations:
+    kubernetes.io/service-account.name: "${SERVICE_ACCOUNT}"
+type: kubernetes.io/service-account-token
+EOF
+    # Extract token from secret
+    TOKEN=$(kubectl --context "kind-${cluster}" get secret multikueue-sa-token -n kueue-system -o jsonpath='{.data.token}' | base64 --decode)
 
     # Extract the Certificate Authority
     CA_DATA=$(kubectl --context "kind-${cluster}" config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
@@ -165,11 +177,11 @@ clusters:
 contexts:
 - context:
     cluster: ${cluster}
-    user: multikueue-sa
+    user: ${SERVICE_ACCOUNT}
   name: ${cluster}
 current-context: ${cluster}
 users:
-- name: multikueue-sa
+- name: ${SERVICE_ACCOUNT}
   user:
     token: ${TOKEN}
 EOF
