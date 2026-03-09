@@ -40,18 +40,20 @@ import (
 const ControllerName = "kueue-populator"
 
 type KueuePopulatorReconciler struct {
-	client            client.Client
-	log               logr.Logger
-	recorder          record.EventRecorder
-	namespaceSelector labels.Selector
-	localQueueName    string
+	client              client.Client
+	log                 logr.Logger
+	recorder            record.EventRecorder
+	namespaceSelector   labels.Selector
+	localQueueName      string
+	useClusterQueueName bool
 }
 
 var _ reconcile.Reconciler = (*KueuePopulatorReconciler)(nil)
 
 type KueuePopulatorReconcilerOptions struct {
-	NamespaceSelector labels.Selector
-	LocalQueueName    string
+	NamespaceSelector   labels.Selector
+	LocalQueueName      string
+	UseClusterQueueName bool
 }
 
 type KueuePopulatorReconcilerOption func(*KueuePopulatorReconcilerOptions)
@@ -68,6 +70,12 @@ func WithLocalQueueName(name string) KueuePopulatorReconcilerOption {
 	}
 }
 
+func WithUseClusterQueueName(v bool) KueuePopulatorReconcilerOption {
+	return func(o *KueuePopulatorReconcilerOptions) {
+		o.UseClusterQueueName = v
+	}
+}
+
 var defaultPopulatorOptions = KueuePopulatorReconcilerOptions{}
 
 func NewKueuePopulatorReconciler(
@@ -80,11 +88,12 @@ func NewKueuePopulatorReconciler(
 		opt(&options)
 	}
 	return &KueuePopulatorReconciler{
-		client:            client,
-		log:               ctrl.Log.WithName("kueue-populator-reconciler"),
-		recorder:          recorder,
-		namespaceSelector: options.NamespaceSelector,
-		localQueueName:    options.LocalQueueName,
+		client:              client,
+		log:                 ctrl.Log.WithName("kueue-populator-reconciler"),
+		recorder:            recorder,
+		namespaceSelector:   options.NamespaceSelector,
+		localQueueName:      options.LocalQueueName,
+		useClusterQueueName: options.UseClusterQueueName,
 	}
 }
 
@@ -204,9 +213,14 @@ func (r *KueuePopulatorReconciler) mapClusterQueueToNamespaces(ctx context.Conte
 func (r *KueuePopulatorReconciler) ensureLocalQueueExists(ctx context.Context, cq *kueue.ClusterQueue, ns *corev1.Namespace) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	lqName := r.localQueueName
+	if r.useClusterQueueName {
+		lqName = cq.Name
+	}
+
 	targetLQ := types.NamespacedName{
 		Namespace: ns.Name,
-		Name:      r.localQueueName,
+		Name:      lqName,
 	}
 
 	var lq kueue.LocalQueue

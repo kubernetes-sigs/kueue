@@ -29,6 +29,9 @@ type Configuration struct {
 	// LocalQueueName is the name of the LocalQueue to create by default.
 	LocalQueueName string `json:"localQueueName,omitempty"`
 
+	// UseClusterQueueName uses the ClusterQueue name as the LocalQueue name.
+	UseClusterQueueName bool `json:"useClusterQueueName,omitempty"`
+
 	// ManagedJobsNamespaceSelector selects namespaces where the controller creates LocalQueues.
 	// It mimics the behavior of the same flag in Kueue.
 	ManagedJobsNamespaceSelector *metav1.LabelSelector `json:"managedJobsNamespaceSelector,omitempty"`
