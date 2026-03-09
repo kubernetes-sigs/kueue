@@ -691,6 +691,9 @@ const (
 	// due to LocalQueue or ClusterQueue doesn't exist or inactive.
 	WorkloadInadmissible = "Inadmissible"
 
+	// the workload's admission is gated
+	WorkloadAdmissionGated = "AdmissionGated"
+
 	// WorkloadEvictedByPreemption indicates that the workload was evicted
 	// in order to free resources for a workload with a higher priority.
 	WorkloadEvictedByPreemption = "Preempted"
