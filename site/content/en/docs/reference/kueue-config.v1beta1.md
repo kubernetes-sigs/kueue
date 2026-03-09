@@ -449,7 +449,7 @@ The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThan
 it becomes eligible for fair-sharing preemption. A workload whose
 QuotaReserved condition was set less than minAdmitDuration ago is
 skipped as a preemption candidate. When nil, no minimum is enforced.
-If set, must be at least 10 minutes.</p>
+If set, must be at least 1 minute.</p>
 </td>
 </tr>
 </tbody>

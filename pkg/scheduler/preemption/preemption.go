@@ -103,7 +103,7 @@ func New(
 		roleTracker:            tracker,
 		preemptionExpectations: preemptionExpectations,
 	}
-	if fs != nil && fs.MinAdmitDuration != nil {
+	if features.Enabled(features.FairSharingMinAdmitDuration) && fs != nil && fs.MinAdmitDuration != nil {
 		d := fs.MinAdmitDuration.Duration
 		p.minAdmitDuration = &d
 	}
