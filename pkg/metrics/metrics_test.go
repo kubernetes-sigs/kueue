@@ -290,17 +290,24 @@ func TestCohortMetrics(t *testing.T) {
 	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
 
 	ReportCohortSubtreeQuota("cohort", "flavor", "res", 5, leaderTracker)
+	ReportCohortSubtreeBorrowingLimits("cohort", "flavor", "res", 3, leaderTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort", "replica_role", "leader")
+	expectFilteredMetricsCount(t, CohortSubtreeBorrowingLimit, 1, "cohort", "cohort", "replica_role", "leader")
 
 	ReportCohortSubtreeQuota("cohort", "flavor", "res", 3, followerTracker)
+	ReportCohortSubtreeBorrowingLimits("cohort", "flavor", "res", 2, followerTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort", "replica_role", "follower")
+	expectFilteredMetricsCount(t, CohortSubtreeBorrowingLimit, 1, "cohort", "cohort", "replica_role", "follower")
 
 	ReportCohortSubtreeQuota("cohort_two", "flavor", "res", 5, leaderTracker)
+	ReportCohortSubtreeBorrowingLimits("cohort_two", "flavor", "res", 3, leaderTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
+	expectFilteredMetricsCount(t, CohortSubtreeBorrowingLimit, 1, "cohort", "cohort_two", "replica_role", "leader")
 
 	ClearCohortSubtreeQuota("cohort", "", "")
 
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
+	expectFilteredMetricsCount(t, CohortSubtreeBorrowingLimit, 1, "cohort", "cohort_two", "replica_role", "leader")
 
 	ClearCohortSubtreeQuota("cohort_two", "", "")
 }

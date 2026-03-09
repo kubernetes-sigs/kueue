@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -189,10 +190,17 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 	}
 }
 
+func allMetricsForCohort(name string) cqMetrics {
+	return cqMetrics{
+		NominalDPs:   testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, map[string]string{"cohort": name}),
+		BorrowingDPs: testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeBorrowingLimit, map[string]string{"cohort": name}),
+	}
+}
+
 func TestCohortReconcileLifecycle(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cohort := utiltestingapi.MakeCohort("cohort").ResourceGroup(
-		*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+		*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10", "8").Obj(),
 	).Obj()
 	cl := utiltesting.NewClientBuilder().WithObjects(cohort).WithStatusSubresource(&kueue.Cohort{}).Build()
 	cache := schdcache.New(cl)
@@ -225,14 +233,13 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatalf("unexpected quota (-want +got) %s", diff)
 		}
 
-		cnq := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, labels)
-		if cnq == nil {
-			t.Fatal("expected metric value")
+		gotMetrics := allMetricsForCohort(cohort.Name)
+		wantMetrics := cqMetrics{
+			NominalDPs:   []testingmetrics.MetricDataPoint{{Labels: labels, Value: 10_000}},
+			BorrowingDPs: []testingmetrics.MetricDataPoint{{Labels: labels, Value: 8_000}},
 		}
-		wantCNQ := []testingmetrics.MetricDataPoint{
-			{Labels: labels, Value: 10_000},
-		}
-		checkMetricDataPoints(t, cnq, wantCNQ)
+		checkMetricDataPoints(t, gotMetrics.NominalDPs, wantMetrics.NominalDPs)
+		checkMetricDataPoints(t, gotMetrics.BorrowingDPs, wantMetrics.BorrowingDPs)
 	}
 
 	// update
@@ -241,7 +248,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatal("unexpected error")
 		}
 		cohort.Spec.ResourceGroups[0] = utiltestingapi.ResourceGroup(
-			*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5", "4").Obj(),
 		)
 		if err := cl.Update(ctx, cohort); err != nil {
 			t.Fatal("unexpected error updating cohort", err)
@@ -269,14 +276,13 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatalf("unexpected quota (-want +got) %s", diff)
 		}
 
-		cnq := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, labels)
-		if cnq == nil {
-			t.Fatal("expected metric value")
+		gotMetrics := allMetricsForCohort(cohort.Name)
+		wantMetrics := cqMetrics{
+			NominalDPs:   []testingmetrics.MetricDataPoint{{Labels: labels, Value: 5_000}},
+			BorrowingDPs: []testingmetrics.MetricDataPoint{{Labels: labels, Value: 4_000}},
 		}
-		wantCNQ := []testingmetrics.MetricDataPoint{
-			{Labels: labels, Value: 5_000},
-		}
-		checkMetricDataPoints(t, cnq, wantCNQ)
+		checkMetricDataPoints(t, gotMetrics.NominalDPs, wantMetrics.NominalDPs)
+		checkMetricDataPoints(t, gotMetrics.BorrowingDPs, wantMetrics.BorrowingDPs)
 	}
 
 	// delete
@@ -299,16 +305,18 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatal("unexpected Cohort in snapshot")
 		}
 
-		cnq := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, labels)
-		if cnq == nil {
-			t.Fatal("expected metric value")
+		gotMetrics := allMetricsForCohort(cohort.Name)
+		wantMetrics := cqMetrics{
+			NominalDPs:   []testingmetrics.MetricDataPoint{},
+			BorrowingDPs: []testingmetrics.MetricDataPoint{},
 		}
-		wantCNQ := []testingmetrics.MetricDataPoint{}
-		checkMetricDataPoints(t, cnq, wantCNQ)
+		checkMetricDataPoints(t, gotMetrics.NominalDPs, wantMetrics.NominalDPs)
+		checkMetricDataPoints(t, gotMetrics.BorrowingDPs, wantMetrics.BorrowingDPs)
 	}
 }
 
 func checkMetricDataPoints(t *testing.T, got, want []testingmetrics.MetricDataPoint) {
+	t.Helper()
 	if diff := cmp.Diff(want, got, cmpopts.SortSlices(func(a, b testingmetrics.MetricDataPoint) bool { return a.Less(&b) })); diff != "" {
 		t.Fatalf("unexpected metrics (-want +got) %s", diff)
 	}
@@ -404,4 +412,38 @@ func TestCohortReconcilerFilters(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRecordCohortMetrics(t *testing.T) {
+	t.Run("Reports borrowingLimit with zero nominalQuota", func(t *testing.T) {
+		cohort := utiltestingapi.MakeCohort("zero-nominal-positive-borrowing").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").
+					Resource(corev1.ResourceCPU, "0", "5").
+					Obj(),
+			).
+			Obj()
+		labels := map[string]string{"cohort": cohort.Name, "flavor": "red", "resource": "cpu", "replica_role": "standalone"}
+
+		ctx, _ := utiltesting.ContextWithLog(t)
+		cl := utiltesting.NewClientBuilder().WithObjects(cohort).WithStatusSubresource(&kueue.Cohort{}).Build()
+		cache := schdcache.New(cl)
+		qManager := qcache.NewManagerForUnitTests(cl, cache)
+		reconciler := NewCohortReconciler(cl, cache, qManager)
+
+		if _, err := reconciler.Reconcile(
+			ctx,
+			reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)},
+		); err != nil {
+			t.Fatal("unexpected error")
+		}
+
+		gotMetrics := allMetricsForCohort(cohort.Name)
+		wantMetrics := cqMetrics{
+			NominalDPs:   []testingmetrics.MetricDataPoint{},
+			BorrowingDPs: []testingmetrics.MetricDataPoint{{Labels: labels, Value: 5_000}},
+		}
+		checkMetricDataPoints(t, gotMetrics.NominalDPs, wantMetrics.NominalDPs)
+		checkMetricDataPoints(t, gotMetrics.BorrowingDPs, wantMetrics.BorrowingDPs)
+	})
 }

@@ -303,7 +303,18 @@ func ExpectCohortSubtreeQuotaGaugeMetric(cohortName string, flavor, resource str
 	expectGaugeMetric(metric, gomega.Equal(count))
 }
 
+func ExpectCohortBorrowingLimitGaugeMetric(cohortName string, flavor, resource string, count float64) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.CohortSubtreeBorrowingLimit.WithLabelValues(cohortName, flavor, resource, roletracker.RoleStandalone)
+	expectGaugeMetric(metric, gomega.Equal(count))
+}
+
 func ExpectCohortSubtreeQuotaGaugeMetricCleaned(cohortName, flavor, resource string) {
 	ginkgo.GinkgoHelper()
 	ExpectCohortSubtreeQuotaGaugeMetric(cohortName, flavor, resource, 0)
+}
+
+func ExpectCohortBorrowingLimitGaugeMetricCleaned(cohortName, flavor, resource string) {
+	ginkgo.GinkgoHelper()
+	ExpectCohortBorrowingLimitGaugeMetric(cohortName, flavor, resource, 0)
 }
