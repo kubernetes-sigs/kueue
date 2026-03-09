@@ -271,6 +271,10 @@ var (
 	CohortSubtreeQuota *prometheus.GaugeVec
 
 	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortSubtreeBorrowingLimit *prometheus.GaugeVec
+
+	// +metricsdoc:group=cohort
 	// +metricsdoc:labels=cohort="the name of the Cohort",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
 	CohortSubtreeAdmittedWorkloadsTotal *prometheus.CounterVec
 
@@ -883,6 +887,18 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 			Help:      `Reports ClusterQueue hierarchy information. The metric has value 1 and can be joined using labels.`,
 		}, append([]string{"cluster_queue", "parent_cohort", "root_cohort", "replica_role"}, extraLabels...),
 	))
+
+	CohortSubtreeBorrowingLimit = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_subtree_borrowing_limit",
+			Help: `Reports the maximum amount of resources that the Cohort subtree 
+(its child Cohorts and ClusterQueues) can borrow from its parent subtree.
+If borrowingLimit is unset or unlimited, this metric reports +Inf.
+The values are reported per resource and flavor`,
+		}, append([]string{"cohort", "flavor", "resource", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(CohortSubtreeBorrowingLimit, gaugeCleanupScopeCohort)
 }
 
 func init() {
@@ -1156,10 +1172,10 @@ func ReportCohortSubtreeAdmittedWorkload(cohort kueue.CohortReference, priorityC
 func cohortPartialMatchLabels(cohort kueue.CohortReference, flavor, resource string) prometheus.Labels {
 	lbls := prometheus.Labels{"cohort": string(cohort)}
 	if len(flavor) != 0 {
-		lbls["flavor"] = flavor
+		lbls["flavor"] = string(flavor)
 	}
 	if len(resource) != 0 {
-		lbls["resource"] = resource
+		lbls["resource"] = string(resource)
 	}
 	return lbls
 }
@@ -1206,6 +1222,24 @@ func ReportClusterQueueInfo(cqName kueue.ClusterQueueReference, parentCohort, ro
 
 func ClearClusterQueueInfo(cqName kueue.ClusterQueueReference) {
 	ClusterQueueInfo.DeletePartialMatch(prometheus.Labels{"cluster_queue": string(cqName)})
+}
+
+func ReportCohortSubtreeBorrowingLimit(cohort kueue.CohortReference, flavor kueue.ResourceFlavorReference, resource corev1.ResourceName, borrowing float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cohort), string(flavor), string(resource), roletracker.GetRole(tracker)}, customLabelValues...)
+	CohortSubtreeBorrowingLimit.WithLabelValues(labels...).Set(borrowing)
+}
+
+func ClearCohortSubtreeBorrowingLimit(cohort kueue.CohortReference, flavor kueue.ResourceFlavorReference, resource corev1.ResourceName) {
+	lbls := prometheus.Labels{
+		"cohort": string(cohort),
+	}
+	if len(flavor) != 0 {
+		lbls["flavor"] = string(flavor)
+	}
+	if len(resource) != 0 {
+		lbls["resource"] = string(resource)
+	}
+	CohortSubtreeBorrowingLimit.DeletePartialMatch(lbls)
 }
 
 func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1381,6 +1415,7 @@ func Register() {
 		ClusterQueueInfo,
 		CohortInfo,
 		CohortWeightedShare,
+		CohortSubtreeBorrowingLimit,
 		CohortSubtreeQuota,
 		CohortSubtreeAdmittedWorkloadsTotal,
 		CohortSubtreeResourceReservations,

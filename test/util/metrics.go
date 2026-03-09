@@ -355,8 +355,19 @@ func ExpectCohortInfoMetric(cohortName, parentCohort, rootCohort string, count f
 	expectGaugeMetric(metrics.CohortInfo, lvs, gomega.Equal(count))
 }
 
+func ExpectCohortBorrowingLimitGaugeMetric(cohortName string, flavor, resource string, count float64) {
+	ginkgo.GinkgoHelper()
+	lvs := []string{cohortName, flavor, resource, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.CohortSubtreeBorrowingLimit, lvs, gomega.Equal(count))
+}
+
 func ExpectClusterQueueInfoMetric(cqName, parentCohort, rootCohort string, count float64, customLabels ...string) {
 	ginkgo.GinkgoHelper()
 	lvs := append([]string{cqName, parentCohort, rootCohort, roletracker.RoleStandalone}, customLabels...)
 	expectGaugeMetric(metrics.ClusterQueueInfo, lvs, gomega.Equal(count))
+}
+
+func ExpectCohortBorrowingLimitGaugeMetricCleaned(cohortName, flavor, resource string) {
+	ginkgo.GinkgoHelper()
+	ExpectCohortBorrowingLimitGaugeMetric(cohortName, flavor, resource, 0)
 }

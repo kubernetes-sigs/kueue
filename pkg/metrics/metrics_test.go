@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -425,13 +426,19 @@ func TestCohortMetrics(t *testing.T) {
 	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
 
 	ReportCohortSubtreeQuota("cohort", "flavor", "res", 5, nil, leaderTracker)
+	ReportCohortSubtreeBorrowingLimit("cohort", "flavor", "res", 3, nil, leaderTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort", "replica_role", "leader")
+	expectFilteredMetricsCount(t, CohortSubtreeBorrowingLimit, 1, "cohort", "cohort", "replica_role", "leader")
 
 	ReportCohortSubtreeQuota("cohort", "flavor", "res", 3, nil, followerTracker)
+	ReportCohortSubtreeBorrowingLimit("cohort", "flavor", "res", 2, nil, followerTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort", "replica_role", "follower")
+	expectFilteredMetricsCount(t, CohortSubtreeBorrowingLimit, 1, "cohort", "cohort", "replica_role", "follower")
 
 	ReportCohortSubtreeQuota("cohort_two", "flavor", "res", 5, nil, leaderTracker)
+	ReportCohortSubtreeBorrowingLimit("cohort_two", "flavor", "res", 3, nil, leaderTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
+	expectFilteredMetricsCount(t, CohortSubtreeBorrowingLimit, 1, "cohort", "cohort_two", "replica_role", "leader")
 
 	ReportCohortSubtreeResourceReservations("cohort", "flavor", "res", 5, nil, leaderTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 1, "cohort", "cohort", "replica_role", "leader")
@@ -455,6 +462,35 @@ func TestCohortMetrics(t *testing.T) {
 	ClearCohortMetrics("cohort_two")
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 0, "cohort", "cohort_two")
 	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 0, "cohort", "cohort_two")
+}
+
+func TestReportCohortSubtreeBorrowingLimitUnlimited(t *testing.T) {
+	ReportCohortSubtreeBorrowingLimit("cohort-inf", "flavor", "res", math.Inf(1), nil, nil)
+
+	got := metrics.CollectFilteredGaugeVec(CohortSubtreeBorrowingLimit, prometheus.Labels{
+		"cohort":   "cohort-inf",
+		"flavor":   "flavor",
+		"resource": "res",
+	})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 borrowing-limit metric, got %d", len(got))
+	}
+	if !math.IsInf(got[0].Value, 1) {
+		t.Fatalf("expected cohort borrowing-limit metric to be +Inf for unlimited borrowing, got %v", got[0].Value)
+	}
+
+	ClearCohortSubtreeBorrowingLimit("cohort-inf", "", "")
+}
+
+func TestReportCohortSubtreeBorrowingLimitWithCustomLabels(t *testing.T) {
+	InitMetricVectors([]string{"team"})
+	t.Cleanup(func() { InitMetricVectors(nil) })
+
+	ReportCohortSubtreeBorrowingLimit("cohort-labeled", "flavor", "res", 7, []string{"alpha"}, nil)
+
+	expectFilteredMetricsCount(t, CohortSubtreeBorrowingLimit, 1, "cohort", "cohort-labeled", "team", "alpha")
+
+	ClearCohortSubtreeBorrowingLimit("cohort-labeled", "", "")
 }
 
 func TestClearCohortMetricsOnlyClearsScopedGauges(t *testing.T) {
