@@ -400,17 +400,19 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 			continue
 		}
 
+		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
 		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(&w) {
 			if m.draReconcileChannel != nil {
 				m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: &w}
-				log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
 				log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")
 			}
 			continue
 		}
 
 		workload.AdjustResources(ctx, m.client, &w)
-		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
+		wInfo := workload.NewInfo(&w, m.workloadInfoOptions...)
+		wInfo.UpdateSchedulingHash(log)
+		qImpl.AddOrUpdate(wInfo)
 	}
 
 	if cq != nil && cq.AddFromLocalQueue(qImpl, m.roleTracker) {
@@ -532,6 +534,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	}
 	allOptions := append(m.workloadInfoOptions, opts...)
 	wInfo := workload.NewInfo(w, allOptions...)
+	wInfo.UpdateSchedulingHash(log)
 	m.addWorkload(wInfo, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
@@ -818,6 +821,7 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 
 	log := ctrl.LoggerFrom(ctx)
 	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
+	wInfo.UpdateSchedulingHash(log)
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queue(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
