@@ -69,7 +69,7 @@ var (
 func init() {
 	flag.StringVar(&visibilityServerFlags, "visibility-server", "",
 		"A space-separated list of flags to pass to the embedded visibility API server. "+
-			"(e.g., '--secure-port=8443 --authentication-kubeconfig=/path/to/kubeconfig'). "+
+			"(e.g., '--secure-port=8443 --authentication-config=/path/to/kubeconfig'). "+
 			"For a description of the available flags, please see https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/")
 	utilruntime.Must(visibilityv1beta2.AddToScheme(scheme))
 	utilruntime.Must(visibilityv1beta1.AddToScheme(scheme))

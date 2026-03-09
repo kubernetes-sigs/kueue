@@ -74,7 +74,7 @@ You can disable it by setting the `VisibilityOnDemand` feature gate. Check the [
 
 If you disable the feature, you also need to remove the associated `APIService` from your cluster by doing `kubectl delete APIService v1beta2.visibility.kueue.x-k8s.io`.
 
-If you need to pass specific flags to the embedded visibility API server, you can use the `--visibility-server` flag when running the Kueue controller manager. For example: `--visibility-server "--secure-port=8443 --authentication-kubeconfig=/path/to/kubeconfig"`. Note that the paths (e.g., to the kubeconfig) cannot contain whitespaces or be surrounded by single quotes. For a full list of available flags, please see the [kube-apiserver documentation](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/).
+If you need to pass specific flags to the embedded visibility API server, you can use the `--visibility-server` flag when running the Kueue controller manager. For example: `--visibility-server "--secure-port=8443 --authentication-config=/path/to/kubeconfig"`. Note that the paths (e.g., to the kubeconfig) cannot contain whitespaces or be surrounded by single quotes. For a full list of available flags, please see the [kube-apiserver documentation](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/).
 
 {{% /alert %}}
 
