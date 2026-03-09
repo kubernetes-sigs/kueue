@@ -983,9 +983,47 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), match, getCustomPriorityClassFuncFromJob(job)); err != nil {
 			return nil, err
 		}
+		if err := r.updateWorkloadAdmissionGatedBy(ctx, job.Object(), match); err != nil {
+			return nil, err
+		}
 	}
 
 	return match, nil
+}
+
+// Update the workload to match the job's annotation when the AdmissionGatedBy feature is enabled.
+func (r *JobReconciler) updateWorkloadAdmissionGatedBy(ctx context.Context, obj client.Object, wl *kueue.Workload) error {
+	if !features.Enabled(features.AdmissionGatedBy) {
+		return nil
+	}
+
+	jobGateValue := ""
+	if val, exists := obj.GetAnnotations()[constants.AdmissionGatedByAnnotation]; exists {
+		jobGateValue = val
+	}
+
+	wlGateValue := ""
+	if val, exists := wl.Annotations[constants.AdmissionGatedByAnnotation]; exists {
+		wlGateValue = val
+	}
+
+	// Only update if the values differ
+	if jobGateValue != wlGateValue {
+		if wl.Annotations == nil {
+			wl.Annotations = make(map[string]string)
+		}
+		if jobGateValue == "" {
+			delete(wl.Annotations, constants.AdmissionGatedByAnnotation)
+		} else {
+			wl.Annotations[constants.AdmissionGatedByAnnotation] = jobGateValue
+		}
+		if err := r.client.Update(ctx, wl); err != nil {
+			return fmt.Errorf("updating workload admission gate: %w", err)
+		}
+		r.record.Eventf(obj, corev1.EventTypeNormal, ReasonUpdatedWorkload,
+			"Updated workload admission gate: %v", klog.KObj(wl))
+	}
+	return nil
 }
 
 // UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
@@ -1151,6 +1189,9 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
 	wl.Spec = newWl.Spec
+
+	r.updateWorkloadAdmissionGatedBy(ctx, object, wl)
+
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)
 	}

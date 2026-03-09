@@ -462,7 +462,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				"Admission gate cleared, workload is now admissible")
 
 			return ctrl.Result{}, workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-				return apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved), nil
+				// Update the condition to indicate the gate is cleared, rather than removing it
+				return apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Pending",
+					Message: "AdmissionGatedBy cleared, waiting for quota reservation",
+				}), nil
 			})
 		}
 
