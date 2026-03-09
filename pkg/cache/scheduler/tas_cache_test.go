@@ -5752,6 +5752,62 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantReason: `topology "default" doesn't allow to fit; 1/2 slice(s) fit on level cloud.com/topology-rack; 3/4 slice(s) fit on level kubernetes.io/hostname`,
 			}},
 		},
+		"multi-layer topology: enough hostname slices but not enough rack slices": {
+			// block → rack → hostname
+			//            b1
+			//       /    |     \
+			//      r1    r2    r3
+			//      |     |      |
+			//    x1(4) x2(4)  x3(4)
+			enableFeatureGates: []featuregate.Feature{features.TASMultiLayerTopology},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(tasBlockLabel),
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasRackLabel, Size: 6},
+						{Topology: corev1.LabelHostname, Size: 2},
+					},
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count:      12,
+				wantReason: `topology "default" doesn't allow to fit; 0/2 slice(s) fit on level cloud.com/topology-rack; 6/6 slice(s) fit on level kubernetes.io/hostname`,
+			}},
+		},
 		"multi-layer topology: 3-layer negative case with small hosts cascading up": {
 			// datacenter → block → rack → hostname
 			//                         dc1
