@@ -1305,6 +1305,16 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		)
 	}
 
+	// Copy admission gate annotation if feature is enabled
+	if features.Enabled(features.AdmissionGatedBy) {
+		if gateValue, exists := object.GetAnnotations()[constants.AdmissionGatedByAnnotation]; exists {
+			if wl.Annotations == nil {
+				wl.Annotations = make(map[string]string)
+			}
+			wl.Annotations[constants.AdmissionGatedByAnnotation] = gateValue
+		}
+	}
+
 	if err := ctrl.SetControllerReference(object, wl, c.Scheme()); err != nil {
 		return nil, err
 	}

@@ -1233,7 +1233,20 @@ func IsActive(w *kueue.Workload) bool {
 
 // IsAdmissible returns true if the workload can be added to the queue.
 func IsAdmissible(w *kueue.Workload) bool {
+	// Check admission gate first (if feature enabled)
+	if features.Enabled(features.AdmissionGatedBy) && HasAdmissionGate(w) {
+		return false
+	}
 	return !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w)
+}
+
+// HasAdmissionGate returns true if the workload has a non-empty admission gate annotation.
+func HasAdmissionGate(w *kueue.Workload) bool {
+	if w.Annotations == nil {
+		return false
+	}
+	value, exists := w.Annotations[constants.AdmissionGatedByAnnotation]
+	return exists && strings.TrimSpace(value) != ""
 }
 
 // HasActiveQuotaReservation returns true if the workload has an active quota

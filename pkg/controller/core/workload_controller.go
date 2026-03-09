@@ -52,6 +52,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -444,6 +445,41 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.SetRequeuedCondition(wl, kueue.WorkloadLocalQueueRestarted, "The LocalQueue was restarted after being stopped", true), nil
 		}))
+	}
+
+	// Handle admission gate
+	if features.Enabled(features.AdmissionGatedBy) {
+		hasGateNow := workload.HasAdmissionGate(&wl)
+
+		quotaReservedForAdmGateAlready := false
+		// Check whether the workload needs to be un-gated
+		if condition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); condition != nil {
+			quotaReservedForAdmGateAlready = condition.Reason == kueue.WorkloadAdmissionGated
+		}
+
+		if quotaReservedForAdmGateAlready && !hasGateNow {
+			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "AdmissionGateCleared",
+				"Admission gate cleared, workload is now admissible")
+
+			return ctrl.Result{}, workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				return apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved), nil
+			})
+		}
+
+		// This is the first detection of the AdmissionGatedBy annotation
+		if hasGateNow && !quotaReservedForAdmGateAlready {
+			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "AdmissionGated",
+				"Workload admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation])
+
+			return ctrl.Result{}, workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				return apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmissionGated,
+					Message: fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]),
+				}), nil
+			})
+		}
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)

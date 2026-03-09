@@ -301,6 +301,13 @@ const (
 	//
 	// Enable custom metadata labels on Kueue metrics
 	CustomMetricLabels featuregate.Feature = "CustomMetricLabels"
+
+	// owner: @VassilisVassiliadis
+	//
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/6915-scheduling-gated-by-annotation
+	//
+	// Enables gating the admission of workloads based on annotations.
+	AdmissionGatedBy featuregate.Feature = "AdmissionGatedBy"
 )
 
 func init() {
@@ -468,6 +475,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
 	},
 	CustomMetricLabels: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	AdmissionGatedBy: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
