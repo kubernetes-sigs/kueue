@@ -75,7 +75,7 @@ func WithWorkerLostTimeout(d time.Duration) SetupOption {
 }
 
 // WithSingleClusterPreemptionTimeout - sets the duration after which the
-// the controller can ungate the next replica requiring preemptiom, after
+// controller can ungate the next replica requiring preemptiom, after
 // a previous ungating action.
 func WithSingleClusterPreemptionTimeout(d time.Duration) SetupOption {
 	return func(o *SetupOptions) {
