@@ -33,6 +33,7 @@ const Navbar = () => {
         <Button color="inherit" component={Link} to="/cluster-queues">Cluster Queues</Button>
         <Button color="inherit" component={Link} to="/cohorts">Cohorts</Button>
         <Button color="inherit" component={Link} to="/resource-flavors">Resource Flavors</Button>
+        <Button color="inherit" component={Link} to="/topologies">Topologies</Button>
         {authMode !== 'Disabled' && token && (
           <Box sx={{ ml: 'auto' }}>
             <Button color="inherit" onClick={logout}>Logout</Button>

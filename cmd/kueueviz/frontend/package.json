@@ -18,6 +18,7 @@
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.9",
     "@mui/material": "^7.3.1",
+    "@nivo/treemap": "^0.99.0",
     "ace-builds": "^1.43.6",
     "react": "^19.2.4",
     "react-ace": "^14.0.1",

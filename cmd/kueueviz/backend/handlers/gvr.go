@@ -91,3 +91,12 @@ func ResourceFlavorsGVR() schema.GroupVersionResource {
 	}
 	return resourceFlavorsGVR
 }
+
+// TopologiesGVR defines the GroupVersionResource for Topologies
+func TopologiesGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "kueue.x-k8s.io",
+		Version:  "v1beta2",
+		Resource: "topologies",
+	}
+}

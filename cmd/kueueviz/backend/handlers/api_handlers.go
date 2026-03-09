@@ -41,6 +41,7 @@ var resourceGVRMap = map[string]schema.GroupVersionResource{
 	"localqueue":     LocalQueuesGVR(),
 	"resourceflavor": ResourceFlavorsGVR(),
 	"cohort":         CohortsGVR(),
+	"topology":       TopologiesGVR(),
 }
 
 func GetResource(dynamicClient dynamic.Interface) gin.HandlerFunc {

@@ -1,0 +1,161 @@
+---
+# Topology defines the hierarchy of node labels used for Topology Aware Scheduling (TAS).
+# This example models a three-level topology: block -> rack -> host.
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Topology
+metadata:
+  name: "block-rack-topology"
+spec:
+  levels:
+  - nodeLabel: "cloud.provider.com/topology-block"
+  - nodeLabel: "cloud.provider.com/topology-rack"
+  - nodeLabel: "kubernetes.io/hostname"
+
+---
+# A ResourceFlavor that references the topology above.
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: "tas-flavor"
+spec:
+  nodeLabels:
+    node.kubernetes.io/instance-type: tas-node
+  topologyName: "block-rack-topology"
+
+---
+# Fake nodes to demonstrate Treemap visualization.
+# block-1/rack-1: 3 nodes (dense)
+apiVersion: v1
+kind: Node
+metadata:
+  name: "fake-node-b1-r1-h1"
+  labels:
+    node.kubernetes.io/instance-type: tas-node
+    cloud.provider.com/topology-block: block-1
+    cloud.provider.com/topology-rack: rack-1
+    kubernetes.io/hostname: fake-node-b1-r1-h1
+spec: {}
+
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: "fake-node-b1-r1-h2"
+  labels:
+    node.kubernetes.io/instance-type: tas-node
+    cloud.provider.com/topology-block: block-1
+    cloud.provider.com/topology-rack: rack-1
+    kubernetes.io/hostname: fake-node-b1-r1-h2
+spec: {}
+
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: "fake-node-b1-r1-h3"
+  labels:
+    node.kubernetes.io/instance-type: tas-node
+    cloud.provider.com/topology-block: block-1
+    cloud.provider.com/topology-rack: rack-1
+    kubernetes.io/hostname: fake-node-b1-r1-h3
+spec: {}
+
+---
+# block-1/rack-2: 2 nodes
+apiVersion: v1
+kind: Node
+metadata:
+  name: "fake-node-b1-r2-h1"
+  labels:
+    node.kubernetes.io/instance-type: tas-node
+    cloud.provider.com/topology-block: block-1
+    cloud.provider.com/topology-rack: rack-2
+    kubernetes.io/hostname: fake-node-b1-r2-h1
+spec: {}
+
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: "fake-node-b1-r2-h2"
+  labels:
+    node.kubernetes.io/instance-type: tas-node
+    cloud.provider.com/topology-block: block-1
+    cloud.provider.com/topology-rack: rack-2
+    kubernetes.io/hostname: fake-node-b1-r2-h2
+spec: {}
+
+---
+# block-2/rack-1: 2 nodes
+apiVersion: v1
+kind: Node
+metadata:
+  name: "fake-node-b2-r1-h1"
+  labels:
+    node.kubernetes.io/instance-type: tas-node
+    cloud.provider.com/topology-block: block-2
+    cloud.provider.com/topology-rack: rack-1
+    kubernetes.io/hostname: fake-node-b2-r1-h1
+spec: {}
+
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: "fake-node-b2-r1-h2"
+  labels:
+    node.kubernetes.io/instance-type: tas-node
+    cloud.provider.com/topology-block: block-2
+    cloud.provider.com/topology-rack: rack-1
+    kubernetes.io/hostname: fake-node-b2-r1-h2
+spec: {}
+
+---
+# block-2/rack-2: 1 node (sparse — shows imbalance)
+apiVersion: v1
+kind: Node
+metadata:
+  name: "fake-node-b2-r2-h1"
+  labels:
+    node.kubernetes.io/instance-type: tas-node
+    cloud.provider.com/topology-block: block-2
+    cloud.provider.com/topology-rack: rack-2
+    kubernetes.io/hostname: fake-node-b2-r2-h1
+spec: {}
+
+---
+# block-2/rack-3: 3 nodes (shows third rack only in block-2)
+apiVersion: v1
+kind: Node
+metadata:
+  name: "fake-node-b2-r3-h1"
+  labels:
+    node.kubernetes.io/instance-type: tas-node
+    cloud.provider.com/topology-block: block-2
+    cloud.provider.com/topology-rack: rack-3
+    kubernetes.io/hostname: fake-node-b2-r3-h1
+spec: {}
+
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: "fake-node-b2-r3-h2"
+  labels:
+    node.kubernetes.io/instance-type: tas-node
+    cloud.provider.com/topology-block: block-2
+    cloud.provider.com/topology-rack: rack-3
+    kubernetes.io/hostname: fake-node-b2-r3-h2
+spec: {}
+
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: "fake-node-b2-r3-h3"
+  labels:
+    node.kubernetes.io/instance-type: tas-node
+    cloud.provider.com/topology-block: block-2
+    cloud.provider.com/topology-rack: rack-3
+    kubernetes.io/hostname: fake-node-b2-r3-h3
+spec: {}

@@ -127,6 +127,9 @@ func (h *Handlers) fetchResourceFlavorDetails(ctx context.Context, flavorName st
 		"tolerations": flavor.Spec.Tolerations,
 		"taints":      flavor.Spec.NodeTaints,
 	}
+	if flavor.Spec.TopologyName != nil {
+		details["topologyName"] = string(*flavor.Spec.TopologyName)
+	}
 
 	// Construct the result
 	result := map[string]any{

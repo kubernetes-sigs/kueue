@@ -27,6 +27,8 @@ import Login from './Login';
 import Navbar from './Navbar';
 import ResourceFlavorDetail from './ResourceFlavorDetail';
 import ResourceFlavors from './ResourceFlavors';
+import TopologyDetail from './TopologyDetail';
+import Topologies from './Topologies';
 import WorkloadDetail from './WorkloadDetail';
 import Workloads from './Workloads';
 import ClusterQueueDetail from './ClusterQueueDetail';
@@ -44,12 +46,14 @@ const App = () => {
           <Route path="/cluster-queues" element={<RequireAuth><ClusterQueues /></RequireAuth>} />
           <Route path="/resource-flavors" element={<RequireAuth><ResourceFlavors /></RequireAuth>} />
           <Route path="/cohorts" element={<RequireAuth><Cohorts /></RequireAuth>} />
+          <Route path="/topologies" element={<RequireAuth><Topologies /></RequireAuth>} />
 
           <Route path="/workload/:namespace/:workloadName" element={<RequireAuth><WorkloadDetail /></RequireAuth>} />
           <Route path="/local-queue/:namespace/:queueName" element={<RequireAuth><LocalQueueDetail /></RequireAuth>} />
           <Route path="/cluster-queue/:clusterQueueName" element={<RequireAuth><ClusterQueueDetail /></RequireAuth>} />
           <Route path="/resource-flavor/:flavorName" element={<RequireAuth><ResourceFlavorDetail /></RequireAuth>} />
           <Route path="/cohort/:cohortName" element={<RequireAuth><CohortDetail /></RequireAuth>} />
+          <Route path="/topology/:topologyName" element={<RequireAuth><TopologyDetail /></RequireAuth>} />
         </Routes>
       </AuthProvider>
     </Router>
