@@ -168,7 +168,7 @@ func TestPodsReady(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := tc.job.PodsReady(ctx)
+			got := tc.job.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -314,7 +314,7 @@ func TestPodSetsInfo(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			origSpec := *tc.job.Spec.DeepCopy()
 
-			gotErr := tc.job.RunWithPodSetsInfo(ctx, tc.runInfo)
+			gotErr := tc.job.RunWithPodSetsInfo(ctx, nil, tc.runInfo)
 
 			if diff := cmp.Diff(tc.wantRunError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
@@ -510,7 +510,7 @@ func TestPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.job.PodSets(ctx)
+			gotPodSets, err := tc.job.PodSets(ctx, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

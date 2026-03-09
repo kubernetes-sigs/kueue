@@ -40,8 +40,8 @@ type PodSetReplicaSize struct {
 
 // JobPodSets retrieves the pod sets from a GenericJob and applies environment variable
 // deduplication.
-func JobPodSets(ctx context.Context, job GenericJob) ([]kueue.PodSet, error) {
-	podSets, err := job.PodSets(ctx)
+func JobPodSets(ctx context.Context, job GenericJob, c client.Client) ([]kueue.PodSet, error) {
+	podSets, err := job.PodSets(ctx, c)
 	if err != nil {
 		return nil, err
 	}

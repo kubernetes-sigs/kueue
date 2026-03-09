@@ -96,7 +96,7 @@ func (j *SparkApplication) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", sparkcommon.LabelSparkAppName, j.Name)
 }
 
-func (j *SparkApplication) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	// driver and executor
 	podSets := make([]kueue.PodSet, 2)
 
@@ -149,7 +149,7 @@ func (j *SparkApplication) PodSets(ctx context.Context) ([]kueue.PodSet, error) 
 	return podSets, nil
 }
 
-func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := 2 // driver + executor
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
@@ -298,7 +298,7 @@ func (j *SparkApplication) Finished(ctx context.Context) (message string, succes
 			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailedSubmission
 }
 
-func (j *SparkApplication) PodsReady(ctx context.Context) bool {
+func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool {
 	return j.Status.AppState.State == sparkv1beta2.ApplicationStateRunning
 }
 

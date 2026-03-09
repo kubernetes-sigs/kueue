@@ -45,7 +45,7 @@ type GenericJob interface {
 	// Suspend will suspend the job.
 	Suspend()
 	// RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-	RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error
+	RunWithPodSetsInfo(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo) error
 	// RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
 	// Returns whether any change was done.
 	RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool
@@ -54,11 +54,11 @@ type GenericJob interface {
 	// Observed generation of the workload is set by the jobframework.
 	Finished(ctx context.Context) (message string, success, finished bool)
 	// PodSets will build workload podSets corresponding to the job.
-	PodSets(ctx context.Context) ([]kueue.PodSet, error)
+	PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error)
 	// IsActive returns true if there are any running pods.
 	IsActive() bool
 	// PodsReady instructs whether job derived pods are all ready now.
-	PodsReady(ctx context.Context) bool
+	PodsReady(ctx context.Context, c client.Client) bool
 	// GVK returns GVK (Group Version Kind) for the job.
 	GVK() schema.GroupVersionKind
 }
@@ -73,7 +73,7 @@ type JobWithPodLabelSelector interface {
 
 type JobWithReclaimablePods interface {
 	// ReclaimablePods returns the list of reclaimable pods.
-	ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error)
+	ReclaimablePods(ctx context.Context, c client.Client) ([]kueue.ReclaimablePod, error)
 }
 
 type StopReason string
