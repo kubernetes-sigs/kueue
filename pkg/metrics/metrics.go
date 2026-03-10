@@ -301,6 +301,17 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"cluster_queue", "priority_class", "replica_role"},
 	)
 
+	// +metricsdoc:group=optional_wait_for_pods_ready
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
+	PodsReadyWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "pods_ready_workloads",
+			Help: `The number of admitted Workloads with PodsReady=True condition, per 'cluster_queue'.
+Only updated when the WaitForPodsReady feature is enabled.`,
+		}, []string{"cluster_queue", "replica_role"},
+	)
+
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueueAdmissionWaitTime = prometheus.NewHistogramVec(
@@ -354,6 +365,17 @@ The label 'underlying_cause' can have the following values:
 			Help:      "The time between a workload was admitted until ready, per 'local_queue'",
 			Buckets:   generateExponentialBuckets(14),
 		}, []string{"name", "namespace", "priority_class", "replica_role"},
+	)
+
+	// +metricsdoc:group=optional_wait_for_pods_ready
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueuePodsReadyWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_pods_ready_workloads",
+			Help: `The number of admitted Workloads with PodsReady=True condition, per 'local_queue'.
+Only updated when the WaitForPodsReady feature is enabled.`,
+		}, []string{"name", "namespace", "replica_role"},
 	)
 
 	// +metricsdoc:group=clusterqueue
@@ -718,6 +740,34 @@ func ReportLocalQueueAdmittedUntilReadyWaitTime(lq LocalQueueReference, priority
 	LocalQueueAdmittedUntilReadyWaitTime.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)).Observe(waitTime.Seconds())
 }
 
+// IncrementPodsReadyWorkloads bumps the PodsReady workloads gauge by 1
+// for the given ClusterQueue. Call this when a workload's PodsReady condition transitions from False to True.
+func IncrementPodsReadyWorkloads(cqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker) {
+	PodsReadyWorkloads.WithLabelValues(string(cqName), roletracker.GetRole(tracker)).Inc()
+}
+
+// IncrementLocalQueuePodsReadyWorkloads bumps the PodsReady workloads gauge by 1 for the given LocalQueue. Call this when a workload's PodsReady
+// condition transitions from False to True.
+func IncrementLocalQueuePodsReadyWorkloads(lq LocalQueueReference, tracker *roletracker.RoleTracker) {
+	LocalQueuePodsReadyWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)).Inc()
+}
+
+// DecrementPodsReadyWorkloads decreases the PodsReady workloads gauge by 1 or the given ClusterQueue. Call this when:
+// - PodsReady transitions from True to False
+// - A workload finishes while PodsReady=True
+// - A workload is evicted while PodsReady=True
+func DecrementPodsReadyWorkloads(cqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker) {
+	PodsReadyWorkloads.WithLabelValues(string(cqName), roletracker.GetRole(tracker)).Dec()
+}
+
+// DecrementLocalQueuePodsReadyWorkloads decreases the PodsReady workloads gauge by 1 for the given LocalQueue. Call this when:
+// - PodsReady transitions from True to False
+// - A workload finishes while PodsReady=True
+// - A workload is evicted while PodsReady=True
+func DecrementLocalQueuePodsReadyWorkloads(lq LocalQueueReference, tracker *roletracker.RoleTracker) {
+	LocalQueuePodsReadyWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)).Dec()
+}
+
 func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmissible int, tracker *roletracker.RoleTracker) {
 	role := roletracker.GetRole(tracker)
 	PendingWorkloads.WithLabelValues(string(cqName), PendingStatusActive, role).Set(float64(active))
@@ -771,6 +821,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	AdmissionChecksWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QueuedUntilReadyWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmittedUntilReadyWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	PodsReadyWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	EvictedWorkloadsOnceTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
@@ -787,6 +838,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueAdmissionChecksWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueQueuedUntilReadyWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueAdmittedUntilReadyWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
+	LocalQueuePodsReadyWorkloads.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 }
 
@@ -822,12 +874,14 @@ func ReportLocalQueueStatus(lq LocalQueueReference, conditionStatus metav1.Condi
 func ClearCacheMetrics(cqName string) {
 	ReservingActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	PodsReadyWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	ClusterQueueByStatus.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
 func ClearLocalQueueCacheMetrics(lq LocalQueueReference) {
 	LocalQueueReservingActiveWorkloads.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
+	LocalQueuePodsReadyWorkloads.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueByStatus.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 }
 
@@ -962,6 +1016,7 @@ func Register() {
 		AdmissionChecksWaitTime,
 		QueuedUntilReadyWaitTime,
 		AdmittedUntilReadyWaitTime,
+		PodsReadyWorkloads,
 		ClusterQueueResourceUsage,
 		ClusterQueueByStatus,
 		ClusterQueueResourceReservations,
@@ -991,6 +1046,7 @@ func RegisterLQMetrics() {
 		LocalQueueAdmissionChecksWaitTime,
 		LocalQueueQueuedUntilReadyWaitTime,
 		LocalQueueAdmittedUntilReadyWaitTime,
+		LocalQueuePodsReadyWorkloads,
 		LocalQueueEvictedWorkloadsTotal,
 		LocalQueueByStatus,
 		LocalQueueResourceReservations,
