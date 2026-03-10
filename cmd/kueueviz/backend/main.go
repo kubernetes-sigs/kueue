@@ -28,6 +28,7 @@ import (
 	"github.com/go-logr/logr"
 	"kueueviz/config"
 	"kueueviz/handlers"
+	"kueueviz/middleware"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -42,13 +43,13 @@ func main() {
 	config.SetupPprof()
 
 	// Create Kubernetes client
-	dynamicClient, manager, err := createK8sClient(ctx)
+	dynamicClient, manager, clientset, err := createK8sClient(ctx)
 	if err != nil {
 		slog.Error("Error creating Kubernetes client", "error", err)
 		os.Exit(1)
 	}
 
-	// Setup Gin engine with middleware
+	// Setup Gin engine with base middleware (logger, recovery, CORS)
 	r, err := config.SetupGinEngine()
 	if err != nil {
 		slog.Error("Error setting up Gin engine", "error", err)
@@ -62,9 +63,18 @@ func main() {
 
 	h := handlers.New(handlers.NewClientFromManager(manager))
 
-	// Initialize routes
-	h.InitializeWebSocketRoutes(r)
-	h.InitializeAPIRoutes(r, dynamicClient)
+	publicRoutes := r.Group("/")
+	handlers.InitializeUnauthenticatedRoutes(publicRoutes, serverConfig.AuthMode)
+
+	protectedRoutes := r.Group("/")
+	if serverConfig.AuthMode == "TokenReview" {
+		slog.Info("Authentication enabled", "mode", serverConfig.AuthMode)
+		auth := middleware.NewAuthenticator(clientset, serverConfig.AuthConfig)
+		protectedRoutes.Use(auth.Middleware())
+	}
+
+	h.InitializeWebSocketRoutes(protectedRoutes)
+	h.InitializeAPIRoutes(protectedRoutes, dynamicClient)
 
 	// Set up controller-runtime logging with slog
 	ctrllog.SetLogger(logr.FromSlogHandler(slog.Default().Handler()))
@@ -93,6 +103,7 @@ func main() {
 	// Shutdown the server gracefully
 	if err := srv.Shutdown(context.Background()); err != nil {
 		slog.Error("Server forced to shutdown", "error", err)
+		cancel()
 		os.Exit(1)
 	}
 }

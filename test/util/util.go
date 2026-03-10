@@ -47,6 +47,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -987,6 +988,13 @@ func MustCreate(ctx context.Context, c client.Client, obj client.Object) {
 	gomega.Expect(c.Create(ctx, obj)).Should(gomega.Succeed())
 }
 
+func MustCreateWithRetry(ctx context.Context, c client.Client, obj client.Object) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(client.IgnoreAlreadyExists(c.Create(ctx, obj))).ToNot(gomega.HaveOccurred())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func CreateClusterQueuesAndWaitForActive(ctx context.Context, c client.Client, cqs ...*kueue.ClusterQueue) {
 	ginkgo.GinkgoHelper()
 	for _, cq := range cqs {
@@ -1191,4 +1199,9 @@ func IsLoggedEntryAConcurrentModification(le observer.LoggedEntry) bool {
 	errorDetals := le.ContextMap()["error"].(string)
 	expectedConcurrentModiciationDetails := "the object has been modified; please apply your changes to the latest version and try again"
 	return strings.Contains(errorDetals, expectedConcurrentModiciationDetails)
+}
+
+func ResourceQtyToFloat64(quantityStr string) float64 {
+	q := resource.MustParse(quantityStr)
+	return q.AsApproximateFloat64()
 }

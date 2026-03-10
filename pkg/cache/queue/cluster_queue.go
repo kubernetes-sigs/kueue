@@ -99,6 +99,10 @@ type ClusterQueue struct {
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads inadmissibleWorkloads
 
+	// noFitSchedulingHashes tracks scheduling equivalence classes that received NoFit.
+	// Cleared when queueInadmissibleWorkloads runs.
+	noFitSchedulingHashes sets.Set[string]
+
 	finishedWorkloads sets.Set[workload.Reference]
 
 	// popCycle identifies the last call to Pop. It's incremented when calling Pop.
@@ -201,6 +205,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:     make(inadmissibleWorkloads),
+		noFitSchedulingHashes:     sets.New[string](),
 		finishedWorkloads:         sets.New[workload.Reference](),
 		queueInadmissibleCycle:    -1,
 		compareFunc:               compareFunc,
@@ -258,10 +263,12 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		return
 	}
 	if oldInfo := c.inadmissibleWorkloads.get(key); oldInfo != nil {
-		// update in place if the workload was inadmissible and didn't change
-		// to potentially become admissible, unless the Eviction status changed
-		// which can affect the workloads order in the queue.
-		if equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
+		specChangedSinceEval := oldInfo.LastEvaluatedGeneration != 0 &&
+			wInfo.Obj.Generation != oldInfo.LastEvaluatedGeneration
+
+		// Update in place if the workload didn't change to potentially become admissible.
+		if !specChangedSinceEval &&
+			equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, wInfo.Obj.Status.ReclaimablePods) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) &&
@@ -274,6 +281,12 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		c.inadmissibleWorkloads.delete(key)
 	}
 	if c.heap.GetByKey(key) == nil && !c.backoffWaitingTimeExpired(wInfo) {
+		c.inadmissibleWorkloads.insert(key, wInfo)
+		return
+	}
+	// Skip to inadmissible if the workload's equivalence class is already known to be NoFit
+	// (only for BestEffortFIFO; StrictFIFO preserves strict ordering).
+	if c.queueingStrategy == kueue.BestEffortFIFO && c.heap.GetByKey(key) == nil && wInfo.SchedulingHash != workload.SchedulingHashUnknown && c.noFitSchedulingHashes.Has(wInfo.SchedulingHash) {
 		c.inadmissibleWorkloads.insert(key, wInfo)
 		return
 	}
@@ -387,6 +400,29 @@ func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 	}
 }
 
+// handleInadmissibleHash bulk-moves all heap workloads matching the given
+// scheduling hash to inadmissibleWorkloads. Returns the number moved.
+// Only applies to BestEffortFIFO queues; in StrictFIFO the head workload
+// stays in the heap and must not cause equivalent workloads to be skipped.
+func (c *ClusterQueue) handleInadmissibleHash(hash string) int {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
+	if c.queueingStrategy != kueue.BestEffortFIFO {
+		return 0
+	}
+	c.noFitSchedulingHashes.Insert(hash)
+	moved := 0
+	for _, wInfo := range c.heap.List() {
+		if wInfo.SchedulingHash == hash {
+			key := workloadKey(wInfo)
+			c.heap.Delete(key)
+			c.inadmissibleWorkloads.insert(key, wInfo)
+			moved++
+		}
+	}
+	return moved
+}
+
 // PendingTotal returns the total number of pending workloads.
 func (c *ClusterQueue) PendingTotal() int {
 	active, inadmissible := c.Pending()
@@ -468,6 +504,7 @@ func (c *ClusterQueue) Pop() *workload.Info {
 		return nil
 	}
 	c.inflight = c.heap.Pop()
+	c.inflight.LastEvaluatedGeneration = c.inflight.Obj.Generation
 	return c.inflight
 }
 
@@ -562,12 +599,10 @@ func (c *ClusterQueue) Active() bool {
 }
 
 // RequeueIfNotPresent inserts a workload that was not
-// admitted back into the ClusterQueue. If the boolean is true,
-// the workloads should be put back in the queue immediately,
-// because we couldn't determine if the workload was admissible
-// in the last cycle. If the boolean is false, the implementation might
-// choose to keep it in temporary placeholder stage where it doesn't
-// compete with other workloads, until cluster events free up quota.
+// admitted back into the ClusterQueue.
+// This may be done either "immediately" or "non-immediately";
+// in the latter case the implementation may choose to keep the workload in "inadmissible workloads"
+// where it doesn't compete with other workloads, until cluster events free up quota.
 // The workload should not be reinserted if it's already in the ClusterQueue.
 // Returns true if the workload was inserted.
 func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason) bool {
@@ -582,13 +617,15 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 		c.sw.set(workload.Key(wInfo.Obj))
 	}
 
+	var immediate bool
 	if c.queueingStrategy == kueue.StrictFIFO {
-		return c.requeueIfNotPresent(log, wInfo, reason != RequeueReasonNamespaceMismatch)
-	}
-	return c.requeueIfNotPresent(log, wInfo,
-		reason == RequeueReasonFailedAfterNomination ||
+		immediate = reason != RequeueReasonNamespaceMismatch
+	} else {
+		immediate = reason == RequeueReasonFailedAfterNomination ||
 			reason == RequeueReasonPendingPreemption ||
-			reason == RequeueReasonPreemptionFailed)
+			reason == RequeueReasonPreemptionFailed
+	}
+	return c.requeueIfNotPresent(log, wInfo, immediate)
 }
 
 // queueOrderingFunc returns a comparison function used to sort workloads.

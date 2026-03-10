@@ -53,9 +53,19 @@ spec:
       {{- end }}
       containers:
         - name: backend
-          {{- with .Values.kueueViz.backend.env }}
+          {{- $authEnv := list }}
+          {{- if eq .Values.kueueViz.backend.auth.mode "TokenReview" }}
+          {{- $authEnv = append $authEnv (dict "name" "KUEUEVIZ_AUTH_MODE" "value" "TokenReview") }}
+          {{- with .Values.kueueViz.backend.auth.tokenReviewConfig.audiences }}
+          {{- $authEnv = append $authEnv (dict "name" "KUEUEVIZ_AUTH_TOKEN_REVIEW_AUDIENCES" "value" .) }}
+          {{- end }}
+          {{- $authEnv = append $authEnv (dict "name" "KUEUEVIZ_AUTH_TOKEN_REVIEW_CACHE_TTL" "value" (.Values.kueueViz.backend.auth.tokenReviewConfig.cacheTTL | default "60s")) }}
+          {{- $authEnv = append $authEnv (dict "name" "KUEUEVIZ_AUTH_TOKEN_REVIEW_NEGATIVE_CACHE_TTL" "value" (.Values.kueueViz.backend.auth.tokenReviewConfig.negativeCacheTTL | default "5s")) }}
+          {{- end }}
+          {{- $allEnv := concat (.Values.kueueViz.backend.env | default list) $authEnv }}
+          {{- if $allEnv }}
           env:
-            {{- toYaml . | nindent 12 }}
+            {{- toYaml $allEnv | nindent 12 }}
           {{- end }}
           image: '{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}'
           imagePullPolicy: '{{ .Values.kueueViz.backend.image.pullPolicy }}'

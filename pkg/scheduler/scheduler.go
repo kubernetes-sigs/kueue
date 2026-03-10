@@ -270,6 +270,12 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 		if mode == flavorassigner.NoFit {
 			log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
+			if features.Enabled(features.SchedulingEquivalenceHashing) && e.SchedulingHash != workload.SchedulingHashUnknown {
+				if moved := s.queues.HandleInadmissibleHash(e.ClusterQueue, e.SchedulingHash); moved > 0 {
+					log.V(2).Info("Bulk-moved equivalent workloads to inadmissible",
+						"hash", e.SchedulingHash, "movedCount", moved)
+				}
+			}
 			continue
 		}
 
@@ -491,7 +497,7 @@ func resourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) workload.U
 func netUsage(e *entry, netQuota resources.FlavorResourceQuantities) workload.Usage {
 	result := workload.Usage{}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		result.TAS = e.assignment.ComputeTASNetUsage(e.Obj.Status.Admission)
+		result.TAS = e.assignment.ComputeTASNetUsage(e.clusterQueueSnapshot, e.Obj.Status.Admission)
 	}
 	if !workload.HasQuotaReservation(e.Obj) {
 		result.Quota = netQuota
@@ -632,13 +638,14 @@ func updateAssignmentForTAS(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQ
 			// assuming the cluster is empty.
 			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, schdcache.WithSimulateEmpty(true))
 		}
-		assignment.UpdateForTASResult(tasResult)
+		assignment.UpdateForTASResult(cq, tasResult)
 	}
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
+// Note: this does not necessarily make the workload "admitted".
 func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQueueSnapshot) error {
 	log := ctrl.LoggerFrom(ctx)
 	admission := &kueue.Admission{

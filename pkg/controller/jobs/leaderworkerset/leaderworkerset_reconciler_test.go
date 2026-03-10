@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -63,7 +62,7 @@ func TestReconciler(t *testing.T) {
 		leaderWorkerSet         *leaderworkersetv1.LeaderWorkerSet
 		workloads               []kueue.Workload
 		workloadPriorityClasses []kueue.WorkloadPriorityClass
-		wantLeaderWorkerSet     *leaderworkersetv1.LeaderWorkerSet
+		wantLeaderWorkerSets    []leaderworkersetv1.LeaderWorkerSet
 		wantWorkloads           []kueue.Workload
 		wantEvents              []utiltesting.EventRecord
 		wantErr                 error
@@ -72,8 +71,10 @@ func TestReconciler(t *testing.T) {
 			features: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
-			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
-			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
+			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
@@ -118,17 +119,19 @@ func TestReconciler(t *testing.T) {
 					},
 				}).
 				Obj(),
-			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
-				UID(testUID).
-				Size(3).
-				LeaderTemplate(corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testUID).
+					Size(3).
+					LeaderTemplate(corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "c", Image: "pause"},
+							},
 						},
-					},
-				}).
-				Obj(),
+					}).
+					Obj(),
+			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
@@ -179,18 +182,20 @@ func TestReconciler(t *testing.T) {
 					},
 				}).
 				Obj(),
-			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
-				UID(testUID).
-				Replicas(2).
-				Size(3).
-				LeaderTemplate(corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testUID).
+					Replicas(2).
+					Size(3).
+					LeaderTemplate(corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "c", Image: "pause"},
+							},
 						},
-					},
-				}).
-				Obj(),
+					}).
+					Obj(),
+			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
@@ -283,34 +288,36 @@ func TestReconciler(t *testing.T) {
 					},
 				}).
 				Obj(),
-			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
-				UID(testUID).
-				Size(3).
-				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testUID).
+					Size(3).
+					LeaderTemplate(corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							},
 						},
-					},
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "c", Image: "pause"},
+							},
 						},
-					},
-				}).
-				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					}).
+					WorkerTemplate(corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							},
 						},
-					},
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "c", Image: "pause"},
+							},
 						},
-					},
-				}).
-				Obj(),
+					}).
+					Obj(),
+			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
@@ -380,34 +387,36 @@ func TestReconciler(t *testing.T) {
 					},
 				}).
 				Obj(),
-			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
-				UID(testUID).
-				Size(3).
-				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testUID).
+					Size(3).
+					LeaderTemplate(corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							},
 						},
-					},
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "c", Image: "pause"},
+							},
 						},
-					},
-				}).
-				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					}).
+					WorkerTemplate(corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							},
 						},
-					},
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "c", Image: "pause"},
+							},
 						},
-					},
-				}).
-				Obj(),
+					}).
+					Obj(),
+			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
@@ -453,10 +462,12 @@ func TestReconciler(t *testing.T) {
 			workloadPriorityClasses: []kueue.WorkloadPriorityClass{
 				*utiltestingapi.MakeWorkloadPriorityClass("high-priority").PriorityValue(5000).Obj(),
 			},
-			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
-				WorkloadPriorityClass("high-priority").
-				UID(testUID).
-				Obj(),
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					WorkloadPriorityClass("high-priority").
+					UID(testUID).
+					Obj(),
+			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
@@ -505,14 +516,14 @@ func TestReconciler(t *testing.T) {
 				}
 				return lws
 			}(),
-			wantLeaderWorkerSet: func() *leaderworkersetv1.LeaderWorkerSet {
+			wantLeaderWorkerSets: func() []leaderworkersetv1.LeaderWorkerSet {
 				lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Replicas(1).Obj()
 				lws.Status.Replicas = 2
 				lws.Status.UpdatedReplicas = 1
 				lws.Spec.RolloutStrategy.RollingUpdateConfiguration = &leaderworkersetv1.RollingUpdateConfiguration{
 					MaxSurge: intstr.FromInt32(1),
 				}
-				return lws
+				return []leaderworkersetv1.LeaderWorkerSet{*lws}
 			}(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
@@ -568,14 +579,14 @@ func TestReconciler(t *testing.T) {
 				}
 				return lws
 			}(),
-			wantLeaderWorkerSet: func() *leaderworkersetv1.LeaderWorkerSet {
+			wantLeaderWorkerSets: func() []leaderworkersetv1.LeaderWorkerSet {
 				lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Replicas(2).Obj()
 				lws.Status.Replicas = 3
 				lws.Status.UpdatedReplicas = 1
 				lws.Spec.RolloutStrategy.RollingUpdateConfiguration = &leaderworkersetv1.RollingUpdateConfiguration{
 					MaxSurge: intstr.FromInt32(1),
 				}
-				return lws
+				return []leaderworkersetv1.LeaderWorkerSet{*lws}
 			}(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
@@ -652,8 +663,10 @@ func TestReconciler(t *testing.T) {
 			features: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
-			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
-			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
@@ -727,16 +740,13 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
-			gotLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
-			if err := kClient.Get(ctx, lwsKey, gotLeaderWorkerSet); err != nil {
-				if !errors.IsNotFound(err) {
-					t.Fatalf("Could not get LeaderWorkerSet after reconcile: %v", err)
-				}
-				gotLeaderWorkerSet = nil
+			gotLeaderWorkerSets := &leaderworkersetv1.LeaderWorkerSetList{}
+			if err := kClient.List(ctx, gotLeaderWorkerSets, client.InNamespace(tc.leaderWorkerSet.Namespace)); err != nil {
+				t.Fatalf("Could not list LeaderWorkerSets after reconcile: %v", err)
 			}
 
-			if diff := cmp.Diff(tc.wantLeaderWorkerSet, gotLeaderWorkerSet, baseCmpOpts...); diff != "" {
-				t.Errorf("LeaderWorkerSet after reconcile (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantLeaderWorkerSets, gotLeaderWorkerSets.Items, baseCmpOpts...); diff != "" {
+				t.Errorf("LeaderWorkerSets after reconcile (-want,+got):\n%s", diff)
 			}
 
 			gotWorkloads := kueue.WorkloadList{}

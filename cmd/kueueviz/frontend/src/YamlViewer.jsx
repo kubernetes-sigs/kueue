@@ -29,6 +29,7 @@ import {
 } from '@mui/icons-material';
 import AceEditor from 'react-ace';
 import { buildResourceUrl } from './utils/urlHelper';
+import { useAuthFetch } from './AuthContext';
 
 // Import Ace Editor modes and themes
 import 'ace-builds/src-noconflict/mode-yaml';
@@ -38,6 +39,7 @@ const useYamlFetcher = (open, resourceType, resourceName, namespace) => {
   const [yamlContent, setYamlContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const authFetch = useAuthFetch();
 
   const fetchYaml = useCallback(async () => {
     if (!open || !resourceType || !resourceName) return;
@@ -51,8 +53,8 @@ const useYamlFetcher = (open, resourceType, resourceName, namespace) => {
         namespace,
         output: 'yaml'
       });
-      
-      const response = await fetch(apiUrl);
+
+      const response = await authFetch(apiUrl);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch YAML: ${response.status} ${response.statusText}`);
@@ -65,7 +67,7 @@ const useYamlFetcher = (open, resourceType, resourceName, namespace) => {
     } finally {
       setLoading(false);
     }
-  }, [open, resourceType, resourceName, namespace]);
+  }, [open, resourceType, resourceName, namespace, authFetch]);
 
   useEffect(() => {
     fetchYaml();

@@ -40,7 +40,7 @@ require (
 	k8s.io/metrics v0.35.2
 	k8s.io/utils v0.0.0-20260108192941-914a6e750570
 	sigs.k8s.io/cluster-inventory-api v0.0.0-20251028164203-2e3fabb46733
-	sigs.k8s.io/controller-runtime v0.23.1
+	sigs.k8s.io/controller-runtime v0.23.3
 	sigs.k8s.io/dra-example-driver v0.2.1
 	sigs.k8s.io/jobset v0.11.1
 	sigs.k8s.io/lws v0.8.0

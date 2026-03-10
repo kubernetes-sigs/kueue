@@ -325,7 +325,7 @@ func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, thresh
 		}
 	}
 	for _, d := range domains {
-		s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level)
+		s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level, nil)
 		if d.sliceStateWithLeader < threshold {
 			clearState(d)
 		}

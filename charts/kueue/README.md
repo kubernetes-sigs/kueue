@@ -125,6 +125,11 @@ The following table lists the configurable parameters of the kueue chart and the
 | enableVisibilityAPF | bool | `false` | Enable API Priority and Fairness configuration for the visibility API |
 | fullnameOverride | string | `""` | Override the resource name |
 | kubernetesClusterDomain | string | `"cluster.local"` | Kubernetes cluster's domain |
+| kueueViz.backend.auth.mode | string | `"Disabled"` | Authentication mode: "Disabled" or "TokenReview" (Alpha, disabled by default) |
+| kueueViz.backend.auth.tokenReviewConfig | object | `{"audiences":"","cacheTTL":"60s","negativeCacheTTL":"5s"}` | TokenReview-specific configuration (only used when mode is "TokenReview") |
+| kueueViz.backend.auth.tokenReviewConfig.audiences | string | `""` | Optional comma-separated list of audiences for TokenReview |
+| kueueViz.backend.auth.tokenReviewConfig.cacheTTL | string | `"60s"` | TTL for successful authentication cache |
+| kueueViz.backend.auth.tokenReviewConfig.negativeCacheTTL | string | `"5s"` | TTL for failed authentication cache (prevents API server abuse) |
 | kueueViz.backend.containerSecurityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}` | KueueViz backend container securityContext |
 | kueueViz.backend.env | list | `[{"name":"KUEUEVIZ_ALLOWED_ORIGINS","value":"https://frontend.kueueviz.local"}]` | Environment variables for KueueViz backend deployment |
 | kueueViz.backend.image.pullPolicy | string | `"Always"` | KueueViz dashboard backend image pullPolicy. This should be set to 'IfNotPresent' for released version |
