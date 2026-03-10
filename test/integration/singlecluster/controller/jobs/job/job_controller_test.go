@@ -4412,15 +4412,35 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Job is admissible", g
 		}
 		util.VerifyAdmissionGatedByJobIsInadmissible(ctx, k8sClient, job, wlLookupKey, gateValue)
 
-		util.VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(ctx, k8sClient, wlLookupKey)
+		util.VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(ctx, k8sClient, job, wlLookupKey)
 
 		ginkgo.By("Checking the job is unsuspended")
-		lookupKey := types.NamespacedName{Name: job.Name, Namespace: ns.Name}
+		jobLookupKey := types.NamespacedName{Name: job.Name, Namespace: ns.Name}
 		createdJob := &batchv1.Job{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
 			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should allow removing one gate from a Job with multiple gates", func() {
+		initialGateValue := "example.com/controller1,example.com/controller2"
+		updatedGateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a Job with two admission gates")
+		job := testingjob.MakeJob("multi-gated-job", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, initialGateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+		ginkgo.By("Removing one gate and verifying the job remains inadmissible")
+		util.VerifyAdmissionGatedByJobAllowsRemovingOneGate(ctx, k8sClient, job, wlLookupKey, initialGateValue, updatedGateValue)
 	})
 })
 

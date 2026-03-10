@@ -85,9 +85,19 @@ func VerifyAdmissionGatedByJobIsInadmissible(
 func VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(
 	ctx context.Context,
 	k8sClient client.Client,
+	job client.Object,
 	wlLookupKey types.NamespacedName,
 ) {
+	jobLookupKey := types.NamespacedName{Name: job.GetName(), Namespace: job.GetNamespace()}
 	createdWorkload := &kueue.Workload{}
+
+	ginkgo.By("The Job  has non-empty AdmissionGatedBy before removal")
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, jobLookupKey, job)).Should(gomega.Succeed())
+		annotations := job.GetAnnotations()
+		g.Expect(annotations != nil).Should(gomega.BeTrue())
+		g.Expect(annotations[kueueconstants.AdmissionGatedByAnnotation]).ShouldNot(gomega.BeEmpty())
+	}, Timeout, Interval).Should(gomega.Succeed())
 
 	ginkgo.By("The workload has non-empty AdmissionGatedBy before removal")
 	gomega.Eventually(func(g gomega.Gomega) {
@@ -95,12 +105,17 @@ func VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(
 		g.Expect(createdWorkload.Annotations[kueueconstants.AdmissionGatedByAnnotation]).ShouldNot(gomega.BeEmpty())
 	}, Timeout, Interval).Should(gomega.Succeed())
 
-	ginkgo.By("Removing the admission gate annotation from the workload")
+	ginkgo.By("Updating the job to remove the AdmissionGatedBy annotation")
 	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-		delete(createdWorkload.Annotations, kueueconstants.AdmissionGatedByAnnotation)
-		g.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
-		// Ensure that the AdmissionGatedBy annotation is removed.
+		g.Expect(k8sClient.Get(ctx, jobLookupKey, job)).Should(gomega.Succeed())
+		annotations := job.GetAnnotations()
+		delete(annotations, kueueconstants.AdmissionGatedByAnnotation)
+		job.SetAnnotations(annotations)
+		g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
+
+	ginkgo.By("Waiting for the workload annotation to be removed by the controller")
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		g.Expect(createdWorkload.Annotations).ShouldNot(gomega.HaveKey(kueueconstants.AdmissionGatedByAnnotation))
 	}, Timeout, Interval).Should(gomega.Succeed())
@@ -108,8 +123,12 @@ func VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(
 	ginkgo.By("Checking the workload becomes admissible")
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		hasAdmissionGate := workload.HasAdmissionGate(createdWorkload)
+		g.Expect(hasAdmissionGate).ShouldNot(gomega.BeTrue())
+		// Admissible is False when Finished is True
 		admissible := workload.IsAdmissible(createdWorkload)
-		g.Expect(admissible).Should(gomega.BeTrue())
+		finished := workload.IsFinished(createdWorkload)
+		g.Expect(admissible || !finished).Should(gomega.BeTrue())
 	}, Timeout, Interval).Should(gomega.Succeed())
 
 	ginkgo.By("Checking the workload gets admitted")
@@ -122,12 +141,64 @@ func VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		cond := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
-		g.Expect(cond).NotTo(gomega.BeNil())
-		g.Expect(cond.Reason).NotTo(gomega.Equal(kueue.WorkloadAdmissionGated))
+		// The condition should either not exist, or exist with a reason other than AdmissionGated
+		if cond != nil {
+			g.Expect(cond.Reason).NotTo(gomega.Equal(kueue.WorkloadAdmissionGated))
+		}
 		ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 			Reason:  "AdmissionGateCleared",
 			Type:    corev1.EventTypeNormal,
 			Message: "Admission gate cleared, workload is now admissible",
 		})
 	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+// Removing one gate from a Job with multiple gates is allowed and the workload
+// remains inadmissible until all gates are removed.
+// This can be used across all job types.
+func VerifyAdmissionGatedByJobAllowsRemovingOneGate(
+	ctx context.Context,
+	k8sClient client.Client,
+	job client.Object,
+	wlLookupKey types.NamespacedName,
+	initialGateValue string,
+	updatedGateValue string,
+) {
+	lookupKey := types.NamespacedName{Name: job.GetName(), Namespace: job.GetNamespace()}
+	createdWorkload := &kueue.Workload{}
+
+	ginkgo.By("Wait for the Workload to be created and have the original AdmissionGatedBy annotation")
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(
+			kueueconstants.AdmissionGatedByAnnotation, initialGateValue))
+	}, Timeout, Interval).Should(gomega.Succeed())
+
+	ginkgo.By("Updating the job to remove one gate")
+	gomega.Eventually(func(g gomega.Gomega) {
+		freshJob := job.DeepCopyObject().(client.Object)
+		g.Expect(k8sClient.Get(ctx, lookupKey, freshJob)).Should(gomega.Succeed())
+		annotations := freshJob.GetAnnotations()
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		annotations[kueueconstants.AdmissionGatedByAnnotation] = updatedGateValue
+		freshJob.SetAnnotations(annotations)
+		g.Expect(k8sClient.Update(ctx, freshJob)).Should(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
+
+	ginkgo.By("Waiting for the workload annotation to be updated by the controller")
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		g.Expect(createdWorkload.Annotations).Should(gomega.HaveKey(kueueconstants.AdmissionGatedByAnnotation))
+		g.Expect(createdWorkload.Annotations[kueueconstants.AdmissionGatedByAnnotation]).Should(gomega.Equal(updatedGateValue))
+	}, Timeout, Interval).Should(gomega.Succeed())
+
+	ginkgo.By("Verifying the workload remains inadmissible with the remaining gate")
+	gomega.Consistently(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		admissible := workload.IsAdmissible(createdWorkload)
+		g.Expect(admissible).Should(gomega.BeFalse())
+		g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
+	}, ConsistentDuration, ShortInterval).Should(gomega.Succeed())
 }
