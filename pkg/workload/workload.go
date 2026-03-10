@@ -1423,7 +1423,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 			// Checks that are defined with an empty list of flavors are coinsidered
 			// to apply to all flavors declared for the ClusterQueue.
 			// These checks are considered valid by this logic, as intended,
-			// beacuse checks with empty OnFlavor lists have their lists populated
+			// because checks with empty OnFlavor lists have their lists populated
 			// with all flavors in the CQ when initially processed by Kueue.
 			return assignedFlavors.Intersection(acFlavors).Len() > 0
 		})
