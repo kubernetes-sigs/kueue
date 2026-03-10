@@ -297,13 +297,13 @@ func expectGaugeMetric(metric prometheus.Gauge, matcher gomegatypes.GomegaMatche
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectCohortNominalQuotaGaugeMetric(cohortName string, flavor, resource string, count float64) {
+func ExpectCohortSubtreeQuotaGaugeMetric(cohortName string, flavor, resource string, count float64) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.CohortNominalQuota.WithLabelValues(cohortName, flavor, resource, roletracker.RoleStandalone)
+	metric := metrics.CohortSubtreeQuota.WithLabelValues(cohortName, flavor, resource, roletracker.RoleStandalone)
 	expectGaugeMetric(metric, gomega.Equal(count))
 }
 
-func ExpectCohortNominalQuotaGaugeMetricCleaned(cohortName, flavor, resource string) {
+func ExpectCohortSubtreeQuotaGaugeMetricCleaned(cohortName, flavor, resource string) {
 	ginkgo.GinkgoHelper()
-	ExpectCohortNominalQuotaGaugeMetric(cohortName, flavor, resource, 0)
+	ExpectCohortSubtreeQuotaGaugeMetric(cohortName, flavor, resource, 0)
 }

@@ -618,10 +618,10 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 
 	// +metricsdoc:group=cohort
 	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
-	CohortNominalQuota = prometheus.NewGaugeVec(
+	CohortSubtreeQuota = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
-			Name:      "cohort_nominal_quota",
+			Name:      "cohort_subtree_quota",
 			Help:      `Reports the cohort's nominal quota aggregated within the cohort's subtree. The values are reported per resource and flavor`,
 		}, []string{"cohort", "flavor", "resource", "replica_role"},
 	)
@@ -791,7 +791,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 }
 
 func ClearCohortMetrics(cohortName string) {
-	CohortNominalQuota.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
+	CohortSubtreeQuota.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
 	CohortWeightedShare.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
 }
 
@@ -838,11 +838,11 @@ func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resou
 	ClusterQueueResourceLendingLimit.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(lending)
 }
 
-func ReportCohortNominalQuota(cohort kueue.CohortReference, flavor, resource string, quota float64, tracker *roletracker.RoleTracker) {
-	CohortNominalQuota.WithLabelValues(string(cohort), flavor, resource, roletracker.GetRole(tracker)).Set(quota)
+func ReportCohortSubtreeQuota(cohort kueue.CohortReference, flavor, resource string, quota float64, tracker *roletracker.RoleTracker) {
+	CohortSubtreeQuota.WithLabelValues(string(cohort), flavor, resource, roletracker.GetRole(tracker)).Set(quota)
 }
 
-func ClearCohortNominalQuota(cohort kueue.CohortReference, flavor, resource string) {
+func ClearCohortSubtreeQuota(cohort kueue.CohortReference, flavor, resource string) {
 	lbls := prometheus.Labels{
 		"cohort": string(cohort),
 	}
@@ -852,7 +852,7 @@ func ClearCohortNominalQuota(cohort kueue.CohortReference, flavor, resource stri
 	if len(resource) != 0 {
 		lbls["resource"] = resource
 	}
-	CohortNominalQuota.DeletePartialMatch(lbls)
+	CohortSubtreeQuota.DeletePartialMatch(lbls)
 }
 
 func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
@@ -970,7 +970,7 @@ func Register() {
 		ClusterQueueResourceLendingLimit,
 		ClusterQueueWeightedShare,
 		CohortWeightedShare,
-		CohortNominalQuota,
+		CohortSubtreeQuota,
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
