@@ -39,7 +39,6 @@ import (
 func TestValidateCreate(t *testing.T) {
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "test").Suspend(false)
 	testcases := map[string]struct {
-		name     string
 		sparkApp *sparkappv1beta2.SparkApplication
 		wantErr  error
 	}{
@@ -95,8 +94,8 @@ func TestValidateCreate(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 
