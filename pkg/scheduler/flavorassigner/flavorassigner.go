@@ -21,7 +21,6 @@ import (
 	"maps"
 	"math"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -249,7 +248,7 @@ func (s *Status) Message() string {
 	if s.err != nil {
 		return s.err.Error()
 	}
-	sort.Strings(s.reasons)
+	slices.Sort(s.reasons)
 	return strings.Join(s.reasons, ", ")
 }
 

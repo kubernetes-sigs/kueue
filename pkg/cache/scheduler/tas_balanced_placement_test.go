@@ -17,7 +17,6 @@ limitations under the License.
 package scheduler
 
 import (
-	"sort"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -79,9 +78,7 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 			for i, d := range got {
 				gotIDs[i] = string(d.id)
 			}
-			sort.Strings(gotIDs)
-			sort.Strings(tc.want)
-			if diff := cmp.Diff(tc.want, gotIDs); diff != "" {
+			if diff := cmp.Diff(tc.want, gotIDs, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected optimal domain set (-want,+got): %s", diff)
 			}
 		})

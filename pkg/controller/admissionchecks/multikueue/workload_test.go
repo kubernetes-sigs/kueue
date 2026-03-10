@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -46,7 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	"sigs.k8s.io/kueue/pkg/util/slices"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -1541,8 +1541,8 @@ func TestWlReconcile(t *testing.T) {
 					workerClusters = append(workerClusters, "worker2")
 				}
 				managerBuilder = managerBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs})
-				managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersWorkloads, func(w *kueue.Workload) client.Object { return w })...)
-				managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
+				managerBuilder = managerBuilder.WithStatusSubresource(utilslices.Map(tc.managersWorkloads, func(w *kueue.Workload) client.Object { return w })...)
+				managerBuilder = managerBuilder.WithStatusSubresource(utilslices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
 				managerBuilder = managerBuilder.WithObjects(
 					utiltestingapi.MakeMultiKueueConfig("config1").Clusters(workerClusters...).Obj(),
 					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
@@ -1632,10 +1632,10 @@ func TestWlReconcile(t *testing.T) {
 				} else {
 					// ensure deterministic comparison
 					for i := range gotManagersWorkloads.Items {
-						sort.Strings(gotManagersWorkloads.Items[i].Status.NominatedClusterNames)
+						slices.Sort(gotManagersWorkloads.Items[i].Status.NominatedClusterNames)
 					}
 					for i := range tc.wantManagersWorkloads {
-						sort.Strings(tc.wantManagersWorkloads[i].Status.NominatedClusterNames)
+						slices.Sort(tc.wantManagersWorkloads[i].Status.NominatedClusterNames)
 					}
 					if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWorkloads.Items, objCheckOpts...); diff != "" {
 						t.Errorf("unexpected manager's workloads (-want/+got):\n%s", diff)
@@ -1829,11 +1829,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			for _, c := range created {
 				gotCreated = append(gotCreated, c.cluster)
 			}
-			s1 := sort.StringSlice(tt.wantCreated)
-			s1.Sort()
-			s2 := sort.StringSlice(gotCreated)
-			s2.Sort()
-			if diff := cmp.Diff(s1, s2); diff != "" {
+			if diff := cmp.Diff(tt.wantCreated, gotCreated, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected created remotes (-want/+got):\n%s", diff)
 			}
 		})
@@ -1957,10 +1953,8 @@ func TestConfigHandlerUpdate(t *testing.T) {
 			for _, req := range mockQ.addedItems {
 				actualQueuedWLs = append(actualQueuedWLs, req.Name)
 			}
-			sort.Strings(actualQueuedWLs)
-			sort.Strings(tc.expectedQueuedWLs)
 
-			if diff := cmp.Diff(tc.expectedQueuedWLs, actualQueuedWLs); diff != "" {
+			if diff := cmp.Diff(tc.expectedQueuedWLs, actualQueuedWLs, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected queued workloads (-want/+got):\n%s", diff)
 			}
 		})
