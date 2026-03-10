@@ -529,7 +529,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	res, err := w.nominateAndSynchronizeWorkers(ctx, group)
-	if err == nil && requeueAfterSynchronize < res.RequeueAfter {
+	if err == nil && res.RequeueAfter != 0 && requeueAfterSynchronize < res.RequeueAfter {
 		res.RequeueAfter = requeueAfterSynchronize
 	}
 	return res, err
