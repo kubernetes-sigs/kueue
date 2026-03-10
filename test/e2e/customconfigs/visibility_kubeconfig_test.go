@@ -222,7 +222,7 @@ func cloneControllerRBAC(ctx context.Context) {
 					RoleRef:  crb.RoleRef,
 					Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNS}},
 				}
-				_ = client.IgnoreAlreadyExists(k8sClient.Create(ctx, newCRB))
+				util.MustCreate(ctx, k8sClient, newCRB)
 			}
 		}
 	}
@@ -242,7 +242,7 @@ func cloneControllerRBAC(ctx context.Context) {
 					RoleRef:  rb.RoleRef,
 					Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNS}},
 				}
-				_ = client.IgnoreAlreadyExists(k8sClient.Create(ctx, newRB))
+				util.MustCreate(ctx, k8sClient, newRB)
 			}
 		}
 	}
