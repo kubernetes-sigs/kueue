@@ -19,6 +19,7 @@ package tase2e
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"slices"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -37,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/tas"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -91,6 +93,9 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 		ginkgo.AfterEach(func() {
 			if nodeToRestore != nil {
 				ginkgo.By(fmt.Sprintf("Restoring node %s", nodeToRestore.Name))
+				// Restart kubelet just in case it was stopped during the test
+				_ = exec.Command("docker", "exec", nodeToRestore.Name, "systemctl", "start", "kubelet").Run()
+
 				// We can't blindly create the node because it might still exist (if we just tainted it).
 				// We try to delete it first to ensure a clean slate for creation.
 				_ = k8sClient.Delete(ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeToRestore.Name}})
@@ -104,6 +109,13 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					Type:   corev1.NodeReady,
 					Status: corev1.ConditionTrue,
 				})
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					var node corev1.Node
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeToRestore.Name}, &node)).To(gomega.Succeed())
+					g.Expect(utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
 				waitForDummyWorkloadToRunOnNode(nodeToRestore, localQueue)
 				nodeToRestore = nil
 			}
@@ -548,6 +560,11 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				ginkgo.By(fmt.Sprintf("Simulate failure of node %s", nodeName), func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeName}, node)).To(gomega.Succeed())
 					nodeToRestore = node.DeepCopy()
+
+					// Stop kubelet so it doesn't immediately overwrite the condition
+					err := exec.Command("docker", "exec", nodeName, "systemctl", "stop", "kubelet").Run()
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 					util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
 						Type:   corev1.NodeReady,
 						Status: corev1.ConditionUnknown,
