@@ -574,6 +574,14 @@ func TestValidateCreate(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlices)
 			ctx, _ := utiltesting.ContextWithLog(t)
+
+			fakeClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).
+				WithObjects(tc.job).
+				Build()
+			oldReconciler := reconciler
+			reconciler = rayJobReconciler{client: fakeClient}
+			t.Cleanup(func() { reconciler = oldReconciler })
+
 			_, result := wh.ValidateCreate(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateCreate() mismatch (-want +got):\n%s", diff)
@@ -669,6 +677,14 @@ func TestValidateUpdate(t *testing.T) {
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
+
+			fakeClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).
+				WithObjects(tc.newJob).
+				Build()
+			oldReconciler := reconciler
+			reconciler = rayJobReconciler{client: fakeClient}
+			t.Cleanup(func() { reconciler = oldReconciler })
+
 			_, result := wh.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
