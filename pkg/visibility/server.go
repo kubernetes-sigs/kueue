@@ -18,7 +18,6 @@ package visibility
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"net"
 	"strings"
@@ -75,9 +74,9 @@ func init() {
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates a visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool, kubeConfig *rest.Config, tlsOpts *tlsconfig.TLS) error {
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool, kubeConfig *rest.Config, kubeConfigPath string, tlsOpts *tlsconfig.TLS) error {
 	config := newVisibilityServerConfig(kubeConfig)
-	if err := applyVisibilityServerOptions(config, enableInternalCertManagement, tlsOpts); err != nil {
+	if err := applyVisibilityServerOptions(config, enableInternalCertManagement, kubeConfigPath, tlsOpts); err != nil {
 		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
 
@@ -97,7 +96,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 	return nil
 }
 
-func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool, tlsOpts *tlsconfig.TLS) error {
+func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool, kubeConfigPath string, tlsOpts *tlsconfig.TLS) error {
 	o := genericoptions.NewRecommendedOptions("", codecs.LegacyCodec(
 		visibilityv1beta2.SchemeGroupVersion,
 		visibilityv1beta1.SchemeGroupVersion,
@@ -112,8 +111,7 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 		o.SecureServing.ServerCert.CertKey.KeyFile = certDir + "/tls.key"
 	}
 
-	if f := flag.Lookup("kubeconfig"); f != nil {
-		kubeConfigPath := f.Value.String()
+	if kubeConfigPath != "" {
 		o.Authentication.RemoteKubeConfigFile = kubeConfigPath
 		o.Authorization.RemoteKubeConfigFile = kubeConfigPath
 		o.CoreAPI.CoreAPIKubeconfigPath = kubeConfigPath
