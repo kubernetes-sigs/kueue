@@ -47,6 +47,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -85,16 +86,35 @@ const (
 	untoleratedTaint
 )
 
-// nodeFailureReconciler reconciles Nodes to detect failures and update affected Workloads
-type nodeFailureReconciler struct {
+type NodeUpdateWatcher interface {
+	NotifyNodeUpdate(oldNode *corev1.Node, newNode *corev1.Node)
+}
+
+type nodeReconcilerOptions struct {
+	watchers []NodeUpdateWatcher
+}
+
+// NodeReconcilerOption configures the reconciler.
+type NodeReconcilerOption func(*nodeReconcilerOptions)
+
+func WithWatchers(watchers ...NodeUpdateWatcher) NodeReconcilerOption {
+	return func(o *nodeReconcilerOptions) {
+		o.watchers = watchers
+	}
+}
+
+// nodeReconciler reconciles Nodes to detect failures and update affected Workloads
+type nodeReconciler struct {
 	client      client.Client
+	cache       *schdcache.Cache
 	clock       clock.Clock
 	logName     string
 	recorder    record.EventRecorder
 	roleTracker *roletracker.RoleTracker
+	watchers    []NodeUpdateWatcher
 }
 
-func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Node")
 
@@ -134,18 +154,25 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{}, r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
 }
 
-var _ reconcile.Reconciler = (*nodeFailureReconciler)(nil)
-var _ predicate.TypedPredicate[*corev1.Node] = (*nodeFailureReconciler)(nil)
+var _ reconcile.Reconciler = (*nodeReconciler)(nil)
+var _ predicate.TypedPredicate[*corev1.Node] = (*nodeReconciler)(nil)
 
-func (r *nodeFailureReconciler) Generic(event.TypedGenericEvent[*corev1.Node]) bool {
+func (r *nodeReconciler) Generic(event.TypedGenericEvent[*corev1.Node]) bool {
 	return false
 }
 
-func (r *nodeFailureReconciler) Create(e event.TypedCreateEvent[*corev1.Node]) bool {
-	return true
+func (r *nodeReconciler) Create(e event.TypedCreateEvent[*corev1.Node]) bool {
+	r.cache.TASCache().SyncNode(e.Object)
+	r.notifyWatchers(nil, e.Object)
+	return features.Enabled(features.TASFailedNodeReplacement)
 }
 
-func (r *nodeFailureReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) bool {
+func (r *nodeReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) bool {
+	r.cache.TASCache().SyncNode(e.ObjectNew)
+	r.notifyWatchers(e.ObjectOld, e.ObjectNew)
+	if !features.Enabled(features.TASFailedNodeReplacement) {
+		return false
+	}
 	newReady := utiltas.IsNodeStatusConditionTrue(e.ObjectNew.Status.Conditions, corev1.NodeReady)
 	oldReady := utiltas.IsNodeStatusConditionTrue(e.ObjectOld.Status.Conditions, corev1.NodeReady)
 	if oldReady != newReady {
@@ -159,31 +186,51 @@ func (r *nodeFailureReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) b
 	return false
 }
 
-func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) bool {
-	return true
+func (r *nodeReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) bool {
+	r.cache.TASCache().DeleteNodeByName(e.Object.Name)
+	r.notifyWatchers(e.Object, nil)
+	return features.Enabled(features.TASFailedNodeReplacement)
 }
 
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;patch
 
-func newNodeFailureReconciler(client client.Client, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *nodeFailureReconciler {
-	return &nodeFailureReconciler{
+func newNodeReconciler(
+	client client.Client,
+	recorder record.EventRecorder,
+	cache *schdcache.Cache,
+	roleTracker *roletracker.RoleTracker,
+	opts ...NodeReconcilerOption,
+) *nodeReconciler {
+	options := nodeReconcilerOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+	return &nodeReconciler{
 		client:      client,
-		logName:     TASNodeFailureController,
+		cache:       cache,
+		logName:     TASNodeController,
 		clock:       clock.RealClock{},
 		recorder:    recorder,
 		roleTracker: roleTracker,
+		watchers:    options.watchers,
 	}
 }
 
-func (r *nodeFailureReconciler) logger() logr.Logger {
+func (r *nodeReconciler) logger() logr.Logger {
 	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
-func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) (string, error) {
-	return TASNodeFailureController, builder.ControllerManagedBy(mgr).
-		Named("tas_node_failure_controller").
+func (r *nodeReconciler) notifyWatchers(oldNode, newNode *corev1.Node) {
+	for _, w := range r.watchers {
+		w.NotifyNodeUpdate(oldNode, newNode)
+	}
+}
+
+func (r *nodeReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) (string, error) {
+	return TASNodeController, builder.ControllerManagedBy(mgr).
+		Named("tas_node_controller").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&corev1.Node{},
@@ -193,13 +240,13 @@ func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.C
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[corev1.SchemeGroupVersion.WithKind("Node").GroupKind().String()],
-			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "tas-node-failure-reconciler"),
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "tas-node-reconciler"),
 		}).
 		Complete(core.WithLeadingManager(mgr, r, &corev1.Node{}, cfg))
 }
 
 // getWorkloadsOnNode gets all workloads that have the given node assigned in TAS topology assignment
-func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
+func (r *nodeReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
 	var allWorkloads kueue.WorkloadList
 	if err := r.client.List(ctx, &allWorkloads); err != nil {
 		return nil, fmt.Errorf("failed to list workloads: %w", err)
@@ -234,7 +281,7 @@ func hasTASAssignmentOnNode(wl *kueue.Workload, nodeName string) bool {
 	return false
 }
 
-func (r *nodeFailureReconciler) getWorkloadStatus(ctx context.Context, nodeName string, node *corev1.Node, wlKey types.NamespacedName, wl *kueue.Workload) (workloadStatus, error) {
+func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string, node *corev1.Node, wlKey types.NamespacedName, wl *kueue.Workload) (workloadStatus, error) {
 	if err := r.client.Get(ctx, wlKey, wl); err != nil {
 		if apierrors.IsNotFound(err) {
 			return workloadHealthy, nil
@@ -286,7 +333,7 @@ func (r *nodeFailureReconciler) getWorkloadStatus(ctx context.Context, nodeName 
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
-func (r *nodeFailureReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
+func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workload.IsEvicted(wl) {
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
 		log := ctrl.LoggerFrom(ctx).WithValues("unhealthyNodes", unhealthyNodeNames)
@@ -305,7 +352,7 @@ func (r *nodeFailureReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *k
 
 // handleUnhealthyNode finds workloads with pods on the specified node
 // and patches their status to indicate the node is to replace.
-func (r *nodeFailureReconciler) handleUnhealthyNode(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
+func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
 	log := ctrl.LoggerFrom(ctx)
 	var workloadProcessingErrors []error
 	for wlKey := range affectedWorkloads {
@@ -340,7 +387,7 @@ func (r *nodeFailureReconciler) handleUnhealthyNode(ctx context.Context, nodeNam
 	return nil
 }
 
-func (r *nodeFailureReconciler) reconcileWorkloadsOnNode(ctx context.Context, nodeName string, node *corev1.Node, allTASWorkloads sets.Set[types.NamespacedName]) (ctrl.Result, error) {
+func (r *nodeReconciler) reconcileWorkloadsOnNode(ctx context.Context, nodeName string, node *corev1.Node, allTASWorkloads sets.Set[types.NamespacedName]) (ctrl.Result, error) {
 	if allTASWorkloads.Len() == 0 {
 		return ctrl.Result{}, nil
 	}
@@ -388,7 +435,7 @@ func (r *nodeFailureReconciler) reconcileWorkloadsOnNode(ctx context.Context, no
 }
 
 // handleHealthyNode clears the unhealthyNodes field for each of the specified workloads.
-func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
+func (r *nodeReconciler) handleHealthyNode(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
 	log := ctrl.LoggerFrom(ctx)
 	var workloadProcessingErrors []error
 	for wlKey := range affectedWorkloads {
@@ -422,7 +469,7 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName 
 	return nil
 }
 
-func (r *nodeFailureReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Workload, nodeName string) error {
+func (r *nodeReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Workload, nodeName string) error {
 	if workload.HasUnhealthyNode(wl, nodeName) {
 		return workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
@@ -434,7 +481,7 @@ func (r *nodeFailureReconciler) removeUnhealthyNodes(ctx context.Context, wl *ku
 	return nil
 }
 
-func (r *nodeFailureReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.Workload, nodeName string) error {
+func (r *nodeReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.Workload, nodeName string) error {
 	if !workload.HasUnhealthyNode(wl, nodeName) {
 		return workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			wl.Status.UnhealthyNodes = append(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName})
