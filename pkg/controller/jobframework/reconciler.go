@@ -980,10 +980,9 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	}
 
 	if match != nil {
+		UpdateAdmissionGatedBy(ctx, r.client, r.record, job.Object(), match)
+
 		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), match, getCustomPriorityClassFuncFromJob(job)); err != nil {
-			return nil, err
-		}
-		if err := r.updateWorkloadAdmissionGatedBy(ctx, job.Object(), match); err != nil {
 			return nil, err
 		}
 	}
@@ -991,10 +990,9 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	return match, nil
 }
 
-// Update the workload to match the job's annotation when the AdmissionGatedBy feature is enabled.
-func (r *JobReconciler) updateWorkloadAdmissionGatedBy(ctx context.Context, obj client.Object, wl *kueue.Workload) error {
+func setAdmissionGatedByNoUpdate(obj client.Object, wl *kueue.Workload) bool {
 	if !features.Enabled(features.AdmissionGatedBy) {
-		return nil
+		return false
 	}
 
 	jobGateValue := ""
@@ -1007,7 +1005,6 @@ func (r *JobReconciler) updateWorkloadAdmissionGatedBy(ctx context.Context, obj 
 		wlGateValue = val
 	}
 
-	// Only update if the values differ
 	if jobGateValue != wlGateValue {
 		if wl.Annotations == nil {
 			wl.Annotations = make(map[string]string)
@@ -1017,12 +1014,26 @@ func (r *JobReconciler) updateWorkloadAdmissionGatedBy(ctx context.Context, obj 
 		} else {
 			wl.Annotations[constants.AdmissionGatedByAnnotation] = jobGateValue
 		}
-		if err := r.client.Update(ctx, wl); err != nil {
-			return fmt.Errorf("updating workload admission gate: %w", err)
-		}
-		r.record.Eventf(obj, corev1.EventTypeNormal, ReasonUpdatedWorkload,
-			"Updated workload admission gate: %v", klog.KObj(wl))
+		return true
 	}
+
+	return false
+}
+
+func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload) error {
+	if !setAdmissionGatedByNoUpdate(obj, wl) {
+		return nil
+	}
+
+	if err := c.Update(ctx, wl); err != nil {
+		return fmt.Errorf("updating the AdmissionGatedBy of existing workload: %w", err)
+	}
+
+	r.Eventf(obj,
+		corev1.EventTypeNormal, ReasonUpdatedWorkload,
+		"Updated workload AdmissionGatedBy to \"%s\"", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
+	)
+
 	return nil
 }
 
@@ -1190,7 +1201,8 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	}
 	wl.Spec = newWl.Spec
 
-	r.updateWorkloadAdmissionGatedBy(ctx, object, wl)
+	// Propagates the AdmissionGatedBy annotation to the wl object but does not update the Workload
+	setAdmissionGatedByNoUpdate(object, wl)
 
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)
