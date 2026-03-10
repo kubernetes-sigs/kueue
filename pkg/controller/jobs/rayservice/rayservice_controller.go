@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -62,7 +62,7 @@ func init() {
 	}))
 }
 
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=ray.io,resources=rayservices,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=ray.io,resources=rayservices/status,verbs=get;patch;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
@@ -88,7 +88,7 @@ func setup(b *builder.Builder, c client.Client) *builder.Builder {
 
 var reconciler rayServiceReconciler
 
-func NewReconciler(ctx context.Context, client client.Client, indexer client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewReconciler(ctx context.Context, client client.Client, indexer client.FieldIndexer, eventRecorder events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	reconciler = rayServiceReconciler{
 		jr:     jobframework.NewReconciler(client, eventRecorder, opts...),
 		client: client,

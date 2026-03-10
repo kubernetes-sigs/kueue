@@ -74,7 +74,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 					ctx,
 					mgr.GetClient(),
 					mgr.GetFieldIndexer(),
-					mgr.GetEventRecorderFor(constants.JobControllerName),
+					mgr.GetEventRecorder(constants.JobControllerName),
 					opts...)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 					ctx,
 					mgr.GetClient(),
 					mgr.GetFieldIndexer(),
-					mgr.GetEventRecorderFor(constants.JobControllerName),
+					mgr.GetEventRecorder(constants.JobControllerName),
 					opts...)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())

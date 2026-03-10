@@ -100,7 +100,7 @@ func managerSetup(
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
+			mgr.GetEventRecorder(constants.JobControllerName),
 			opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = podReconciler.SetupWithManager(mgr)
@@ -114,7 +114,7 @@ func managerSetup(
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
+			mgr.GetEventRecorder(constants.JobControllerName),
 			opts...)
 		err = jobReconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -145,7 +145,7 @@ func managerSetup(
 		}
 
 		if enableScheduler {
-			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptexpectations.New()))
+			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptexpectations.New()))
 			err := sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

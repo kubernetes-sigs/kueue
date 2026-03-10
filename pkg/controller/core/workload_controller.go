@@ -33,7 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -136,7 +136,7 @@ type WorkloadReconciler struct {
 	client                 client.Client
 	watchers               []WorkloadUpdateWatcher
 	waitForPodsReady       *waitForPodsReadyConfig
-	recorder               record.EventRecorder
+	recorder               events.EventRecorder
 	clock                  clock.Clock
 	workloadRetention      *workloadRetentionConfig
 	draReconcileChannel    chan event.TypedGenericEvent[*kueue.Workload]
@@ -148,7 +148,7 @@ type WorkloadReconciler struct {
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
 var _ predicate.TypedPredicate[*kueue.Workload] = (*WorkloadReconciler)(nil)
 
-func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder, options ...Option) *WorkloadReconciler {
+func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder events.EventRecorder, options ...Option) *WorkloadReconciler {
 	r := &WorkloadReconciler{
 		logName:             "workload-reconciler",
 		client:              client,
@@ -168,7 +168,7 @@ func (r *WorkloadReconciler) logger() logr.Logger {
 	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=limitranges,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
@@ -214,7 +214,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err := r.client.Delete(ctx, &wl); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
-		r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Deleted", "Deleted finished workload due to elapsed retention")
+		r.recorder.Eventf(&wl, nil, corev1.EventTypeNormal, "Deleted", "Deleted", "Deleted finished workload due to elapsed retention")
 		return ctrl.Result{}, nil
 	}
 
@@ -470,7 +470,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
 			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
-			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
+			r.recorder.Eventf(&wl, nil, corev1.EventTypeNormal, "Admitted", "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
 			priorityClassName := workload.PriorityClassName(&wl)
 			metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, r.roleTracker)
 			metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime, r.roleTracker)
@@ -628,7 +628,7 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 		if err != nil {
 			return 0, err
 		}
-		r.recorder.Eventf(wl, corev1.EventTypeWarning, kueue.WorkloadMaximumExecutionTimeExceeded, "The maximum execution time (%ds) exceeded", *wl.Spec.MaximumExecutionTimeSeconds)
+		r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, kueue.WorkloadMaximumExecutionTimeExceeded, "MaximumExecutionTimeExceeded", "The maximum execution time (%ds) exceeded", *wl.Spec.MaximumExecutionTimeSeconds)
 	}
 	return 0, nil
 }
@@ -654,7 +654,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		}
 		log.V(3).Info("Workload is evicted due to rejected admission checks", "workload", klog.KObj(wl), "rejectedChecks", rejectedCheckNames)
 		rejectedCheck := workload.RejectedChecks(wl)[0]
-		r.recorder.Eventf(wl, corev1.EventTypeWarning, "AdmissionCheckRejected", "Deactivating workload because AdmissionCheck for %v was Rejected: %s", rejectedCheck.Name, rejectedCheck.Message)
+		r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, "AdmissionCheckRejected", "AdmissionCheckRejected", "Deactivating workload because AdmissionCheck for %v was Rejected: %s", rejectedCheck.Name, rejectedCheck.Message)
 		return true, nil
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
