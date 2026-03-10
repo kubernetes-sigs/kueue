@@ -155,10 +155,10 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Verifying workload remains pending")
+			updatedWl := &kueue.Workload{}
 			gomega.Consistently(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(updatedWl)).To(gomega.BeFalse())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
@@ -365,10 +365,10 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Verifying workload with ResourceClaimTemplate remains pending due to quota")
+			updatedWl := &kueue.Workload{}
 			gomega.Consistently(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(updatedWl)).To(gomega.BeFalse())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 

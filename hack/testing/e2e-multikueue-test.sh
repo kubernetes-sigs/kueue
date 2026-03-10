@@ -46,10 +46,10 @@ function cleanup {
     wait
 
     if e2e_should_delete_cluster; then
-        cluster_cleanup "$MANAGER_KIND_CLUSTER_NAME" &
-        cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME" &
-        cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME" &
-        wait
+        # Run cleanup sequentially to prevent kubeconfig lock collisions
+        cluster_cleanup "$MANAGER_KIND_CLUSTER_NAME" 
+        cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME" 
+        cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME"
         return 0
     fi
 
@@ -92,11 +92,16 @@ function kueue_deploy {
 trap cleanup EXIT
 startup 
 prepare_docker_images
-wait # for clusters creation
+for job in $(jobs -p); do 
+    wait "$job" || { echo "Cluster creation failed!"; exit 1; } 
+done # wait for clusters creation
+
 kind_load "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
 kind_load "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
 kind_load "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
-wait # for libraries installation
+for job in $(jobs -p); do 
+    wait "$job" || { echo "Dependency installation failed!"; exit 1; } 
+done # wait for dependency installation
 echo "Add contexts to default kubeconfig"
 $KIND export kubeconfig --name "$MANAGER_KIND_CLUSTER_NAME"
 $KIND export kubeconfig --name "$WORKER1_KIND_CLUSTER_NAME"
@@ -113,6 +118,6 @@ if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
   exit 0
 fi
 
-# shellcheck disable=SC2086
-$GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/${E2E_TARGET_FOLDER}/...
+# Quote GINKGO_ARGS so values with spaces are not word-split (avoids "flag after package list").
+$GINKGO ${GINKGO_ARGS:+"$GINKGO_ARGS"} --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
 "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"

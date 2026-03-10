@@ -22,9 +22,12 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 declare -r REPO_ROOT
 cd "${REPO_ROOT}"
 
+# shellcheck source=hack/utils.sh
+source "${REPO_ROOT}/hack/utils.sh"
+
 UPSTREAM_REMOTE=${UPSTREAM_REMOTE:-upstream}
-MAIN_REPO_ORG=${MAIN_REPO_ORG:-$(git remote get-url "$UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $3}')}
-MAIN_REPO_NAME=${MAIN_REPO_NAME:-$(git remote get-url "$UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $4}')}
+MAIN_REPO_ORG=${MAIN_REPO_ORG:-$(get_repo_org "$(git remote get-url "$UPSTREAM_REMOTE")")}
+MAIN_REPO_NAME=${MAIN_REPO_NAME:-$(get_repo_name "$(git remote get-url "$UPSTREAM_REMOTE")")}
 
 if ! command -v gh > /dev/null; then
   echo "Can't find 'gh' tool in PATH, please install from https://github.com/cli/cli"

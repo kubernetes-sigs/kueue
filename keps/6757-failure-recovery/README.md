@@ -74,6 +74,7 @@ In particular, `Job`-based `Workload`s with `podReplacementPolicy: Failed` are u
 
 * Maximize the quota usage for `Workload`s by recovering from a common failure pattern that:
   * Prevents `Job`s using `podReplacementPolicy: Failed` from making progress.
+  * Prevents `Job`s with stuck pods from being deleted when using foreground propagation.
 
 ### Non-Goals
 
@@ -81,9 +82,9 @@ In particular, `Job`-based `Workload`s with `podReplacementPolicy: Failed` are u
 
 ## Proposal
 
-* Introduce a controller that moves zombie `Pod`s into the `Failed` phase.
+* Introduce a controller that moves zombie `Pod`s into the `Failed` phase and forcefully deletes them.
   * The controller is enabled via a feature gate.
-* Introduce a `kueue.x-k8s.io/safe-to-forcefully-terminate` annotation that limits which pods are affected by the new controller.
+* Introduce a `kueue.x-k8s.io/safe-to-forcefully-delete` annotation that limits which pods are affected by the new controller.
 
 ### User Stories (Optional)
 
@@ -121,7 +122,7 @@ Controlling the covered workloads, instead of applying the recovery globally, wi
 
 In order to allow the first adopters to control which pods are affected by the new controller, a new `Pod` annotation will be introduced:
 ```yaml
-kueue.x-k8s.io/safe-to-forcefully-terminate: "true"
+kueue.x-k8s.io/safe-to-forcefully-delete: "true"
 ```
 
 Only pods containing the new annotation will be affected by the controller, for example:
@@ -140,7 +141,7 @@ spec:
   template:
     metadata:
       annotations:
-        kueue.x-k8s.io/safe-to-forcefully-terminate: "true"  // <- new annotation
+        kueue.x-k8s.io/safe-to-forcefully-delete: "true"  // <- new annotation
     spec:
       containers:
       - name: dummy-job
@@ -180,7 +181,7 @@ spec:
 status:
   conditions:
   # grace period = `terminationGracePeriodSeconds` + 60s (default threshold in the KEP)
-  - message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate annotation`)'
+  - message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete annotation`)'
     reason: KueueForcefullyTerminated
     status: "True"
     type: KueueFailureRecovery
@@ -198,7 +199,7 @@ involvedObject:
   kind: Pod
   name: pod-a
   namespace: default
-message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-terminate annotation`)'
+message: 'Pod forcefully terminated after 90s grace period due to unreachable node `node-a` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete annotation`)'
 reason: KueueForcefullyTerminated
 reportingComponent: pod-termination-controller
 source:
@@ -212,9 +213,11 @@ Enabling the `FailureRecoveryPolicy` feature gate will turn on a controller, whi
 The controller has to **ignore** updates to pods that:
 1. Are not terminating.
     * `pod.DeletionTimestamp == nil`
-1. Are in a terminal phase.
+1. Are in a terminal phase, but do not have the `KueueFailureRecovery` Condition with `KueueForcefullyTerminated` reason.
+    * The condition check handles partial success of the reconciler - the pod is transitioned to `Failed` and assigned the condition,
+    but the forceful deletion failed.
     * `pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending`
-1. Are not annotated with the new `kueue.x-k8s.io/safe-to-forcefully-terminate` annotation.
+1. Are not annotated with the new `kueue.x-k8s.io/safe-to-forcefully-delete` annotation.
 1. Are **not** scheduled on a node tainted with `node.kubernetes.io/unreachable`.
     * This explicitly ignores pods assigned to nodes that still have a running kubelet.
     For example, nodes with the `node.kubernetes.io/not-ready` taint experiencing resource pressure
@@ -223,7 +226,7 @@ The controller has to **ignore** updates to pods that:
 For relevant (not ignored) terminating pods, the reconciliation behaves in the following way:
 1. It computes the amount of time elapsed since the the pod's `gracefulTerminationGracePeriod` elapsed:
     1. If it's below the default timeout of **1 minute**, the reconciler will requeue the object to be re-evaluated once the thershold is reached.
-    1. Otherwise, if the threshold of **1 minute** was reached, the pod will be deemed "zombie" and transitioned into the `PodFailed` phase.
+    1. Otherwise, if the threshold of **1 minute** was reached, the pod will be deemed "zombie", transitioned into the `PodFailed` phase and deleted without grace period.
 
 ### Test Plan
 
@@ -244,7 +247,7 @@ The proposal will be covered with unit tests for:
 
 The proposal will be covered with integrations tests that check whether:
 1. Adding a deletion timestamp to the pod requeues a reconciliation loop for when the grace period elapses.
-1. After the grace period elapses, the pod is marked as `Failed`.
+1. After the grace period elapses, the pod is marked as `Failed` and deleted.
 1. Replacement pods are scheduled in the place of the failed pod (optional, technically 1+2 is sufficient to prove this).
 
 Existing integration tests should prove that this feature does not impact Kueue during normal operation.
@@ -268,6 +271,11 @@ Existing integration tests should prove that this feature does not impact Kueue 
 2025-09-12: The [issue](https://github.com/kubernetes/kubernetes/issues/134038) is raised in core Kubernetes.
 
 2025-10-17: First draft of the KEP.
+
+2026-03-04: The controller is [changed](https://github.com/kubernetes-sigs/kueue/pull/9651) to delete pods in addition to marking them as failed,
+to handle [foreground propagated deletion](https://github.com/kubernetes-sigs/kueue/issues/9649).
+Additionally, the annotation used by the feature was renamed from `kueue.x-k8s.io/safe-to-forcefully-terminate` to `kueue.x-k8s.io/safe-to-forcefully-delete`
+in versions `>=0.15.6`, `>=0.16.3` and `>=0.17.0`. Previous releases retain the old behaviour and annotation name.
 
 ## Drawbacks
 

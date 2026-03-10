@@ -17,6 +17,8 @@ limitations under the License.
 package handlers
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"k8s.io/client-go/dynamic"
 )
@@ -31,7 +33,7 @@ func New(client Client) *Handlers {
 	}
 }
 
-func (h *Handlers) InitializeWebSocketRoutes(router *gin.Engine) {
+func (h *Handlers) InitializeWebSocketRoutes(router gin.IRoutes) {
 	// Namespaces
 	router.GET("/ws/namespaces", h.NamespacesWebSocketHandler())
 
@@ -60,7 +62,15 @@ func (h *Handlers) InitializeWebSocketRoutes(router *gin.Engine) {
 	router.GET("/ws/resource-flavor/:flavor_name", h.ResourceFlavorDetailsWebSocketHandler())
 }
 
-func (h *Handlers) InitializeAPIRoutes(router *gin.Engine, dynamicClient dynamic.Interface) {
-	// Generic API route
+func (h *Handlers) InitializeAPIRoutes(router gin.IRoutes, dynamicClient dynamic.Interface) {
 	router.GET("/api/:resourceType/:name", GetResource(dynamicClient))
+}
+
+func InitializeUnauthenticatedRoutes(router gin.IRoutes, authMode string) {
+	router.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+	router.GET("/auth/status", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"authMode": authMode})
+	})
 }

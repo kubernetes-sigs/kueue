@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
 		testJob := testingjob.MakeJob("upgrade-validation-job", jobNamespace).
 			Queue(kueue.LocalQueueName(queueName)).
 			Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-			RequestAndLimit(corev1.ResourceCPU, "100m").
+			RequestAndLimit(corev1.ResourceCPU, "200m").
 			RequestAndLimit(corev1.ResourceMemory, "50Mi").
 			Obj()
 

@@ -43,6 +43,73 @@ func NewClientFromManager(manager ctrlmanager.Manager) Client {
 	}
 }
 
+// GVK helper functions for informers
+
+// ClusterQueuesGVK returns the GroupVersionKind for ClusterQueues
+func ClusterQueuesGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta2",
+		Kind:    "ClusterQueue",
+	}
+}
+
+// WorkloadsGVK returns the GroupVersionKind for Workloads
+func WorkloadsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta2",
+		Kind:    "Workload",
+	}
+}
+
+// LocalQueuesGVK returns the GroupVersionKind for LocalQueues
+func LocalQueuesGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta2",
+		Kind:    "LocalQueue",
+	}
+}
+
+// ResourceFlavorsGVK returns the GroupVersionKind for ResourceFlavors
+func ResourceFlavorsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta2",
+		Kind:    "ResourceFlavor",
+	}
+}
+
+// PodsGVK returns the GroupVersionKind for Pods
+func PodsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Pod",
+	}
+}
+
+// EventsGVK returns the GroupVersionKind for Events
+func EventsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Event",
+	}
+}
+
+// NodesGVK returns the GroupVersionKind for Nodes
+func NodesGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Node",
+	}
+}
+
+// GVR helper functions for dynamic client operations
+
 // ClusterQueuesGVR defines the GroupVersionResource for ClusterQueues
 func ClusterQueuesGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
@@ -92,32 +159,29 @@ func ResourceFlavorsGVR() schema.GroupVersionResource {
 	return resourceFlavorsGVR
 }
 
-// NodesGVR defines the GroupVersionResource for Nodes
-func NodesGVR() schema.GroupVersionResource {
-	nodeGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "nodes",
-	}
-	return nodeGVR
-}
-
 // EventsGVR defines the GroupVersionResource for Events
 func EventsGVR() schema.GroupVersionResource {
-	eventsGVR := schema.GroupVersionResource{
+	return schema.GroupVersionResource{
 		Group:    "",
 		Version:  "v1",
 		Resource: "events",
 	}
-	return eventsGVR
 }
 
-// PodsGVR defines the GroupVersionResource Pods
+// NodesGVR defines the GroupVersionResource for Nodes
+func NodesGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "nodes",
+	}
+}
+
+// PodsGVR defines the GroupVersionResource for Pods
 func PodsGVR() schema.GroupVersionResource {
-	podsGVR := schema.GroupVersionResource{
+	return schema.GroupVersionResource{
 		Group:    "",
 		Version:  "v1",
 		Resource: "pods",
 	}
-	return podsGVR
 }

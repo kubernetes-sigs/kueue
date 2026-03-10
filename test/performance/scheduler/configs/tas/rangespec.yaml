@@ -1,27 +1,34 @@
 # TAS Performance Test - Expected Performance Ranges
 #
-# NOTE: the thresholds below are provisional and will be fully specified based on the actual
-# numbers only once we have enough execution history on CI. The provisional thresholds avoid
-# flaky CI failures in the mean time.
+# Thresholds are based on 10 CI runs:
+#   2025000801608404992  2025181997965512704  2025363193886412800
+#   2025544389727621120  2025725585971482624  2025906781519089664
+#   2026087977280606208  2026269173214089216  2026450369252429824
+#   2026631734962950144
 #
 # Configuration: 640 nodes, 15,000 workloads (matched to baseline structure)
 
 # Command execution limits
+# Thresholds: mean + 20% rounded up to 1000ms
 cmd:
-  maxWallMs: 1_000_000
+  maxWallMs: 482_000       # 401472 / 5737 / 1.43%
 
-# Cluster Queue utilization targets
+# Cluster Queue utilization targets (minimum)
+# Thresholds: mean − 7%, rounded down to 0.1%
+# Class  min usage%    mean / stddev / CV%
 clusterQueueClassesMinUsage:
-  cq: 1 #%
+  cq:  58.0          # 62.41 / 0.30 / 0.48%
 
 # Workload admission time limits
+# Thresholds: mean + 20% rounded up to 1000ms
+# Class                  threshold     mean / stddev / CV%
 wlClassesMaxAvgTimeToAdmissionMs:
-  small-required-rack: 1_000_000
-  small-preferred-rack: 1_000_000
-  small-balanced-rack: 1_000_000
-  medium-required-rack: 1_000_000
-  medium-preferred-rack: 1_000_000
-  medium-balanced-rack: 1_000_000
-  large-required-rack: 1_000_000
-  large-preferred-rack: 1_000_000
-  large-balanced-rack: 1_000_000
+  large-balanced-rack:    46_000        # 37862 / 1573 / 4.15%
+  large-preferred-rack:   48_000        # 39573 / 1644 / 4.15%
+  large-required-rack:    48_000        # 39625 / 1632 / 4.12%
+  medium-balanced-rack:   128_000       # 106303 / 3853 / 3.63%
+  medium-preferred-rack:  128_000       # 106324 / 3835 / 3.61%
+  medium-required-rack:   129_000       # 107071 / 3933 / 3.67%
+  small-balanced-rack:    286_000       # 237846 / 4661 / 1.96%
+  small-preferred-rack:   296_000       # 246090 / 4918 / 2.00%
+  small-required-rack:    297_000       # 246755 / 5023 / 2.04%

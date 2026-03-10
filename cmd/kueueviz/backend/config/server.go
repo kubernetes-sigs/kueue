@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -30,16 +32,43 @@ import (
 
 // ServerConfig holds server configuration
 type ServerConfig struct {
-	Port string
+	Port       string
+	AuthMode   string
+	AuthConfig middleware.AuthConfig
 }
 
 // NewServerConfig creates a new server configuration
 func NewServerConfig() *ServerConfig {
 	viper.AutomaticEnv()
 	viper.SetDefault("KUEUEVIZ_PORT", "8080")
+	viper.SetDefault("KUEUEVIZ_AUTH_MODE", "Disabled")
+	viper.SetDefault("KUEUEVIZ_AUTH_TOKEN_REVIEW_CACHE_TTL", "60s")
+	viper.SetDefault("KUEUEVIZ_AUTH_TOKEN_REVIEW_NEGATIVE_CACHE_TTL", "5s")
+
+	var audiences []string
+	if raw := viper.GetString("KUEUEVIZ_AUTH_TOKEN_REVIEW_AUDIENCES"); raw != "" {
+		for a := range strings.SplitSeq(raw, ",") {
+			if a = strings.TrimSpace(a); a != "" {
+				audiences = append(audiences, a)
+			}
+		}
+	}
+
+	cacheTTL := parseDurationWithDefault(
+		viper.GetString("KUEUEVIZ_AUTH_TOKEN_REVIEW_CACHE_TTL"), 60*time.Second, "KUEUEVIZ_AUTH_TOKEN_REVIEW_CACHE_TTL",
+	)
+	negativeCacheTTL := parseDurationWithDefault(
+		viper.GetString("KUEUEVIZ_AUTH_TOKEN_REVIEW_NEGATIVE_CACHE_TTL"), 5*time.Second, "KUEUEVIZ_AUTH_TOKEN_REVIEW_NEGATIVE_CACHE_TTL",
+	)
 
 	return &ServerConfig{
-		Port: viper.GetString("KUEUEVIZ_PORT"),
+		Port:     viper.GetString("KUEUEVIZ_PORT"),
+		AuthMode: viper.GetString("KUEUEVIZ_AUTH_MODE"),
+		AuthConfig: middleware.AuthConfig{
+			Audiences:        audiences,
+			CacheTTL:         cacheTTL,
+			NegativeCacheTTL: negativeCacheTTL,
+		},
 	}
 }
 
@@ -55,13 +84,12 @@ func SetupPprof() {
 	}
 }
 
-// SetupGinEngine creates and configures the Gin engine with middleware
+// SetupGinEngine creates and configures the Gin engine with base middleware.
 func SetupGinEngine() (*gin.Engine, error) {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 
-	// Configure CORS with environment-aware settings
 	corsMiddleware, err := middleware.SetupCORS()
 	if err != nil {
 		return nil, fmt.Errorf("error setting up CORS: %v", err)
@@ -78,4 +106,13 @@ func SetupGinEngine() (*gin.Engine, error) {
 // GetServerAddress returns the formatted server address
 func (c *ServerConfig) GetServerAddress() string {
 	return fmt.Sprintf(":%s", c.Port)
+}
+
+func parseDurationWithDefault(raw string, fallback time.Duration, envName string) time.Duration {
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		slog.Warn("Invalid duration, using default", "env", envName, "value", raw, "default", fallback)
+		return fallback
+	}
+	return d
 }
