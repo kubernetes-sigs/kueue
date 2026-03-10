@@ -62,8 +62,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-type workloadStatus int
-
 const (
 	nodeMultipleFailuresEvictionMessageFormat = "Workload eviction triggered due to multiple TAS assigned node failures, including: %s"
 	podTerminationCheckPeriod                 = 1 * time.Second
@@ -73,6 +71,8 @@ const (
 	podTerminatedByKueueConditionMessage = "Pod terminated by Kueue NodeFailureController due to node taint"
 	podTerminatedByKueueEventReason      = "PodTerminatedByKueue"
 )
+
+type workloadStatus int
 
 const (
 	// workloadHealthy indicates that the workload does not need to be evicted from the node.

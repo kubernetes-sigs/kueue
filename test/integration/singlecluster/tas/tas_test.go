@@ -2000,10 +2000,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, 2*time.Second, util.Interval).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("creating the VERY FIRST pod, which triggers a reconcile and makes it Unhealthy because expected pods logic is removed", func() {
+				ginkgo.By("creating the first pod, which triggers a reconcile and makes it Unhealthy because expected pods logic is removed", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
 					ta := utiltas.InternalFrom(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment)
-					// Create the first pod
 					pod := testingpod.MakePod(fmt.Sprintf("%s-0", wl1.Name), ns.Name).
 						Annotation(kueue.WorkloadAnnotation, wl1.Name).
 						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
@@ -2030,6 +2029,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						NodeName(ta.Domains[0].Values[0]).
 						Obj()
 					util.MustCreate(ctx, k8sClient, pod)
+				})
+
+				ginkgo.By("verify the workload gets UnhealthyNodes since all expected pods are present", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+						g.Expect(wl1.Status.UnhealthyNodes).To(gomega.ConsistOf(kueue.UnhealthyNode{Name: nodeName}))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
 			ginkgo.It("should update workload UnhealthyNodes immediately when node has NoExecute taint and TASReplaceNodeOnPodTermination is disabled", framework.SlowSpec, func() {
