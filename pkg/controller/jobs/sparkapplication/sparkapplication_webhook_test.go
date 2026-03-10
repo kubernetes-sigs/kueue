@@ -39,8 +39,10 @@ import (
 func TestValidateCreate(t *testing.T) {
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "test").Suspend(false)
 	testcases := map[string]struct {
-		sparkApp *sparkappv1beta2.SparkApplication
-		wantErr  error
+		sparkApp                                *sparkappv1beta2.SparkApplication
+		elasticJobsViaWorkloadSlicesFeatureGate bool
+		topologyAwareSchedulingFeatureGate      bool
+		wantErr                                 error
 	}{
 		"base": {
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
@@ -60,6 +62,7 @@ func TestValidateCreate(t *testing.T) {
 			)}.ToAggregate(),
 		},
 		"dynamicAllocation with elastic job feature": {
+			elasticJobsViaWorkloadSlicesFeatureGate: true,
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
 				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
 			).DynamicAllocation(&sparkappv1beta2.DynamicAllocation{
@@ -75,12 +78,14 @@ func TestValidateCreate(t *testing.T) {
 			)}.ToAggregate(),
 		},
 		"base with TAS": {
+			topologyAwareSchedulingFeatureGate: true,
 			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorAnnotation(
 				kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
 			).Obj(),
 			wantErr: nil,
 		},
 		"invalid TAS configuration": {
+			topologyAwareSchedulingFeatureGate: true,
 			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorAnnotation(
 				kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
 			).ExecutorAnnotation(
@@ -96,8 +101,8 @@ func TestValidateCreate(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlicesFeatureGate)
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareSchedulingFeatureGate)
 
 			webhook := &SparkApplicationWebhook{}
 			ctx, _ := utiltesting.ContextWithLog(t)
