@@ -1420,10 +1420,7 @@ an underlying node problem, replacement ensures the workload is not blocked by t
 
 Pods belonging to a workload might remain in the `Pending` phase if Kueue calculates a topology assignment that includes a specific node, but that node subsequently becomes tainted with `NoSchedule` or `NoExecute`, or enters the `NotReady` state. If a Pod is created or updated with a node selector pointing to this node, the Kubernetes scheduler is unable to schedule it due to the node's condition. Consequently, the Pod remains bound to an unavailable node by its topology assignment.
 
-For workloads where single Node replacement is possible, the controller remediates this scenario by reacting to Node and Pod events:
-
-- **On Node events:** When a node becomes unhealthy (due to a taint or the `NotReady` state), the controller evaluates the Pods on the node. If their status indicates an issue, the node is marked as unhealthy.
-- **On Pod events:** When a node is already tainted or `NotReady`, a change in a Pod's status can cause the node to fulfill the unhealthy requirements, allowing the controller to mark the node as unhealthy. Crucially, reacting to Pod events enables the controller to easily filter out Pods that were created too slowly or became stuck in the `Pending` phase. The controller transitions these Pods to the `Failed` phase so that replacement Pods are created—an event-driven approach that completely avoids polling.
+For workloads where single Node replacement is possible, the node failure controller remediates this scenario by waiting for all pods that are expected to be on the node to be created, and then running the unhealthy handling procedures. The controller transitions these `Pending` Pods to the `Failed` phase so that replacement Pods are created.
 
 When transitioning these Pods, the controller appends the following condition:
 ```yaml
