@@ -134,7 +134,7 @@ if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworker
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
 
-if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:sparkapplication || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
     export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
 fi
 
@@ -453,7 +453,7 @@ function kind_load {
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_kuberay "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:sparkapplication || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
         install_sparkoperator "$1" "$2"
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then

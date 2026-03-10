@@ -34,8 +34,6 @@ featureGates:
   enabled: true
 - name: ElasticJobsViaWorkloadSlicesWithTAS
   enabled: true
-- name: SparkApplicationIntegration
-  enabled: true
 managerConfig:
   controllerManagerConfigYaml: |-
     apiVersion: config.kueue.x-k8s.io/v1beta2
@@ -73,4 +71,3 @@ managerConfig:
         - "deployment"
         - "statefulset"
         - "leaderworkerset.x-k8s.io/leaderworkerset"
-        - "sparkoperator.k8s.io/sparkapplication"

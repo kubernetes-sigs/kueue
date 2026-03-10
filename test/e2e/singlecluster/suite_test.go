@@ -96,9 +96,6 @@ var _ = ginkgo.BeforeSuite(func() {
 		prometheusClient = util.CreatePrometheusClient(cfg)
 		util.WaitForPrometheusAvailability(ctx, k8sClient)
 	}
-	if ginkgo.Label("feature:tas", "feature:sparkapplication").MatchesLabelFilter(labelFilter) {
-		util.WaitForSparkOperatorAvailability(ctx, k8sClient)
-	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
