@@ -35,24 +35,27 @@ import (
 )
 
 var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("area:singlecluster", "feature:sparkapplication"), func() {
-	const (
-		resourceFlavorName = "sparkapplication-rf"
-		clusterQueueName   = "sparkapplication-cq"
-		localQueueName     = "sparkapplication-lq"
-		serviceAccountName = "sparkapplication-sa"
-		roleBindingName    = "sparkapplication-sa-edit"
-	)
-
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
-		sa *corev1.ServiceAccount
+		ns                 *corev1.Namespace
+		rf                 *kueue.ResourceFlavor
+		cq                 *kueue.ClusterQueue
+		lq                 *kueue.LocalQueue
+		sa                 *corev1.ServiceAccount
+		resourceFlavorName string
+		clusterQueueName   string
+		localQueueName     string
+		serviceAccountName string
+		roleBindingName    string
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-e2e-")
+
+		resourceFlavorName = "sparkapplication-rf-" + ns.Name
+		clusterQueueName = "sparkapplication-cq-" + ns.Name
+		localQueueName = "sparkapplication-lq-" + ns.Name
+		serviceAccountName = "sparkapplication-sa-" + ns.Name
+		roleBindingName = "sparkapplication-sa-edit-" + ns.Name
 
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).Obj()
 		util.MustCreate(ctx, k8sClient, rf)
