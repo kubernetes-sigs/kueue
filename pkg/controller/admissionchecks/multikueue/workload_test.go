@@ -60,6 +60,7 @@ var errFake = errors.New("fake error")
 func TestWlReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	earlier := now.Add(-time.Second)
+	muchEarlier := now.Add(-time.Hour)
 	fakeClock := testingclock.NewFakeClock(now)
 
 	objCheckOpts := cmp.Options{
@@ -1671,7 +1672,96 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"not opening preemption gate if timeout did not elapse": {
+		"opening preemption gate for the second workload requiring preemption if timeout elapsed": {
+			features: map[featuregate.Feature]bool{
+				features.MultiKueueOrchestratedPreemption: true,
+			},
+			reconcileFor: "wl1",
+
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Obj(),
+			},
+
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PreemptionGates(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}).
+					PreemptionGateStates(kueue.PreemptionGateState{
+						Name:               constants.MultiKueuePreemptionGate,
+						State:              kueue.GateStateOpen,
+						LastTransitionTime: metav1.NewTime(muchEarlier),
+					}).
+					Obj(),
+			},
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PreemptionGates(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}).
+					PreemptionGateStates(kueue.PreemptionGateState{
+						Name:               constants.MultiKueuePreemptionGate,
+						State:              kueue.GateStateClosed,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreemptionBlocked,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.PreemptionGated,
+						Message:            "Preemption gate closed",
+						LastTransitionTime: metav1.NewTime(earlier),
+					}).
+					Obj(),
+			},
+
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Obj(),
+			},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PreemptionGates(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}).
+					PreemptionGateStates(kueue.PreemptionGateState{
+						Name:               constants.MultiKueuePreemptionGate,
+						State:              kueue.GateStateOpen,
+						LastTransitionTime: metav1.NewTime(muchEarlier),
+					}).
+					Obj(),
+			},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PreemptionGates(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}).
+					PreemptionGateStates(kueue.PreemptionGateState{
+						Name:               constants.MultiKueuePreemptionGate,
+						State:              kueue.GateStateOpen,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreemptionBlocked,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.PreemptionGated,
+						Message:            "Preemption gate closed",
+						LastTransitionTime: metav1.NewTime(earlier),
+					}).
+					Obj(),
+			},
+		},
+		"not opening preemption gate for the second workload if timeout did not elapse": {
 			features: map[featuregate.Feature]bool{
 				features.MultiKueueOrchestratedPreemption: true,
 			},
