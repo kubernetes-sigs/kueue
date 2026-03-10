@@ -124,6 +124,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("area:singl
 				ExecutorMemoryRequest("512m"). // 512MB
 				ExecutorInstances(1).
 				Queue(lq.Name).
+				Suspend(true).
 				Obj()
 
 			ginkgo.By("Create a SparkApplicatioon", func() {
