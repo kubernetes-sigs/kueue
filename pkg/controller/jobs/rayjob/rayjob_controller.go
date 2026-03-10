@@ -25,6 +25,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -211,7 +212,9 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 			objCopy.SetAnnotations(annotations)
 			return true, nil
 		})
-		if err != nil {
+		// Ignore NotFound errors: PodSets() may be called during webhook
+		// validation before the object exists in the API server.
+		if err != nil && !errors.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to patch RayJob annotations: %w", err)
 		}
 	}
