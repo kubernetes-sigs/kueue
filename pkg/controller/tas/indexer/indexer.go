@@ -31,6 +31,9 @@ import (
 const (
 	TASKey                        = "metadata.tas"
 	WorkloadNameKey               = "metadata.workload"
+	PodNodeNameKey                = "spec.nodeName.or.selector"
+	ReadyNode                     = "metadata.ready"
+	SchedulableNode               = "spec.schedulable"
 	ResourceFlavorTopologyNameKey = "spec.topologyName"
 )
 
@@ -54,6 +57,43 @@ func indexPodWorkload(o client.Object) []string {
 	return []string{value}
 }
 
+func indexPodNodeName(o client.Object) []string {
+	pod, ok := o.(*corev1.Pod)
+	if !ok || !utiltas.IsTAS(pod) {
+		return nil
+	}
+	if pod.Spec.NodeName != "" {
+		return []string{pod.Spec.NodeName}
+	}
+	if pod.Spec.NodeSelector != nil {
+		if nodeName, ok := pod.Spec.NodeSelector[corev1.LabelHostname]; ok {
+			return []string{nodeName}
+		}
+	}
+	return nil
+}
+
+func indexReadyNode(o client.Object) []string {
+	node, ok := o.(*corev1.Node)
+	if !ok || len(node.Status.Conditions) == 0 {
+		return nil
+	}
+
+	if !utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady) {
+		return nil
+	}
+
+	return []string{"true"}
+}
+
+func indexSchedulableNode(o client.Object) []string {
+	node, ok := o.(*corev1.Node)
+	if !ok || node.Spec.Unschedulable {
+		return nil
+	}
+	return []string{"true"}
+}
+
 func indexResourceFlavorTopologyName(o client.Object) []string {
 	flavor, ok := o.(*kueue.ResourceFlavor)
 	if !ok || flavor.Spec.TopologyName == nil {
@@ -69,6 +109,18 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 	if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadNameKey, indexPodWorkload); err != nil {
 		return fmt.Errorf("setting index pod workload: %w", err)
+	}
+
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, PodNodeNameKey, indexPodNodeName); err != nil {
+		return fmt.Errorf("setting index pod node name: %w", err)
+	}
+
+	if err := indexer.IndexField(ctx, &corev1.Node{}, ReadyNode, indexReadyNode); err != nil {
+		return fmt.Errorf("setting index node ready: %w", err)
+	}
+
+	if err := indexer.IndexField(ctx, &corev1.Node{}, SchedulableNode, indexSchedulableNode); err != nil {
+		return fmt.Errorf("setting index node schedulable: %w", err)
 	}
 
 	if err := indexer.IndexField(ctx, &kueue.ResourceFlavor{}, ResourceFlavorTopologyNameKey, indexResourceFlavorTopologyName); err != nil {
