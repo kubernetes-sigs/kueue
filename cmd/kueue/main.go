@@ -74,7 +74,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/cert"
-	"sigs.k8s.io/kueue/pkg/util/kubeconfig"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
@@ -194,7 +193,7 @@ func main() {
 
 	metrics.Register()
 
-	kubeConfig, kubeConfigPath := kubeconfig.Resolve()
+	kubeConfig := ctrl.GetConfigOrDie()
 	if kubeConfig.UserAgent == "" {
 		kubeConfig.UserAgent = useragent.Default()
 	}
