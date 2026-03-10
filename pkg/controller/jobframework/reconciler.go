@@ -980,7 +980,9 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	}
 
 	if match != nil {
-		UpdateAdmissionGatedBy(ctx, r.client, r.record, job.Object(), match)
+		if err := UpdateAdmissionGatedBy(ctx, r.client, r.record, job.Object(), match); err != nil {
+			return nil, err
+		}
 
 		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), match, getCustomPriorityClassFuncFromJob(job)); err != nil {
 			return nil, err
