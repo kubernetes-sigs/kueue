@@ -100,7 +100,7 @@ type leafDomain struct {
 	tasUsage resources.Requests
 
 	// node at the leaf, if the lowest level is a node
-	node *corev1.Node
+	node *nodeInfo
 }
 
 type domainByID map[utiltas.TopologyDomainID]*domain
@@ -153,7 +153,7 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 	return snapshot
 }
 
-func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
+func (s *TASFlavorSnapshot) addNode(node *nodeInfo) utiltas.TopologyDomainID {
 	levelValues := utiltas.LevelValues(s.levelKeys, node.Labels)
 	domainID := utiltas.DomainID(levelValues)
 	if s.isLowestLevelNode() {
@@ -167,11 +167,11 @@ func (s *TASFlavorSnapshot) addNode(node corev1.Node) utiltas.TopologyDomainID {
 			},
 		}
 		if s.isLowestLevelNode() {
-			leafDomain.node = &node
+			leafDomain.node = node
 		}
 		s.leaves[domainID] = &leafDomain
 	}
-	capacity := resources.NewRequests(node.Status.Allocatable)
+	capacity := resources.NewRequests(node.Allocatable)
 	s.addCapacity(domainID, capacity)
 	return domainID
 }
@@ -1379,7 +1379,7 @@ func (s *TASFlavorSnapshot) fillInCounts(
 		// node is the lowest level of the topology
 		if isNodeLevel {
 			// 1. Check Tolerations against Node Taints
-			nodeTaints := leaf.node.Spec.Taints
+			nodeTaints := leaf.node.Taints
 			taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(nodeTaints, tolerations, func(t *corev1.Taint) bool {
 				return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 			})
@@ -1391,7 +1391,7 @@ func (s *TASFlavorSnapshot) fillInCounts(
 
 			// 2. Check Node Labels against Compiled Selector
 			var nodeLabelSet labels.Set
-			if nodeLabels := leaf.node.GetLabels(); nodeLabels != nil {
+			if nodeLabels := leaf.node.Labels; nodeLabels != nil {
 				nodeLabelSet = nodeLabels
 			}
 
@@ -1402,7 +1402,7 @@ func (s *TASFlavorSnapshot) fillInCounts(
 			}
 
 			// 3. Check Node against Affinity Node Selector
-			if affinityNodeSelector != nil && !affinityNodeSelector.Match(leaf.node) {
+			if affinityNodeSelector != nil && !affinityNodeSelector.Match(leaf.node.toNode()) {
 				s.log.V(3).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
 				stats.Affinity++
 				continue

@@ -22,7 +22,6 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration) (string, error) {
@@ -39,11 +38,9 @@ func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache
 	if ctrlName, err := topologyUngater.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
-	if features.Enabled(features.TASFailedNodeReplacement) {
-		nodeFailureReconciler := newNodeFailureReconciler(mgr.GetClient(), recorder)
-		if ctrlName, err := nodeFailureReconciler.SetupWithManager(mgr, cfg); err != nil {
-			return ctrlName, err
-		}
+	nodeRec := newNodeReconciler(mgr.GetClient(), recorder, cache, WithWatchers(rfRec))
+	if ctrlName, err := nodeRec.SetupWithManager(mgr, cfg); err != nil {
+		return ctrlName, err
 	}
 	nonTasUsageController := newNonTasUsageReconciler(mgr.GetClient(), cache)
 	if ctrlName, err := nonTasUsageController.SetupWithManager(mgr); err != nil {
