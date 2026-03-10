@@ -511,7 +511,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		} else {
 			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote lost")
 		}
-	} else if features.Enabled(features.MultiKueueOrchestratedPreemption) {
+	}
+
+	var requeueAfterSynchronize time.Duration
+	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
 		remWl, remClient := w.workloadToOpenPreemptionGate(group)
 
 		if remWl != nil && remClient != nil {
@@ -519,10 +522,17 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			if err := remClient.client.Status().Update(ctx, remWl); err != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 			}
+
+			// Ensure there is a reconcile that considers the next preemption gate.
+			requeueAfterSynchronize = w.singleClusterPreemptionTimeout
 		}
 	}
 
-	return w.nominateAndSynchronizeWorkers(ctx, group)
+	res, err := w.nominateAndSynchronizeWorkers(ctx, group)
+	if err == nil && requeueAfterSynchronize < res.RequeueAfter {
+		res.RequeueAfter = requeueAfterSynchronize
+	}
+	return res, err
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
