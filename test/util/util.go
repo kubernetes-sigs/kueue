@@ -1201,7 +1201,6 @@ func IsLoggedEntryAConcurrentModification(le observer.LoggedEntry) bool {
 	return strings.Contains(errorDetals, expectedConcurrentModiciationDetails)
 }
 
-<<<<<<< 7254-mk-admcheck-bugfix
 // BreakConnection breaks conection to the cluster, then returns:
 // a callback to restore the connection AND
 // the timestamp of becoming disconnected
@@ -1258,9 +1257,9 @@ func createConnectionRestoringCallback(ctx context.Context, cli client.Client, c
 			}, Timeout, Interval).Should(gomega.Succeed())
 		})
 	}
-=======
+}
+
 func ResourceQtyToFloat64(quantityStr string) float64 {
 	q := resource.MustParse(quantityStr)
 	return q.AsApproximateFloat64()
->>>>>>> main
 }
