@@ -67,8 +67,9 @@ func TestPodSets(t *testing.T) {
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns")
 
 	testCases := map[string]struct {
-		sparkApp *sparkappv1beta2.SparkApplication
-		want     []kueue.PodSet
+		sparkApp                           *sparkappv1beta2.SparkApplication
+		topologyAwareSchedulingFeatureGate bool
+		want                               []kueue.PodSet
 	}{
 		"base": {
 			sparkApp: testSparkApp.Clone().
@@ -113,6 +114,7 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with TopologyAwareScheduling": {
+			topologyAwareSchedulingFeatureGate: true,
 			sparkApp: testSparkApp.Clone().Queue("local-queue").
 				DriverAnnotation(
 					kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
@@ -166,11 +168,64 @@ func TestPodSets(t *testing.T) {
 					}).Obj(),
 			},
 		},
+		"with TopologyAwareScheduling annotation but TopologyAwareScheduling feature gate disabled": {
+			topologyAwareSchedulingFeatureGate: false,
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				DriverAnnotation(
+					kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
+				).
+				ExecutorAnnotation(
+					kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
+				).Obj(),
+			want: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("driver", 1).
+					Annotations(map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					}).
+					PodSpec(corev1.PodSpec{
+						NodeSelector:   map[string]string{},
+						Tolerations:    []corev1.Toleration{},
+						InitContainers: []corev1.Container{},
+						Containers: []corev1.Container{
+							{
+								Name: sparkcommon.SparkDriverContainerName,
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("100m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							},
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("executor", 1).
+					Annotations(map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					}).
+					PodSpec(corev1.PodSpec{
+						NodeSelector:   map[string]string{},
+						Tolerations:    []corev1.Toleration{},
+						InitContainers: []corev1.Container{},
+						Containers: []corev1.Container{
+							{
+								Name: sparkcommon.Spark3DefaultExecutorContainerName,
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("100m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							},
+						},
+					}).Obj(),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareSchedulingFeatureGate)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
