@@ -626,6 +626,7 @@ func autoConvert_v1beta1_MultiKueue_To_v1beta2_MultiKueue(in *MultiKueue, out *v
 	out.GCInterval = (*metav1.Duration)(unsafe.Pointer(in.GCInterval))
 	out.Origin = (*string)(unsafe.Pointer(in.Origin))
 	out.WorkerLostTimeout = (*metav1.Duration)(unsafe.Pointer(in.WorkerLostTimeout))
+	out.SingleClusterPreemptionTimeout = (*metav1.Duration)(unsafe.Pointer(in.SingleClusterPreemptionTimeout))
 	out.DispatcherName = (*string)(unsafe.Pointer(in.DispatcherName))
 	out.ExternalFrameworks = *(*[]v1beta2.MultiKueueExternalFramework)(unsafe.Pointer(&in.ExternalFrameworks))
 	return nil
@@ -643,7 +644,7 @@ func autoConvert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in *v1beta2.MultiKueue
 	out.DispatcherName = (*string)(unsafe.Pointer(in.DispatcherName))
 	out.ExternalFrameworks = *(*[]MultiKueueExternalFramework)(unsafe.Pointer(&in.ExternalFrameworks))
 	// WARNING: in.ClusterProfile requires manual conversion: does not exist in peer-type
-	// WARNING: in.SingleClusterPreemptionTimeout requires manual conversion: does not exist in peer-type
+	out.SingleClusterPreemptionTimeout = (*metav1.Duration)(unsafe.Pointer(in.SingleClusterPreemptionTimeout))
 	return nil
 }
 

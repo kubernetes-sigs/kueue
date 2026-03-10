@@ -610,6 +610,14 @@ if the connection with its reserving worker cluster is lost.</p>
 <p>Defaults to 15 minutes.</p>
 </td>
 </tr>
+<tr><td><code>singleClusterPreemptionTimeout</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>The timeout after which another worker cluster replica can be ungated, measured since the previous time a replica was ungated.
+Defaults to 5 minutes.</p>
+</td>
+</tr>
 <tr><td><code>dispatcherName</code><br/>
 <code>string</code>
 </td>
