@@ -16,16 +16,18 @@ limitations under the License.
 
 package tas
 
-import "time"
-
-const (
-	TASTopologyController       = "tas-topology-controller"
-	TASResourceFlavorController = "tas-resource-flavor-controller"
-	TASTopologyUngater          = "tas-topology-ungater"
-	TASNodeController           = "tas-node-controller"
-	TASNonTasUsageController    = "tas-non-tas-usage-controller"
-)
-
-const (
-	NodeFailureDelay = 30 * time.Second
-)
+// NodeMatchesFlavor checks if a node's labels match the required labels
+// and contains all required topology levels. Returns true if matches.
+func NodeMatchesFlavor(nodeLabels map[string]string, requiredLabels map[string]string, requiredLevels []string) bool {
+	for k, v := range requiredLabels {
+		if nodeLabels[k] != v {
+			return false
+		}
+	}
+	for _, level := range requiredLevels {
+		if _, ok := nodeLabels[level]; !ok {
+			return false
+		}
+	}
+	return true
+}
