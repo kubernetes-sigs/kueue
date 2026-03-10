@@ -1346,6 +1346,8 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 	return nil
 }
 
+type flavorSet = sets.Set[kueue.ResourceFlavorReference]
+
 // AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
 // ClusterQueue configuration
 func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.ClusterQueue) sets.Set[kueue.AdmissionCheckReference] {
@@ -1359,18 +1361,17 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 
 	// If we have an admission with flavors assigned we can provide all relevant checks right away.
 	if assignedFlavors := admissionFlavors(wl.Status.Admission); len(assignedFlavors) > 0 {
-		return checksForFlavors(allChecks, assignedFlavors)
+		return filterChecks(allChecks, func(acFlavors flavorSet) bool {
+			return assignedFlavors.Intersection(acFlavors).Len() > 0
+		})
 	}
 
 	// If unable to determine flavors assigned to a workload we can only list
 	// the checks which apply to all flavors supported by the ClusterQueue.
 	allFlavors := queue.AllFlavors(cq.Spec.ResourceGroups)
-	checksForAllFlavors := sets.New[kueue.AdmissionCheckReference]()
-	for acName, acFlavors := range allChecks {
-		if allFlavors.Difference(acFlavors).Len() == 0 {
-			checksForAllFlavors.Insert(acName)
-		}
-	}
+	checksForAllFlavors := filterChecks(allChecks, func(acFlavors flavorSet) bool {
+		return allFlavors.Difference(acFlavors).Len() == 0
+	})
 	log.V(3).Info(
 		"Workload has no Admission: assigning only checks that apply to all workloads in the Cluster Queue regardless of flavor",
 		"Assigned AdmissionChecks",
@@ -1379,9 +1380,15 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 	return checksForAllFlavors
 }
 
-// ChecksRequiredForAdmission returns all admission checks that apply to the specified admission based on assigned flavors.
-func ChecksRequiredForAdmission(allChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], admission *kueue.Admission) sets.Set[kueue.AdmissionCheckReference] {
-	return checksForFlavors(allChecks, admissionFlavors(admission))
+// filterChecks rerurns the names of all admission checks with a flavor set fulfilling the predicate.
+func filterChecks(admissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], acFlavorsPredicate func(flavorSet) bool) sets.Set[kueue.AdmissionCheckReference] {
+	acNames := sets.New[kueue.AdmissionCheckReference]()
+	for acName, acFlavors := range admissionChecks {
+		if acFlavorsPredicate(acFlavors) {
+			acNames.Insert(acName)
+		}
+	}
+	return acNames
 }
 
 func admissionFlavors(admission *kueue.Admission) sets.Set[kueue.ResourceFlavorReference] {
@@ -1395,16 +1402,6 @@ func admissionFlavors(admission *kueue.Admission) sets.Set[kueue.ResourceFlavorR
 		}
 	}
 	return assignedFlavors
-}
-
-func checksForFlavors(admissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], flavors sets.Set[kueue.ResourceFlavorReference]) sets.Set[kueue.AdmissionCheckReference] {
-	acNames := sets.New[kueue.AdmissionCheckReference]()
-	for acName, checkedFlavors := range admissionChecks {
-		if flavors.Intersection(checkedFlavors).Len() > 0 {
-			acNames.Insert(acName)
-		}
-	}
-	return acNames
 }
 
 type EvictOption func(*EvictOptions)

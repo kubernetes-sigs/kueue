@@ -1099,7 +1099,10 @@ func TestAdmissionCheckStrategyForAdmittedWorkload(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotAdmissionChecks := ChecksRequiredForAdmission(admissioncheck.NewAdmissionChecks(tc.cq), tc.wl.Status.Admission)
+			admissionFlavors := admissionFlavors(tc.wl.Status.Admission)
+			gotAdmissionChecks := filterChecks(admissioncheck.NewAdmissionChecks(tc.cq), func(acFlavors flavorSet) bool {
+				return admissionFlavors.Intersection(acFlavors).Len() > 0
+			})
 
 			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
 				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
