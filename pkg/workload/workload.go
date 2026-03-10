@@ -1438,7 +1438,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 	return checksForAllFlavors
 }
 
-// filterChecks rerurns the names of all admission checks with a flavor set fulfilling the predicate.
+// filterChecks returns the names of all admission checks with a flavor set fulfilling the predicate.
 func filterChecks(admissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], acFlavorsPredicate func(flavorSet) bool) sets.Set[kueue.AdmissionCheckReference] {
 	acNames := sets.New[kueue.AdmissionCheckReference]()
 	for acName, acFlavors := range admissionChecks {
