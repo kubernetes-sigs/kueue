@@ -4442,6 +4442,36 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Job is admissible", g
 		ginkgo.By("Removing one gate and verifying the job remains inadmissible")
 		util.VerifyAdmissionGatedByJobAllowsRemovingOneGate(ctx, k8sClient, job, wlLookupKey, initialGateValue, updatedGateValue)
 	})
+
+	ginkgo.It("Should admit Job when AdmissionGatedBy annotation is present but feature gate is disabled", func() {
+		// The feature-gate is on for these tests so explicitly switching it off
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, false)
+
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a Job with admission gate annotation but feature gate disabled")
+		job := testingjob.MakeJob("gated-job-feature-disabled", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, gateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+
+		util.VerifyJobAdmittedWhenFeatureGateDisabled(ctx, k8sClient, job, wlLookupKey)
+
+		ginkgo.By("Checking the job is unsuspended")
+		jobLookupKey := types.NamespacedName{Name: job.Name, Namespace: ns.Name}
+		createdJob := &batchv1.Job{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
 })
 
 var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {

@@ -144,6 +144,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
+			if err := jobframework.UpdateAdmissionGatedBy(ctx, r.client, r.record, lws, toUpdate[i]); err != nil {
+				return err
+			}
+
 			return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, toUpdate[i], nil)
 		})
 	})
