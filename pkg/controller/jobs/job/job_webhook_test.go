@@ -32,10 +32,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -70,6 +70,7 @@ func TestValidateCreate(t *testing.T) {
 		wantErr                      error
 		topologyAwareScheduling      bool
 		elasticJobsViaWorkloadSlices bool
+		admissionGatedBy             bool
 	}{
 		{
 			name:               "simple",
@@ -416,12 +417,53 @@ func TestValidateCreate(t *testing.T) {
 			topologyAwareScheduling:      true,
 			elasticJobsViaWorkloadSlices: true,
 		},
+		{
+			name: "valid AdmissionGatedBy annotation with single gate",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "valid AdmissionGatedBy annotation with multiple gates",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/a,not.example.com/b").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - not in subdomain/path format",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "this is an invalid value", "must be in format 'subdomain/path'"),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - duplicate gates",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "duplicates.are/invalid,duplicates.are/invalid").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "duplicates.are/invalid,duplicates.are/invalid", "duplicate gate name: duplicates.are/invalid"),
+			},
+			admissionGatedBy: true,
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlices)
+			features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, tc.admissionGatedBy)
 
 			jw := &JobWebhook{}
 
@@ -447,6 +489,7 @@ func TestValidateUpdate(t *testing.T) {
 		wantValidationErrs      field.ErrorList
 		wantErr                 error
 		topologyAwareScheduling bool
+		admissionGatedBy        bool
 	}{
 		{
 			name:               "normal update",
@@ -736,11 +779,26 @@ func TestValidateUpdate(t *testing.T) {
 			},
 			topologyAwareScheduling: true,
 		},
+		{
+			name: "reject adding AdmissionGatedBy annotation after Job creation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(admissionGatedByAnnotationsPath, "cannot add admission gate after creation"),
+			},
+			admissionGatedBy: true,
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+			features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, tc.admissionGatedBy)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotValidationErrs, gotErr := new(JobWebhook).validateUpdate(ctx, (*Job)(tc.oldJob), (*Job)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {

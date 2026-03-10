@@ -135,7 +135,7 @@ func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorL
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
 	if features.Enabled(features.AdmissionGatedBy) {
-		allErrs = append(allErrs, w.validateAdmissionGatedByCreate(job)...)
+		allErrs = append(allErrs, jobframework.ValidateAdmissionGatedByAnnotationOnCreate(job.Object(), admissionGatedByAnnotationsPath)...)
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, job)
@@ -179,14 +179,6 @@ func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
 	return allErrs
 }
 
-func (w *JobWebhook) validateAdmissionGatedByCreate(job *Job) field.ErrorList {
-	return jobframework.ValidateAdmissionGatedByAnnotationOnCreate(job.Object(), admissionGatedByAnnotationsPath)
-}
-
-func (w *JobWebhook) validateAdmissionGatedByUpdate(oldJob, newJob *Job) field.ErrorList {
-	return jobframework.ValidateAdmissionGatedByAnnotationOnUpdate(oldJob.Object(), newJob.Object(), admissionGatedByAnnotationsPath)
-}
-
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *batchv1.Job) (admission.Warnings, error) {
 	oldJob := fromObject(oldObj)
@@ -210,7 +202,7 @@ func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (f
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
 	if features.Enabled(features.AdmissionGatedBy) {
-		allErrs = append(allErrs, w.validateAdmissionGatedByUpdate(oldJob, newJob)...)
+		allErrs = append(allErrs, jobframework.ValidateAdmissionGatedByAnnotationOnUpdate(oldJob.Object(), newJob.Object(), admissionGatedByAnnotationsPath)...)
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, newJob)
