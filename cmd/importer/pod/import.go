@@ -39,6 +39,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 var realClock = clock.RealClock{}
@@ -206,7 +207,7 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 	}
 
 	for {
-		err := workload.PatchAdmissionStatus(ctx, c, wl, realClock, update, workload.WithForceApply())
+		err := workloadpatching.PatchAdmissionStatus(ctx, c, wl, realClock, update, workloadpatching.WithForceApply())
 		retry, _, timeout := checkError(err)
 		if !retry {
 			if err != nil {

@@ -39,6 +39,9 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/recorder"
 	"sigs.k8s.io/kueue/test/util"
@@ -80,7 +83,7 @@ func (r *reconciler) Create(ev event.CreateEvent) bool {
 	if isWl {
 		r.recorder.RecordWorkloadState(wl)
 		admitted := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted)
-		return admitted && !workload.IsFinished(wl)
+		return admitted && !workloadfinish.IsFinished(wl)
 	}
 	return true
 }
@@ -100,7 +103,7 @@ func (r *reconciler) Update(ev event.UpdateEvent) bool {
 
 	r.recorder.RecordWorkloadState(wl)
 
-	return admitted && !workload.IsFinished(wl)
+	return admitted && !workloadfinish.IsFinished(wl)
 }
 
 func (r *reconciler) Generic(_ event.GenericEvent) bool {
@@ -117,8 +120,8 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	// this should only:
 	// 1. finish the workloads eviction
-	if workload.IsEvicted(&wl) {
-		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+	if workloadevict.IsEvicted(&wl) {
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Evicted by the test runner", time.Now()), nil
 		})
 		if err == nil {

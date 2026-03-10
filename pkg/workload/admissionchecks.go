@@ -26,7 +26,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 )
 
@@ -83,57 +82,6 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		}
 	}
 	return apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
-}
-
-// resetChecksOnEviction sets all AdmissionChecks to Pending
-func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
-	checks := w.Status.AdmissionChecks
-	for i := range checks {
-		if checks[i].State == kueue.CheckStatePending {
-			continue
-		}
-		var retryCount *int32
-		if checks[i].State == kueue.CheckStateRetry {
-			tmpRetryCount := ptr.Deref(checks[i].RetryCount, 0) + 1
-			retryCount = ptr.To(tmpRetryCount)
-		}
-		checks[i] = kueue.AdmissionCheckState{
-			Name:                checks[i].Name,
-			State:               kueue.CheckStatePending,
-			Message:             "Reset to Pending after eviction. Previously: " + string(checks[i].State),
-			LastTransitionTime:  metav1.NewTime(now),
-			RequeueAfterSeconds: checks[i].RequeueAfterSeconds,
-			RetryCount:          retryCount,
-		}
-	}
-}
-
-// SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
-func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState, clock clock.Clock) bool {
-	if checks == nil {
-		return false
-	}
-	existingCondition := admissioncheck.FindAdmissionCheck(*checks, newCheck.Name)
-	if existingCondition == nil {
-		if newCheck.LastTransitionTime.IsZero() {
-			newCheck.LastTransitionTime = metav1.NewTime(clock.Now())
-		}
-		*checks = append(*checks, newCheck)
-		return true
-	}
-
-	if existingCondition.State != newCheck.State {
-		existingCondition.State = newCheck.State
-		if !newCheck.LastTransitionTime.IsZero() {
-			existingCondition.LastTransitionTime = newCheck.LastTransitionTime
-		} else {
-			existingCondition.LastTransitionTime = metav1.NewTime(clock.Now())
-		}
-	}
-	existingCondition.Message = newCheck.Message
-	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
-	existingCondition.RequeueAfterSeconds = newCheck.RequeueAfterSeconds
-	return true
 }
 
 // RejectedChecks returns the list of Rejected admission checks

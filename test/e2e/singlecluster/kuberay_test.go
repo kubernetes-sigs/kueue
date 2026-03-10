@@ -43,6 +43,7 @@ import (
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -285,7 +286,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
 				hasAdmittedWorkload := false
 				for _, wl := range workloadList.Items {
-					if workload.IsAdmitted(&wl) || workload.IsFinished(&wl) {
+					if workload.IsAdmitted(&wl) || workloadfinish.IsFinished(&wl) {
 						hasAdmittedWorkload = true
 						break
 					}

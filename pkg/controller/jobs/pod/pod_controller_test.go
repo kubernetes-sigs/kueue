@@ -50,7 +50,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/pkg/workload"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -5548,7 +5548,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
-						Reason:             workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:             workloadpatching.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message:            "The workload is deactivated",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
@@ -5575,13 +5575,13 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
 						Status:  metav1.ConditionFalse,
-						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workloadpatching.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workloadpatching.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{

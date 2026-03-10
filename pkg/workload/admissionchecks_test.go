@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 func TestSyncAdmittedCondition(t *testing.T) {
@@ -531,7 +532,7 @@ func TestSetCheckState(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gotStates := tc.origStates
 
-			SetAdmissionCheckState(&gotStates, tc.state, fakeClock)
+			patch.SetAdmissionCheckState(&gotStates, tc.state, fakeClock)
 
 			opts := cmp.Options{}
 			if tc.state.LastTransitionTime.IsZero() {
