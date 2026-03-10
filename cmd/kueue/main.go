@@ -75,7 +75,6 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/cert"
-	"sigs.k8s.io/kueue/pkg/util/kubeconfig"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
@@ -221,7 +220,7 @@ func main() {
 
 	metrics.Register()
 
-	kubeConfig, kubeConfigPath := kubeconfig.Resolve()
+	kubeConfig := ctrl.GetConfigOrDie()
 	if kubeConfig.UserAgent == "" {
 		kubeConfig.UserAgent = useragent.Default()
 	}
@@ -352,7 +351,7 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, kubeConfigPath, parsedTLSConfig); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, parsedTLSConfig); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}
