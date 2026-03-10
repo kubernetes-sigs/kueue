@@ -27,11 +27,15 @@ import (
 // Resolve returns the *rest.Config and the path to the kubeconfig file used to create it.
 // If the path is not explicitly set via flag or environment variable, it returns an empty string.
 func Resolve() (*rest.Config, string) {
+	return ctrl.GetConfigOrDie(), resolvePath()
+}
+
+func resolvePath() string {
 	kubeConfigPath := os.Getenv("KUBECONFIG")
 	if f := flag.Lookup("kubeconfig"); f != nil {
 		if v := f.Value.String(); v != "" {
 			kubeConfigPath = v
 		}
 	}
-	return ctrl.GetConfigOrDie(), kubeConfigPath
+	return kubeConfigPath
 }
