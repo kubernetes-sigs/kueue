@@ -212,6 +212,15 @@ func (rf *ResourceFlavorWrapper) NodeLabel(k, v string) *ResourceFlavorWrapper {
 	return rf
 }
 
+// ResourceWeight sets a per-resource weight used for flavor-aware DRS.
+func (rf *ResourceFlavorWrapper) ResourceWeight(r corev1.ResourceName, w string) *ResourceFlavorWrapper {
+	if rf.Spec.ResourceWeights == nil {
+		rf.Spec.ResourceWeights = make(map[corev1.ResourceName]resource.Quantity)
+	}
+	rf.Spec.ResourceWeights[r] = resource.MustParse(w)
+	return rf
+}
+
 // WorkloadPriorityClassWrapper wraps a WorkloadPriorityClass.
 type WorkloadPriorityClassWrapper struct {
 	kueue.WorkloadPriorityClass

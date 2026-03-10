@@ -98,7 +98,7 @@ linters:
       path: "apis/kueue/v1beta2"
 
     # ResourceList fields (map types required for Kubernetes compatibility)
-    - text: "(nomaps|optionalfields): (field )?(ResourceUsage|Resources|ConsumedResources) should (not use a map type|be a pointer)"
+    - text: "(nomaps|optionalfields): (field )?(ResourceUsage|Resources|ConsumedResources|ResourceWeights) should (not use a map type|be a pointer)"
       path: "apis/kueue/v1beta2"
 
     # Bool fields for API compatibility (Active mirrors Job.Suspend, Unconstrained is existing API)

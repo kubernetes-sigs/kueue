@@ -731,7 +731,7 @@ func TestDominantResourceShare(t *testing.T) {
 			cacheCohortsMap := cache.hm.Cohorts()
 			gotCache := make([]fairSharingResult, 0, len(cacheClusterQueuesMap)+len(cacheCohortsMap))
 			for _, cq := range cacheClusterQueuesMap {
-				drs := dominantResourceShare(cq, tc.flvResQ)
+				drs := dominantResourceShare(cq, tc.flvResQ, nil)
 				drVal, drName := drs.roundedWeightedShare()
 				gotCache = append(gotCache, fairSharingResult{
 					Name:     string(cq.Name),
@@ -741,7 +741,7 @@ func TestDominantResourceShare(t *testing.T) {
 				})
 			}
 			for _, cohort := range cacheCohortsMap {
-				drs := dominantResourceShare(cohort, tc.flvResQ)
+				drs := dominantResourceShare(cohort, tc.flvResQ, nil)
 				drVal, drName := drs.roundedWeightedShare()
 				gotCache = append(gotCache, fairSharingResult{
 					Name:     string(cohort.Name),
@@ -758,7 +758,7 @@ func TestDominantResourceShare(t *testing.T) {
 			snapshotCohortsMap := snapshot.Cohorts()
 			gotSnapshot := make([]fairSharingResult, 0, len(snapshotClusterQueuesMap)+len(snapshotCohortsMap))
 			for _, cq := range snapshotClusterQueuesMap {
-				drs := dominantResourceShare(cq, tc.flvResQ)
+				drs := dominantResourceShare(cq, tc.flvResQ, nil)
 				drVal, drName := drs.roundedWeightedShare()
 				gotSnapshot = append(gotSnapshot, fairSharingResult{
 					Name:     string(cq.Name),
@@ -768,7 +768,7 @@ func TestDominantResourceShare(t *testing.T) {
 				})
 			}
 			for _, cohort := range snapshotCohortsMap {
-				drs := dominantResourceShare(cohort, tc.flvResQ)
+				drs := dominantResourceShare(cohort, tc.flvResQ, nil)
 				drVal, drName := drs.roundedWeightedShare()
 				gotSnapshot = append(gotSnapshot, fairSharingResult{
 					Name:     string(cohort.Name),
