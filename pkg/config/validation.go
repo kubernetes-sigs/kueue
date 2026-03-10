@@ -525,6 +525,12 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 		}
 	}
 
+	if features.Enabled(features.DRAExtendedResources) {
+		if !features.Enabled(features.DynamicResourceAllocation) {
+			allErrs = append(allErrs, field.Invalid(featureGatesPath, "DRAExtendedResources", "DRAExtendedResources requires DynamicResourceAllocation to be enabled"))
+		}
+	}
+
 	return allErrs
 }
 

@@ -17,6 +17,8 @@ limitations under the License.
 package resource
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -110,4 +112,24 @@ func IsZero(rl corev1.ResourceList) bool {
 	}
 
 	return true
+}
+
+// IsExtendedResourceName returns true if the resource name is an extended resource.
+// An extended resource is a fully-qualified resource name with a domain prefix
+// that is not in the kubernetes.io namespace and is not a standard resource.
+// This matches the upstream logic in k8s.io/kubernetes/pkg/apis/core/helper.
+func IsExtendedResourceName(name corev1.ResourceName) bool {
+	if isNativeResource(name) || isHugePageResourceName(name) {
+		return false
+	}
+	return strings.Contains(string(name), "/")
+}
+
+func isNativeResource(name corev1.ResourceName) bool {
+	return !strings.Contains(string(name), "/") ||
+		strings.HasPrefix(string(name), corev1.ResourceDefaultNamespacePrefix)
+}
+
+func isHugePageResourceName(name corev1.ResourceName) bool {
+	return strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix)
 }

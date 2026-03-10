@@ -40,7 +40,7 @@ func newDRAResourceMapper() *ResourceMapper {
 	}
 }
 
-// Returns (logicalResourceName, true) on success or ("", false) when the device class is not mapped.
+// lookup returns (logicalResourceName, true) on success or ("", false) when the device class is not mapped.
 func (m *ResourceMapper) lookup(deviceClass corev1.ResourceName) (corev1.ResourceName, bool) {
 	logicalResource, found := m.deviceClassToResource[deviceClass]
 	return logicalResource, found

@@ -29,6 +29,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: DRAExtendedResources
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
 - name: DynamicResourceAllocation
   versionedSpecs:
   - default: false

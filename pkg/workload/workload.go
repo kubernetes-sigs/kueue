@@ -110,9 +110,9 @@ type AssignmentClusterQueueState struct {
 	ClusterQueueGeneration int64
 }
 
-// dra holds DRA-specific configuration for workload.Info construction.
 type dra struct {
-	preprocessedDRAResources map[kueue.PodSetReference]corev1.ResourceList
+	preprocessedDRAResources  map[kueue.PodSetReference]corev1.ResourceList
+	replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
 }
 
 type InfoOptions struct {
@@ -139,11 +139,15 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Inf
 	}
 }
 
-// WithPreprocessedDRAResources creates an InfoOption that provides preprocessed DRA resources.
-func WithPreprocessedDRAResources(draResources map[kueue.PodSetReference]corev1.ResourceList) InfoOption {
+// WithPreprocessedDRAResources provides DRA resources to add and extended resources to remove.
+func WithPreprocessedDRAResources(
+	draResources map[kueue.PodSetReference]corev1.ResourceList,
+	replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
+) InfoOption {
 	return func(o *InfoOptions) {
 		o.dra = dra{
-			preprocessedDRAResources: draResources,
+			preprocessedDRAResources:  draResources,
+			replacedExtendedResources: replacedExtendedResources,
 		}
 	}
 }
@@ -589,6 +593,13 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		setRes.Requests = resources.NewRequests(effectiveRequests)
 		if features.Enabled(features.DynamicResourceAllocation) && info.preprocessedDRAResources != nil {
+			// First, remove extended resources that were converted to DRA logical resources
+			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {
+				for extRes := range replacedRes {
+					delete(setRes.Requests, extRes)
+				}
+			}
+			// Then, add the DRA logical resources
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
 				for resName, quantity := range draRes {
 					if setRes.Requests == nil {
@@ -1336,11 +1347,55 @@ func HasDRA(w *kueue.Workload) bool {
 // processing in the Reconcile loop rather than being queued directly from event
 // handlers. DRA workloads need Reconcile-based processing for proper error
 // handling (e.g. setting Inadmissible conditions on the workload).
+//
+// This checks both explicit DRA resources (ResourceClaimTemplates) and extended
+// resources that may be backed by DRA DeviceClasses. The extended resources
+// check is intentionally broad (any extended resource triggers reconcile when
+// the DRAExtendedResources gate is enabled) to avoid API calls in event handlers.
+// The Reconcile path performs the precise DeviceClass lookup.
 func NeedsDRAReconcile(wl *kueue.Workload) bool {
 	if !features.Enabled(features.DynamicResourceAllocation) {
 		return false
 	}
-	return HasDRA(wl)
+	if HasDRA(wl) {
+		return true
+	}
+	if features.Enabled(features.DRAExtendedResources) {
+		return hasExtendedResources(wl)
+	}
+	return false
+}
+
+// hasExtendedResources returns true if the workload requests any extended
+// resources (non-zero, non-standard resources with a domain prefix).
+func hasExtendedResources(wl *kueue.Workload) bool {
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		for _, c := range append(ps.Template.Spec.InitContainers, ps.Template.Spec.Containers...) {
+			for name, qty := range c.Resources.Requests {
+				if !qty.IsZero() && isExtendedResource(name) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// isExtendedResource returns true if the resource name is an extended resource
+// (has a domain prefix and is not a standard Kubernetes resource).
+func isExtendedResource(name corev1.ResourceName) bool {
+	if name == corev1.ResourceCPU || name == corev1.ResourceMemory ||
+		name == corev1.ResourceEphemeralStorage || name == "hugepages" {
+		return false
+	}
+	// Extended resources have a domain prefix (contain a '/')
+	for _, c := range string(name) {
+		if c == '/' {
+			return true
+		}
+	}
+	return false
 }
 
 // HasResourceClaimTemplates returns true if the workload has ResourceClaimTemplates.
