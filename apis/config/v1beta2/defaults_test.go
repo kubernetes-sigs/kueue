@@ -52,6 +52,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 		Metrics: ControllerMetrics{
 			BindAddress: DefaultMetricsBindAddress,
+			LocalQueueMetrics: &LocalQueueMetrics{
+				Enable: true,
+			},
 		},
 		Health: ControllerHealth{
 			HealthProbeBindAddress: DefaultHealthProbeBindAddress,
@@ -140,6 +143,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: DefaultMetricsBindAddress,
+						LocalQueueMetrics: &LocalQueueMetrics{
+							Enable: true,
+						},
 					},
 					Health: ControllerHealth{
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
@@ -171,6 +177,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
+						LocalQueueMetrics: &LocalQueueMetrics{
+							Enable: false,
+						},
 					},
 					Health: ControllerHealth{
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
@@ -198,6 +207,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
+						LocalQueueMetrics: &LocalQueueMetrics{
+							Enable: false,
+						},
 					},
 					Health: ControllerHealth{
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
@@ -240,6 +252,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: DefaultMetricsBindAddress,
+						LocalQueueMetrics: &LocalQueueMetrics{
+							Enable: true,
+						},
 					},
 					Health: ControllerHealth{
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,

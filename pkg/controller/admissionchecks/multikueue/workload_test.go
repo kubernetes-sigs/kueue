@@ -1602,7 +1602,7 @@ func TestWlReconcile(t *testing.T) {
 				helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 				recorder := &utiltesting.EventRecorder{}
 				mkDispatcherName := ptr.Deref(tc.dispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
-				reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, WithClock(t, fakeClock))
+				reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, nil, WithClock(t, fakeClock))
 
 				for _, val := range tc.managersDeletedWorkloads {
 					reconciler.Delete(event.DeleteEvent{

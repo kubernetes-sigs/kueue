@@ -26,6 +26,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -53,7 +54,8 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	}
 	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc,
 		WithAdmissionFairSharingConfig(cfg.AdmissionFairSharing),
-		WithRoleTracker(roleTracker))
+		WithRoleTracker(roleTracker),
+		WithLocalQueueMetrics(metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)))
 	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
 		return "LocalQueue", err
 	}
@@ -90,6 +92,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithWorkloadRetention(workloadRetention(cfg.ObjectRetentionPolicies)),
 		WithWorkloadRoleTracker(roleTracker),
 		WithPreemptionExpectations(preemptionExpectations),
+		WithWorkloadLocalQueueMetrics(metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)),
 	)
 	if features.Enabled(features.DynamicResourceAllocation) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())

@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -1848,7 +1849,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					t.Fatalf("Failed adding kueue scheme: %v", err)
 				}
 				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New())
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), metrics.NewDefaultLocalQueueMetricsConfig(), nil, preemptexpectations.New())
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
