@@ -17214,6 +17214,36 @@ spec:
                               in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
                             format: int32
                             type: integer
+                          podsetSliceRequiredTopologyConstraints:
+                            description: |-
+                              podsetSliceRequiredTopologyConstraints defines all layers of slice
+                              topology constraints. Each entry specifies a topology level and slice
+                              size, from the outermost (coarsest) to the innermost (finest) layer.
+                              At most 3 layers are supported.
+                              This field is mutually exclusive with podSetSliceRequiredTopology and
+                              podSetSliceSize.
+
+                              This annotation is alpha-level for the TASMultiLayerTopology feature gate.
+                            items:
+                              description: PodsetSliceRequiredTopologyConstraint defines a single slice topology constraint layer.
+                              properties:
+                                size:
+                                  description: size indicates the number of pods in each group at this slice layer.
+                                  format: int32
+                                  minimum: 1
+                                  type: integer
+                                topology:
+                                  description: topology indicates the topology level required for this slice layer.
+                                  maxLength: 63
+                                  minLength: 1
+                                  type: string
+                              required:
+                                - size
+                                - topology
+                              type: object
+                            maxItems: 3
+                            type: array
+                            x-kubernetes-list-type: atomic
                           preferred:
                             description: |-
                               preferred indicates the topology level preferred by the PodSet, as

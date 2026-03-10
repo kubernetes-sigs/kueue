@@ -72,6 +72,32 @@ describe('Kueue Dashboard', () => {
     cy.get('td').contains('llm-cluster-queue')
   })
 
+  it('should display orphan cohort without any cluster queues', { defaultCommandTimeout: 15000 }, () => {
+    // Navigate to cohorts page
+    cy.visit('/cohorts')
+
+    // Verify orphan cohort appears in the list (has no ClusterQueues)
+    cy.get('table').should('exist')
+    cy.get('td').contains('orphan-cohort-for-testing')
+
+    // Navigate to the orphan cohort detail page
+    cy.get('a[href="/cohort/orphan-cohort-for-testing"]').should('exist')
+      .click()
+
+    // Verify the cohort detail page loads correctly
+    cy.contains('orphan-cohort-for-testing').should('exist')
+  })
+
+  it('should toggle between list and tree view on cohorts page', { defaultCommandTimeout: 15000 }, () => {
+    cy.visit('/cohorts')
+    cy.get('table').should('exist')
+    cy.contains('button', 'Tree').click()
+    cy.get('ul').should('exist')
+    cy.contains(/\d+ child/).should('exist')
+    cy.contains('button', 'List').click()
+    cy.get('table').should('exist')
+  })
+
   it('should verify the presence of all main links', () => {
     const links = [
       '/workloads',

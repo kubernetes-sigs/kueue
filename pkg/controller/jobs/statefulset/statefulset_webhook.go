@@ -22,6 +22,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -185,10 +186,12 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 				allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
 			} else {
 				// Block if workload is still being deleted
-				workloadName := GetWorkloadName(oldStatefulSet.GetName())
-				wlKey := client.ObjectKey{Namespace: oldStatefulSet.GetNamespace(), Name: workloadName}
+				wlName, err := findWorkloadName(ctx, wh.client, oldSTSObj)
+				if err != nil {
+					return nil, err
+				}
 				var wl kueue.Workload
-				err := wh.client.Get(ctx, wlKey, &wl)
+				err = wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTSObj.GetNamespace(), Name: wlName}, &wl)
 				if client.IgnoreNotFound(err) != nil {
 					return nil, err
 				} else if err == nil {
@@ -205,7 +208,6 @@ func (wh *Webhook) ValidateDelete(_ context.Context, _ *appsv1.StatefulSet) (war
 	return nil, nil
 }
 
-func GetWorkloadName(statefulSetName string) string {
-	// Passing empty UID as it is not available before object creation
-	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, "", gvk)
+func GetWorkloadName(uid types.UID, statefulSetName string) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, uid, gvk)
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -26,6 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 )
 
@@ -98,6 +100,9 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), fmt.Sprintf("may not be set when '%s' is not specified", kueue.PodSetSliceRequiredTopologyAnnotation)))
 	}
 
+	// validate multi-level constraints annotation
+	allErrs = append(allErrs, validateSliceRequiredTopologyConstraintsAnnotation(annotationsPath, replicaMetadata, sliceRequiredFound, sliceSizeFound, podSetGroupNameFound)...)
+
 	return allErrs
 }
 
@@ -154,32 +159,47 @@ func validatePodSetGroupNameAnnotation(groupName string, annotationPath *field.P
 }
 
 func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta, podSet *kueue.PodSet) field.ErrorList {
-	sliceSizeValue, sliceSizeFound := replicaMetadata.Annotations[kueue.PodSetSliceSizeAnnotation]
-	if !sliceSizeFound || podSet == nil {
+	if podSet == nil {
 		return nil
 	}
 
+	var allErrs field.ErrorList
 	annotationsPath := replicaPath.Child("annotations")
 
-	val, err := strconv.ParseInt(sliceSizeValue, 10, 32)
-	if err != nil {
-		return field.ErrorList{
-			field.Invalid(
-				annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value",
-			),
+	if sliceSizeValue, sliceSizeFound := replicaMetadata.Annotations[kueue.PodSetSliceSizeAnnotation]; sliceSizeFound {
+		val, err := strconv.ParseInt(sliceSizeValue, 10, 32)
+		if err != nil {
+			return field.ErrorList{
+				field.Invalid(
+					annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value",
+				),
+			}
 		}
-	}
 
-	if int32(val) > podSet.Count {
-		return field.ErrorList{
-			field.Invalid(
+		if int32(val) > podSet.Count {
+			allErrs = append(allErrs, field.Invalid(
 				annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), sliceSizeValue,
 				fmt.Sprintf("must not be greater than pod set count %d", podSet.Count),
-			),
+			))
 		}
 	}
 
-	return nil
+	// when logic reaches here, PodSetSliceRequiredTopologyConstraintsAnnotation is already guaranteed to be mutually exclusive
+	// with PodSetSliceSizeAnnotation, so no need to checkTASMultiLayerTopology feature gate
+	if constraintsJSON, constraintsFound := replicaMetadata.Annotations[kueue.PodSetSliceRequiredTopologyConstraintsAnnotation]; constraintsFound {
+		var constraints []kueue.PodsetSliceRequiredTopologyConstraint
+		if err := json.Unmarshal([]byte(constraintsJSON), &constraints); err == nil && len(constraints) > 0 {
+			if constraints[0].Size > podSet.Count {
+				allErrs = append(allErrs, field.Invalid(
+					annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation),
+					constraints[0].Size,
+					fmt.Sprintf("must not be greater than pod set count %d", podSet.Count),
+				))
+			}
+		}
+	}
+
+	return allErrs
 }
 
 func ValidatePodSetGroupingTopology(podSets []kueue.PodSet, podSetAnnotationsByName map[kueue.PodSetReference]*field.Path) field.ErrorList {
@@ -270,4 +290,86 @@ func topologyRequestsValid(r1, r2 *kueue.PodSetTopologyRequest) bool {
 	}
 	// Check that the non-nil pair has the same value.
 	return ptr.Equal(r1.Required, r2.Required) && ptr.Equal(r1.Preferred, r2.Preferred)
+}
+
+// validateSliceRequiredTopologyConstraintsAnnotation validates the
+// multi-layer topology constraints annotation syntactically.
+// NOTE: Coarsest-to-finest ordering is NOT validated here because the
+// Topology CR's level hierarchy is unavailable at admission time (the
+// ResourceFlavor is assigned by the scheduler). Ordering validation
+// happens at scheduling time in TASFlavorSnapshot.findTopologyAssignment.
+func validateSliceRequiredTopologyConstraintsAnnotation(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta, sliceRequiredFound bool, sliceSizeFound bool, podSetGroupNameFound bool) field.ErrorList {
+	var allErrs field.ErrorList
+
+	constraintsJSON, constraintsFound := replicaMetadata.Annotations[kueue.PodSetSliceRequiredTopologyConstraintsAnnotation]
+	if !constraintsFound {
+		return nil
+	}
+
+	fldPath := annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation)
+
+	if !features.Enabled(features.TASMultiLayerTopology) {
+		allErrs = append(allErrs, field.Forbidden(fldPath,
+			fmt.Sprintf("the %s feature gate must be enabled to use this annotation", features.TASMultiLayerTopology)))
+		return allErrs
+	}
+
+	// Mutual exclusivity with two-level fields.
+	if sliceRequiredFound {
+		allErrs = append(allErrs, field.Forbidden(fldPath,
+			fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyAnnotation)))
+	}
+	if sliceSizeFound {
+		allErrs = append(allErrs, field.Forbidden(fldPath,
+			fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceSizeAnnotation)))
+	}
+
+	// Incompatible with podset-group-name.
+	if podSetGroupNameFound {
+		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName),
+			fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyConstraintsAnnotation)))
+	}
+
+	// Parse JSON.
+	var constraints []kueue.PodsetSliceRequiredTopologyConstraint
+	if err := json.Unmarshal([]byte(constraintsJSON), &constraints); err != nil {
+		allErrs = append(allErrs, field.Invalid(fldPath, constraintsJSON, fmt.Sprintf("must be a valid JSON array: %v", err)))
+		return allErrs
+	}
+
+	if len(constraints) == 0 || len(constraints) > 3 {
+		allErrs = append(allErrs, field.Invalid(fldPath, constraintsJSON, errTopologyConstraintsLayerCount.Error()))
+		return allErrs
+	}
+
+	// Validate each entry.
+	for i, c := range constraints {
+		entryPath := fldPath.Index(i)
+		allErrs = append(allErrs, metavalidation.ValidateLabelName(c.Topology, entryPath.Child("topology"))...)
+		if c.Size < 1 {
+			allErrs = append(allErrs, field.Invalid(entryPath.Child("size"), c.Size, "must be greater than or equal to 1"))
+		}
+	}
+
+	// Validate uniqueness of topology labels.
+	seen := make(map[string]int, len(constraints))
+	for i, c := range constraints {
+		if prevIdx, ok := seen[c.Topology]; ok {
+			allErrs = append(allErrs, field.Duplicate(fldPath.Index(i).Child("topology"),
+				fmt.Sprintf("%s (also at index %d)", c.Topology, prevIdx)))
+		} else {
+			seen[c.Topology] = i
+		}
+	}
+
+	// Validate divisibility: each layer's size must evenly divide the layer above it.
+	for i := range len(constraints) - 1 {
+		if constraints[i+1].Size > 0 && constraints[i].Size%constraints[i+1].Size != 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath.Index(i+1).Child("size"),
+				constraints[i+1].Size,
+				fmt.Sprintf("must evenly divide the parent layer size %d", constraints[i].Size)))
+		}
+	}
+
+	return allErrs
 }

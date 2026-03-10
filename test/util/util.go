@@ -47,6 +47,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1200,6 +1201,7 @@ func IsLoggedEntryAConcurrentModification(le observer.LoggedEntry) bool {
 	return strings.Contains(errorDetals, expectedConcurrentModiciationDetails)
 }
 
+<<<<<<< 7254-mk-admcheck-bugfix
 // BreakConnection breaks conection to the cluster, then returns:
 // a callback to restore the connection AND
 // the timestamp of becoming disconnected
@@ -1256,4 +1258,9 @@ func createConnectionRestoringCallback(ctx context.Context, cli client.Client, c
 			}, Timeout, Interval).Should(gomega.Succeed())
 		})
 	}
+=======
+func ResourceQtyToFloat64(quantityStr string) float64 {
+	q := resource.MustParse(quantityStr)
+	return q.AsApproximateFloat64()
+>>>>>>> main
 }

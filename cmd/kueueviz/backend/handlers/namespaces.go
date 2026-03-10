@@ -27,24 +27,25 @@ import (
 
 // NamespacesWebSocketHandler streams namespaces that are related to Kueue
 func (h *Handlers) NamespacesWebSocketHandler() gin.HandlerFunc {
+	// Use LocalQueue informer since namespaces are derived from LocalQueues
 	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 		return h.fetchNamespaces(ctx)
-	})
+	}, LocalQueuesGVK())
 }
 
 // Fetch namespaces that have LocalQueues (Kueue-related namespaces)
 func (h *Handlers) fetchNamespaces(ctx context.Context) (any, error) {
-	l := &kueueapi.LocalQueueList{}
+	lql := &kueueapi.LocalQueueList{}
 
 	// First, get all LocalQueues to find namespaces that have them
-	err := h.client.List(ctx, l)
+	err := h.client.List(ctx, lql)
 	if err != nil {
 		return nil, err
 	}
 
 	// Extract unique namespaces from LocalQueues
 	namespaceSet := make(map[string]struct{})
-	for _, lq := range l.Items {
+	for _, lq := range lql.Items {
 		namespaceSet[lq.GetNamespace()] = struct{}{}
 	}
 

@@ -101,9 +101,6 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 
 
 <p>Cohort defines the Cohorts API.</p>
-<p>Hierarchical Cohorts (any Cohort which has a parent) are compatible
-with Fair Sharing as of v0.11. Using these features together in
-V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 
 
 <table class="table">
@@ -1398,9 +1395,6 @@ The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p
 
 <p>FairSharing contains the properties of the ClusterQueue or Cohort,
 when participating in FairSharing.</p>
-<p>Fair Sharing is compatible with Hierarchical Cohorts (any Cohort
-which has a parent) as of v0.11. Using these features together in
-V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 
 
 <table class="table">
