@@ -17,9 +17,12 @@ limitations under the License.
 package jobs
 
 import (
+	"context"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -32,7 +35,12 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 
 	ginkgo.When("With manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerSetup(rayjob.SetupRayJobWebhook))
+			fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
+				managerSetup(rayjob.SetupRayJobWebhook)(ctx, mgr)
+				// Initialize the reconciler client so PodSets() can patch annotations.
+				_, err := rayjob.NewReconciler(ctx, mgr.GetClient(), nil, nil)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			})
 		})
 		ginkgo.BeforeEach(func() {
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-")
