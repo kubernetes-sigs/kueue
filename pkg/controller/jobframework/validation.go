@@ -277,9 +277,8 @@ func ValidateAdmissionGatedByAnnotation(oldValue, newValue *string, isUpdate boo
 		// Can only remove gates or remove entire annotation
 		if oldVal != "" && newVal != "" {
 			oldGates := strings.Split(oldVal, ",")
-			newGates := strings.Split(newVal, ",")
 
-			for _, newGate := range newGates {
+			for newGate := range strings.SplitSeq(newVal, ",") {
 				if !slices.Contains(oldGates, newGate) {
 					allErrs = append(allErrs, field.Forbidden(annotationPath,
 						"can only remove gates, not add new ones"))

@@ -95,14 +95,14 @@ func VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, jobLookupKey, job)).Should(gomega.Succeed())
 		annotations := job.GetAnnotations()
-		g.Expect(annotations != nil).Should(gomega.BeTrue())
+		g.Expect(annotations).ShouldNot(gomega.BeNil())
 		g.Expect(annotations[kueueconstants.AdmissionGatedByAnnotation]).ShouldNot(gomega.BeEmpty())
 	}, Timeout, Interval).Should(gomega.Succeed())
 
 	ginkgo.By("The workload has non-empty AdmissionGatedBy before removal")
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-		g.Expect(createdWorkload.Annotations[kueueconstants.AdmissionGatedByAnnotation]).ShouldNot(gomega.BeEmpty())
+		g.Expect(createdWorkload.Annotations[kueueconstants.AdmissionGatedByAnnotation]).ShouldNot(gomega.BeNil())
 	}, Timeout, Interval).Should(gomega.Succeed())
 
 	ginkgo.By("Updating the job to remove the AdmissionGatedBy annotation")
