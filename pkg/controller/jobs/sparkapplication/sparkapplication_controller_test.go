@@ -50,7 +50,6 @@ var (
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta"),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name", "Labels", "ResourceVersion", "OwnerReferences", "Finalizers"),
-		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion", "OwnerReferences", "Finalizers"),
 		cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "Priority"),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.IgnoreFields(kueue.PodSet{}, "Template"),
