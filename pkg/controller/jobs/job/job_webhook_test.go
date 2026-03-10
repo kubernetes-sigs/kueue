@@ -794,6 +794,71 @@ func TestValidateUpdate(t *testing.T) {
 			},
 			admissionGatedBy: true,
 		},
+		{
+			name: "allow removing AdmissionGatedBy annotation with single gate",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "allow removing AdmissionGatedBy annotation with multiple gates",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "allow removing one gate from AdmissionGatedBy annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "reject injecting new gate in AdmissionGatedBy annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller3").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(admissionGatedByAnnotationsPath, "can only remove gates, not add new ones"),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "allow reordering gates in AdmissionGatedBy annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2,example.com/controller1").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
 	}
 
 	for _, tc := range testcases {
