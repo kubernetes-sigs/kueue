@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	sparkappv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
@@ -116,19 +117,26 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestDefault(t *testing.T) {
-	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns")
-	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", testNamespace.Name).Suspend(false)
+	testManagedNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns")
+	testUnManagedNamespace := utiltesting.MakeNamespaceWrapper("ns-unmanaged").Label(corev1.LabelMetadataName, "ns-unmanaged")
+	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", testManagedNamespace.Name).Suspend(false)
 	testClusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue")
-	testLocalQueue := utiltestingapi.MakeLocalQueue("local-queue", testNamespace.Name).ClusterQueue(testClusterQueue.Name)
+	testLocalQueue := utiltestingapi.MakeLocalQueue("local-queue", testManagedNamespace.Name).ClusterQueue(testClusterQueue.Name)
 
 	testCases := map[string]struct {
-		sparkApp                   *sparkappv1beta2.SparkApplication
-		defaultQueue               *kueue.LocalQueue
-		manageJobsWithoutQueueName bool
-		withDefaultLocalQueue      bool
-		wantSparkApp               *sparkappv1beta2.SparkApplication
-		wantErr                    error
+		sparkApp                      *sparkappv1beta2.SparkApplication
+		defaultQueue                  *kueue.LocalQueue
+		managedJobsNamespacesSelector labels.Selector
+		manageJobsWithoutQueueName    bool
+		withDefaultLocalQueue         bool
+		wantSparkApp                  *sparkappv1beta2.SparkApplication
+		wantErr                       error
 	}{
+		"should not suspend a SparkApplication in unmanaged namespace": {
+			managedJobsNamespacesSelector: labels.SelectorFromSet(labels.Set{corev1.LabelMetadataName: testManagedNamespace.Name}),
+			sparkApp:                      sparkapplicationtesting.MakeSparkApplication("test-sparkapp", testUnManagedNamespace.Name).Suspend(false).Obj(),
+			wantSparkApp:                  sparkapplicationtesting.MakeSparkApplication("test-sparkapp", testUnManagedNamespace.Name).Suspend(false).Obj(),
+		},
 		"should suspend a SparkApplication": {
 			sparkApp: testSparkApp.Clone().Queue(testLocalQueue.Name).Obj(),
 			wantSparkApp: testSparkApp.Clone().Queue(testLocalQueue.Name).
@@ -164,7 +172,7 @@ func TestDefault(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			kClient := utiltesting.NewClientBuilder().WithObjects(testNamespace.Obj()).Build()
+			kClient := utiltesting.NewClientBuilder().WithObjects(testManagedNamespace.Obj()).Build()
 			cqCache := schdcache.New(kClient)
 			queueManager := qcache.NewManagerForUnitTests(kClient, cqCache)
 
@@ -179,16 +187,18 @@ func TestDefault(t *testing.T) {
 			}
 
 			if tc.withDefaultLocalQueue {
-				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", testNamespace.Name).
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", testManagedNamespace.Name).
 					ClusterQueue(cq.Name).Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
 			}
 
 			webhook := &SparkApplicationWebhook{
-				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
-				queues:                     queueManager,
-				cache:                      cqCache,
+				client:                       kClient,
+				manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
+				managedJobsNamespaceSelector: tc.managedJobsNamespacesSelector,
+				queues:                       queueManager,
+				cache:                        cqCache,
 			}
 
 			err := webhook.Default(ctx, tc.sparkApp)
