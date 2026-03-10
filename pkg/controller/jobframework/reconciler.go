@@ -1023,11 +1023,17 @@ func setAdmissionGatedByNoUpdate(obj client.Object, wl *kueue.Workload) bool {
 }
 
 func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload) error {
+	if !features.Enabled(features.AdmissionGatedBy) {
+		return nil
+	}
+
+	base := wl.DeepCopy()
+
 	if !setAdmissionGatedByNoUpdate(obj, wl) {
 		return nil
 	}
 
-	if err := c.Update(ctx, wl); err != nil {
+	if err := c.Patch(ctx, wl, client.MergeFrom(base)); err != nil {
 		return fmt.Errorf("updating the AdmissionGatedBy of existing workload: %w", err)
 	}
 
