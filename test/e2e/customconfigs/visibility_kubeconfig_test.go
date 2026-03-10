@@ -160,7 +160,6 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		cqName := "test-kubeconfig-cq"
 		cq := &kueue.ClusterQueue{
 			ObjectMeta: metav1.ObjectMeta{Name: cqName},
-			Spec:       kueue.ClusterQueueSpec{CohortName: "test-cohort"},
 		}
 		util.MustCreate(ctx, k8sClient, cq)
 		defer util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
