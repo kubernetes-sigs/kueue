@@ -615,10 +615,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl2)
 
+				createdWl := kueue.Workload{}
 				gomega.Consistently(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeFalse())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &createdWl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&createdWl)).Should(gomega.BeFalse())
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
@@ -700,10 +700,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					Obj()
 				util.MustCreate(ctx, k8sClient, wl2)
 
+				createdWl2 := kueue.Workload{}
 				gomega.Consistently(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeFalse())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &createdWl2)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&createdWl2)).Should(gomega.BeFalse())
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 

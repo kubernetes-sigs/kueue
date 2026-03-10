@@ -5632,11 +5632,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"multi-layer topology: host slice rounding makes rack slice impossible": {
 			// block → rack → hostname
-			//        b1
-			//        |
-			//       r1
-			//      /    \
-			//   x1(3)  x2(3)
+			//          b1
+			//          |
+			//         r1
+			//      /   |   \
+			//   x1(3) x2(3) x3(0)
 			enableFeatureGates: []featuregate.Feature{features.TASMultiLayerTopology},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
@@ -5655,6 +5655,16 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Label(corev1.LabelHostname, "x2").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("0"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
@@ -5673,7 +5683,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count:      6,
-				wantReason: `topology "default" doesn't allow to fit any of 1 slice(s)`,
+				wantReason: `topology "default" doesn't allow to fit; 0/1 slice(s) fit on level cloud.com/topology-rack; 2/3 slice(s) fit on level kubernetes.io/hostname. Total nodes: 3; excluded: resource "cpu": 1`,
 			}},
 		},
 		"multi-layer topology: small host kills rack slices despite enough total capacity": {
@@ -5682,7 +5692,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//       /             \
 			//      r1             r2
 			//   /      \        /    \
-			//  x1(7)  x2(3)  x3(7)  x4(3)
+			//  x1(7)  x2(4)  x3(7)  x4(3)
 			enableFeatureGates: []featuregate.Feature{features.TASMultiLayerTopology},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
@@ -5700,7 +5710,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x2").
 					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourceCPU:  resource.MustParse("4"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
@@ -5739,7 +5749,188 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count:      16,
-				wantReason: `topology "default" doesn't allow to fit any of 2 slice(s)`,
+				wantReason: `topology "default" doesn't allow to fit; 1/2 slice(s) fit on level cloud.com/topology-rack; 3/4 slice(s) fit on level kubernetes.io/hostname`,
+			}},
+		},
+		"multi-layer topology: enough hostname slices but not enough rack slices": {
+			// block → rack → hostname
+			//            b1
+			//       /    |     \
+			//      r1    r2    r3
+			//      |     |      |
+			//    x1(4) x2(4)  x3(4)
+			enableFeatureGates: []featuregate.Feature{features.TASMultiLayerTopology},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(tasBlockLabel),
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasRackLabel, Size: 6},
+						{Topology: corev1.LabelHostname, Size: 2},
+					},
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count:      12,
+				wantReason: `topology "default" doesn't allow to fit; 0/2 slice(s) fit on level cloud.com/topology-rack; 6/6 slice(s) fit on level kubernetes.io/hostname`,
+			}},
+		},
+		"multi-layer topology: 3-layer negative case with small hosts cascading up": {
+			// datacenter → block → rack → hostname
+			//                         dc1
+			//             /                        \
+			//            b1                        b2
+			//        /         \               /         \
+			//     r1(8)        r2(8)         r3(8)        r4(2)
+			//    /    \       /    \         /  \         /   \
+			// x1(4)  x2(4)  x3(4)  x4(4)   x5(4) x6(4)  x7(1) x8(1)
+			//
+			// Each rack has 2 nodes; x7,x8 are weaker (1 CPU each).
+			// The incoming workload requests 24 pods: hostname slice=3, rack slice=6, block slice=12.
+			// x7,x8 too small for hostname slices → r4 loses slices → b2 can't fit.
+			enableFeatureGates: []featuregate.Feature{features.TASMultiLayerTopology},
+			nodes: []corev1.Node{
+				// b1 / r1
+				*testingnode.MakeNode("dc1-b1-r1-x1").
+					Label(tasDataCenterLabel, "dc1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("dc1-b1-r1-x2").
+					Label(tasDataCenterLabel, "dc1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				// b1 / r2
+				*testingnode.MakeNode("dc1-b1-r2-x3").
+					Label(tasDataCenterLabel, "dc1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("dc1-b1-r2-x4").
+					Label(tasDataCenterLabel, "dc1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				// b2 / r3
+				*testingnode.MakeNode("dc1-b2-r3-x5").
+					Label(tasDataCenterLabel, "dc1").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("dc1-b2-r3-x6").
+					Label(tasDataCenterLabel, "dc1").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				// b2 / r4 — small rack
+				*testingnode.MakeNode("dc1-b2-r4-x7").
+					Label(tasDataCenterLabel, "dc1").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r4").
+					Label(corev1.LabelHostname, "x7").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("dc1-b2-r4-x8").
+					Label(tasDataCenterLabel, "dc1").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r4").
+					Label(corev1.LabelHostname, "x8").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: append([]string{tasDataCenterLabel}, defaultThreeLevels...),
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(tasDataCenterLabel),
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasBlockLabel, Size: 12},
+						{Topology: tasRackLabel, Size: 6},
+						{Topology: corev1.LabelHostname, Size: 3},
+					},
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count:      24,
+				wantReason: `topology "default" doesn't allow to fit; 1/2 slice(s) fit on level cloud.com/topology-block; 3/4 slice(s) fit on level cloud.com/topology-rack; 6/8 slice(s) fit on level kubernetes.io/hostname`,
 			}},
 		},
 	}
@@ -5764,6 +5955,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 			client := clientBuilder.Build()
 
 			tasCache := NewTASCache(client)
+			for i := range tc.nodes {
+				tasCache.SyncNode(&tc.nodes[i])
+			}
+
 			topologyInformation := topologyInformation{
 				Levels: tc.levels,
 			}
@@ -5775,12 +5970,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				tasCache.Update(&pod, log)
 			}
 			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
-
-			snapshot, err := tasFlavorCache.snapshot(ctx)
-			if err != nil {
-				t.Fatalf("failed to build the snapshot: %v", err)
-			}
-
+			snapshot := tasFlavorCache.snapshot(log, tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels))
 			flavorTASRequests := make([]TASPodSetRequests, 0, len(tc.podSets))
 			wantResult := make(TASAssignmentsResult)
 			for _, ps := range tc.podSets {
@@ -5825,13 +6015,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 
 func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 	const (
-		tasBlockLabel = "cloud.com/topology-block"
-		tasRackLabel  = "cloud.com/topology-rack"
+		tasBlockLabel  = "cloud.com/topology-block"
+		tasRackLabel   = "cloud.com/topology-rack"
+		tasSwitchLabel = "cloud.com/topology-switch"
 	)
-	levels := []string{tasBlockLabel, tasRackLabel, corev1.LabelHostname}
+	defaultLevels := []string{tasBlockLabel, tasRackLabel, corev1.LabelHostname}
 	podSetName := kueue.PodSetReference("main")
 
 	cases := map[string]struct {
+		levels          []string
 		nodes           []corev1.Node
 		pods            []corev1.Pod
 		existingTA      *kueue.TopologyAssignment
@@ -5848,6 +6040,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			//  r1        r2
 			//  /  \    /  |  \
 			// x1  x2  x3  x4 x5
+			//          ^(NotReady)
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
@@ -5867,18 +6060,8 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 					Ready().Obj(),
 				*testingnode.MakeNode("b1-r2-x5").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x5").
-					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
 					Ready().Obj(),
-			},
-			// Pods on existing assignment nodes to account for capacity usage.
-			// NodeName must match the node object name (not the hostname label).
-			pods: []corev1.Pod{
-				*testingpod.MakePod("pod-x1", "test-ns").NodeName("b1-r1-x1").
-					Request(corev1.ResourceCPU, "1").Obj(),
-				*testingpod.MakePod("pod-x2", "test-ns").NodeName("b1-r1-x2").
-					Request(corev1.ResourceCPU, "1").Obj(),
-				*testingpod.MakePod("pod-x4", "test-ns").NodeName("b1-r2-x4").
-					Request(corev1.ResourceCPU, "1").Obj(),
 			},
 			// Existing assignment: 4 pods in block b1 (2 per rack).
 			existingTA: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
@@ -5896,14 +6079,13 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 				},
 			},
 			count: 4,
-			// x3 is NotReady and x4 is at capacity → replacement lands on x5 in the same rack (r2).
+			// x3 is NotReady → replacement confined to rack r2. BestFit picks x4 (smaller allocatable = tighter fit).
 			wantAssignment: &tas.TopologyAssignment{
 				Levels: []string{corev1.LabelHostname},
 				Domains: []tas.TopologyDomainAssignment{
 					{Count: 1, Values: []string{"x1"}},
 					{Count: 1, Values: []string{"x2"}},
-					{Count: 1, Values: []string{"x4"}},
-					{Count: 1, Values: []string{"x5"}},
+					{Count: 2, Values: []string{"x4"}},
 				},
 			},
 		},
@@ -5929,16 +6111,8 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 					NotReady().Obj(),
 				*testingnode.MakeNode("b1-r2-x4").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x4").
-					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourcePods: resource.MustParse("10")}).
 					Ready().Obj(),
-			},
-			pods: []corev1.Pod{
-				*testingpod.MakePod("pod-x1", "test-ns").NodeName("b1-r1-x1").
-					Request(corev1.ResourceCPU, "1").Obj(),
-				*testingpod.MakePod("pod-x2", "test-ns").NodeName("b1-r1-x2").
-					Request(corev1.ResourceCPU, "1").Obj(),
-				*testingpod.MakePod("pod-x4", "test-ns").NodeName("b1-r2-x4").
-					Request(corev1.ResourceCPU, "1").Obj(),
 			},
 			existingTA: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
@@ -5955,8 +6129,172 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 				},
 			},
 			count: 4,
-			// x3 is NotReady, x4 is at capacity → no node available in r2 for replacement.
+			// x3 is NotReady, x4 has insufficient CPU (500m < 1000m request) → no node available in r2 for replacement.
 			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 3; excluded: resource "cpu": 1, topologyDomain: 2`,
+		},
+		"3-layer: innermost broken domain confines replacement to correct switch": {
+			// Topology: block → rack → switch → hostname
+			//                    b1
+			//              /            \
+			//            r1              r2
+			//          /    \          /    \
+			//        s1      s2      s3      s4
+			//       / \     / \     / \     / \
+			//      x1 x2  x3 x4  x5  x6  x7  x8
+			//              ^(NotReady)
+			//
+			// Constraints: [{rack: 8}, {switch: 4}, {hostname: 2}], Required: block
+			// Initial: 16 pods (2 per host). x3 dies → tr.Count = 2.
+			//   2 % 8 ≠ 0 → rack constraint broken (outermost)
+			//   2 % 4 ≠ 0 → switch constraint broken (innermost broken)
+			//   2 % 2 = 0 → hostname constraint satisfied
+			//
+			// BUG without fix: requiredReplacementDomain uses outermost constraint
+			// (rack, constraints[0]) → domain = rack r1 ("b1,r1").
+			// belongsToRequiredDomain admits all hosts in r1 (x1, x2, x4).
+			// x1 has tighter fit (allocatable=4) than x4
+			// (allocatable=8) → BestFit picks x1 (in switch s1!) over x4 (in s2).
+			// Result: x1(4) — replacement lands in WRONG switch. ✗
+			//
+			// With fix: uses innermost broken constraint (switch) → domain = switch s2
+			// ("b1,r1,s2"). Only x4 is eligible. Result: x4(4). ✓
+			levels: []string{tasBlockLabel, tasRackLabel, tasSwitchLabel, corev1.LabelHostname},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-s1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(tasSwitchLabel, "s1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-s1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(tasSwitchLabel, "s1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-s2-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(tasSwitchLabel, "s2").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("b1-r1-s2-x4").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(tasSwitchLabel, "s2").Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-s3-x5").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(tasSwitchLabel, "s3").Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-s3-x6").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(tasSwitchLabel, "s3").Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-s4-x7").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(tasSwitchLabel, "s4").Label(corev1.LabelHostname, "x7").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-s4-x8").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(tasSwitchLabel, "s4").Label(corev1.LabelHostname, "x8").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			// 16 pods: 2 per host. r1: s1(x1+x2)=4 + s2(x3+x4)=4 = 8.
+			// r2: s3(x5+x6)=4 + s4(x7+x8)=4 = 8. All constraints satisfied.
+			existingTA: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x1"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x2"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x3"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x4"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x5"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x6"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x7"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x8"}}).
+				Obj(),
+			admissionCount: 16,
+			unhealthyNode:  "x3",
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasBlockLabel),
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{Topology: tasRackLabel, Size: 8},
+					{Topology: tasSwitchLabel, Size: 4},
+					{Topology: corev1.LabelHostname, Size: 2},
+				},
+			},
+			count: 16,
+			// With fix: domain = switch s2. Only x4 eligible. x4(4). ✓
+			wantAssignment: &tas.TopologyAssignment{
+				Levels: []string{corev1.LabelHostname},
+				Domains: []tas.TopologyDomainAssignment{
+					{Count: 2, Values: []string{"x1"}},
+					{Count: 2, Values: []string{"x2"}},
+					{Count: 4, Values: []string{"x4"}},
+					{Count: 2, Values: []string{"x5"}},
+					{Count: 2, Values: []string{"x6"}},
+					{Count: 2, Values: []string{"x7"}},
+					{Count: 2, Values: []string{"x8"}},
+				},
+			},
+		},
+		"2-layer: sliceSize=2 prevents scattered single-pod placement across hosts": {
+			// Topology: block → rack → hostname
+			//       b1
+			//   /        \
+			//  r1         r2
+			//  /  \    /  |  \
+			// x1  x2  x3 x4  x5
+			//          ^(NotReady)
+			//
+			// Constraints: [{rack: 4}, {hostname: 2}], Required: block
+			// Initial: 8 pods, 2 per host on x1-x4. After x3 dies → tr.Count = 2.
+			//   2 % 4 ≠ 0 → rack constraint broken → domain = r2
+			//   2 % 2 = 0 → hostname constraint satisfied
+			//
+			// x4 and x5 each have insufficient CPU to fit a pair of pods (2 CPU).
+			//
+			// BUG without fix: effectiveSliceSize hardcoded to 1.
+			// sliceSize=1 places 2 individual pods. No single host fits 2,
+			// so BestFit goes to rack level and scatters: x4(1), x5(1).
+			// Hostname grouping constraint (size 2) is violated.
+			//
+			// With fix: effectiveSliceSize = 2. sliceSize=2 needs one host
+			// that can fit 2 pods. Neither x4 nor x5 can. Replacement correctly
+			// fails rather than silently violating the topology constraint.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("b1-r2-x4").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x5").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			existingTA: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x1"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x2"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x3"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x4"}}).
+				Obj(),
+			admissionCount: 8,
+			unhealthyNode:  "x3",
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasBlockLabel),
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{Topology: tasRackLabel, Size: 4},
+					{Topology: corev1.LabelHostname, Size: 2},
+				},
+			},
+			count: 8,
+			// With fix: sliceSize=2, no host in r2 can fit a pair → correctly fails.
+			// Without fix: sliceSize=1, scatters x4(1)+x5(1) → wrongly succeeds.
+			wantReason: `topology "default" doesn't allow to fit any of 1 slice(s). Total nodes: 4; excluded: topologyDomain: 2`,
 		},
 	}
 	for name, tc := range cases {
@@ -5997,19 +6335,22 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			c := clientBuilder.Build()
 
 			tasCache := NewTASCache(c)
+			for i := range tc.nodes {
+				tasCache.SyncNode(&tc.nodes[i])
+			}
 			for i := range tc.pods {
 				tasCache.Update(&tc.pods[i], log)
 			}
+			tcLevels := tc.levels
+			if tcLevels == nil {
+				tcLevels = defaultLevels
+			}
 			tasFlavorCache := tasCache.NewTASFlavorCache(
-				topologyInformation{Levels: levels},
+				topologyInformation{Levels: tcLevels},
 				flavorInformation{TopologyName: "default"},
 			)
 
-			snapshot, err := tasFlavorCache.snapshot(ctx)
-			if err != nil {
-				t.Fatalf("failed to build snapshot: %v", err)
-			}
-
+			snapshot := tasFlavorCache.snapshot(log, tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels))
 			result := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, WithWorkload(wl))
 
 			psResult, ok := result[podSetName]

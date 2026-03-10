@@ -724,7 +724,7 @@ func TestDeleteWorkload(t *testing.T) {
 		q := manager.localQueues[queue.Key(queues[0])]
 		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
 			workload.Key(wl2): workload.NewInfo(wl2),
-		}, q.items); diff != "" {
+		}, q.items, ignoreSchedulingHash); diff != "" {
 			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
 		}
 
@@ -775,7 +775,7 @@ func TestDeleteAndForgetWorkload(t *testing.T) {
 		q := manager.localQueues[queue.Key(queues[0])]
 		if diff := cmp.Diff(map[workload.Reference]*workload.Info{
 			workload.Key(wl2): workload.NewInfo(wl2),
-		}, q.items); diff != "" {
+		}, q.items, ignoreSchedulingHash); diff != "" {
 			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
 		}
 
@@ -1302,7 +1302,12 @@ func TestHeads(t *testing.T) {
 	}
 }
 
-var ignoreTypeMeta = cmpopts.IgnoreTypes(metav1.TypeMeta{})
+var (
+	ignoreTypeMeta = cmpopts.IgnoreTypes(metav1.TypeMeta{})
+	// ignoreSchedulingHash is used in tests that compare workload.Info structs
+	// but don't care about the scheduling hash value (computed dynamically in NewInfo).
+	ignoreSchedulingHash = cmpopts.IgnoreFields(workload.Info{}, "SchedulingHash")
+)
 
 // TestHeadAsync ensures that Heads call is blocked until the queues are filled
 // asynchronously.
@@ -1516,7 +1521,7 @@ func TestHeadsAsync(t *testing.T) {
 			go manager.CleanUpOnContext(ctx)
 			tc.op(ctx, manager)
 			heads := manager.Heads(ctx)
-			if diff := cmp.Diff(tc.wantHeads, heads, ignoreTypeMeta); diff != "" {
+			if diff := cmp.Diff(tc.wantHeads, heads, ignoreTypeMeta, ignoreSchedulingHash); diff != "" {
 				t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
 			}
 		})
@@ -1687,6 +1692,7 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 			pendingWorkloadsInfo := manager.PendingWorkloadsInfo(tc.cqName)
 			if diff := cmp.Diff(tc.wantPendingWorkloadsInfo, pendingWorkloadsInfo,
 				ignoreTypeMeta,
+				ignoreSchedulingHash,
 				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "CreationTimestamp"),
 				cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "PodSets"),
 				cmpopts.IgnoreFields(workload.Info{}, "TotalRequests"),

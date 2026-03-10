@@ -22,7 +22,7 @@ const (
 	TASTopologyController       = "tas-topology-controller"
 	TASResourceFlavorController = "tas-resource-flavor-controller"
 	TASTopologyUngater          = "tas-topology-ungater"
-	TASNodeFailureController    = "tas-node-failure-controller"
+	TASNodeController           = "tas-node-controller"
 	TASNonTasUsageController    = "tas-non-tas-usage-controller"
 )
 

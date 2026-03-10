@@ -273,6 +273,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 			})
 
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+			createdWorkload := &kueue.Workload{}
 
 			ginkgo.By("setting workload reservation in the management cluster", func() {
 				admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
@@ -280,7 +281,6 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 			})
 
 			ginkgo.By("checking the workload creation in the worker clusters", func() {
-				createdWorkload := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -289,9 +289,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 
 			ginkgo.By("verifying workload is not assigned to any worker (missing RCT on workers)", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
-					var managerWl kueue.Workload
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, &managerWl)).To(gomega.Succeed())
-					g.Expect(managerWl.Status.ClusterName).To(gomega.BeNil())
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.ClusterName).To(gomega.BeNil())
 				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 			})
 		})

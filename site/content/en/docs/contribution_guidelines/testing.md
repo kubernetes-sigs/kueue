@@ -132,6 +132,10 @@ E2E_MODE=dev make kind-image-build test-multikueue-e2e
 
 # Loop a suite (until it fails) while keeping the cluster
 E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e
+
+# Skip reinstallation of kueue (works only in dev mode)
+E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-e2e
+E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e
 ```
 
 {{% alert title="Note" color="primary" %}}
