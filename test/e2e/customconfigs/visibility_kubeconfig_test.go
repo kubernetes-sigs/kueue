@@ -173,6 +173,8 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 			_, err := visClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, cqName, metav1.GetOptions{})
 			g.Expect(err).To(gomega.HaveOccurred())
 
+			// TODO: Fix the internal server error when lacking SubjectAccessReview permissions
+			// See: https://github.com/kubernetes-sigs/kueue/issues/9779
 			isExpectedError := k8serrors.IsUnauthorized(err) ||
 				k8serrors.IsForbidden(err) ||
 				k8serrors.IsInternalError(err) ||
