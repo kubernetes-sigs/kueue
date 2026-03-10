@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -1921,6 +1922,66 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 			gotChanged := PriorityChanged(tc.oldWorkload, tc.newWorkload)
 			if gotChanged != tc.wantChanged {
 				t.Errorf("workloadPriorityChanged() = %v, want %v", gotChanged, tc.wantChanged)
+			}
+		})
+	}
+}
+
+func TestSchedulingHash(t *testing.T) {
+	cases := map[string]struct {
+		wl1      *kueue.Workload
+		wl2      *kueue.Workload
+		wantSame bool
+	}{
+		"same spec different identity produces same hash": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns1").
+				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceMemory, "1Gi").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns2").
+				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceMemory, "1Gi").Obj(),
+			wantSame: true,
+		},
+		"different resource requests": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Request(corev1.ResourceCPU, "2").Obj(),
+			wantSame: false,
+		},
+		"different pod counts": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			wantSame: false,
+		},
+		"different workload priorities": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Priority(100).
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Priority(200).
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wantSame: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			info1 := NewInfo(tc.wl1)
+			info1.UpdateSchedulingHash(logr.Discard())
+			info2 := NewInfo(tc.wl2)
+			info2.UpdateSchedulingHash(logr.Discard())
+			if info1.SchedulingHash == "" {
+				t.Error("SchedulingHash should not be empty")
+			}
+			if tc.wantSame && info1.SchedulingHash != info2.SchedulingHash {
+				t.Errorf("expected same hash, got %q and %q", info1.SchedulingHash, info2.SchedulingHash)
+			}
+			if !tc.wantSame && info1.SchedulingHash == info2.SchedulingHash {
+				t.Errorf("expected different hashes, got same %q", info1.SchedulingHash)
 			}
 		})
 	}
