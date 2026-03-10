@@ -185,27 +185,16 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		return nil, err
 	}
 
-	// Parse existing annotation counts; use empty counts if annotation is absent.
-	previousCounts := make(map[kueue.PodSetReference]int32)
-	if j.Annotations[PodsetReplicaSizesAnnotation] != "" {
-		var annotatedPodSets []podSetReplicaSize
-		if err := json.Unmarshal([]byte(j.Annotations[PodsetReplicaSizesAnnotation]), &annotatedPodSets); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal existing %s annotation: %w", PodsetReplicaSizesAnnotation, err)
-		}
-		for _, ps := range annotatedPodSets {
-			previousCounts[ps.Name] = ps.Count
-		}
+	previousCounts, err := parsePodSetReplicaSizes(j.Annotations[PodsetReplicaSizesAnnotation])
+	if err != nil {
+		return nil, err
 	}
 
 	// Compare current counts against previous annotation. If any differ, update the annotation
 	// with ALL current podSet counts (not just the changed ones) to avoid infinite patch loops.
-	updatedPodSets := comparePodSetCounts(podSets, previousCounts)
-	if len(updatedPodSets) > 0 && reconciler.client != nil {
-		allPodSets := make([]podSetReplicaSize, len(podSets))
-		for i, ps := range podSets {
-			allPodSets[i] = podSetReplicaSize{Name: ps.Name, Count: ps.Count}
-		}
-		podSetsJSON, err := json.Marshal(allPodSets)
+	changed := comparePodSetCounts(podSets, previousCounts)
+	if changed {
+		podSetsJSON, err := serializePodSetCounts(podSets)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
 		}
@@ -237,18 +226,40 @@ type podSetReplicaSize struct {
 	Count int32                 `json:"count"`
 }
 
-// comparePodSetCounts returns the PodSets whose counts differ from referenceCounts.
-func comparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSetReference]int32) []podSetReplicaSize {
-	var changed []podSetReplicaSize
+// comparePodSetCounts returns true if any PodSet count differs from referenceCounts.
+func comparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSetReference]int32) bool {
 	for _, ps := range podSets {
 		if refCount, ok := referenceCounts[ps.Name]; !ok || ps.Count != refCount {
-			changed = append(changed, podSetReplicaSize{
-				Name:  ps.Name,
-				Count: ps.Count,
-			})
+			return true
 		}
 	}
-	return changed
+	return false
+}
+
+// parsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
+// Returns an empty map if the annotation is absent or empty.
+func parsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
+	counts := make(map[kueue.PodSetReference]int32)
+	if annotation == "" {
+		return counts, nil
+	}
+	var podSets []podSetReplicaSize
+	if err := json.Unmarshal([]byte(annotation), &podSets); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal %s annotation: %w", PodsetReplicaSizesAnnotation, err)
+	}
+	for _, ps := range podSets {
+		counts[ps.Name] = ps.Count
+	}
+	return counts, nil
+}
+
+// serializePodSetCounts converts PodSets into a JSON byte slice of podSetReplicaSize entries.
+func serializePodSetCounts(podSets []kueue.PodSet) ([]byte, error) {
+	sizes := make([]podSetReplicaSize, len(podSets))
+	for i, ps := range podSets {
+		sizes[i] = podSetReplicaSize{Name: ps.Name, Count: ps.Count}
+	}
+	return json.Marshal(sizes)
 }
 
 func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
