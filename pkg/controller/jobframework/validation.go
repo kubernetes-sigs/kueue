@@ -278,9 +278,13 @@ func ValidateAdmissionGatedByAnnotation(oldValue, newValue *string, isUpdate boo
 		if oldVal != "" && newVal != "" {
 			oldGates := strings.Split(oldVal, ",")
 			newGates := strings.Split(newVal, ",")
-			if len(newGates) > len(oldGates) {
-				allErrs = append(allErrs, field.Forbidden(annotationPath,
-					"can only remove gates, not add new ones"))
+
+			for _, newGate := range newGates {
+				if !slices.Contains(oldGates, newGate) {
+					allErrs = append(allErrs, field.Forbidden(annotationPath,
+						"can only remove gates, not add new ones"))
+					break
+				}
 			}
 		}
 	}
@@ -323,7 +327,6 @@ func ValidateAdmissionGatedByAnnotation(oldValue, newValue *string, isUpdate boo
 			}
 
 			// Validate path (RFC 3986) - basic check for valid characters
-			// RFC 3986 allows: unreserved / pct-encoded / sub-delims / ":" / "@"
 			// For simplicity, check it's not empty and doesn't contain spaces
 			if parts[1] == "" || strings.Contains(parts[1], " ") {
 				allErrs = append(allErrs, field.Invalid(annotationPath, parts[1],
