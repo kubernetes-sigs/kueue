@@ -138,6 +138,12 @@ func main() {
 	zapOptions.BindFlags(flag.CommandLine)
 	flag.Parse()
 
+	var visibilityServerFlags string
+	flag.StringVar(&visibilityServerFlags, "visibility-server", "",
+		"A space-separated list of flags to pass to the embedded visibility API server. "+
+			"(e.g., '--secure-port=8443 --authentication-config=/path/to/kubeconfig'). "+
+			"For a description of the available flags, please see https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/")
+
 	logger := zap.New(zap.UseFlagOptions(&zapOptions))
 	ctrl.SetLogger(logger)
 
@@ -360,7 +366,7 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, parsedTLSConfig); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig, visibilityServerFlags, parsedTLSConfig); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}
