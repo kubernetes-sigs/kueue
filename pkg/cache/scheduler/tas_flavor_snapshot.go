@@ -131,6 +131,9 @@ type TASFlavorSnapshot struct {
 
 	// tolerations represents the list of tolerations defined for the resource flavor
 	tolerations []corev1.Toleration
+
+	// isLowestLevelNode indicates if kubernetes.io/hostname is the lowest topology level
+	isLowestLevelNode bool
 }
 
 func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
@@ -141,32 +144,47 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 	}
 
 	snapshot := &TASFlavorSnapshot{
-		log:             log,
-		topologyName:    topologyName,
-		levelKeys:       slices.Clone(levels),
-		leaves:          make(leafDomainByID),
-		tolerations:     slices.Clone(tolerations),
-		domains:         make(domainByID),
-		roots:           make(domainByID),
-		domainsPerLevel: domainsPerLevel,
+		log:               log,
+		topologyName:      topologyName,
+		levelKeys:         slices.Clone(levels),
+		leaves:            make(leafDomainByID),
+		tolerations:       slices.Clone(tolerations),
+		domains:           make(domainByID),
+		roots:             make(domainByID),
+		domainsPerLevel:   domainsPerLevel,
+		isLowestLevelNode: len(levels) > 0 && levels[len(levels)-1] == corev1.LabelHostname,
 	}
 	return snapshot
 }
 
 func (s *TASFlavorSnapshot) addNode(node *nodeInfo) utiltas.TopologyDomainID {
-	levelValues := utiltas.LevelValues(s.levelKeys, node.Labels)
-	domainID := utiltas.DomainID(levelValues)
-	if s.isLowestLevelNode() {
-		domainID = utiltas.DomainID(levelValues[len(levelValues)-1:])
+	var levelValues []string
+	var domainID utiltas.TopologyDomainID
+	var leafFound bool
+
+	if s.isLowestLevelNode {
+		// When the lowest level is kubernetes.io/hostname, directly extract hostname.
+		hostname := node.Labels[corev1.LabelHostname]
+		domainID = utiltas.TopologyDomainID(hostname)
+		_, leafFound = s.leaves[domainID]
+		// Only compute levelValues when we actually need to create a new leafDomain.
+		if !leafFound {
+			levelValues = utiltas.LevelValues(s.levelKeys, node.Labels)
+		}
+	} else {
+		// Compute full level values and domain ID.
+		levelValues = utiltas.LevelValues(s.levelKeys, node.Labels)
+		domainID = utiltas.DomainID(levelValues)
+		_, leafFound = s.leaves[domainID]
 	}
-	if _, found := s.leaves[domainID]; !found {
+	if !leafFound {
 		leafDomain := leafDomain{
 			domain: domain{
 				id:          domainID,
 				levelValues: levelValues,
 			},
 		}
-		if s.isLowestLevelNode() {
+		if s.isLowestLevelNode {
 			leafDomain.node = node
 		}
 		s.leaves[domainID] = &leafDomain
@@ -174,10 +192,6 @@ func (s *TASFlavorSnapshot) addNode(node *nodeInfo) utiltas.TopologyDomainID {
 	capacity := resources.NewRequests(node.Allocatable)
 	s.addCapacity(domainID, capacity)
 	return domainID
-}
-
-func (s *TASFlavorSnapshot) isLowestLevelNode() bool {
-	return s.lowestLevel() == corev1.LabelHostname
 }
 
 func (s *TASFlavorSnapshot) lowestLevel() string {
@@ -756,7 +770,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	var selector labels.Selector
-	if s.isLowestLevelNode() {
+	if s.isLowestLevelNode {
 		sel, err := labels.ValidatedSelectorFromSet(podSetNodeSelectors)
 		if err != nil {
 			return nil, fmt.Sprintf("invalid node selectors: %s, reason: %s", podSetNodeSelectors, err)
@@ -1282,7 +1296,7 @@ func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *utiltas.Topology
 	})
 	levelIdx := 0
 	// assign only hostname values if topology defines it
-	if s.isLowestLevelNode() {
+	if s.isLowestLevelNode {
 		levelIdx = len(s.levelKeys) - 1
 	}
 	return s.buildTopologyAssignmentForLevels(domains, levelIdx)
@@ -1363,7 +1377,6 @@ func (s *TASFlavorSnapshot) fillInCounts(
 	affinityNodeSelector *nodeaffinity.NodeSelector,
 	requiredReplacementDomain utiltas.TopologyDomainID,
 	stats *ExclusionStats) {
-	isNodeLevel := s.isLowestLevelNode()
 	for _, domain := range s.domains {
 		// cleanup the state in case some remaining values are present from computing
 		// assignments for previous PodSets.
@@ -1375,9 +1388,8 @@ func (s *TASFlavorSnapshot) fillInCounts(
 	}
 	for _, leaf := range s.leaves {
 		stats.TotalNodes++
-		// isLowestLevelNode() is necessary because we gather node level information only when
-		// node is the lowest level of the topology
-		if isNodeLevel {
+		// Gather node level information only when the node is the lowest level of the topology
+		if s.isLowestLevelNode {
 			// 1. Check Tolerations against Node Taints
 			nodeTaints := leaf.node.Taints
 			taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(nodeTaints, tolerations, func(t *corev1.Taint) bool {
