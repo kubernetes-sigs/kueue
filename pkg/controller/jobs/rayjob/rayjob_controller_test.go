@@ -26,9 +26,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -525,14 +525,6 @@ func TestPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			ctx, _ := utiltesting.ContextWithLog(t)
-
-			fakeClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).
-				WithObjects(tc.rayJob.Object()).
-				Build()
-			oldReconciler := reconciler
-			reconciler = rayJobReconciler{client: fakeClient}
-			t.Cleanup(func() { reconciler = oldReconciler })
-
 			gotPodSets, err := tc.rayJob.PodSets(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -805,7 +797,7 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 		"skip patch when annotation already matches": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":5}]`).
+				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":5}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
 				WithEnableAutoscaling(ptr.To(true)).
@@ -819,7 +811,7 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 		"annotation updated after scale-down": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":6}]`).
+				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":6}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 4)).
 				WithEnableAutoscaling(ptr.To(true)).
@@ -833,7 +825,7 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 		"annotation updated when podset count differs from annotation length": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(PodsetReplicaSizesAnnotation, `[{"name":"group1","count":5}]`).
+				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"group1","count":5}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
 				WithEnableAutoscaling(ptr.To(true)).
@@ -875,12 +867,8 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 				}
 			}
 
-			// Verify the annotation on the RayJob in the fake client
-			var updatedJob rayv1.RayJob
-			if err := fakeClient.Get(ctx, client.ObjectKeyFromObject(tc.rayJob), &updatedJob); err != nil {
-				t.Fatalf("failed to get updated RayJob: %v", err)
-			}
-			gotAnnotation := updatedJob.Annotations[PodsetReplicaSizesAnnotation]
+			// Verify the in-memory annotation on the RayJob was updated
+			gotAnnotation := tc.rayJob.Annotations[jobframework.PodsetReplicaSizesAnnotation]
 			if gotAnnotation != tc.wantAnnotation {
 				t.Errorf("annotation = %q, want %q", gotAnnotation, tc.wantAnnotation)
 			}
