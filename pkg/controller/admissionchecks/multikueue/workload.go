@@ -515,21 +515,20 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	var requeueAfterSynchronize time.Duration
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
-		remWl, remClient := w.workloadToOpenPreemptionGate(group)
+		remWl, remClient, requeueIn := w.workloadToOpenPreemptionGate(group)
 
 		if remWl != nil && remClient != nil {
 			workload.SetPreemptionGateState(remWl, constants.MultiKueuePreemptionGate, kueue.GateStateOpen, metav1.NewTime(w.clock.Now()))
 			if err := remClient.client.Status().Update(ctx, remWl); err != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 			}
-
-			// Ensure there is a reconcile that considers the next preemption gate.
-			requeueAfterSynchronize = w.singleClusterPreemptionTimeout
 		}
+		// Ensure there is a reconcile that considers the next preemption gate.
+		requeueAfterSynchronize = requeueIn
 	}
 
 	res, err := w.nominateAndSynchronizeWorkers(ctx, group)
-	if err == nil && res.RequeueAfter != 0 && requeueAfterSynchronize < res.RequeueAfter {
+	if err == nil && (res.RequeueAfter == 0 || requeueAfterSynchronize < res.RequeueAfter) {
 		res.RequeueAfter = requeueAfterSynchronize
 	}
 	return res, err
@@ -1026,7 +1025,7 @@ func updateDelayedTopologyRequest(local, remote *kueue.Workload) {
 	}
 }
 
-func (w *wlReconciler) workloadToOpenPreemptionGate(group *wlGroup) (*kueue.Workload, *remoteClient) {
+func (w *wlReconciler) workloadToOpenPreemptionGate(group *wlGroup) (*kueue.Workload, *remoteClient, time.Duration) {
 	var previousUngateTime *metav1.Time
 	var oldestPreemptionSignalTime *metav1.Time
 	var workloadToUngate *kueue.Workload
@@ -1059,11 +1058,16 @@ func (w *wlReconciler) workloadToOpenPreemptionGate(group *wlGroup) (*kueue.Work
 	}
 
 	// If the timeout elapsed or no workload was ungated yet, return the workload with the oldest signal.
-	if previousUngateTime == nil || previousUngateTime.Add(w.singleClusterPreemptionTimeout).Before(w.clock.Now()) {
-		return workloadToUngate, remote
+	timeLeftInTimeout := w.singleClusterPreemptionTimeout - w.clock.Now().Sub(previousUngateTime.Time)
+	if previousUngateTime == nil || timeLeftInTimeout <= 0 {
+		var rescheduleIn time.Duration
+		if workloadToUngate != nil {
+			rescheduleIn = timeLeftInTimeout
+		}
+		return workloadToUngate, remote, rescheduleIn
 	}
 
-	return nil, nil
+	return nil, nil, timeLeftInTimeout
 }
 
 func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *kueue.Workload {
