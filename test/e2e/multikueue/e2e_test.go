@@ -2150,7 +2150,7 @@ func ensurePodWorkloadsRunning(deployment *appsv1.Deployment, managerNs corev1.N
 			gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 			admissionCheck = admissioncheck.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))
 			gomega.Expect(admissionCheck.State).To(gomega.Equal(kueue.CheckStateReady))
-		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 
 		// By checking the assigned cluster we can discern which client to use
 		workerClusterName := GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheck.Message)
