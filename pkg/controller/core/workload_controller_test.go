@@ -2346,7 +2346,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: ptr.To(util.LongTimeout),
+						afterFinished: ptr.To(util.MediumTimeout),
 					},
 				),
 			},
@@ -2365,12 +2365,12 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: ptr.To(util.LongTimeout),
+						afterFinished: ptr.To(util.MediumTimeout),
 					},
 				),
 			},
 			wantResult: reconcile.Result{
-				RequeueAfter: util.LongTimeout - util.Timeout,
+				RequeueAfter: util.MediumTimeout - util.Timeout,
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
@@ -2387,13 +2387,13 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * util.LongTimeout)),
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * util.MediumTimeout)),
 				}).
 				Obj(),
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: ptr.To(util.LongTimeout),
+						afterFinished: ptr.To(util.MediumTimeout),
 					},
 				),
 			},
