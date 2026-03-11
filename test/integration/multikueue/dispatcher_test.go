@@ -772,12 +772,10 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Label("area:mul
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			// Now add worker2 to the MultiKueueConfig
-			gomega.Eventually(func() error {
-				if err := managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(managerMultiKueueConfig), managerMultiKueueConfig); err != nil {
-					return err
-				}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(managerMultiKueueConfig), managerMultiKueueConfig)).To(gomega.Succeed())
 				managerMultiKueueConfig.Spec.Clusters = []string{workerCluster1.Name, workerCluster2.Name}
-				return managerTestCluster.client.Update(managerTestCluster.ctx, managerMultiKueueConfig)
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, managerMultiKueueConfig)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Wait for admission check to remain active with both clusters")

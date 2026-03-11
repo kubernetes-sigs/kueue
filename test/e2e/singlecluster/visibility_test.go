@@ -77,8 +77,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 	ginkgo.When("There are pending workloads due to capacity maxed by the admitted job", func() {
 		ginkgo.BeforeEach(func() {
 			defaultRF = utiltestingapi.MakeResourceFlavor(defaultFlavor).Obj()
-			gomega.Eventually(func() error {
-				return k8sClient.Create(ctx, defaultRF)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Create(ctx, defaultRF)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + nsA.Name).

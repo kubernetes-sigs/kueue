@@ -18,6 +18,9 @@ package core
 
 import (
 	"context"
+	"errors"
+	"sync"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -1083,51 +1086,56 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 		})
 
 		ginkgo.It("Should log concurrent modification errors with log level smaller than error", func() {
-			var _ = fwk.ObservedLogs.TakeAll() // clear logs
+			_ = fwk.ObservedLogs.TakeAll() // clear logs
 
 			const nGoroutines = 25
-			// We are making a buffered channel to avoid main thread blocking when
-			// one of the goroutines fails
-			stopModification := make(chan bool, nGoroutines)
 
-			// local helper that sets cq status to pending, at the same time
-			// core controller will try to set status to Active, so concurrent modification should occur
+			// Using a WaitGroup ensures we don't leak goroutines into the next It() block.
+			var wg sync.WaitGroup
+			defer wg.Wait() // Wait for goroutines stopped.
+
+			ctx, cancel := context.WithTimeout(ginkgo.GinkgoTB().Context(), util.LongTimeout)
+			defer cancel() // Stop goroutines.
+
 			setClusterStatusPending := func() {
 				defer ginkgo.GinkgoRecover()
+				defer wg.Done()
 
-				gomega.Eventually(func(g gomega.Gomega) bool {
-					select {
-					case <-stopModification:
-						return true
-					default:
-						var updatedCq kueue.ClusterQueue
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
-						apimeta.SetStatusCondition(&updatedCq.Status.Conditions, metav1.Condition{
-							Type:    kueue.ClusterQueueActive,
-							Status:  metav1.ConditionFalse,
-							Reason:  "ByTest",
-							Message: "by test",
-						})
-						// we do not expect here as status update in some of the calls is expected to fail
-						// due to concurrent modification
-						var _ = k8sClient.Status().Update(ctx, &updatedCq)
-						return false
+				for {
+					var updatedCq kueue.ClusterQueue
+					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)
+					if errors.Is(err, context.Canceled) {
+						return // Test is over, exit quietly
 					}
-				}, util.LongTimeout, util.Interval).To(gomega.BeTrue())
+					gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+					apimeta.SetStatusCondition(&updatedCq.Status.Conditions, metav1.Condition{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "ByTest",
+						Message: "by test",
+					})
+					err = k8sClient.Status().Update(ctx, &updatedCq)
+					if errors.Is(err, context.Canceled) {
+						return // Test is over, exit quietly
+					}
+					gomega.Expect(util.IgnoreConflict(err)).To(gomega.Succeed())
+
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(util.Interval):
+						// Just continue to the next loop iteration.
+					}
+				}
 			}
+
+			wg.Add(nGoroutines)
 			for range nGoroutines {
 				go setClusterStatusPending()
 			}
 
-			defer func() {
-				for range nGoroutines {
-					stopModification <- true
-				}
-			}()
-
 			gomega.Eventually(func(g gomega.Gomega) {
 				reconcileLogs := fwk.ObservedLogs
-
 				reconcileConcurrentModificationLogs := reconcileLogs.Filter(util.IsLoggedEntryAConcurrentModification)
 				g.Expect(reconcileConcurrentModificationLogs.All()).ShouldNot(gomega.BeEmpty(),
 					"There should be some concurrent modifcation error log entries")
