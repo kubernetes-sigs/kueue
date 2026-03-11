@@ -282,6 +282,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/9694
 	// Skip equivalent inadmissible workloads in BestEffortFIFO scheduling.
 	SchedulingEquivalenceHashing featuregate.Feature = "SchedulingEquivalenceHashing"
+
+	// owner: @mbobrovskyi
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/9799
+	// Use 10s interval for scheduler requeuing.
+	SchedulerLongRequeueInterval featuregate.Feature = "SchedulerLongRequeueInterval"
 )
 
 func init() {
@@ -439,9 +445,11 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASMultiLayerTopology: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
-
 	SchedulingEquivalenceHashing: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+	SchedulerLongRequeueInterval: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
 	},
 }
 
