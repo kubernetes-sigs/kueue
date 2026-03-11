@@ -24,6 +24,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -702,9 +703,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		createdJob := &rayv1.RayJob{}
 
 		gomega.Consistently(func(g gomega.Gomega) {
-			err := k8sClient.Get(ctx, lookupKey, createdWorkload)
-			g.Expect(err).Should(gomega.HaveOccurred())
-			g.Expect(client.IgnoreNotFound(err)).Should(gomega.Succeed())
+			g.Expect(errors.IsNotFound(k8sClient.Get(ctx, lookupKey, createdWorkload))).Should(gomega.BeTrue())
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).Should(gomega.Succeed())
 			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())

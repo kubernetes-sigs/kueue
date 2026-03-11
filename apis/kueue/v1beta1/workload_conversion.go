@@ -71,6 +71,12 @@ func Convert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(in *v1beta2.WorkloadSp
 	return autoConvert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(in, out, s)
 }
 
+func Convert_v1beta2_PodSetTopologyRequest_To_v1beta1_PodSetTopologyRequest(in *v1beta2.PodSetTopologyRequest, out *PodSetTopologyRequest, s conversionapi.Scope) error {
+	// PodsetSliceRequiredTopologyConstraints is intentionally dropped during
+	// conversion to v1beta1 as it has no equivalent field.
+	return autoConvert_v1beta2_PodSetTopologyRequest_To_v1beta1_PodSetTopologyRequest(in, out, s)
+}
+
 func Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(in *TopologyAssignment, out *v1beta2.TopologyAssignment, s conversionapi.Scope) error {
 	ta := &tas.TopologyAssignment{
 		Levels:  in.Levels,

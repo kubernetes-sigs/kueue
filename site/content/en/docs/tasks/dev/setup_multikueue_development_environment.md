@@ -172,9 +172,10 @@ kubectl --context kind-worker2 apply -f examples/multikueue/tas/worker-setup.yam
 Create ServiceAccounts and kubeconfigs for MultiKueue on both workers:
 
 ```bash
+SERVICE_ACCOUNT="multikueue-sa"
 for cluster in worker1 worker2; do
   # Create ServiceAccount
-  kubectl --context kind-${cluster} create sa multikueue-sa -n kueue-system
+  kubectl --context kind-${cluster} create sa ${SERVICE_ACCOUNT} -n kueue-system
 
   # Create ClusterRoles
   kubectl --context kind-${cluster} create clusterrole multikueue-role \
@@ -188,15 +189,29 @@ for cluster in worker1 worker2; do
   # Create ClusterRoleBindings
   kubectl --context kind-${cluster} create clusterrolebinding multikueue-crb \
     --clusterrole=multikueue-role \
-    --serviceaccount=kueue-system:multikueue-sa
+    --serviceaccount=kueue-system:${SERVICE_ACCOUNT}
 
   kubectl --context kind-${cluster} create clusterrolebinding multikueue-crb-status \
     --clusterrole=multikueue-role-status \
-    --serviceaccount=kueue-system:multikueue-sa
+    --serviceaccount=kueue-system:${SERVICE_ACCOUNT}
 
-  # Create token and kubeconfig
-  TOKEN=$(kubectl --context kind-${cluster} create token multikueue-sa -n kueue-system --duration=24h)
+  # Create a secret bound to the new service account
+  kubectl --context "kind-${cluster}" apply -f - <<EOF 
+apiVersion: v1
+kind: Secret
+metadata:
+  name: multikueue-sa-token
+  namespace: kueue-system
+  annotations:
+    kubernetes.io/service-account.name: "${SERVICE_ACCOUNT}"
+type: kubernetes.io/service-account-token
+EOF
 
+  # Note: service account token is stored base64-encoded in the secret but must
+  # be plaintext in kubeconfig
+  TOKEN=$(kubectl --context "kind-${cluster}" get secret multikueue-sa-token -n kueue-system -o jsonpath='{.data.token}' | base64 --decode)
+
+  # Create kubeconfig
   cat > ${cluster}.kubeconfig <<EOF
 apiVersion: v1
 kind: Config
@@ -208,11 +223,11 @@ clusters:
 contexts:
 - context:
     cluster: ${cluster}
-    user: multikueue-sa
+    user: ${SERVICE_ACCOUNT}
   name: ${cluster}
 current-context: ${cluster}
 users:
-- name: multikueue-sa
+- name: ${SERVICE_ACCOUNT}
   user:
     token: ${TOKEN}
 EOF

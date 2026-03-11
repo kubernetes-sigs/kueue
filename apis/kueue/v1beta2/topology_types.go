@@ -59,6 +59,15 @@ const (
 	// is defined.
 	PodSetSliceSizeAnnotation = "kueue.x-k8s.io/podset-slice-size"
 
+	// PodSetSliceRequiredTopologyConstraintsAnnotation contains a JSON-encoded
+	// array of topology constraints for multi-level slice subdivision.
+	// Each entry specifies a topology level and slice size. This annotation
+	// is mutually exclusive with PodSetSliceRequiredTopologyAnnotation and
+	// PodSetSliceSizeAnnotation.
+	//
+	// This annotation is alpha-level for the TASMultiLayerTopology feature gate.
+	PodSetSliceRequiredTopologyConstraintsAnnotation = "kueue.x-k8s.io/podset-slice-required-topology-constraints"
+
 	// TopologySchedulingGate is used to delay scheduling of a Pod until the
 	// nodeSelectors corresponding to the assigned topology domain are injected
 	// into the Pod. For the Pod-based integrations the gate is added in webhook

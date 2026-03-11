@@ -1,6 +1,6 @@
 {
   "name": "kueueviz-frontend",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "private": true,
   "description": "Frontend dashboard for visualizing Kueue status",
   "main": "src/index.jsx",
@@ -16,15 +16,15 @@
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "@mui/icons-material": "^7.3.8",
+    "@mui/icons-material": "^7.3.9",
     "@mui/material": "^7.3.1",
     "ace-builds": "^1.43.6",
     "react": "^19.2.4",
     "react-ace": "^14.0.1",
     "react-dom": "^19.2.4",
-    "react-router-dom": "^7.13.0",
+    "react-router-dom": "^7.13.1",
     "react-toastify": "^11.0.5",
-    "serve": "^14.2.5"
+    "serve": "^14.2.6"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.4",

@@ -47,6 +47,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -855,14 +856,6 @@ func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client,
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectRayClusterUnsuspended(ctx context.Context, c client.Client, key types.NamespacedName) {
-	rayCluster := &rayv1.RayCluster{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		g.Expect(c.Get(ctx, key, rayCluster)).To(gomega.Succeed())
-		g.Expect(rayCluster.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
-	}, Timeout, Interval).Should(gomega.Succeed())
-}
-
 func CreateNodesWithStatus(ctx context.Context, c client.Client, nodes []corev1.Node) {
 	for _, node := range nodes {
 		// 1. Create a node
@@ -993,6 +986,13 @@ func GetListOptsFromLabel(label string) *client.ListOptions {
 func MustCreate(ctx context.Context, c client.Client, obj client.Object) {
 	ginkgo.GinkgoHelper()
 	gomega.Expect(c.Create(ctx, obj)).Should(gomega.Succeed())
+}
+
+func MustCreateWithRetry(ctx context.Context, c client.Client, obj client.Object) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(client.IgnoreAlreadyExists(c.Create(ctx, obj))).ToNot(gomega.HaveOccurred())
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func CreateClusterQueuesAndWaitForActive(ctx context.Context, c client.Client, cqs ...*kueue.ClusterQueue) {
@@ -1199,4 +1199,16 @@ func IsLoggedEntryAConcurrentModification(le observer.LoggedEntry) bool {
 	errorDetals := le.ContextMap()["error"].(string)
 	expectedConcurrentModiciationDetails := "the object has been modified; please apply your changes to the latest version and try again"
 	return strings.Contains(errorDetals, expectedConcurrentModiciationDetails)
+}
+
+func ResourceQtyToFloat64(quantityStr string) float64 {
+	q := resource.MustParse(quantityStr)
+	return q.AsApproximateFloat64()
+}
+
+func IgnoreConflict(err error) error {
+	if apierrors.IsConflict(err) {
+		return nil
+	}
+	return err
 }

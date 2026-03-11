@@ -223,6 +223,36 @@ type PodSetTopologyRequest struct {
 	//
 	// +optional
 	PodSetSliceSize *int32 `json:"podSetSliceSize,omitempty"`
+
+	// podsetSliceRequiredTopologyConstraints defines all layers of slice
+	// topology constraints. Each entry specifies a topology level and slice
+	// size, from the outermost (coarsest) to the innermost (finest) layer.
+	// At most 3 layers are supported.
+	// This field is mutually exclusive with podSetSliceRequiredTopology and
+	// podSetSliceSize.
+	//
+	// This annotation is alpha-level for the TASMultiLayerTopology feature gate.
+	//
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=3
+	PodsetSliceRequiredTopologyConstraints []PodsetSliceRequiredTopologyConstraint `json:"podsetSliceRequiredTopologyConstraints,omitempty"`
+}
+
+// PodsetSliceRequiredTopologyConstraint defines a single slice topology constraint layer.
+type PodsetSliceRequiredTopologyConstraint struct {
+	// topology indicates the topology level required for this slice layer.
+	//
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Topology string `json:"topology,omitempty"`
+
+	// size indicates the number of pods in each group at this slice layer.
+	//
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	Size int32 `json:"size,omitempty"`
 }
 
 type Admission struct {

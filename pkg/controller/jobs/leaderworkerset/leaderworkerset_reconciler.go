@@ -28,14 +28,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -98,9 +102,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ctrl.Log.V(3).Info("Setting up LeaderWorkerSet reconciler")
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&leaderworkersetv1.LeaderWorkerSet{}).
+		For(&leaderworkersetv1.LeaderWorkerSet{}, builder.WithPredicates(r)).
 		Named(controllerName).
-		WithEventFilter(r).
+		Watches(&kueue.Workload{}, &lwsWorkloadHandler{}).
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, controllerName),
 		}).
@@ -347,4 +351,48 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	}
 
 	return suspend
+}
+
+// lwsWorkloadHandler watches for workload deletions and triggers reconciliation
+// of the owning LeaderWorkerSet. This ensures that during rolling updates, when
+// workloads are deleted, the LWS reconciler is triggered to recreate them.
+type lwsWorkloadHandler struct{}
+
+var _ handler.EventHandler = (*lwsWorkloadHandler)(nil)
+
+func (h *lwsWorkloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.enqueue(ctx, e.Object, q)
+}
+
+func (h *lwsWorkloadHandler) Update(_ context.Context, _ event.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *lwsWorkloadHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *lwsWorkloadHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.enqueue(ctx, e.Object, q)
+}
+
+// enqueue is a helper function to add the owning LeaderWorkerSet to the reconcile queue.
+func (h *lwsWorkloadHandler) enqueue(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok {
+		return
+	}
+
+	for _, ownerRef := range wl.OwnerReferences {
+		if ownerRef.APIVersion == gvk.GroupVersion().String() && ownerRef.Kind == gvk.Kind {
+			log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
+			log.V(5).Info("Queueing reconcile for owning LeaderWorkerSet", "leaderworkerset", ownerRef.Name)
+
+			q.Add(reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: wl.Namespace,
+					Name:      ownerRef.Name,
+				},
+			})
+			return
+		}
+	}
 }

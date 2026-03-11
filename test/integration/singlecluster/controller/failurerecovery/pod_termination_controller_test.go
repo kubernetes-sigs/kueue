@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -57,7 +58,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			StatusPhase(corev1.PodPending).
 			TerminationGracePeriod(1).
 			NodeName(unreachableNodeName).
-			Annotation(constants.SafeToForcefullyTerminateAnnotationKey, constants.SafeToForcefullyTerminateAnnotationValue)
+			Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue)
 	})
 
 	ginkgo.It("forcefully terminates pods that opt-in, scheduled on unreachable nodes", func() {
@@ -67,8 +68,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: matchingPod.Name, Namespace: matchingPod.Namespace}, matchingPod)).
-				To(gomega.Succeed())
-			g.Expect(matchingPod.Status.Phase).Should(gomega.Equal(corev1.PodFailed))
+				To(utiltesting.BeNotFoundError())
 		}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -76,7 +76,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 		nonMatchingPod := matchingPodWrapper.
 			Clone().
 			Name("non-matching-pod").
-			Annotation(constants.SafeToForcefullyTerminateAnnotationKey, "false").
+			Annotation(constants.SafeToForcefullyDeleteAnnotationKey, "false").
 			Obj()
 		util.MustCreate(ctx, k8sClient, nonMatchingPod)
 		gomega.Expect(k8sClient.Delete(ctx, nonMatchingPod)).To(gomega.Succeed())

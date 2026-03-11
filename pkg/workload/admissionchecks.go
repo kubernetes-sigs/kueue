@@ -159,6 +159,7 @@ func HasAllChecksReady(wl *kueue.Workload) bool {
 }
 
 // HasAllChecks returns true if all the mustHaveChecks are present in the workload.
+// (They don't have to be in the Ready state; for that, see HasAllChecksReady).
 func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[kueue.AdmissionCheckReference]) bool {
 	if mustHaveChecks.Len() == 0 {
 		return true

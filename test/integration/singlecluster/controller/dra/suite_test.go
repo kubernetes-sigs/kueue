@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -124,7 +125,8 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
 
 		// Core controllers
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
+		preemptionExpectations := preemptexpectations.New()
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		// Scheduler - required for workload admission
@@ -133,6 +135,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			cCache,
 			mgr.GetClient(),
 			mgr.GetEventRecorderFor("kueue-admission"),
+			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)
 		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

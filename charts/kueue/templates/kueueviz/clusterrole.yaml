@@ -32,4 +32,9 @@ rules:
   - apiGroups: ["kueue.x-k8s.io"]
     resources: ["workloadpriorityclass"]
     verbs: ["get", "list", "watch"]
+{{- if ne .Values.kueueViz.backend.auth.mode "Disabled" }}
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+{{- end }}
 {{- end }}

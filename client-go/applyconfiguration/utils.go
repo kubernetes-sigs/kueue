@@ -256,6 +256,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.PodSetAssignmentApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("PodSetRequest"):
 		return &kueuev1beta2.PodSetRequestApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("PodsetSliceRequiredTopologyConstraint"):
+		return &kueuev1beta2.PodsetSliceRequiredTopologyConstraintApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("PodSetTopologyRequest"):
 		return &kueuev1beta2.PodSetTopologyRequestApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("PodSetUpdate"):

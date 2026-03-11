@@ -101,9 +101,6 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta2.
 
 
 <p>Cohort defines the Cohorts API.</p>
-<p>Hierarchical Cohorts (any Cohort which has a parent) are compatible
-with Fair Sharing as of v0.11. Using these features together in
-V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 
 
 <table class="table">
@@ -1302,9 +1299,6 @@ The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p
 
 <p>FairSharing contains the properties of the ClusterQueue or Cohort,
 when participating in FairSharing.</p>
-<p>Fair Sharing is compatible with Hierarchical Cohorts (any Cohort
-which has a parent) as of v0.11. Using these features together in
-V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 
 
 <table class="table">
@@ -2363,6 +2357,19 @@ Kueue finds a requested topology domain on a level defined
 in <code>kueue.x-k8s.io/podset-slice-required-topology</code> annotation.</p>
 </td>
 </tr>
+<tr><td><code>podsetSliceRequiredTopologyConstraints</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PodsetSliceRequiredTopologyConstraint"><code>[]PodsetSliceRequiredTopologyConstraint</code></a>
+</td>
+<td>
+   <p>podsetSliceRequiredTopologyConstraints defines all layers of slice
+topology constraints. Each entry specifies a topology level and slice
+size, from the outermost (coarsest) to the innermost (finest) layer.
+At most 3 layers are supported.
+This field is mutually exclusive with podSetSliceRequiredTopology and
+podSetSliceSize.</p>
+<p>This annotation is alpha-level for the TASMultiLayerTopology feature gate.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -2418,6 +2425,39 @@ result in failure during workload admission.</p>
 </td>
 <td>
    <p>tolerations of the PodSet to modify.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PodsetSliceRequiredTopologyConstraint`     {#kueue-x-k8s-io-v1beta2-PodsetSliceRequiredTopologyConstraint}
+    
+
+**Appears in:**
+
+- [PodSetTopologyRequest](#kueue-x-k8s-io-v1beta2-PodSetTopologyRequest)
+
+
+<p>PodsetSliceRequiredTopologyConstraint defines a single slice topology constraint layer.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>topology</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>topology indicates the topology level required for this slice layer.</p>
+</td>
+</tr>
+<tr><td><code>size</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>size indicates the number of pods in each group at this slice layer.</p>
 </td>
 </tr>
 </tbody>

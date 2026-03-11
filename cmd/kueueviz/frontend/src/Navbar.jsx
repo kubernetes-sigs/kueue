@@ -16,10 +16,13 @@ limitations under the License.
 
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { AppBar, Toolbar, Button } from '@mui/material';
+import { AppBar, Toolbar, Button, Box } from '@mui/material';
+import { useAuth } from './AuthContext';
 import './App.css';
 
 const Navbar = () => {
+  const { token, logout, authMode } = useAuth();
+
   return (
     <AppBar position="static">
       <Toolbar>
@@ -30,6 +33,11 @@ const Navbar = () => {
         <Button color="inherit" component={Link} to="/cluster-queues">Cluster Queues</Button>
         <Button color="inherit" component={Link} to="/cohorts">Cohorts</Button>
         <Button color="inherit" component={Link} to="/resource-flavors">Resource Flavors</Button>
+        {authMode !== 'Disabled' && token && (
+          <Box sx={{ ml: 'auto' }}>
+            <Button color="inherit" onClick={logout}>Logout</Button>
+          </Box>
+        )}
       </Toolbar>
     </AppBar>
   );

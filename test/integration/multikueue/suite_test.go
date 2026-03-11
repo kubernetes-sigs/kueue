@@ -54,6 +54,7 @@ import (
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -136,7 +137,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptexpectations.New())
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	failedWebhook, err := webhooks.Setup(mgr, nil)

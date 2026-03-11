@@ -14,6 +14,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# get_repo_org extracts the repository organization from a Git URL.
+# $1 - URL
+get_repo_org() {
+  local url="$1"
+  echo "$url" | awk -F'[:/]' '{sub(/\.git$/, "", $NF); print $(NF-1)}'
+}
+
+# get_repo_name extracts the repository name from a Git URL.
+# $1 - URL
+get_repo_name() {
+  local url="$1"
+  echo "$url" | awk -F'[:/]' '{sub(/\.git$/, "", $NF); print $NF}'
+}
+
 resolve_path() {
   local path="$1"
   local -a stack

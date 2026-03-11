@@ -63,6 +63,15 @@ type PodSetTopologyRequestApplyConfiguration struct {
 	// Kueue finds a requested topology domain on a level defined
 	// in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
 	PodSetSliceSize *int32 `json:"podSetSliceSize,omitempty"`
+	// podsetSliceRequiredTopologyConstraints defines all layers of slice
+	// topology constraints. Each entry specifies a topology level and slice
+	// size, from the outermost (coarsest) to the innermost (finest) layer.
+	// At most 3 layers are supported.
+	// This field is mutually exclusive with podSetSliceRequiredTopology and
+	// podSetSliceSize.
+	//
+	// This annotation is alpha-level for the TASMultiLayerTopology feature gate.
+	PodsetSliceRequiredTopologyConstraints []PodsetSliceRequiredTopologyConstraintApplyConfiguration `json:"podsetSliceRequiredTopologyConstraints,omitempty"`
 }
 
 // PodSetTopologyRequestApplyConfiguration constructs a declarative configuration of the PodSetTopologyRequest type for use with
@@ -140,5 +149,18 @@ func (b *PodSetTopologyRequestApplyConfiguration) WithPodSetSliceRequiredTopolog
 // If called multiple times, the PodSetSliceSize field is set to the value of the last call.
 func (b *PodSetTopologyRequestApplyConfiguration) WithPodSetSliceSize(value int32) *PodSetTopologyRequestApplyConfiguration {
 	b.PodSetSliceSize = &value
+	return b
+}
+
+// WithPodsetSliceRequiredTopologyConstraints adds the given value to the PodsetSliceRequiredTopologyConstraints field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the PodsetSliceRequiredTopologyConstraints field.
+func (b *PodSetTopologyRequestApplyConfiguration) WithPodsetSliceRequiredTopologyConstraints(values ...*PodsetSliceRequiredTopologyConstraintApplyConfiguration) *PodSetTopologyRequestApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithPodsetSliceRequiredTopologyConstraints")
+		}
+		b.PodsetSliceRequiredTopologyConstraints = append(b.PodsetSliceRequiredTopologyConstraints, *values[i])
+	}
 	return b
 }

@@ -30,7 +30,7 @@ Before opting into the feature, make sure the affected workloads will not cause 
 
 # Pod-level opt-in
 
-Only pods annotated with `kueue.x-k8s.io/safe-to-forcefully-terminate` are managed by the failure recovery controller.
+Only pods annotated with `kueue.x-k8s.io/safe-to-forcefully-delete` are managed by the failure recovery controller.
 
 To opt-in, the annotation's value should be set to `true` in the pod template of the relevant workload. For example:
 ```yaml
@@ -42,7 +42,7 @@ spec:
   template:
     metadata:
       annotations:
-        kueue.x-k8s.io/safe-to-forcefully-terminate: true
+        kueue.x-k8s.io/safe-to-forcefully-delete: true
     spec:
       # ...
 ```
@@ -71,7 +71,7 @@ kind create cluster --config hack/kind-cluster.yaml
 To install Kueue into the cluster and enable the `FailureRecoveryPolicy` feature gate, follow the Kueue [Installation](/docs/installation) guide.
 The guide assumes a single `ClusterQueue` and single `ResourceFlavor` setup, as described in the [Administer Cluster Quotas](/docs/tasks/manage/administer_cluster_quotas/#single-clusterqueue-and-single-resourceflavor-setup) guide.
 
-## 1. Create a Job with `podReplacementPolicy: Failed` and `kueue.x-k8s.io/safe-to-forcefully-terminate: true`
+## 1. Create a Job with `podReplacementPolicy: Failed` and `kueue.x-k8s.io/safe-to-forcefully-delete: true`
 
 As an example, a `Job` with `podReplacementPolicy: Failed` will be used to clearly demonstrate how the mechanism benefits certain workload types.
 
@@ -91,7 +91,7 @@ spec:
   template:
     metadata:
       annotations:
-        kueue.x-k8s.io/safe-to-forcefully-terminate: "true" # Opt-in to failure recovery
+        kueue.x-k8s.io/safe-to-forcefully-delete: "true" # Opt-in to failure recovery
     spec:
       affinity:
         podAntiAffinity:

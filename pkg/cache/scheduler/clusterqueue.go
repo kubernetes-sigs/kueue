@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 
@@ -457,6 +458,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 		c.deleteWorkload(log, k)
 	}
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
+	wi.UpdateSchedulingHash(log)
 	c.Workloads[k] = wi
 	c.updateWorkloadUsage(log, wi, add)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
@@ -490,6 +492,40 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	role := roletracker.GetRole(c.roleTracker)
 	metrics.AdmittedActiveWorkloads.WithLabelValues(string(c.Name), role).Set(float64(c.admittedWorkloadsCount))
 	metrics.ReservingActiveWorkloads.WithLabelValues(string(c.Name), role).Set(float64(len(c.Workloads)))
+}
+
+func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
+	var cohort kueue.CohortReference
+	if c.HasParent() {
+		cohort = c.Parent().GetName()
+	}
+	cqName := string(c.Name)
+	for fr, quota := range c.resourceNode.Quotas {
+		fName, rName := string(fr.Flavor), string(fr.Resource)
+		nominal := resourceFloat(fr.Resource, quota.Nominal)
+		var borrowing, lending float64
+		if quota.BorrowingLimit != nil {
+			borrowing = resourceFloat(fr.Resource, *quota.BorrowingLimit)
+		}
+		if quota.LendingLimit != nil {
+			lending = resourceFloat(fr.Resource, *quota.LendingLimit)
+		}
+		metrics.ReportClusterQueueQuotas(cohort, cqName, fName, rName, nominal, borrowing, lending, c.roleTracker)
+		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.resourceNode.Usage[fr]), c.roleTracker)
+		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.AdmittedUsage[fr]), c.roleTracker)
+	}
+	if fairSharingEnabled {
+		c.reportWeightedShare(cohort)
+	}
+}
+
+func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
+	drs := dominantResourceShare(c, nil)
+	weightedShare := drs.PreciseWeightedShare()
+	if weightedShare == math.Inf(1) {
+		weightedShare = math.NaN()
+	}
+	metrics.ReportClusterQueueWeightedShare(string(c.Name), string(cohort), weightedShare, c.roleTracker)
 }
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload

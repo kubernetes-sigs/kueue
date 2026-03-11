@@ -615,6 +615,16 @@ If zero, it means that the usage of the Cohort is below the nominal quota.
 If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, []string{"cohort", "replica_role"},
 	)
+
+	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortSubtreeQuota = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_subtree_quota",
+			Help:      `Reports the cohort's nominal quota aggregated within the cohort's subtree. The values are reported per resource and flavor`,
+		}, []string{"cohort", "flavor", "resource", "replica_role"},
+	)
 )
 
 func init() {
@@ -780,6 +790,11 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 }
 
+func ClearCohortMetrics(cohortName string) {
+	CohortSubtreeQuota.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
+	CohortWeightedShare.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
+}
+
 func ReportClusterQueueStatus(cqName kueue.ClusterQueueReference, cqStatus ClusterQueueStatus, tracker *roletracker.RoleTracker) {
 	for _, status := range CQStatuses {
 		var v float64
@@ -823,6 +838,23 @@ func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resou
 	ClusterQueueResourceLendingLimit.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(lending)
 }
 
+func ReportCohortSubtreeQuota(cohort kueue.CohortReference, flavor, resource string, quota float64, tracker *roletracker.RoleTracker) {
+	CohortSubtreeQuota.WithLabelValues(string(cohort), flavor, resource, roletracker.GetRole(tracker)).Set(quota)
+}
+
+func ClearCohortSubtreeQuota(cohort kueue.CohortReference, flavor, resource string) {
+	lbls := prometheus.Labels{
+		"cohort": string(cohort),
+	}
+	if len(flavor) != 0 {
+		lbls["flavor"] = flavor
+	}
+	if len(resource) != 0 {
+		lbls["resource"] = resource
+	}
+	CohortSubtreeQuota.DeletePartialMatch(lbls)
+}
+
 func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
 	ClusterQueueResourceReservations.WithLabelValues(string(cohort), queue, flavor, resource, roletracker.GetRole(tracker)).Set(usage)
 }
@@ -845,6 +877,18 @@ func ReportClusterQueueWeightedShare(cq, cohort string, weightedShare float64, t
 
 func ReportCohortWeightedShare(cohort string, weightedShare float64, tracker *roletracker.RoleTracker) {
 	CohortWeightedShare.WithLabelValues(cohort, roletracker.GetRole(tracker)).Set(weightedShare)
+}
+
+var allGaugeVecs []*prometheus.GaugeVec
+
+// ClearGaugeMetricsForRole deletes all gauge metric time series matching
+// replica_role=role. Called during HA role transitions to remove stale
+// time series reported under the old role.
+func ClearGaugeMetricsForRole(role string) {
+	lbls := prometheus.Labels{"replica_role": role}
+	for _, g := range allGaugeVecs {
+		g.DeletePartialMatch(lbls)
+	}
 }
 
 func ClearClusterQueueResourceMetrics(cqName string) {
@@ -908,18 +952,20 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 	ClusterQueueResourceReservations.DeletePartialMatch(lbls)
 }
 
+func registerGaugeVecs(gauges ...*prometheus.GaugeVec) {
+	for _, g := range gauges {
+		metrics.Registry.MustRegister(g)
+		allGaugeVecs = append(allGaugeVecs, g)
+	}
+}
+
 func Register() {
 	metrics.Registry.MustRegister(
 		buildInfo,
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
-		AdmissionCyclePreemptionSkips,
-		PendingWorkloads,
-		ReservingActiveWorkloads,
-		AdmittedActiveWorkloads,
 		QuotaReservedWorkloadsTotal,
 		QuotaReservedWaitTime,
-		FinishedWorkloads,
 		FinishedWorkloadsTotal,
 		PodsReadyToEvictedTimeSeconds,
 		AdmittedWorkloadsTotal,
@@ -930,6 +976,13 @@ func Register() {
 		AdmissionChecksWaitTime,
 		QueuedUntilReadyWaitTime,
 		AdmittedUntilReadyWaitTime,
+	)
+	registerGaugeVecs(
+		AdmissionCyclePreemptionSkips,
+		PendingWorkloads,
+		ReservingActiveWorkloads,
+		AdmittedActiveWorkloads,
+		FinishedWorkloads,
 		ClusterQueueResourceUsage,
 		ClusterQueueByStatus,
 		ClusterQueueResourceReservations,
@@ -938,6 +991,7 @@ func Register() {
 		ClusterQueueResourceLendingLimit,
 		ClusterQueueWeightedShare,
 		CohortWeightedShare,
+		CohortSubtreeQuota,
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
@@ -946,11 +1000,7 @@ func Register() {
 
 func RegisterLQMetrics() {
 	metrics.Registry.MustRegister(
-		LocalQueuePendingWorkloads,
-		LocalQueueReservingActiveWorkloads,
-		LocalQueueAdmittedActiveWorkloads,
 		LocalQueueQuotaReservedWorkloadsTotal,
-		LocalQueueFinishedWorkloads,
 		LocalQueueFinishedWorkloadsTotal,
 		LocalQueueQuotaReservedWaitTime,
 		LocalQueueAdmittedWorkloadsTotal,
@@ -959,6 +1009,12 @@ func RegisterLQMetrics() {
 		LocalQueueQueuedUntilReadyWaitTime,
 		LocalQueueAdmittedUntilReadyWaitTime,
 		LocalQueueEvictedWorkloadsTotal,
+	)
+	registerGaugeVecs(
+		LocalQueuePendingWorkloads,
+		LocalQueueReservingActiveWorkloads,
+		LocalQueueAdmittedActiveWorkloads,
+		LocalQueueFinishedWorkloads,
 		LocalQueueByStatus,
 		LocalQueueResourceReservations,
 		LocalQueueResourceUsage,

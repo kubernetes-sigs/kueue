@@ -17,12 +17,21 @@ limitations under the License.
 package jobframework
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+)
+
+var (
+	errParseTopologyConstraints      = errors.New("failed to parse multi-layer topology constraints annotation")
+	errTopologyConstraintsLayerCount = errors.New("topology constraints must contain between 1 and 3 entries")
 )
 
 type podSetTopologyRequestBuilder struct {
@@ -57,6 +66,7 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 
 	sliceRequiredTopologyValue, sliceRequiredTopologyFound := p.meta.Annotations[kueue.PodSetSliceRequiredTopologyAnnotation]
 	sliceSizeValue, sliceSizeFound := p.meta.Annotations[kueue.PodSetSliceSizeAnnotation]
+	constraintsJSON, constraintsFound := p.meta.Annotations[kueue.PodSetSliceRequiredTopologyConstraintsAnnotation]
 
 	podSetGroupName, podSetGroupNameFound := p.meta.Annotations[kueue.PodSetGroupName]
 
@@ -72,19 +82,29 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 		}
 		psTopologyReq.Unconstrained = &unconstrained
 	default:
-		if (!sliceRequiredTopologyFound || !sliceSizeFound) && (p.podIndexLabel == nil && p.subGroupIndexLabel == nil && p.subGroupCount == nil) {
+		hasSliceLayer := (sliceRequiredTopologyFound && sliceSizeFound) || constraintsFound
+		if !hasSliceLayer && (p.podIndexLabel == nil && p.subGroupIndexLabel == nil && p.subGroupCount == nil) {
 			return nil, nil
 		}
 	}
 
-	if sliceRequiredTopologyFound && sliceSizeFound {
+	// Parse multi-level constraints annotation (mutually exclusive with two-level fields).
+	if features.Enabled(features.TASMultiLayerTopology) && constraintsFound {
+		var constraints []kueue.PodsetSliceRequiredTopologyConstraint
+		if err := json.Unmarshal([]byte(constraintsJSON), &constraints); err != nil {
+			return nil, fmt.Errorf("%w: %w", errParseTopologyConstraints, err)
+		}
+		if len(constraints) == 0 || len(constraints) > 3 {
+			return nil, fmt.Errorf("%w: got %d", errTopologyConstraintsLayerCount, len(constraints))
+		}
+		psTopologyReq.PodsetSliceRequiredTopologyConstraints = constraints
+	} else if sliceRequiredTopologyFound && sliceSizeFound {
 		sliceSizeIntValue, err := strconv.ParseInt(sliceSizeValue, 10, 32)
 		if err != nil {
 			return nil, err
-		} else {
-			psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
-			psTopologyReq.PodSetSliceSize = ptr.To(int32(sliceSizeIntValue))
 		}
+		psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
+		psTopologyReq.PodSetSliceSize = ptr.To(int32(sliceSizeIntValue))
 	}
 
 	psTopologyReq.PodIndexLabel = p.podIndexLabel
