@@ -411,11 +411,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - elastic workloads which have been scaled down
 	// - workloads for which workload priority has changed
 	for rem, remWl := range group.remotes {
-		if remWl == nil {
-			continue
-		}
-
-		if isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
+		if remWl != nil && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
 			remotePreemptionGates := remWl.Spec.PreemptionGates
 
 			remClient := group.remoteClients[rem]
