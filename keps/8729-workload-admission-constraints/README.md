@@ -13,9 +13,8 @@
     - [Story 4](#story-4)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
-  - [Feature Gate](#feature-gate)
   - [API](#api)
-  - [Workload Field-Based API (Future Evolution)](#workload-field-based-api-future-evolution)
+  - [Feature Gate](#feature-gate)
   - [Semantics](#semantics)
   - [Admission Flow Changes](#admission-flow-changes)
   - [Interaction with Existing Features](#interaction-with-existing-features)
@@ -28,6 +27,8 @@
     - [GA](#ga)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
+- [Notes](#notes)
+  - [Workload Field-Based API (Future Evolution)](#workload-field-based-api-future-evolution)
 - [Alternatives](#alternatives)
   - [Extending WorkloadPriorityClass](#extending-workloadpriorityclass)
   - [ClusterQueue-only Configuration](#clusterqueue-only-configuration)
@@ -127,20 +128,6 @@ and that the functionality described here may ultimately be merged into or absor
 
 ## Design Details
 
-### Feature Gate
-
-Admission-time constraints are introduced behind a feature gate, tentatively named `WorkloadAdmissionConstraints`.
-
-* When the feature gate is **disabled**:
-
-  * Admission constraint annotations (`kueue.x-k8s.io/cannot-preempt`, `kueue.x-k8s.io/cannot-borrow`) are ignored.
-  * Kueue preserves existing admission behavior, allowing both preemption and borrowing as today.
-
-* When the feature gate is **enabled**:
-
-  * Admission constraint annotations are evaluated and enforced during admission.
-  * Disallowed mechanisms (preemption and/or borrowing) are excluded from admission feasibility evaluation.
-
 ### API
 
 Introduce workload-level admission constraints expressed via annotations:
@@ -159,24 +146,19 @@ When set to `"true"`, these annotations restrict the mechanisms Kueue may use du
 
 If these annotations are absent or annotation value is other than `true`, the default behavior is preserved, and Kueue may use both preemption and borrowing during admission as it does today.
 
-### Workload Field-Based API (Future Evolution)
+### Feature Gate
 
-While the initial API is annotation-based at the Job level, the long-term intent is to represent admission constraints as **structured fields on the Workload API**.
+Admission-time constraints are introduced behind a feature gate, tentatively named `WorkloadAdmissionConstraints`.
 
-During Alpha, admission constraints are propagated from Job annotations to the corresponding Workload (initially as annotations) to allow rapid iteration and validation of semantics. As the feature matures, these constraints are expected to graduate to a field-based API on the Workload spec.
+* When the feature gate is **disabled**:
 
-A possible shape for such an API could be:
+    * Admission constraint annotations (`kueue.x-k8s.io/cannot-preempt`, `kueue.x-k8s.io/cannot-borrow`) are ignored.
+    * Kueue preserves existing admission behavior, allowing both preemption and borrowing as today.
 
-```yaml
-spec:
-  admissionConstraints:
-    preemption: Never
-    borrowing: Never
-```
+* When the feature gate is **enabled**:
 
-The exact structure and naming are intentionally left open at this stage and will be refined based on usage feedback and consistency with existing Workload APIs (for example, `TopologyRequest`). The key requirement is that these fields capture **admission-time-only constraints** and remain unidirectional, governing how the Workload may be admitted without affecting runtime behavior or cluster-wide policy.
-
-This KEP does not propose introducing per-PodSet scheduling constraints. Admission constraints are assumed to apply at the **Workload level**, since they govern how the workload as a whole is admitted. Supporting PodSet-level constraints would significantly expand the policy surface and is considered out of scope for this proposal, but may be revisited in the future if concrete use cases emerge.
+    * Admission constraint annotations are evaluated and enforced during admission.
+    * Disallowed mechanisms (preemption and/or borrowing) are excluded from admission feasibility evaluation.
 
 ### Semantics
 
@@ -271,6 +253,27 @@ During admission, Kueue:
 
 * Adds additional admission-time policy surface.
 * Requires careful documentation to avoid confusion with runtime preemption semantics.
+
+## Notes
+
+### Workload Field-Based API (Future Evolution)
+
+While the initial API is annotation-based at the Job level, the long-term intent is to represent admission constraints as **structured fields on the Workload API**.
+
+During Alpha, admission constraints are propagated from Job annotations to the corresponding Workload (initially as annotations) to allow rapid iteration and validation of semantics. As the feature matures, these constraints are expected to graduate to a field-based API on the Workload spec.
+
+A possible shape for such an API could be:
+
+```yaml
+spec:
+  admissionConstraints:
+    preemption: Never
+    borrowing: Never
+```
+
+The exact structure and naming are intentionally left open at this stage and will be refined based on usage feedback and consistency with existing Workload APIs (for example, `TopologyRequest`). The key requirement is that these fields capture **admission-time-only constraints** and remain unidirectional, governing how the Workload may be admitted without affecting runtime behavior or cluster-wide policy.
+
+This KEP does not propose introducing per-PodSet scheduling constraints. Admission constraints are assumed to apply at the **Workload level**, since they govern how the workload as a whole is admitted. Supporting PodSet-level constraints would significantly expand the policy surface and is considered out of scope for this proposal, but may be revisited in the future if concrete use cases emerge.
 
 ## Alternatives
 
