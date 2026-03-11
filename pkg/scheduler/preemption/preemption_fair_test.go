@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -35,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -101,6 +103,7 @@ func TestFairPreemptions(t *testing.T) {
 		flavors          []*kueue.ResourceFlavor
 		assignmentFlavor kueue.ResourceFlavorReference
 		strategies       []config.PreemptionStrategy
+		minAdmitDuration *metav1.Duration
 		admitted         []kueue.Workload
 		incoming         *kueue.Workload
 		targetCQ         kueue.ClusterQueueReference
@@ -944,9 +947,66 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "a",
 			wantPreempted: sets.New(targetKeyReason("/b_prem1", kueue.InCohortReclamationReason)),
 		},
+		"minAdmitDuration skips recently admitted candidates": {
+			clusterQueues:    baseCQs,
+			minAdmitDuration: &metav1.Duration{Duration: 30 * time.Minute},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				// b workloads admitted 1 hour ago (eligible for preemption).
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now.Add(-1*time.Hour)).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now.Add(-1*time.Hour)).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now.Add(-1*time.Hour)).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now.Add(-1*time.Hour)).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now.Add(-1*time.Hour)).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("c_incoming").Obj(),
+			targetCQ:      "c",
+			wantPreempted: sets.New(targetKeyReason("/b1", kueue.InCohortReclamationReason)),
+		},
+		"minAdmitDuration protects all candidates from preemption": {
+			clusterQueues:    baseCQs,
+			minAdmitDuration: &metav1.Duration{Duration: 30 * time.Minute},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				// All b workloads admitted recently (within minAdmitDuration).
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now.Add(-10*time.Minute)).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now.Add(-10*time.Minute)).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now.Add(-10*time.Minute)).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now.Add(-10*time.Minute)).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now.Add(-10*time.Minute)).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming: unitWl.Clone().Name("c_incoming").Obj(),
+			targetCQ: "c",
+		},
+		"minAdmitDuration nil does not filter candidates": {
+			clusterQueues: baseCQs,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("c_incoming").Obj(),
+			targetCQ:      "c",
+			wantPreempted: sets.New(targetKeyReason("/b1", kueue.InCohortReclamationReason)),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			if tc.minAdmitDuration != nil {
+				features.SetFeatureGateDuringTest(t, features.FairSharingMinAdmitDuration, true)
+			}
 			ctx, log := utiltesting.ContextWithLog(t)
 			// Set name as UID so that candidates sorting is predictable.
 			for i := range tc.admitted {
@@ -979,6 +1039,7 @@ func TestFairPreemptions(t *testing.T) {
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
 			preemptor := New(cl, workload.Ordering{}, recorder, &config.FairSharing{
 				PreemptionStrategies: tc.strategies,
+				MinAdmitDuration:     tc.minAdmitDuration,
 			}, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New())
 
 			beforeSnapshot, err := cqCache.Snapshot(ctx)

@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -63,6 +64,7 @@ type Preemptor struct {
 	workloadOrdering  workload.Ordering
 	enableFairSharing bool
 	fsStrategies      []fairsharing.Strategy
+	minAdmitDuration  *time.Duration
 
 	enabledAfs             bool
 	roleTracker            *roletracker.RoleTracker
@@ -100,6 +102,10 @@ func New(
 		enabledAfs:             enabledAfs,
 		roleTracker:            tracker,
 		preemptionExpectations: preemptionExpectations,
+	}
+	if features.Enabled(features.FairSharingMinAdmitDuration) && fs != nil && fs.MinAdmitDuration != nil {
+		d := fs.MinAdmitDuration.Duration
+		p.minAdmitDuration = &d
 	}
 	return p
 }
@@ -430,6 +436,15 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	candidates := p.findCandidates(preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
 	if len(candidates) == 0 {
 		return nil
+	}
+	if p.minAdmitDuration != nil {
+		now := p.clock.Now()
+		candidates = slices.DeleteFunc(candidates, func(wi *workload.Info) bool {
+			return now.Sub(preemptioncommon.QuotaReservationTime(wi.Obj, now)) < *p.minAdmitDuration
+		})
+		if len(candidates) == 0 {
+			return nil
+		}
 	}
 	slices.SortFunc(candidates, func(a, b *workload.Info) int {
 		return preemptioncommon.CandidatesOrdering(preemptionCtx.log, p.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, p.clock.Now())

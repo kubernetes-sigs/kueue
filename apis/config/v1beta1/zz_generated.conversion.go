@@ -570,11 +570,13 @@ func Convert_v1beta2_DeviceClassMapping_To_v1beta1_DeviceClassMapping(in *v1beta
 func autoConvert_v1beta1_FairSharing_To_v1beta2_FairSharing(in *FairSharing, out *v1beta2.FairSharing, s conversion.Scope) error {
 	// WARNING: in.Enable requires manual conversion: does not exist in peer-type
 	out.PreemptionStrategies = *(*[]v1beta2.PreemptionStrategy)(unsafe.Pointer(&in.PreemptionStrategies))
+	out.MinAdmitDuration = (*metav1.Duration)(unsafe.Pointer(in.MinAdmitDuration))
 	return nil
 }
 
 func autoConvert_v1beta2_FairSharing_To_v1beta1_FairSharing(in *v1beta2.FairSharing, out *FairSharing, s conversion.Scope) error {
 	out.PreemptionStrategies = *(*[]PreemptionStrategy)(unsafe.Pointer(&in.PreemptionStrategies))
+	out.MinAdmitDuration = (*metav1.Duration)(unsafe.Pointer(in.MinAdmitDuration))
 	return nil
 }
 

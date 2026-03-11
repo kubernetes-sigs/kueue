@@ -573,6 +573,14 @@ type FairSharing struct {
 	//   newest start time first.
 	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
+
+	// minAdmitDuration is the minimum time a workload must be admitted before
+	// it becomes eligible for fair-sharing preemption. A workload whose
+	// QuotaReserved condition was set less than minAdmitDuration ago is
+	// skipped as a preemption candidate. When nil, no minimum is enforced.
+	// If set, must be at least 1 minute.
+	// +optional
+	MinAdmitDuration *metav1.Duration `json:"minAdmitDuration,omitempty"`
 }
 
 type AdmissionFairSharing struct {

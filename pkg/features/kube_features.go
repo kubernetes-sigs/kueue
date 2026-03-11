@@ -282,6 +282,13 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/9694
 	// Skip equivalent inadmissible workloads in BestEffortFIFO scheduling.
 	SchedulingEquivalenceHashing featuregate.Feature = "SchedulingEquivalenceHashing"
+
+	// owner: @mukund-wayve
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/9734-historical-usage-fair-sharing
+	//
+	// Enable minAdmitDuration in fair sharing preemption, protecting recently
+	// admitted workloads from being preempted.
+	FairSharingMinAdmitDuration featuregate.Feature = "FairSharingMinAdmitDuration"
 )
 
 func init() {
@@ -442,6 +449,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	SchedulingEquivalenceHashing: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	FairSharingMinAdmitDuration: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

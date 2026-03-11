@@ -636,6 +636,38 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid minAdmitDuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, configapi.LessThanInitialShare},
+					MinAdmitDuration:     &metav1.Duration{Duration: time.Minute},
+				},
+			},
+		},
+		"valid minAdmitDuration nil": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, configapi.LessThanInitialShare},
+				},
+			},
+		},
+		"invalid minAdmitDuration below floor": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, configapi.LessThanInitialShare},
+					MinAdmitDuration:     &metav1.Duration{Duration: 30 * time.Second},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "fairSharing.minAdmitDuration",
+				},
+			},
+		},
 		"valid admissionFairSharing configuration": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
