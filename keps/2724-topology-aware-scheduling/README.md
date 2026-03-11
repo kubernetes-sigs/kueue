@@ -1406,27 +1406,25 @@ We introduce the `TASReplaceNodeOnNodeTaints` feature gate from v0.17 as Beta, a
 When enabled, Kueue treats tainted nodes as unhealthy. This applies to nodes with `NoExecute` taint,
 or nodes with `NoSchedule` taint where all pods of the workload running on that node are failing, terminating, or in unscheduled state.
 
-- **NoExecute**: Nodes with the `NoExecute` effect taint, that is not tolerated by the workload, are considered unhealthy.
+- **NoExecute**: Nodes with the `NoExecute` taint, that is not tolerated by the workload, are considered unhealthy.
 The pods on such nodes are expected to be terminated by the node controller. Once terminated, Kueue will attempt
 to replace the node if `TASFailedNodeReplacement` is enabled, and evict the workload if no replacement is possible.
 If `tolerationSeconds` is specified, Kueue waits for the duration before treating the node as unhealthy.
-- **NoSchedule**: Nodes with the `NoSchedule` effect taint, that is not tolerated by the workload, are considered unhealthy
+- **NoSchedule**: Nodes with the `NoSchedule` taint, that is not tolerated by the workload, are considered unhealthy
 only if all pods of the workload that have topology assignment to that node are terminating, in the failed state,
 or if they are unscheduled. In this case, Kueue can trigger node replacement.
 
-While `NoSchedule` taint does not evict running pods (unlike `NoExecute`), Kueue triggers recovery for unscheduled or failed pods.
-Kueue also performs node replacement if pods fail or terminate after `NoSchedule` is assigned, ensuring the workload is not blocked by unschedulable Pods which are assigned to a tainted node.
+While the `NoSchedule` taint does not evict running pods (unlike `NoExecute`), Kueue triggers recovery for unscheduled or failed pods.
+Kueue also performs node replacement if pods fail or terminate after the `NoSchedule` taint is assigned, ensuring the workload is not blocked by unschedulable Pods which are assigned to a tainted node.
 
-Notably the analogous problem exists not just for Pods assigned to nodes tainted with  `NoSchedule` , but also nodes with the untolerated `NoExecute` taint, or with `NotReady` state. 
+Notably the analogous problem exists not just for Pods assigned to nodes tainted with the `NoSchedule` taint, but also nodes with the untolerated `NoExecute` taint, or in the `NotReady` state. 
 
-In order to remediate the problem, for workloads where single Node replacement is possible, the node failure controller transitions these `Pending` Pods to the `Failed` phase so that replacement Pods are created.
-
-Kueue will not terminate the Pods if there is more than one node requiring replacement, because this scenario is handled by full workload eviction.
+In order to remediate the problem, for workloads where a single Node replacement is possible, the node failure controller transitions these `Pending` Pods to the `Failed` phase so that replacement Pods are created.
 
 This ensures that the pods are re-created by the Job controller for placement on other nodes, while keeping the original
-pods in Failed state for debuggability. Without this step, the pending pods would block the creation of replacement pods.
+pods in the `Failed` state for debuggability. Without this step, the pending pods would block the creation of replacement pods.
 
-When transitioning these Pods, the controller appends the following condition:
+When transitioning the `Pending` Pods, the controller appends the following condition:
 ```yaml
 type: TerminatedByKueue
 status: True
@@ -1434,9 +1432,11 @@ reason: UnschedulableOnAssignedNode
 message: "..."
 ```
 
-In addition, Kueue emits a Normal event with reason `PodTerminated` on the Pod to inform about the termination.
+In addition, Kueue emits a Normal event with the reason `PodTerminated` on Pod termination.
 
-Nodes with `.spec.unschedulable` set to true are treated as having `NoSchedule` taint.
+Kueue will not terminate a `Pending` Pod if there is more than one node requiring replacement, because this scenario is handled by a full workload eviction.
+
+Nodes with `.spec.unschedulable` set to true are treated as having the `NoSchedule` taint.
 
 ##### User stories
 
