@@ -31,6 +31,8 @@ spec:
     metadata:
       labels:
         app: kueueviz-frontend
+      annotations:
+        charts.kueue.x-k8s.io/config-checksum: {{ include (print .Template.BasePath "/kueueviz/frontend-configmap.yaml") . | sha256sum }}
     spec:
       {{- with .Values.kueueViz.frontend.imagePullSecrets  }}
       imagePullSecrets:

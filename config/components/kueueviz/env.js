@@ -1,0 +1,4 @@
+window.env = {
+  VITE_WEBSOCKET_URL: "ws://localhost:8080",
+  REACT_APP_WEBSOCKET_URL: "ws://localhost:8080"
+};
