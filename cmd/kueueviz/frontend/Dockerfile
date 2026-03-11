@@ -21,9 +21,7 @@ FROM node:25-slim AS runtime
 
 WORKDIR /app
 
-# Copy package files and install only production dependencies
-COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install -g serve
 
 # Copy only the built files from builder
 COPY --from=builder /app/build ./build
@@ -33,4 +31,4 @@ EXPOSE 8080
 # Serve the built files directly.
 # env.js is expected to be mounted via ConfigMap at /app/build/env.js
 # when running in Kubernetes.
-ENTRYPOINT ["npx", "serve", "-s", "build", "-l", "tcp://0.0.0.0:8080"]
+ENTRYPOINT ["serve", "-s", "build", "-l", "tcp://0.0.0.0:8080"]

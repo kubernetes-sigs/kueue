@@ -17,7 +17,7 @@ install:
 # Run target: serves the built app
 .PHONY: run
 run:
-	npx serve -s build -l tcp://0.0.0.0:8080
+	npm run serve
 
 # Debug target: runs the app in development mode
 .PHONY: debug
