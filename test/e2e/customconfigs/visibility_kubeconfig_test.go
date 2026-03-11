@@ -55,11 +55,11 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		err := k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, &originalDeployment)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Create Custom ServiceAccount")
+		ginkgo.By("Creating Custom ServiceAccount")
 		sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: customSAName, Namespace: kueueNS}}
 		util.MustCreate(ctx, k8sClient, sa)
 
-		ginkgo.By("Create a token Secret for the custom SA")
+		ginkgo.By("Creating a token Secret for the custom SA")
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        customSecretName,
@@ -70,7 +70,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		}
 		util.MustCreate(ctx, k8sClient, secret)
 
-		ginkgo.By("Create the ConfigMap for the KubeConfig")
+		ginkgo.By("Creating the ConfigMap for the KubeConfig")
 		kubeconfig, err := utiltesting.NewTestKubeConfigWrapper().
 			Cluster("local", "https://kubernetes.default.svc", nil).
 			CAFileCluster("local", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt").
@@ -87,10 +87,10 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		}
 		util.MustCreate(ctx, k8sClient, cm)
 
-		ginkgo.By("Clone all base permissions to our custom SA so the main controller can boot, explicitly holding back the auth delegation permission for our negative test.")
+		ginkgo.By("Cloning all base permissions to our custom SA so the main controller can boot, explicitly holding back the auth delegation permission for our negative test.")
 		cloneControllerRBAC(ctx)
 
-		ginkgo.By("Create the auth-reader binding so the visibility server can start up.")
+		ginkgo.By("Creating the auth-reader binding so the visibility server can start up.")
 		authReaderBinding := &rbacv1.RoleBinding{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "visibility-test-auth-reader",
@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		}
 		util.MustCreate(ctx, k8sClient, authReaderBinding)
 
-		ginkgo.By("Create a ClusterQueue")
+		ginkgo.By("Creating a ClusterQueue")
 		cq := &kueue.ClusterQueue{
 			ObjectMeta: metav1.ObjectMeta{Name: cqName},
 		}
@@ -110,20 +110,20 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		ginkgo.By("Restore the original deployment")
+		ginkgo.By("Restoring the original deployment")
 		latestDeployment := &appsv1.Deployment{}
 		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, latestDeployment)).To(gomega.Succeed())
 		latestDeployment.Spec = originalDeployment.Spec
 		gomega.Expect(k8sClient.Update(ctx, latestDeployment)).To(gomega.Succeed())
 		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
-		ginkgo.By("Clean up created resources")
+		ginkgo.By("Cleaning up created resources")
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: kueueNS}}, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: customSecretName, Namespace: kueueNS}}, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: customSAName, Namespace: kueueNS}}, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, &kueue.ClusterQueue{ObjectMeta: metav1.ObjectMeta{Name: cqName}}, true)
 
-		ginkgo.By("Clean up our dynamically cloned roles")
+		ginkgo.By("Cleaning up our dynamically cloned roles")
 		gomega.Expect(k8sClient.DeleteAllOf(ctx, &rbacv1.ClusterRoleBinding{}, client.MatchingLabels{testLabelKey: testLabelValue})).To(gomega.Succeed())
 		gomega.Expect(k8sClient.DeleteAllOf(ctx, &rbacv1.RoleBinding{}, client.InNamespace(kueueNS), client.MatchingLabels{testLabelKey: testLabelValue})).To(gomega.Succeed())
 		gomega.Expect(k8sClient.DeleteAllOf(ctx, &rbacv1.RoleBinding{}, client.InNamespace(kubeSystemNamespace), client.MatchingLabels{testLabelKey: testLabelValue})).To(gomega.Succeed())
@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 	ginkgo.It("Should use the RBAC identity from the provided kubeconfig", func() {
 		patchedDeployment := originalDeployment.DeepCopy()
 
-		ginkgo.By("Mount the ConfigMap and the Custom SA Token Secret")
+		ginkgo.By("Mounting the ConfigMap and the Custom SA Token Secret")
 		patchedDeployment.Spec.Template.Spec.Volumes = append(patchedDeployment.Spec.Template.Spec.Volumes,
 			corev1.Volume{
 				Name:         kubeconfigVolName,
