@@ -984,6 +984,97 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 	}
 }
 
+func TestFlavorResourceUsage(t *testing.T) {
+	cases := map[string]struct {
+		info *Info
+		want resources.FlavorResourceQuantities
+	}{
+		"nil": {
+			want: resources.FlavorResourceQuantities{},
+		},
+		"one podset, no flavors": {
+			info: &Info{
+				TotalRequests: []PodSetResources{{
+					Requests: resources.Requests{
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  3,
+					},
+				}},
+			},
+			want: resources.FlavorResourceQuantities{
+				{Flavor: "", Resource: "cpu"}:             1_000,
+				{Flavor: "", Resource: "example.com/gpu"}: 3,
+			},
+		},
+		"one podset, multiple flavors": {
+			info: &Info{
+				TotalRequests: []PodSetResources{{
+					Requests: resources.Requests{
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  3,
+					},
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "default",
+						"example.com/gpu":  "gpu",
+					},
+				}},
+			},
+			want: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "cpu"}:         1_000,
+				{Flavor: "gpu", Resource: "example.com/gpu"}: 3,
+			},
+		},
+		"multiple podsets, multiple flavors": {
+			info: &Info{
+				TotalRequests: []PodSetResources{
+					{
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 1_000,
+							"example.com/gpu":  3,
+						},
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
+							"example.com/gpu":  "model_a",
+						},
+					},
+					{
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    2_000,
+							corev1.ResourceMemory: 2 * utiltesting.Gi,
+						},
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "default",
+							corev1.ResourceMemory: "default",
+						},
+					},
+					{
+						Requests: resources.Requests{
+							"example.com/gpu": 1,
+						},
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							"example.com/gpu": "model_b",
+						},
+					},
+				},
+			},
+			want: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "cpu"}:             3_000,
+				{Flavor: "default", Resource: "memory"}:          2 * utiltesting.Gi,
+				{Flavor: "model_a", Resource: "example.com/gpu"}: 3,
+				{Flavor: "model_b", Resource: "example.com/gpu"}: 1,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.info.FlavorResourceUsage()
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("info.ResourceUsage() returned (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestAdmissionCheckStrategyForAdmittedWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
@@ -1152,97 +1243,6 @@ func TestAdmissionCheckListingForWorkload(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
 				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestFlavorResourceUsage(t *testing.T) {
-	cases := map[string]struct {
-		info *Info
-		want resources.FlavorResourceQuantities
-	}{
-		"nil": {
-			want: resources.FlavorResourceQuantities{},
-		},
-		"one podset, no flavors": {
-			info: &Info{
-				TotalRequests: []PodSetResources{{
-					Requests: resources.Requests{
-						corev1.ResourceCPU: 1_000,
-						"example.com/gpu":  3,
-					},
-				}},
-			},
-			want: resources.FlavorResourceQuantities{
-				{Flavor: "", Resource: "cpu"}:             1_000,
-				{Flavor: "", Resource: "example.com/gpu"}: 3,
-			},
-		},
-		"one podset, multiple flavors": {
-			info: &Info{
-				TotalRequests: []PodSetResources{{
-					Requests: resources.Requests{
-						corev1.ResourceCPU: 1_000,
-						"example.com/gpu":  3,
-					},
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "default",
-						"example.com/gpu":  "gpu",
-					},
-				}},
-			},
-			want: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "cpu"}:         1_000,
-				{Flavor: "gpu", Resource: "example.com/gpu"}: 3,
-			},
-		},
-		"multiple podsets, multiple flavors": {
-			info: &Info{
-				TotalRequests: []PodSetResources{
-					{
-						Requests: resources.Requests{
-							corev1.ResourceCPU: 1_000,
-							"example.com/gpu":  3,
-						},
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: "default",
-							"example.com/gpu":  "model_a",
-						},
-					},
-					{
-						Requests: resources.Requests{
-							corev1.ResourceCPU:    2_000,
-							corev1.ResourceMemory: 2 * utiltesting.Gi,
-						},
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU:    "default",
-							corev1.ResourceMemory: "default",
-						},
-					},
-					{
-						Requests: resources.Requests{
-							"example.com/gpu": 1,
-						},
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							"example.com/gpu": "model_b",
-						},
-					},
-				},
-			},
-			want: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "cpu"}:             3_000,
-				{Flavor: "default", Resource: "memory"}:          2 * utiltesting.Gi,
-				{Flavor: "model_a", Resource: "example.com/gpu"}: 3,
-				{Flavor: "model_b", Resource: "example.com/gpu"}: 1,
-			},
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := tc.info.FlavorResourceUsage()
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("info.ResourceUsage() returned (-want,+got):\n%s", diff)
 			}
 		})
 	}
