@@ -132,6 +132,9 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, en
 	}
 
 	if visibilityServerFlags != "" {
+		// Use pflag to be compatible with apiserver and to be able to utilize
+		// all of the flags available there. Note that we mix the standard flag
+		// library (used for the main command) and pflag (used for apiserver options).
 		fs := pflag.NewFlagSet("visibility-server", pflag.ContinueOnError)
 		o.AddFlags(fs)
 
