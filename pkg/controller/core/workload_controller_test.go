@@ -3071,7 +3071,9 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
 			defer ctxCancel()
 
-			reconciler.reconcileSyncAdmissionChecks(ctx, &tc.wl, &tc.cq)
+			if _, err := reconciler.reconcileSyncAdmissionChecks(ctx, &tc.wl, &tc.cq); err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
 
 			if diff := cmp.Diff(tc.wantChecks, tc.wl.Status.AdmissionChecks, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")); diff != "" {
 				t.Errorf("Incorrect admission checks (-want,+got):\n%s", diff)
