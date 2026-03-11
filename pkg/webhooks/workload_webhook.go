@@ -40,17 +40,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 
-
-var (
 // priorityBoostAnnotationPath is the field path for the priority-boost annotation, used in validation errors.
-    priorityBoostAnnotationPath = field.NewPath("metadata", "annotations").Key(controllerconstants.PriorityBoostAnnotationKey)
-	admissionGatedByAnnotationsPath = field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation)
-)
+var priorityBoostAnnotationPath = field.NewPath("metadata", "annotations").Key(controllerconstants.PriorityBoostAnnotationKey)
 
 type WorkloadWebhook struct{}
 
@@ -132,7 +129,7 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	allErrs = append(allErrs, validateAdmissionChecks(obj, statusPath.Child("admissionChecks"))...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
-		allErrs = append(allErrs, jobframework.ValidateAdmissionGatedByAnnotationOnCreate(obj, admissionGatedByAnnotationsPath)...)
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(obj)...)
 	}
 
 	// KEP-7990: when priority-boost annotation is set, it must be a valid signed integer; invalid values cause rejection.
@@ -310,7 +307,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	allErrs = append(allErrs, validateClusterNameUpdate(newObj, oldObj, statusPath)...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
-		allErrs = append(allErrs, jobframework.ValidateAdmissionGatedByAnnotationOnUpdate(oldObj, newObj, admissionGatedByAnnotationsPath)...)
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldObj, newObj)...)
 	}
 
 	return allErrs
