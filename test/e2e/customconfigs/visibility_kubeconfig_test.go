@@ -101,6 +101,12 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 			Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNS}},
 		}
 		util.MustCreate(ctx, k8sClient, authReaderBinding)
+
+		ginkgo.By("Create a ClusterQueue")
+		cq := &kueue.ClusterQueue{
+			ObjectMeta: metav1.ObjectMeta{Name: cqName},
+		}
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -151,11 +157,6 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 
 		gomega.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
 		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
-
-		cq := &kueue.ClusterQueue{
-			ObjectMeta: metav1.ObjectMeta{Name: cqName},
-		}
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		// NEGATIVE TEST: The custom SA lacks 'system:auth-delegator'. The visibility server
 		// is forced to use it, so it cannot perform SubjectAccessReviews.
