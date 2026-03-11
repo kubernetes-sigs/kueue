@@ -72,6 +72,6 @@ const (
 	// until the annotation is removed. The value is a comma-separated list of
 	// controller names (e.g., "example.com/controller1,example.com/controller2").
 	//
-	// This annotation requires AdmissionGatedBy feature gate, disabled by default.
+	// This annotation is alpha-level and requires the AdmissionGatedBy feature gate, disabled by default.
 	AdmissionGatedByAnnotation = "kueue.x-k8s.io/admission-gated-by"
 )
