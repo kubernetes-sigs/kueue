@@ -1129,7 +1129,7 @@ func TestAdmissionCheckListingForWorkload(t *testing.T) {
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2", "ac3", "ac4", "ac6"),
 		},
-		"Only correct checks covering all relevant flavors returned for Wrokload without Quota Reserved ": {
+		"Only correct checks covering all relevant flavors returned for Workload without Quota Reserved ": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac3", "ac4", "ac6"),
