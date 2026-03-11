@@ -18,6 +18,8 @@ package core
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -1088,35 +1090,48 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 			const nGoroutines = 25
 
+			// Using a WaitGroup ensures we don't leak goroutines into the next It() block.
+			var wg sync.WaitGroup
+			defer wg.Wait() // Wait for goroutines stopped.
+
 			ctx, cancel := context.WithTimeout(ginkgo.GinkgoTB().Context(), util.LongTimeout)
-			defer cancel()
+			defer cancel() // Stop goroutines.
 
 			setClusterStatusPending := func() {
+				defer ginkgo.GinkgoRecover()
+				defer wg.Done()
+
 				for {
+					var updatedCq kueue.ClusterQueue
+					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)
+					if errors.Is(err, context.Canceled) {
+						return // Test is over, exit quietly
+					}
+					gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+					apimeta.SetStatusCondition(&updatedCq.Status.Conditions, metav1.Condition{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "ByTest",
+						Message: "by test",
+					})
+					_ = k8sClient.Status().Update(ctx, &updatedCq)
+
 					select {
 					case <-ctx.Done():
 						return
-					default:
-						var updatedCq kueue.ClusterQueue
-						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
-						apimeta.SetStatusCondition(&updatedCq.Status.Conditions, metav1.Condition{
-							Type:    kueue.ClusterQueueActive,
-							Status:  metav1.ConditionFalse,
-							Reason:  "ByTest",
-							Message: "by test",
-						})
-						gomega.Expect(util.IgnoreConflict(k8sClient.Status().Update(ctx, &updatedCq))).Should(gomega.Succeed())
-						time.Sleep(util.Interval)
+					case <-time.After(util.Interval):
+						// Just continue to the next loop iteration.
 					}
 				}
 			}
+
+			wg.Add(nGoroutines)
 			for range nGoroutines {
 				go setClusterStatusPending()
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				reconcileLogs := fwk.ObservedLogs
-
 				reconcileConcurrentModificationLogs := reconcileLogs.Filter(util.IsLoggedEntryAConcurrentModification)
 				g.Expect(reconcileConcurrentModificationLogs.All()).ShouldNot(gomega.BeEmpty(),
 					"There should be some concurrent modifcation error log entries")
@@ -1125,6 +1140,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				}).All()).Should(gomega.BeEmpty(),
 					"Log level should be smaller than error")
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+			// Explicitly stop and wait to ensure logs don't bleed into the next test.
+			cancel()
+			wg.Wait()
 		})
 	})
 })

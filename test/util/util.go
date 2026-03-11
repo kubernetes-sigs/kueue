@@ -1205,10 +1205,3 @@ func ResourceQtyToFloat64(quantityStr string) float64 {
 	q := resource.MustParse(quantityStr)
 	return q.AsApproximateFloat64()
 }
-
-func IgnoreConflict(err error) error {
-	if apierrors.IsConflict(err) {
-		return nil
-	}
-	return err
-}
