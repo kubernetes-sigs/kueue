@@ -813,10 +813,6 @@ files:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.kueueViz.frontend.env }}
-          env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
         indentation: 0
         onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
       - type: INSERT_TEXT
