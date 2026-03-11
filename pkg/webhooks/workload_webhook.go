@@ -32,18 +32,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-)
-
-var (
-	admissionGatedByAnnotationsPath = field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation)
 )
 
 type WorkloadWebhook struct{}
@@ -126,7 +121,7 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	allErrs = append(allErrs, validateAdmissionChecks(obj, statusPath.Child("admissionChecks"))...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
-		allErrs = append(allErrs, jobframework.ValidateAdmissionGatedByAnnotationOnCreate(obj, admissionGatedByAnnotationsPath)...)
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(obj)...)
 	}
 
 	return allErrs
@@ -291,7 +286,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	allErrs = append(allErrs, validateClusterNameUpdate(newObj, oldObj, statusPath)...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
-		allErrs = append(allErrs, jobframework.ValidateAdmissionGatedByAnnotationOnUpdate(oldObj, newObj, admissionGatedByAnnotationsPath)...)
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldObj, newObj)...)
 	}
 
 	return allErrs

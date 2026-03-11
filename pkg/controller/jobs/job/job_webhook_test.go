@@ -45,6 +45,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	// without this only the job framework is registered
@@ -57,11 +58,12 @@ const (
 )
 
 var (
-	labelsPath                    = field.NewPath("metadata", "labels")
-	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
-	prebuiltWlNameLabelPath       = labelsPath.Key(constants.PrebuiltWorkloadLabel)
-	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	labelsPath                      = field.NewPath("metadata", "labels")
+	admissionGatedByAnnotationsPath = field.NewPath("metadata", "annotations").Key(kueueconstants.AdmissionGatedByAnnotation)
+	queueNameLabelPath              = labelsPath.Key(constants.QueueLabel)
+	prebuiltWlNameLabelPath         = labelsPath.Key(constants.PrebuiltWorkloadLabel)
+	maxExecTimeLabelPath            = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
+	workloadPriorityClassNamePath   = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
 func TestValidateCreate(t *testing.T) {
@@ -466,7 +468,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "cannot.be.too.long/"+strings.Repeat("but-this-is-too-long", 20)).
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.TooLong(admissionGatedByAnnotationsPath, "", jobframework.MaxGateNameLengthForAdmissionGatedBy),
+				field.TooLong(admissionGatedByAnnotationsPath, "", webhook.MaxGateNameLengthForAdmissionGatedBy),
 			},
 			admissionGatedBy: true,
 		},

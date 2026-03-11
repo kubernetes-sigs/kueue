@@ -37,9 +37,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -64,14 +65,16 @@ var (
 	)
 )
 
-// Same as the constraint of the spec.ManagedBy field for Jobs
-const MaxGateNameLengthForAdmissionGatedBy = 63
-
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
 func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 	allErrs := ValidateQueueName(job.Object())
 	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
+
+	if features.Enabled(features.AdmissionGatedBy) {
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(job.Object())...)
+	}
+
 	return allErrs
 }
 
@@ -82,6 +85,11 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(strin
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
+
+	if features.Enabled(features.AdmissionGatedBy) {
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldJob.Object(), newJob.Object())...)
+	}
+
 	return allErrs
 }
 
@@ -125,25 +133,6 @@ func validateUpdateForQueueName(oldJob, newJob GenericJob, defaultQueueExist fun
 	}
 
 	return allErrs
-}
-
-func ValidateAdmissionGatedByAnnotationOnCreate(obj client.Object, annotationPath *field.Path) field.ErrorList {
-	var newValue *string
-	if val, exists := obj.GetAnnotations()[kueueconstants.AdmissionGatedByAnnotation]; exists {
-		newValue = &val
-	}
-	return ValidateAdmissionGatedByAnnotation(nil, newValue, false, annotationPath)
-}
-
-func ValidateAdmissionGatedByAnnotationOnUpdate(oldObj, newObj client.Object, annotationPath *field.Path) field.ErrorList {
-	var oldValue, newValue *string
-	if val, exists := oldObj.GetAnnotations()[kueueconstants.AdmissionGatedByAnnotation]; exists {
-		oldValue = &val
-	}
-	if val, exists := newObj.GetAnnotations()[kueueconstants.AdmissionGatedByAnnotation]; exists {
-		newValue = &val
-	}
-	return ValidateAdmissionGatedByAnnotation(oldValue, newValue, true, annotationPath)
 }
 
 func validateUpdateForPrebuiltWorkload(oldJob, newJob GenericJob) field.ErrorList {
@@ -251,78 +240,4 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fie
 
 func IsWorkloadPriorityClassNameEmpty(obj client.Object) bool {
 	return WorkloadPriorityClassName(obj) == ""
-}
-
-// ValidateAdmissionGatedByAnnotation validates the AdmissionGatedBy annotation.
-// oldValue and newValue are pointers to allow distinguishing between "annotation doesn't exist" (nil)
-// and "annotation exists but is empty" ("").
-// isUpdate indicates whether this is an update operation (true) or create operation (false).
-func ValidateAdmissionGatedByAnnotation(oldValue, newValue *string, isUpdate bool, annotationPath *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-
-	// Get actual values, treating nil as empty string for comparison
-	oldVal := ""
-	if oldValue != nil {
-		oldVal = *oldValue
-	}
-	newVal := ""
-	if newValue != nil {
-		newVal = *newValue
-	}
-
-	if isUpdate {
-		// Cannot add annotation after creation (oldValue was nil or empty, newValue is non-empty)
-		if (oldValue == nil || oldVal == "") && newVal != "" {
-			allErrs = append(allErrs, field.Forbidden(annotationPath,
-				"cannot add admission gate after creation"))
-		}
-
-		// Can only remove gates or remove entire annotation
-		if oldVal != "" && newVal != "" {
-			oldGates := strings.Split(oldVal, ",")
-
-			for newGate := range strings.SplitSeq(newVal, ",") {
-				if !slices.Contains(oldGates, newGate) {
-					allErrs = append(allErrs, field.Forbidden(annotationPath,
-						"can only remove gates, not add new ones"))
-					break
-				}
-			}
-		}
-	}
-
-	// Validate format if annotation is present and non-empty
-	if newVal != "" {
-		gates := strings.Split(newVal, ",")
-		seen := make(map[string]bool)
-
-		fieldPath := field.NewPath("metadata").Child("annotations").Key(kueueconstants.AdmissionGatedByAnnotation)
-
-		for _, gate := range gates {
-			gate = strings.TrimSpace(gate)
-
-			// Check for empty gates
-			if gate == "" {
-				allErrs = append(allErrs, field.Invalid(annotationPath, newVal,
-					"cannot contain empty gate names"))
-				continue
-			}
-
-			// Check for duplicates
-			if seen[gate] {
-				allErrs = append(allErrs, field.Invalid(annotationPath, newVal,
-					fmt.Sprintf("duplicate gate name: %s", gate)))
-				continue
-			}
-			seen[gate] = true
-
-			allErrs = append(allErrs, validation.IsDomainPrefixedPath(fieldPath, gate)...)
-
-			if len(gate) > MaxGateNameLengthForAdmissionGatedBy {
-				allErrs = append(allErrs, field.TooLong(fieldPath, "" /*unused*/, MaxGateNameLengthForAdmissionGatedBy))
-			}
-		}
-	}
-
-	return allErrs
 }
