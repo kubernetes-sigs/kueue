@@ -1118,7 +1118,7 @@ func TestAdmissionCheckListingForWorkload(t *testing.T) {
 		wl                  *kueue.Workload
 		wantAdmissionChecks sets.Set[kueue.AdmissionCheckReference]
 	}{
-		"Only relevant checks returend for an admitted workload": {
+		"Only relevant checks returned for an admitted workload": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
