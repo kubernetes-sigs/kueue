@@ -229,6 +229,32 @@ tests:
     asserts:
       - notExists:
           path: spec.template.spec.containers[0].env[0]
+  - it: should set the environment variables for frontend deployment
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          env:
+            - name: REACT_APP_WEBSOCKET_URL
+              value: "wss://backend.kueueviz.local"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: REACT_APP_WEBSOCKET_URL
+      - equal:
+          path: spec.template.spec.containers[0].env[0].value
+          value: "wss://backend.kueueviz.local"
+  - it: should not set the environment variables if not set for frontend deployment
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          env: []
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[0]
   - it: should render frontend configmap with wss when backend tls is set
     template: kueueviz/frontend-configmap.yaml
     set:
