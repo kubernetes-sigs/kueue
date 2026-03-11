@@ -226,7 +226,7 @@ As an admin I have three resource flavors in my cluster:
 
 I want my workloads to start as soon as possible, on whatever flavor. However, I only want to incur the cost of migration if it means landing on the "Reservation" flavor.
 
-To achieve that, I set the minFlavor to "reservation". This ensures that a workload on "Spot" will not migrate to "On-Demand," only to "Reservation."
+To achieve that, I set the minTargetFlavor to "reservation". This ensures that a workload on "Spot" will not migrate to "On-Demand," only to "Reservation."
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -238,7 +238,7 @@ spec:
   concurrentAdmission:
     migrationConstraints:
       mode: UpgradeOnly
-      minFlavor: "reservation"
+      minTargetFlavor: "reservation"
 ```
 
 #### Story 3: Reservation + Homogenous Flavors
@@ -252,7 +252,7 @@ As an admin I have four resource flavors in my cluster:
 
 I want my workloads to start as soon as possible. I want to migrate to "Reservation" if it becomes available, but I don't want to migrate between the homogeneous 2a/2b/2c flavors.
 
-By setting the minFlavor to "reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
+By setting the minTargetFlavor to "reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
 
 ```
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -264,7 +264,7 @@ spec:
   concurrentAdmission:
     migrationConstraints:
       mode: UpgradeOnly
-      minFlavor: reservation
+      minTargetFlavor: reservation
 ```
 
 #### Story 4: Homogenous Flavors only
@@ -390,6 +390,7 @@ The ClusterQueue is extended to define the policy for concurrent attempts. This 
 ```
 type ClusterQueueSpec struct {
     ...
+
     // +optional
     ConcurrentAdmission *ConcurrentAdmission
 }
@@ -407,14 +408,14 @@ type ConcurrentAdmissionMigrationConstraints struct {
     // +required
     Mode ConcurrentAdmissionMigrationMode
 
-    // MinFlavor defines the minimal flavor a Workload can migrate to.
+    // MinTargetFlavor defines the minimal flavor a Workload can migrate to.
     // The order is based on the order of flavors in ClusterQueue.
     // It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is not specified.
-    // If the Mode is `UpgradeOnly` and MinFlavor is not specified, then there's
+    // If the Mode is `UpgradeOnly` and MinTargetFlavor is not specified, then there's
     // no constraints on what flavors a Workload can migrate to.
     //
     // +optional
-    MinFlavor *ResourceFlavorReference
+    MinTargetFlavor *ResourceFlavorReference
 }
 
 type ConcurrentAdmissionMigrationMode string
@@ -444,7 +445,7 @@ To maintain a clear relationship between the parent and its virtual clones, the 
 **Default RF Variants**: When Variants are created automatically for each ResourceFlavor in the ClusterQueue, the name follows:
 
 ```
-${original_workload_name}-variant-${resource_flavor_name}
+${original_workload_name}-variant-${resource_flavors_names}
 ```
 
 **Explicit Variants**: When specific names are provided in the ExplicitVariants configuration:
@@ -463,6 +464,7 @@ for scheduling a Workload.
 ```
 type WorkloadSpec struct {
     ...
+
     // AdmissionConstraints describes the constraints Kueue scheduling algorithm takes into account
     // when reserving quota for a Workload.
     //
@@ -472,6 +474,7 @@ type WorkloadSpec struct {
 
 type AdmissionConstraints struct {
     ...
+
     // If set, only RF from this list can be assigned to this Workload.
     //
     // +optional
@@ -583,14 +586,14 @@ type ConcurrentAdmission struct {
 type ConcurrentAdmissionMigrationConstraints struct {
     ...
 
-    // MinVariant defines the minimal Variant a Workload can migrate to.
+    // MinTargetExplicitVariant defines the minimal Variant a Workload can migrate to.
     // The order is based on the order of variant in `ExplicitVariants`.
     // It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is specified.
-    // It the Mode is `UpgradeOnly` and MinVariant is not specified, then there's
+    // It the Mode is `UpgradeOnly` and MinTargetExplicitVariant is not specified, then there's
     // no constraints on what Variant a Workload can migrate to.
     //
     // +optional
-    MinVariant *string
+    MinTargetExplicitVariant *string
 }
 
 type ConcurrentAdmissionExplicitVariant struct {
@@ -647,7 +650,7 @@ type WorkloadVariantStatus struct {
 }
 
 type WorkloadStatus struct {
-    // ... existing fields ...
+    // ...
 
     // Variants tracks the state of all concurrent admission attempts.
     Variants []WorkloadVariantStatus
@@ -758,7 +761,7 @@ After the implementation PR is merged, add the names of the tests here.
 #### Alpha
 In Alpha version the feature will be gated behind the `ConcurrentAdmission` feature gate.
 
-Support for `MigrationConstraints.Mode=UpgradeOnly` and `MigrationConstraints.MinFlavor` .
+Support for `MigrationConstraints.Mode=UpgradeOnly` and `MigrationConstraints.MinTargetFlavor` .
 
 Integration with `BestEffortFIFO` queueing strategy.
 
@@ -766,7 +769,7 @@ Introduction of `AdmissionConstraints` field.
 
 #### Beta
 
-Support for `MigrationConstraints.Mode=NoMigration` and `MigrationConstraints.MinVariant`.
+Support for `MigrationConstraints.Mode=NoMigration` and `MigrationConstraints.MinTargetExplicitVariant`.
 
 Introduction of `ExplicitVariants` functionality.
 
