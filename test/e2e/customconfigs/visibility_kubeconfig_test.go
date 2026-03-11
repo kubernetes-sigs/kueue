@@ -18,6 +18,7 @@ package customconfigse2e
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -47,6 +48,7 @@ const (
 	kubeconfigVolName         = "kubeconfig-vol"
 	customSAVolName           = "custom-sa-vol"
 	customSAMountPath         = "/etc/custom-sa"
+	visibilityServerPort      = 9444
 	cqName                    = "test-kubeconfig-cq"
 )
 
@@ -164,7 +166,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 					corev1.VolumeMount{Name: kubeconfigVolName, MountPath: "/etc/kubeconfig", ReadOnly: true},
 					corev1.VolumeMount{Name: customSAVolName, MountPath: customSAMountPath, ReadOnly: true},
 				)
-				container.Args = append(c.Args, "--kubeconfig=/etc/kubeconfig/config", "--visibility-server=--secure-port=9444")
+				container.Args = append(c.Args, "--kubeconfig=/etc/kubeconfig/config", fmt.Sprintf("--visibility-server=--secure-port=%d", visibilityServerPort))
 			}
 		}
 
@@ -173,7 +175,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		patchedService := originalService.DeepCopy()
 		for i, p := range patchedService.Spec.Ports {
 			if p.Name == "https" {
-				patchedService.Spec.Ports[i].TargetPort = intstr.FromInt32(9444)
+				patchedService.Spec.Ports[i].TargetPort = intstr.FromInt32(visibilityServerPort)
 			}
 		}
 		gomega.Expect(k8sClient.Update(ctx, patchedService)).To(gomega.Succeed())
