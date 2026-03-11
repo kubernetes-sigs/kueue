@@ -240,6 +240,29 @@ func TestMetricsWithReplicaRoleLabel(t *testing.T) {
 	ClearLocalQueueMetrics(lq)
 }
 
+func TestStaleMetricsAfterRoleTransition(t *testing.T) {
+	savedGaugeVecs := allGaugeVecs
+	allGaugeVecs = append(allGaugeVecs, ClusterQueueResourceNominalQuota)
+	t.Cleanup(func() {
+		allGaugeVecs = savedGaugeVecs
+	})
+
+	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+
+	ReportClusterQueueQuotas("cohort", "stale-test-cq", "flavor", "cpu", 10, 5, 3, followerTracker)
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", "stale-test-cq", "replica_role", "follower")
+
+	ClearGaugeMetricsForRole(roletracker.RoleFollower)
+
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 0, "cluster_queue", "stale-test-cq", "replica_role", "follower")
+
+	ReportClusterQueueQuotas("cohort", "stale-test-cq", "flavor", "cpu", 10, 5, 3, leaderTracker)
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", "stale-test-cq", "replica_role", "leader")
+
+	ClearClusterQueueResourceMetrics("stale-test-cq")
+}
+
 func TestMetricsWithDifferentRoles(t *testing.T) {
 	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
@@ -266,18 +289,18 @@ func TestCohortMetrics(t *testing.T) {
 	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
 
-	ReportCohortNominalQuota("cohort", "flavor", "res", 5, leaderTracker)
-	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort", "replica_role", "leader")
+	ReportCohortSubtreeQuota("cohort", "flavor", "res", 5, leaderTracker)
+	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort", "replica_role", "leader")
 
-	ReportCohortNominalQuota("cohort", "flavor", "res", 3, followerTracker)
-	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort", "replica_role", "follower")
+	ReportCohortSubtreeQuota("cohort", "flavor", "res", 3, followerTracker)
+	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort", "replica_role", "follower")
 
-	ReportCohortNominalQuota("cohort_two", "flavor", "res", 5, leaderTracker)
-	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
+	ReportCohortSubtreeQuota("cohort_two", "flavor", "res", 5, leaderTracker)
+	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
 
-	ClearCohortNominalQuota("cohort", "", "")
+	ClearCohortSubtreeQuota("cohort", "", "")
 
-	expectFilteredMetricsCount(t, CohortNominalQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
+	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
 
-	ClearCohortNominalQuota("cohort_two", "", "")
+	ClearCohortSubtreeQuota("cohort_two", "", "")
 }

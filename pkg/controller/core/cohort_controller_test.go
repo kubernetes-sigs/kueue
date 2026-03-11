@@ -225,7 +225,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatalf("unexpected quota (-want +got) %s", diff)
 		}
 
-		cnq := testingmetrics.CollectFilteredGaugeVec(metrics.CohortNominalQuota, labels)
+		cnq := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, labels)
 		if cnq == nil {
 			t.Fatal("expected metric value")
 		}
@@ -269,7 +269,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatalf("unexpected quota (-want +got) %s", diff)
 		}
 
-		cnq := testingmetrics.CollectFilteredGaugeVec(metrics.CohortNominalQuota, labels)
+		cnq := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, labels)
 		if cnq == nil {
 			t.Fatal("expected metric value")
 		}
@@ -299,7 +299,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatal("unexpected Cohort in snapshot")
 		}
 
-		cnq := testingmetrics.CollectFilteredGaugeVec(metrics.CohortNominalQuota, labels)
+		cnq := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, labels)
 		if cnq == nil {
 			t.Fatal("expected metric value")
 		}

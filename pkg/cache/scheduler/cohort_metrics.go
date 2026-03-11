@@ -100,14 +100,14 @@ func (c *Cache) withCohortLogger(log logr.Logger, cohortName kueue.CohortReferen
 
 func (c *Cache) applyCohortMetricPoint(p cohortMetricPoint) {
 	if p.qty <= 0 {
-		metrics.ClearCohortNominalQuota(
+		metrics.ClearCohortSubtreeQuota(
 			p.cohortName,
 			string(p.flavorResource.Flavor),
 			string(p.flavorResource.Resource),
 		)
 		return
 	}
-	metrics.ReportCohortNominalQuota(
+	metrics.ReportCohortSubtreeQuota(
 		p.cohortName,
 		string(p.flavorResource.Flavor),
 		string(p.flavorResource.Resource),

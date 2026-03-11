@@ -18,9 +18,9 @@ package handlers
 
 import (
 	"context"
-	"sort"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
@@ -44,31 +44,17 @@ func (h *Handlers) fetchNamespaces(ctx context.Context) (any, error) {
 	}
 
 	// Extract unique namespaces from LocalQueues
-	namespaceSet := make(map[string]struct{})
+	namespaceSet := sets.NewString()
 	for _, lq := range lql.Items {
-		namespaceSet[lq.GetNamespace()] = struct{}{}
+		namespaceSet.Insert(lq.GetNamespace())
 	}
 
-	// If no LocalQueues found, return empty result with proper structure
-	if len(namespaceSet) == 0 {
-		return map[string]any{
-			"namespaces": []string{},
-		}, nil
+	namespaces := namespaceSet.List()
+	if namespaceSet.Len() == 0 {
+		namespaces = []string{}
 	}
 
-	// Convert namespace set to a slice of strings (just the names)
-	var namespaceNames []string
-	for namespaceName := range namespaceSet {
-		namespaceNames = append(namespaceNames, namespaceName)
-	}
-
-	// Sort namespaces alphabetically for consistent ordering
-	sort.Strings(namespaceNames)
-
-	// Return in the same format as other endpoints
-	result := map[string]any{
-		"namespaces": namespaceNames,
-	}
-
-	return result, nil
+	return map[string]any{
+		"namespaces": namespaces,
+	}, nil
 }

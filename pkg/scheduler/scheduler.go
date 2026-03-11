@@ -17,11 +17,11 @@ limitations under the License.
 package scheduler
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -720,54 +720,6 @@ func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.Clus
 	return cacheWl, nil
 }
 
-type entryOrdering struct {
-	entries          []entry
-	workloadOrdering workload.Ordering
-}
-
-func (e entryOrdering) Len() int {
-	return len(e.entries)
-}
-
-func (e entryOrdering) Swap(i, j int) {
-	e.entries[i], e.entries[j] = e.entries[j], e.entries[i]
-}
-
-// Less is the ordering criteria
-func (e entryOrdering) Less(i, j int) bool {
-	a := e.entries[i]
-	b := e.entries[j]
-
-	// First process workloads which already have quota reserved. Such workload
-	// may be considered if this is their second pass.
-	aHasQuota := workload.HasQuotaReservation(a.Obj)
-	bHasQuota := workload.HasQuotaReservation(b.Obj)
-	if aHasQuota != bHasQuota {
-		return aHasQuota
-	}
-
-	// 1. Request under nominal quota.
-	aBorrows := a.assignment.Borrows()
-	bBorrows := b.assignment.Borrows()
-	if aBorrows != bBorrows {
-		return aBorrows < bBorrows
-	}
-
-	// 2. Higher priority first if not disabled.
-	if features.Enabled(features.PrioritySortingWithinCohort) {
-		p1 := priority.Priority(a.Obj)
-		p2 := priority.Priority(b.Obj)
-		if p1 != p2 {
-			return p1 > p2
-		}
-	}
-
-	// 3. FIFO.
-	aComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(a.Obj)
-	bComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(b.Obj)
-	return aComparisonTimestamp.Before(bComparisonTimestamp)
-}
-
 // entryInterator defines order that entries are returned.
 // pop->nil IFF hasNext->False
 type entryIterator interface {
@@ -802,9 +754,44 @@ func (co *classicalIterator) pop() *entry {
 }
 
 func makeClassicalIterator(entries []entry, workloadOrdering workload.Ordering) *classicalIterator {
-	sort.Sort(entryOrdering{
-		entries:          entries,
-		workloadOrdering: workloadOrdering,
+	slices.SortFunc(entries, func(a, b entry) int {
+		// First process workloads which already have quota reserved. Such workload
+		// may be considered if this is their second pass.
+		aHasQuota := workload.HasQuotaReservation(a.Obj)
+		bHasQuota := workload.HasQuotaReservation(b.Obj)
+		if aHasQuota != bHasQuota {
+			if aHasQuota {
+				return -1
+			}
+			return 1
+		}
+
+		// 1. Request under nominal quota.
+		aBorrows := a.assignment.Borrows()
+		bBorrows := b.assignment.Borrows()
+		if aBorrows != bBorrows {
+			return cmp.Compare(aBorrows, bBorrows)
+		}
+
+		// 2. Higher priority first if not disabled.
+		if features.Enabled(features.PrioritySortingWithinCohort) {
+			p1 := priority.Priority(a.Obj)
+			p2 := priority.Priority(b.Obj)
+			if p1 != p2 {
+				return cmp.Compare(p2, p1)
+			}
+		}
+
+		// 3. FIFO.
+		aComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(a.Obj)
+		bComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(b.Obj)
+		if aComparisonTimestamp.Before(bComparisonTimestamp) {
+			return -1
+		}
+		if bComparisonTimestamp.Before(aComparisonTimestamp) {
+			return 1
+		}
+		return 0
 	})
 	return &classicalIterator{
 		entries: entries,
