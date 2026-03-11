@@ -32,6 +32,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+// IsAdmissible returns false when the workload HasQuotaReservation or is Finished already
+// So there's a chance the workload gets admitted before we get here to test whether it's admissible or not
+func IsAdmissibleOrPastQuotaReservation(wl *kueue.Workload) bool {
+	return (workload.IsAdmissible(wl) || workload.IsFinished(wl) || workload.HasQuotaReservation(wl)) && workload.IsActive(wl)
+}
+
 // Verify that a job with the AdmissionGatedBy annotation is inadmissible.
 // This can be used across all job types.
 func VerifyAdmissionGatedByJobIsInadmissible(
@@ -125,10 +131,8 @@ func VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		hasAdmissionGate := workload.HasAdmissionGate(createdWorkload)
 		g.Expect(hasAdmissionGate).ShouldNot(gomega.BeTrue())
-		// Admissible is False when Finished is True
-		admissible := workload.IsAdmissible(createdWorkload)
-		finished := workload.IsFinished(createdWorkload)
-		g.Expect(admissible || !finished).Should(gomega.BeTrue())
+		admissibleNowOrBefore := IsAdmissibleOrPastQuotaReservation(createdWorkload)
+		g.Expect(admissibleNowOrBefore).Should(gomega.BeTrue())
 	}, Timeout, Interval).Should(gomega.Succeed())
 
 	ginkgo.By("Checking the workload gets admitted")
@@ -197,8 +201,8 @@ func VerifyAdmissionGatedByJobAllowsRemovingOneGate(
 	ginkgo.By("Verifying the workload remains inadmissible with the remaining gate")
 	gomega.Consistently(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-		admissible := workload.IsAdmissible(createdWorkload)
-		g.Expect(admissible).Should(gomega.BeFalse())
+		admissibleNowOrBefore := IsAdmissibleOrPastQuotaReservation(createdWorkload)
+		g.Expect(admissibleNowOrBefore).Should(gomega.BeFalse())
 		g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 	}, ConsistentDuration, ShortInterval).Should(gomega.Succeed())
 }
@@ -235,8 +239,12 @@ func VerifyJobAdmittedWhenFeatureGateDisabled(
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		hasAdmissionGate := workload.HasAdmissionGate(createdWorkload)
 		g.Expect(hasAdmissionGate).Should(gomega.BeFalse())
+		// IsAdmissible returns false when the workload is HasQuotaReservation or Finished already
+		// So there's a chance the workload gets admitted before we get here to test whether it's admissible or not
 		admissible := workload.IsAdmissible(createdWorkload)
-		g.Expect(admissible).Should(gomega.BeTrue())
+		finished := workload.IsFinished(createdWorkload)
+		hasQuotaReservation := workload.HasQuotaReservation(createdWorkload)
+		g.Expect(admissible || finished || hasQuotaReservation).Should(gomega.BeTrue())
 	}, Timeout, Interval).Should(gomega.Succeed())
 
 	ginkgo.By("Checking the workload gets admitted")
