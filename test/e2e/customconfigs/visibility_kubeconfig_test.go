@@ -45,6 +45,7 @@ const (
 	kubeconfigVolName   = "kubeconfig-vol"
 	customSAVolName     = "custom-sa-vol"
 	customSAMountPath   = "/etc/custom-sa"
+	cqName              = "test-kubeconfig-cq"
 )
 
 var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
@@ -112,6 +113,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: customSAName, Namespace: kueueNS}}, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "visibility-test-auth-delegator"}}, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "visibility-test-auth-reader", Namespace: kubeSystemNamespace}}, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, &kueue.ClusterQueue{ObjectMeta: metav1.ObjectMeta{Name: cqName}}, true)
 
 		ginkgo.By("Clean up our dynamically cloned roles")
 		gomega.Expect(k8sClient.DeleteAllOf(ctx, &rbacv1.ClusterRoleBinding{}, client.MatchingLabels{testLabelKey: testLabelValue})).To(gomega.Succeed())
@@ -147,12 +149,10 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		gomega.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
 		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
-		cqName := "test-kubeconfig-cq"
 		cq := &kueue.ClusterQueue{
 			ObjectMeta: metav1.ObjectMeta{Name: cqName},
 		}
 		util.MustCreate(ctx, k8sClient, cq)
-		defer util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 
 		// NEGATIVE TEST: The custom SA lacks 'system:auth-delegator'. The visibility server
 		// is forced to use it, so it cannot perform SubjectAccessReviews.
