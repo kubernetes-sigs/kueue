@@ -199,12 +199,12 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 					Reason:  string(kftraining.JobSucceeded),
 					Message: finishJobReason,
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdWorkload := &kueue.Workload{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 							Status: corev1.ConditionTrue,
 						}, cmpopts.IgnoreFields(kftraining.JobCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime")),
 					))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			wlLookupKey := types.NamespacedName{
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 			})
 
 			ginkgo.By("Check workload is deleted", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.LongTimeout)
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.MediumTimeout)
 			})
 		})
 	})

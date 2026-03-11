@@ -283,7 +283,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(jobMk), &createdJob)).To(gomega.Succeed())
 				g.Expect(ptr.Deref(createdJob.Status.StartTime, metav1.Time{})).To(gomega.Equal(startTime))
 				g.Expect(ptr.Deref(createdJob.Status.Ready, 0)).To(gomega.Equal(int32(1)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("updating the regular worker job status", func() {
@@ -371,7 +371,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 					Reason:  string(kftraining.JobSucceeded),
 					Message: finishJobReason,
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -421,7 +421,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlNonMkLookupKey, createdNonMkWorkload)).To(gomega.Succeed())
 				g.Expect(createdNonMkWorkload.Status.Conditions).Should(utiltesting.HaveCondition(kueue.WorkloadQuotaReserved))
 				g.Expect(createdNonMkWorkload.Status.Conditions).Should(utiltesting.HaveCondition(kueue.WorkloadAdmitted))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
@@ -462,7 +462,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(jobMk), &createdJob)).To(gomega.Succeed())
 				g.Expect(ptr.Deref(createdJob.Status.StartTime, metav1.Time{})).To(gomega.Equal(startTime))
 				g.Expect(ptr.Deref(createdJob.Status.Ready, 0)).To(gomega.Equal(int32(1)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("updating the regular worker job status", func() {
@@ -550,7 +550,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 					Reason:  string(kftraining.JobSucceeded),
 					Message: finishJobReason,
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

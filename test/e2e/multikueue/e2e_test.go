@@ -207,24 +207,24 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Flavor, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Flavor, true, util.MediumTimeout)
 		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1HighWPC, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1LowWPC, true)
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Cq, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Flavor, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Cq, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Flavor, true, util.MediumTimeout)
 		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2HighWPC, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2LowWPC, true)
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerFlavor, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerHighWPC, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerLowWPC, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerFlavor, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerHighWPC, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerLowWPC, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, util.MediumTimeout)
 
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker1Client, worker1Ns)
@@ -303,7 +303,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(pod), &createdPod)).To(gomega.Succeed())
 					g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
 					g.Expect(createdPod.Status.Conditions).To(gomega.BeComparableTo(finishPodConditions, util.IgnorePodConditionTimestampsMessageAndObservedGeneration))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -332,7 +332,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
 					g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Ensure Pod Workloads are created and Pods are Running on the worker cluster", func() {
@@ -361,7 +361,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(createdDeployment.Status.Replicas).To(gomega.Equal(int32(3)))
 					g.Expect(createdDeployment.Status.UpdatedReplicas).To(gomega.Equal(int32(3)))
 					g.Expect(createdDeployment.Status.Conditions).To(gomega.BeComparableTo(deploymentConditions, cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "LastTransitionTime", "LastUpdateTime", "Message"))) // Ignoring message as it is required to gather the pod replica set
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Increasing the replica count on the deployment", func() {
@@ -370,14 +370,14 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
 					createdDeployment.Spec.Replicas = ptr.To[int32](4)
 					g.Expect(k8sManagerClient.Update(ctx, createdDeployment)).To(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("Wait for replicas ready", func() {
 					createdDeployment := &appsv1.Deployment{}
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
 						g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(4)))
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
 
@@ -391,14 +391,14 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
 					createdDeployment.Spec.Replicas = ptr.To[int32](2)
 					g.Expect(k8sManagerClient.Update(ctx, createdDeployment)).To(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("Wait for replicas ready", func() {
 					createdDeployment := &appsv1.Deployment{}
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
 						g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
 
@@ -413,7 +413,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(workerClient.List(ctx, pods, client.InNamespace(managerNs.Namespace), client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 						g.Expect(pods.Items).To(gomega.BeEmpty())
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				}
 			})
 		})
@@ -449,7 +449,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					workerSts := &appsv1.StatefulSet{}
 					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(statefulset), workerSts)).To(gomega.Succeed())
 					g.Expect(workerSts.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verifying pods on management cluster remain gated", func() {
@@ -467,7 +467,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			ginkgo.By("Deleting the statefulset", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, statefulset, true)
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, statefulset, false, util.LongTimeout)
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, statefulset, false, util.MediumTimeout)
 			})
 		})
 
@@ -496,7 +496,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.List(ctx, pods, client.InNamespace(managerNs.Name))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			createdLeaderWorkload := &kueue.Workload{}
@@ -511,7 +511,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker2"`,
 					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("ensure all pods are created", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -529,7 +529,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					for _, p := range pods.Items {
 						g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
 					}
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -581,7 +581,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(createdJob.Status.StartTime).NotTo(gomega.BeNil())
 					g.Expect(createdJob.Status.Active).To(gomega.Equal(int32(1)))
 					g.Expect(createdJob.Status.CompletionTime).To(gomega.BeNil())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Finishing the job's pod", func() {
@@ -593,7 +593,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the job is completed", func() {
@@ -660,7 +660,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, highWlKey, managerHighWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(managerHighWl)).To(gomega.BeTrue())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the high-priority workload is created in worker1 and not in worker2, and that its spec matches the manager workload", func() {
@@ -743,7 +743,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
 					g.Expect(managerWl.Status.ClusterName).To(gomega.HaveValue(gomega.Equal("worker2")))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the workload is created in worker2", func() {
@@ -806,7 +806,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, highWlKey, managerHighWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(managerHighWl)).To(gomega.BeTrue())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the high-priority workload is created in worker2 and not in worker1, and that its spec matches the manager workload", func() {
@@ -1050,7 +1050,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Active: 2,
 						},
 					}, cmpopts.IgnoreFields(jobset.ReplicatedJobStatus{}, "Succeeded", "Failed")))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Finishing the jobset pods", func() {
@@ -1068,7 +1068,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "jobset completed successfully",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the jobSet is completed", func() {
@@ -1121,7 +1121,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					createdAppWrapper := &awv1beta2.AppWrapper{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperRunning))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Finishing the wrapped job's pods", func() {
@@ -1139,7 +1139,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "AppWrapper finished successfully",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the appwrapper is completed", func() {
@@ -1193,7 +1193,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 					finishReasonMessage := fmt.Sprintf("PyTorchJob %s is successfully completed.", pyTorchJob.Name)
 					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the PyTorchJob is completed", func() {
@@ -1255,7 +1255,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 					finishReasonMessage := fmt.Sprintf("MPIJob %s successfully completed.", client.ObjectKeyFromObject(mpijob).String())
 					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the MPIJob is completed", func() {
@@ -1432,7 +1432,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(createdJob.Status.StartTime).NotTo(gomega.BeNil())
 					g.Expect(createdJob.Status.Active).To(gomega.Equal(int32(1)))
 					g.Expect(createdJob.Status.CompletionTime).To(gomega.BeNil())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Finishing the job's pod", func() {
@@ -1444,7 +1444,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the job is completed", func() {
@@ -1487,7 +1487,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				podListOptions := client.InNamespace(kueueNS)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.List(ctx, podList, podListOptions)).Should(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).ShouldNot(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).ShouldNot(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for the cluster to become inactive", func() {
@@ -1495,7 +1495,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
 					g.Expect(readClient.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.MultiKueueClusterActive, "ClientConnectionFailed"))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Reconnecting worker1 node's APIServer", func() {
@@ -1517,7 +1517,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Message: "Connected",
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for kube-system to become available again", func() {
@@ -1529,7 +1529,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Checking that the Kueue is operational after reconnection", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq2, true, util.StartUpTimeout)
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq2, true, util.VeryLongTimeout)
 			})
 		})
 	})
@@ -1556,7 +1556,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerRegularCq, true, util.LongTimeout)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerRegularCq, true, util.MediumTimeout)
 		})
 
 		ginkgo.It("should allow to run a MultiKueue and a regular Job on the same cluster", func() {
@@ -1634,7 +1634,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 		ginkgo.AfterEach(func() {
 			if workerCluster3 != nil {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster3, true, util.LongTimeout)
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster3, true, util.MediumTimeout)
 			}
 		})
 
@@ -1662,7 +1662,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Message: "load client config failed: ClusterProfile.multicluster.x-k8s.io \"clusterprofile3-missing\" not found",
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			var cp *inventoryv1alpha1.ClusterProfile
@@ -1677,7 +1677,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdClusterProfile := &inventoryv1alpha1.ClusterProfile{}
 					g.Expect(k8sManagerClient.Get(ctx, clusterProfileKey, createdClusterProfile)).To(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 			ginkgo.By("triggering MultiKueueCluster reconciliation", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -1700,7 +1700,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Message: "load client config failed: no credentials provider configured",
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -1791,7 +1791,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						)
 					}
 					g.Expect(k8sManagerClient.Update(ctx, updatedDeployment)).Should(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				// We will wait for Kueue after setting the configuration
 			})
 
@@ -1844,8 +1844,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, c, true, util.Timeout)
 			}
 
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRoleBinding, true, util.LongTimeout)
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRole, true, util.LongTimeout)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRoleBinding, true, util.MediumTimeout)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRole, true, util.MediumTimeout)
 		})
 
 		ginkgo.It("Should be able to use ClusterProfile as way to connect worker cluster", func() {
@@ -1926,7 +1926,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 								Message: "Connected",
 							},
 							util.IgnoreConditionTimestampsAndObservedGeneration)))
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				}
 			})
 
@@ -1953,7 +1953,7 @@ func waitForJobAdmitted(wlLookupKey types.NamespacedName, acName, workerName str
 			State:   kueue.CheckStateReady,
 			Message: fmt.Sprintf(`The workload got reservation on "%s"`, workerName),
 		}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
-	}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+	}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 }
 
 func checkFinishStatusCondition(g gomega.Gomega, wlLookupKey types.NamespacedName, finishReasonMessage string) {

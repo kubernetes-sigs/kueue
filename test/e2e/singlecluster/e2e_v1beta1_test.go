@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("Kueue v1beta1", ginkgo.Label("area:singlecluster", "fea
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				g.Expect(hasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
 				g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
