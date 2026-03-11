@@ -129,6 +129,12 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
+	var visibilityServerFlags string
+	flag.StringVar(&visibilityServerFlags, "visibility-server", "",
+		"A space-separated list of flags to pass to the embedded visibility API server. "+
+			"(e.g., '--secure-port=8443 --authentication-config=/path/to/kubeconfig'). "+
+			"For a description of the available flags, please see https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/")
+
 	customLogProcessor := zaplog.WrapCore(utillogging.NewCustomLogProcessor)
 
 	zapOptions := zap.Options{
@@ -137,12 +143,6 @@ func main() {
 	}
 	zapOptions.BindFlags(flag.CommandLine)
 	flag.Parse()
-
-	var visibilityServerFlags string
-	flag.StringVar(&visibilityServerFlags, "visibility-server", "",
-		"A space-separated list of flags to pass to the embedded visibility API server. "+
-			"(e.g., '--secure-port=8443 --authentication-config=/path/to/kubeconfig'). "+
-			"For a description of the available flags, please see https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/")
 
 	logger := zap.New(zap.UseFlagOptions(&zapOptions))
 	ctrl.SetLogger(logger)
