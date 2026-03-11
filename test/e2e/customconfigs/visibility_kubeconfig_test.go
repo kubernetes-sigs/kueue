@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -43,28 +44,8 @@ const (
 	testLabelValue      = "true"
 	kubeconfigVolName   = "kubeconfig-vol"
 	customSAVolName     = "custom-sa-vol"
+	customSAMountPath   = "/etc/custom-sa"
 )
-
-// This kubeconfig uses the token of our custom ServiceAccount mounted at /etc/custom-sa/token.
-const rbacKubeConfig = `
-apiVersion: v1
-kind: Config
-clusters:
-- name: local
-  cluster:
-    server: https://kubernetes.default.svc
-    certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-users:
-- name: custom-sa
-  user:
-    tokenFile: /etc/custom-sa/token
-contexts:
-- name: default
-  context:
-    cluster: local
-    user: custom-sa
-current-context: default
-`
 
 var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 	var originalDeployment appsv1.Deployment
@@ -89,9 +70,19 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		util.MustCreate(ctx, k8sClient, secret)
 
 		// Create the ConfigMap for the KubeConfig
+		kubeconfig, err := utiltesting.NewTestKubeConfigWrapper().
+			Cluster("local", "https://kubernetes.default.svc", nil).
+			CAFileCluster("local", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt").
+			User(customSAName, nil, nil).
+			TokenFileAuthInfo(customSAName, customSAMountPath+"/token").
+			Context("default", "local", customSAName).
+			CurrentContext("default").
+			Build()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		cm := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: kueueNS},
-			Data:       map[string]string{"config": rbacKubeConfig},
+			Data:       map[string]string{"config": string(kubeconfig)},
 		}
 		util.MustCreate(ctx, k8sClient, cm)
 
@@ -124,8 +115,8 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "visibility-test-auth-reader", Namespace: kubeSystemNamespace}}, true)
 
 		// Clean up our dynamically cloned roles
-		_ = k8sClient.DeleteAllOf(ctx, &rbacv1.ClusterRoleBinding{}, client.MatchingLabels{testLabelKey: testLabelValue})
-		_ = k8sClient.DeleteAllOf(ctx, &rbacv1.RoleBinding{}, client.InNamespace(kueueNS), client.MatchingLabels{testLabelKey: testLabelValue})
+		gomega.Expect(k8sClient.DeleteAllOf(ctx, &rbacv1.ClusterRoleBinding{}, client.MatchingLabels{testLabelKey: testLabelValue})).To(gomega.Succeed())
+		gomega.Expect(k8sClient.DeleteAllOf(ctx, &rbacv1.RoleBinding{}, client.InNamespace(kueueNS), client.MatchingLabels{testLabelKey: testLabelValue})).To(gomega.Succeed())
 	})
 
 	ginkgo.It("Should use the RBAC identity from the provided kubeconfig", func() {
@@ -148,7 +139,7 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 				container := &patchedDeployment.Spec.Template.Spec.Containers[i]
 				container.VolumeMounts = append(c.VolumeMounts,
 					corev1.VolumeMount{Name: kubeconfigVolName, MountPath: "/etc/kubeconfig", ReadOnly: true},
-					corev1.VolumeMount{Name: customSAVolName, MountPath: "/etc/custom-sa", ReadOnly: true},
+					corev1.VolumeMount{Name: customSAVolName, MountPath: customSAMountPath, ReadOnly: true},
 				)
 				container.Args = append(c.Args, "--kubeconfig=/etc/kubeconfig/config")
 			}
