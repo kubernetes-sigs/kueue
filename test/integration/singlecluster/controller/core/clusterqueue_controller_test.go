@@ -1114,7 +1114,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 						Reason:  "ByTest",
 						Message: "by test",
 					})
-					_ = k8sClient.Status().Update(ctx, &updatedCq)
+					err = k8sClient.Status().Update(ctx, &updatedCq)
+					if errors.Is(err, context.Canceled) {
+						return // Test is over, exit quietly
+					}
+					gomega.Expect(util.IgnoreConflict(err)).To(gomega.Succeed())
 
 					select {
 					case <-ctx.Done():
@@ -1140,10 +1144,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				}).All()).Should(gomega.BeEmpty(),
 					"Log level should be smaller than error")
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-
-			// Explicitly stop and wait to ensure logs don't bleed into the next test.
-			cancel()
-			wg.Wait()
 		})
 	})
 })
