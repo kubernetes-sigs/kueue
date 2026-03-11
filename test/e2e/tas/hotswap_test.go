@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -38,7 +39,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/tas"
-	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				gomega.Eventually(func(g gomega.Gomega) {
 					var node corev1.Node
 					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeToRestore.Name}, &node)).To(gomega.Succeed())
-					g.Expect(utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)).To(gomega.BeTrue())
+					g.Expect(tas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				waitForDummyWorkloadToRunOnNode(nodeToRestore, localQueue)
@@ -550,9 +550,9 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				initialUIDs := map[string]struct{}{}
+				initialUIDs := sets.New[string]()
 				for _, p := range pods.Items {
-					initialUIDs[string(p.UID)] = struct{}{}
+					initialUIDs.Insert(string(p.UID))
 				}
 
 				node := &corev1.Node{}
@@ -594,7 +594,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						for i := range pods.Items {
 							p := &pods.Items[i]
 							if p.Labels["batch.kubernetes.io/job-completion-index"] == "0" {
-								if _, ok := initialUIDs[string(p.UID)]; ok {
+								if initialUIDs.Has(string(p.UID)) {
 									victimPod = p
 								}
 							}

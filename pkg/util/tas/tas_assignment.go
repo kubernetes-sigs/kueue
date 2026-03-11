@@ -312,3 +312,22 @@ func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.R
 	}
 	return usage
 }
+
+func ExpectedPodsOnNode(psa []kueue.PodSetAssignment, nodeName string) int32 {
+	var expected int32
+	for i := range psa {
+		psa := psa[i]
+		if psa.TopologyAssignment == nil {
+			continue
+		}
+		if !IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
+			continue
+		}
+		for domain := range InternalSeqFrom(psa.TopologyAssignment) {
+			if len(domain.Values) > 0 && domain.Values[len(domain.Values)-1] == nodeName {
+				expected += domain.Count
+			}
+		}
+	}
+	return expected
+}
