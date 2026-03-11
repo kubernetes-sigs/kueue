@@ -1057,8 +1057,14 @@ func (w *wlReconciler) workloadToOpenPreemptionGate(group *wlGroup) (*kueue.Work
 		}
 	}
 
+	var timeSinceUngate time.Duration
+	if previousUngateTime == nil {
+		timeSinceUngate = 0
+	} else {
+		timeSinceUngate = w.clock.Now().Sub(previousUngateTime.Time)
+	}
+	timeLeftInTimeout := w.singleClusterPreemptionTimeout - timeSinceUngate
 	// If the timeout elapsed or no workload was ungated yet, return the workload with the oldest signal.
-	timeLeftInTimeout := w.singleClusterPreemptionTimeout - w.clock.Now().Sub(previousUngateTime.Time)
 	if previousUngateTime == nil || timeLeftInTimeout <= 0 {
 		var rescheduleIn time.Duration
 		if workloadToUngate != nil {
