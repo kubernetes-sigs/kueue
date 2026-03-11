@@ -32,8 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -44,7 +42,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
-
 
 // priorityBoostAnnotationPath is the field path for the priority-boost annotation, used in validation errors.
 var priorityBoostAnnotationPath = field.NewPath("metadata", "annotations").Key(controllerconstants.PriorityBoostAnnotationKey)

@@ -4338,7 +4338,6 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Job is admissible", g
 	cpuNominalQuota := 5
 
 	ginkgo.BeforeAll(func() {
-		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.AdmissionGatedBy): true})).Should(gomega.Succeed())
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
 	})
 	ginkgo.AfterAll(func() {
@@ -4370,6 +4369,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Job is admissible", g
 	})
 
 	ginkgo.It("Should not admit Job while AdmissionGatedBy is present", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
 		gateValue := "example.com/controller1"
 
 		ginkgo.By("Creating a Job with admission gate annotation")
@@ -4396,6 +4396,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Job is admissible", g
 	})
 
 	ginkgo.It("Should admit Job when AdmissionGatedBy is removed", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
 		gateValue := "example.com/controller1"
 
 		ginkgo.By("Creating a Job with admission gate annotation")
@@ -4424,6 +4425,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Job is admissible", g
 	})
 
 	ginkgo.It("Should allow removing one gate from a Job with multiple gates", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
 		initialGateValue := "example.com/controller1,example.com/controller2"
 		updatedGateValue := "example.com/controller1"
 
@@ -4444,7 +4446,6 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Job is admissible", g
 	})
 
 	ginkgo.It("Should admit Job when AdmissionGatedBy annotation is present but feature gate is disabled", func() {
-		// The feature-gate is on for these tests so explicitly switching it off
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, false)
 
 		gateValue := "example.com/controller1"
