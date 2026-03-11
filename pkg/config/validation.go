@@ -66,6 +66,7 @@ var (
 	tlsPath                                      = field.NewPath("tls")
 	featureGatesPath                             = field.NewPath("featureGates")
 	customLabelsPath                             = field.NewPath("metrics", "customLabels")
+	resourceQuotaCheckStrategyPath               = field.NewPath("resources", "quotaCheckStrategy")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -82,6 +83,23 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
 	allErrs = append(allErrs, validateTLS(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
+	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
+	return allErrs
+}
+
+func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.Resources != nil && c.Resources.QuotaCheckStrategy != nil {
+		if len(c.Resources.ExcludeResourcePrefixes) > 0 && *c.Resources.QuotaCheckStrategy == configapi.QuotaCheckIgnoreUndeclared {
+			allErrs = append(allErrs, field.Invalid(resourceQuotaCheckStrategyPath, c.Resources.QuotaCheckStrategy, "excludeResourcePrefixes is not allowed when quotaCheckStrategy is IgnoreUndeclared"))
+		}
+		if *c.Resources.QuotaCheckStrategy != configapi.QuotaCheckIgnoreUndeclared && *c.Resources.QuotaCheckStrategy != configapi.QuotaCheckBlockUndeclared {
+			allErrs = append(allErrs, field.NotSupported(resourceQuotaCheckStrategyPath, *c.Resources.QuotaCheckStrategy, []configapi.QuotaCheckStrategy{configapi.QuotaCheckIgnoreUndeclared, configapi.QuotaCheckBlockUndeclared}))
+		}
+		if !features.Enabled(features.QuotaCheckStrategy) && !c.FeatureGates[string(features.QuotaCheckStrategy)] {
+			allErrs = append(allErrs, field.Invalid(resourceQuotaCheckStrategyPath, *c.Resources.QuotaCheckStrategy, "quotaCheckStrategy is not allowed when feature gate QuotaCheckStrategy is disabled"))
+		}
+	}
 	return allErrs
 }
 
@@ -495,8 +513,9 @@ func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.Erro
 	return allErrs
 }
 
-func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) field.ErrorList {
+func ValidateFeatureGates(featureGateCLI string, cfg *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
+	featureGateMap := cfg.FeatureGates
 	if featureGateCLI != "" && featureGateMap != nil {
 		allErrs = append(allErrs, field.Invalid(featureGatesPath, featureGateMap, "feature gates for CLI and configuration cannot both specified"))
 	}

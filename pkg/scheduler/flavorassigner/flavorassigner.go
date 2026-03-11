@@ -31,7 +31,7 @@ import (
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/utils/ptr"
-
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -195,7 +195,7 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 // workload slice replacement, or scaling needed in case of partial admission.
 //
 // Note: ElasticJobsViaWorkloadSlices is mutually exclusive with PartialAdmission.
-func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantities {
+func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resources.FlavorResourceQuantities {
 	usage := make(resources.FlavorResourceQuantities)
 	for i, ps := range wl.TotalRequests {
 		newCount := a.PodSets[i].Count
@@ -208,6 +208,10 @@ func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourc
 			// zero-quantity request may have no flavor (#8079), and is irrelevant for
 			// later calculations
 			if q == 0 {
+				continue
+			}
+			if a.PodSets[i].Flavors[res] == nil {
+				log.Info("Skipping usage count for resource with undefined flavor", "res", res, "q", q)
 				continue
 			}
 			flv := a.PodSets[i].Flavors[res].Name
@@ -516,9 +520,10 @@ type FlavorAssigner struct {
 	// In these scenarios, flavor assignment proceeds as in the original flow—i.e., as for regular,
 	// non-sliced workloads.
 	replaceWorkloadSlice *workload.Info
+	quotaCheckStrategy   configapi.QuotaCheckStrategy
 }
 
-func New(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle, preemptWorkloadSlice *workload.Info) *FlavorAssigner {
+func New(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle, preemptWorkloadSlice *workload.Info, quotaCheckStrategy configapi.QuotaCheckStrategy) *FlavorAssigner {
 	return &FlavorAssigner{
 		wl:                   wl,
 		cq:                   cq,
@@ -526,6 +531,7 @@ func New(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot, resourceFlavors 
 		enableFairSharing:    enableFairSharing,
 		oracle:               oracle,
 		replaceWorkloadSlice: preemptWorkloadSlice,
+		quotaCheckStrategy:   quotaCheckStrategy,
 	}
 }
 
@@ -638,9 +644,16 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		var groupStatus Status
 		for resName, quantity := range requests {
 			// Skip zero-quantity requests for resources not defined in the ClusterQueue (#8079).
-			if quantity == 0 && a.cq.RGByResource(resName) == nil {
-				continue
+			if a.cq.RGByResource(resName) == nil {
+				if quantity == 0 {
+					continue
+				}
+				if features.Enabled(features.QuotaCheckStrategy) && a.quotaCheckStrategy == configapi.QuotaCheckIgnoreUndeclared {
+					log.Info("Skipping quota check for resource %s because it is not declared in the ClusterQueue and QuotaCheckStrategy is IgnoreUndeclared", resName)
+					continue
+				}
 			}
+
 			if _, found := groupFlavors[resName]; found {
 				// This resource got assigned the same flavor as its resource group.
 				// No need to compute again.

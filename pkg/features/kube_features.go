@@ -177,6 +177,12 @@ const (
 	// Enable quota accounting for Dynamic Resource Allocation (DRA) devies in workloads
 	DynamicResourceAllocation featuregate.Feature = "DynamicResourceAllocation"
 
+	// owner: @MaysaMacedo
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7513-quota-check-strategy
+	//
+	// Enable QuotaCheckStrategy for quota admission.
+	QuotaCheckStrategy featuregate.Feature = "QuotaCheckStrategy"
+
 	// owner: @khrm
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2349-multikueue-external-custom-job-support
 	//
@@ -469,6 +475,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	QuotaCheckStrategy: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
