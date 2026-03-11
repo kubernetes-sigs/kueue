@@ -227,6 +227,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.17"
+- name: SchedulerLongRequeueInterval
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.15"
 - name: SkipFinalizersForPodsSuspendedByParent
   versionedSpecs:
   - default: true
