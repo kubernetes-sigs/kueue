@@ -577,6 +577,7 @@ func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Ma
 		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 		scheduler.WithFairSharing(cfg.FairSharing),
 		scheduler.WithAdmissionFairSharing(cfg.AdmissionFairSharing),
+		scheduler.WithQuotaCheckStrategy(quotaCheckStrategy(cfg)),
 		scheduler.WithRoleTracker(roleTracker),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 		scheduler.WithCustomLabels(customLabels),
@@ -629,6 +630,13 @@ func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.Requeui
 		return *cfg.WaitForPodsReady.RequeuingStrategy.Timestamp
 	}
 	return configapi.EvictionTimestamp
+}
+
+func quotaCheckStrategy(cfg *configapi.Configuration) configapi.QuotaCheckStrategy {
+	if cfg.Resources != nil && cfg.Resources.QuotaCheckStrategy != nil {
+		return *cfg.Resources.QuotaCheckStrategy
+	}
+	return configapi.QuotaCheckBlockUndeclared
 }
 
 func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {

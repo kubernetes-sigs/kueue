@@ -31,6 +31,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -81,6 +82,7 @@ type Scheduler struct {
 	workloadOrdering        workload.Ordering
 	fairSharing             *config.FairSharing
 	admissionFairSharing    *config.AdmissionFairSharing
+	quotaCheckStrategy      config.QuotaCheckStrategy
 	clock                   clock.Clock
 	roleTracker             *roletracker.RoleTracker
 	customLabels            *metrics.CustomLabels
@@ -94,6 +96,7 @@ type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	fairSharing                 *config.FairSharing
 	admissionFairSharing        *config.AdmissionFairSharing
+	quotaCheckStrategy          config.QuotaCheckStrategy
 	clock                       clock.Clock
 	roleTracker                 *roletracker.RoleTracker
 	preemptionExpectations      *expectations.Store
@@ -157,6 +160,12 @@ func WithCustomLabels(cl *metrics.CustomLabels) Option {
 	}
 }
 
+func WithQuotaCheckStrategy(qcs config.QuotaCheckStrategy) Option {
+	return func(o *options) {
+		o.quotaCheckStrategy = qcs
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -186,6 +195,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		workloadOrdering:        wo,
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
+		quotaCheckStrategy:      options.quotaCheckStrategy,
 		roleTracker:             options.roleTracker,
 		customLabels:            options.customLabels,
 	}
@@ -684,8 +694,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
-
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice, s.quotaCheckStrategy)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
 	arm := fullAssignment.RepresentativeMode()
@@ -1051,10 +1060,34 @@ const (
 	subtract
 )
 
+func allCoveredResources(resourceGroups []schdcache.ResourceGroup) sets.Set[corev1.ResourceName] {
+	covered := sets.New[corev1.ResourceName]()
+	for _, rg := range resourceGroups {
+		covered = covered.Union(rg.CoveredResources)
+	}
+	return covered
+}
+
+// filterByNames returns a new ResourceList containing only resources whose names
+// are in the allowed set.
+func filterByNames(requests corev1.ResourceList, allowed sets.Set[corev1.ResourceName]) corev1.ResourceList {
+	filtered := make(corev1.ResourceList, len(requests))
+	for name, qty := range requests {
+		if allowed.Has(name) {
+			filtered[name] = qty
+		}
+	}
+	return filtered
+}
+
 func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	lqKey := utilqueue.NewLocalQueueReference(e.Obj.Namespace, e.Obj.Spec.QueueName)
 	lqObjRef := klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName))
-	penalty := afs.CalculateEntryPenalty(e.SumTotalRequests(), s.admissionFairSharing)
+	totalRequests := e.SumTotalRequests()
+	if flavorassigner.IgnoreUndeclaredResources(s.quotaCheckStrategy) {
+		totalRequests = filterByNames(totalRequests, allCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
+	}
+	penalty := afs.CalculateEntryPenalty(totalRequests, s.admissionFairSharing)
 
 	switch op {
 	case add:

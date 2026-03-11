@@ -1005,6 +1005,53 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"quotaCheckStrategy with value ignoreUndeclared not allowed with excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+					ExcludeResourcePrefixes: []string{"foo.com/device"},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.quotaCheckStrategy",
+					Detail: "excludeResourcePrefixes is not allowed when quotaCheckStrategy is IgnoreUndeclared",
+				},
+			},
+		},
+		"quotaCheckStrategy with value ignoreundeclared allowed without excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+				},
+			},
+		},
+		"quotaCheckStrategy with value blockundeclared allowed with excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckBlockUndeclared),
+					ExcludeResourcePrefixes: []string{"foo.com/device"},
+				},
+			},
+		},
+		"quotaCheckStrategy with unsupported value": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "resources.quotaCheckStrategy",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {

@@ -180,6 +180,7 @@ managerConfig:
     #    example.com/gpu: 100 # and you care only about GPUs usage
     #resources:
     #  excludeResourcePrefixes: []
+    #  quotaCheckStrategy: "BlockUndeclared"
     # transformations:
     # - input: nvidia.com/mig-4g.5gb
     #   strategy: Replace | Retain
