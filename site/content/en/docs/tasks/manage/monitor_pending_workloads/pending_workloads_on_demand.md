@@ -76,7 +76,7 @@ If you disable the feature, you also need to remove the associated `APIService` 
 
 If you need to pass specific flags to the embedded visibility API server, you can use the `--visibility-server` flag when running the Kueue controller manager. For example: `--visibility-server "--secure-port=8443 --authentication-config=/path/to/kubeconfig"`. 
 
-Note that the arguments to the embedded visibility API server (e.g. the kubeconfig) cannot contain whitespaces (e.g. `--visibility-server "--authentication-config='/path/ with_whitespace /to/kubeconfig'"` will throw an error, while `--visibility-server "--authentication-config='/path/without_whitespace/to/kubeconfig'"` will work as expected).
+Note that the arguments to the embedded visibility API server (e.g. the kubeconfig) do not support normal shell-like parsing and cannot contain quotes or whitespaces. For example, `--visibility-server "--authentication-config=/path/to/kubeconfig"` is valid, but `--visibility-server "--authentication-config='/path/to/kubeconfig'"` will fail because the internal quotes are not stripped, or `--visibility-server "--authentication-config=/path/ with_whitespace /to/kubeconfig` will fail because the internal whitespaces are not stripped.
 
 For a full list of available flags, please see the [kube-apiserver documentation](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/).
 
