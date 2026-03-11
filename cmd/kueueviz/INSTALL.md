@@ -10,7 +10,6 @@ configure and run `KueueViz`:
 
 ```
 kubectl -n kueue-system port-forward svc/kueue-kueueviz-backend 8080:8080 &
-kubectl -n kueue-system set env deployment kueue-kueueviz-frontend REACT_APP_WEBSOCKET_URL=ws://localhost:8080
 kubectl -n kueue-system port-forward svc/kueue-kueueviz-frontend 3000:8080
 ```
 
