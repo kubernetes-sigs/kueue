@@ -83,7 +83,7 @@ func waitForDRAExampleDriverAvailability(ctx context.Context, k8sClient client.C
 		g.Expect(k8sClient.Get(ctx, dsKey, daemonset)).To(gomega.Succeed())
 		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.BeNumerically(">", 0))
 		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.Equal(daemonset.Status.NumberAvailable))
-	}, util.StartUpTimeout, util.Interval).Should(gomega.Succeed())
+	}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 	ginkgo.GinkgoLogr.Info("DaemonSet is available in the cluster", "daemonset", dsKey, "cluster", clusterName, "waitingTime", time.Since(waitForAvailableStart))
 }
 

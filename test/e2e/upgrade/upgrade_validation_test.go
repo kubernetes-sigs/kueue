@@ -40,7 +40,7 @@ var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
 			lqList := &kueue.LocalQueueList{}
 			g.Expect(k8sClient.List(ctx, lqList)).To(gomega.Succeed(), "Should be able to list LocalQueues (conversion webhook should be ready)")
 			g.Expect(lqList.Items).NotTo(gomega.BeEmpty(), "Should have at least one LocalQueue")
-		}, util.StartUpTimeout, util.Interval).Should(gomega.Succeed())
+		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Waiting for mutating webhook to be ready")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
 			for _, webhook := range mwc.Webhooks {
 				g.Expect(webhook.ClientConfig.CABundle).ToNot(gomega.BeEmpty())
 			}
-		}, util.StartUpTimeout, util.Interval).Should(gomega.Succeed())
+		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should have CA bundles injected in all CRD conversion webhooks", func() {
