@@ -1641,6 +1641,8 @@ func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string
 	resetClusterNomination(w)
 	resetChecksOnEviction(w, now)
 	resetUnhealthyNodes(w)
+	unsetPreemptionBlockedCondition(w, now, reason, message)
+	closeAllPreemptionGates(w, now)
 }
 
 func resetClusterNomination(w *kueue.Workload) {
@@ -1650,6 +1652,30 @@ func resetClusterNomination(w *kueue.Workload) {
 
 func resetUnhealthyNodes(w *kueue.Workload) {
 	w.Status.UnhealthyNodes = nil
+}
+
+func unsetPreemptionBlockedCondition(w *kueue.Workload, now time.Time, reason, message string) {
+	preemptionSignalCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreemptionBlocked)
+	if preemptionSignalCond == nil || preemptionSignalCond.Status != metav1.ConditionTrue {
+		return
+	}
+
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadPreemptionBlocked,
+		Status:             metav1.ConditionFalse,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: w.Generation,
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
+func closeAllPreemptionGates(w *kueue.Workload, now time.Time) {
+	for i := range w.Status.PreemptionGates {
+		w.Status.PreemptionGates[i].State = kueue.GateStateClosed
+		w.Status.PreemptionGates[i].LastTransitionTime = metav1.NewTime(now)
+	}
 }
 
 func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause, tracker *roletracker.RoleTracker) {
