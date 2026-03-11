@@ -256,7 +256,7 @@ func TestValidateWorkload(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "this is an invalid value", "must be in format 'subdomain/path'"),
+				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "this is an invalid value", ""),
 			},
 		},
 		"invalid AdmissionGatedBy annotation - duplicate gates": {
@@ -268,7 +268,7 @@ func TestValidateWorkload(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "duplicates.are/invalid,duplicates.are/invalid", "duplicate gate name: duplicates.are/invalid"),
+				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "duplicates.are/invalid,duplicates.are/invalid", ""),
 			},
 		},
 	}
@@ -615,7 +615,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "cannot be added after workload creation"),
+				field.Forbidden(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), ""),
 			},
 		},
 		"allow removing AdmissionGatedBy annotation with single gate": {
@@ -675,7 +675,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "can only remove gates, not add new ones"),
+				field.Forbidden(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), ""),
 			},
 		},
 		"allow reordering gates in AdmissionGatedBy annotation": {

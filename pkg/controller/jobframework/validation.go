@@ -64,6 +64,9 @@ var (
 	)
 )
 
+// Same as the constraint of the spec.ManagedBy field for Jobs
+const MaxGateNameLengthForAdmissionGatedBy = 63
+
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
 func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 	allErrs := ValidateQueueName(job.Object())
@@ -293,6 +296,8 @@ func ValidateAdmissionGatedByAnnotation(oldValue, newValue *string, isUpdate boo
 		gates := strings.Split(newVal, ",")
 		seen := make(map[string]bool)
 
+		fieldPath := field.NewPath("metadata").Child("annotations").Key(kueueconstants.AdmissionGatedByAnnotation)
+
 		for _, gate := range gates {
 			gate = strings.TrimSpace(gate)
 
@@ -311,25 +316,10 @@ func ValidateAdmissionGatedByAnnotation(oldValue, newValue *string, isUpdate boo
 			}
 			seen[gate] = true
 
-			// Validate format: subdomain/path
-			parts := strings.SplitN(gate, "/", 2)
-			if len(parts) != 2 {
-				allErrs = append(allErrs, field.Invalid(annotationPath, gate,
-					"must be in format 'subdomain/path'"))
-				continue
-			}
+			allErrs = append(allErrs, validation.IsDomainPrefixedPath(fieldPath, gate)...)
 
-			// Validate subdomain (RFC 1123)
-			if errs := validation.IsDNS1123Subdomain(parts[0]); len(errs) > 0 {
-				allErrs = append(allErrs, field.Invalid(annotationPath, parts[0],
-					fmt.Sprintf("subdomain invalid: %v", errs)))
-			}
-
-			// Validate path (RFC 3986) - basic check for valid characters
-			// For simplicity, check it's not empty and doesn't contain spaces
-			if parts[1] == "" || strings.Contains(parts[1], " ") {
-				allErrs = append(allErrs, field.Invalid(annotationPath, parts[1],
-					"path component invalid"))
+			if len(gate) > MaxGateNameLengthForAdmissionGatedBy {
+				allErrs = append(allErrs, field.TooLong(fieldPath, "" /*unused*/, MaxGateNameLengthForAdmissionGatedBy))
 			}
 		}
 	}
