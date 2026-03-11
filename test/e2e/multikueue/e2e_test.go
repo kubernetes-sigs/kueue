@@ -68,7 +68,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
-	"sigs.k8s.io/kueue/pkg/util/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -2251,13 +2250,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						evictedWorkload = workerLowW2
 						otherWorkload = workerLowW1
 					}
-					g.Expect(evictedWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted))
-					g.Expect(evictedWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
-					g.Expect(evictedWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
+					g.Expect(evictedWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+					g.Expect(evictedWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
+					g.Expect(evictedWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 
-					g.Expect(otherWorkload.Status.Conditions).NotTo(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted))
-					g.Expect(otherWorkload.Status.Conditions).NotTo(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
-					g.Expect(otherWorkload.Status.Conditions).NotTo(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
+					g.Expect(otherWorkload.Status.Conditions).NotTo(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+					g.Expect(otherWorkload.Status.Conditions).NotTo(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
+					g.Expect(otherWorkload.Status.Conditions).NotTo(utiltesting.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 			})
 		})
