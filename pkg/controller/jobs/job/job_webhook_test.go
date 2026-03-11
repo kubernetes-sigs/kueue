@@ -18,6 +18,7 @@ package job
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -443,7 +444,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "this is an invalid value", "must be in format 'subdomain/path'"),
+				field.Invalid(admissionGatedByAnnotationsPath, "this is an invalid value", "must be a domain-prefixed path (such as \"acme.io/foo\")"),
 			},
 			admissionGatedBy: true,
 		},
@@ -455,6 +456,17 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(admissionGatedByAnnotationsPath, "duplicates.are/invalid,duplicates.are/invalid", "duplicate gate name: duplicates.are/invalid"),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - gate name too long",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "cannot.be.too.long/"+strings.Repeat("but-this-is-too-long", 20)).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.TooLong(admissionGatedByAnnotationsPath, "", jobframework.MaxGateNameLengthForAdmissionGatedBy),
 			},
 			admissionGatedBy: true,
 		},
