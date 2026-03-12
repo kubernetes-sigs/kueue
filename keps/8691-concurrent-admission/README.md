@@ -77,7 +77,7 @@ tags, and then generate with `hack/update-toc.sh`.
 Currently, the Kueue admission process selects a single ResourceFlavor (RF) and pursues it until the workload is admitted. This KEP proposes Concurrent Admission, allowing a Workload to attempt multiple ResourceFlavors simultaneously.
 
 Kueue will create clones of a Workload, referred to as Variants. Each Variant is scheduled independently on a specific subset of ResourceFlavors. This unblocks scenarios where a user needs
-to maintain a path to "upgrade" a Workload from a less preferred flavor to a more preferred one as it becomes available, or to "race" multiple long-running AdmissionChecks (e.g., across different accelerator types)
+to maintain a path to "upgrade" a Workload from a less preferred flavor to a more preferred one as it becomes available, or to "race" multiple long-running AdmissionChecks (e.g., across different accelerator types).
 
 <!--
 This section is incredibly important for producing high-quality, user-focused
