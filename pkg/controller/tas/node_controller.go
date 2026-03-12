@@ -360,12 +360,12 @@ func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string,
 	}
 
 	if shouldWait {
-		return r.checkPodsOnNode(ctx, nodeName, wl, untolerated, ready, expectedOnNode)
+		return r.checkPodsOnNode(ctx, nodeName, wl, untolerated, expectedOnNode)
 	}
 	return workloadHealthCheck{status: workloadHealthy}, nil
 }
 
-func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, wl *kueue.Workload, untolerated []corev1.Taint, ready bool, expectedOnNode int32) (workloadHealthCheck, error) {
+func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, wl *kueue.Workload, untolerated []corev1.Taint, expectedOnNode int32) (workloadHealthCheck, error) {
 	podsAssigned, hasGatedPods, err := r.getPodsAssignedToNode(ctx, wl, nodeName)
 	if err != nil {
 		return workloadHealthCheck{status: workloadHealthUnknown}, fmt.Errorf("failed to get pods assigned to node %s: %w", nodeName, err)
@@ -379,13 +379,40 @@ func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, w
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
-	if int32(len(podsAssigned)) < expectedOnNode || hasGatedPods || (hasPodsToRetain && (len(untolerated) == 0 || features.Enabled(features.TASReplaceNodeOnPodTermination))) {
-		// Not all pods have been created and assigned to the node yet.
-		// Wait until all expected pods are assigned to the node.
+	if shouldWait(int32(len(podsAssigned)), expectedOnNode, hasGatedPods, hasPodsToRetain, len(untolerated)) {
 		return workloadHealthCheck{status: workloadHealthUnknown}, nil
 	}
 
 	return workloadHealthCheck{status: workloadUnhealthy, podsToTerminate: podsToTerminate}, nil
+}
+
+// shouldWait encapsulates the logic for deciding if we need to
+// wait for pods to be fully created and assigned before declaring a node failure.
+func shouldWait(podsAssigned, expectedOnNode int32, hasGatedPods, hasPodsToRetain bool, untoleratedCount int) bool {
+	// Not all expected pods have been created and assigned to the node yet.
+	if podsAssigned < expectedOnNode {
+		return true
+	}
+
+	// If there are gated pods, the assignment/admission process is still ongoing.
+	if hasGatedPods {
+		return true
+	}
+
+	// There are pods currently still running on the node.
+	if hasPodsToRetain {
+		// If there are no untolerated taints, it's not a node failure that requires replacement yet.
+		if untoleratedCount == 0 {
+			return true
+		}
+		// If the node has untolerated taints, but the feature gate to replace node on pod termination is enabled,
+		// we must wait for the pod to actually terminate before replacing the node.
+		if features.Enabled(features.TASReplaceNodeOnPodTermination) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
