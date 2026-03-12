@@ -463,12 +463,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 			return ctrl.Result{}, workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 				// Update the condition to indicate the gate is cleared, rather than removing it
-				return apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionFalse,
-					Reason:  "Pending",
-					Message: "AdmissionGatedBy cleared, waiting for quota reservation",
-				}), nil
+				return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "AdmissionGatedBy cleared, waiting for quota reservation", r.clock.Now()), nil
 			})
 		}
 
@@ -478,12 +473,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				"Workload admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation])
 
 			return ctrl.Result{}, workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-				return apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadAdmissionGated,
-					Message: fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]),
-				}), nil
+				return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), r.clock.Now()), nil
 			})
 		}
 	}
