@@ -16,8 +16,9 @@ Used on: Kueue-managed Jobs.
 
 This annotation requires the `AdmissionGatedBy` feature that is disabled by default.
 
-When it contains a value, the annotation prevents the Job from entering Kueue’s admission workflow.
-Its value is a comma-separated list of 1 or more gate names and can only be added during Job
+When it contains a value, the annotation prevents the Job from entering the Quota Reservation
+phase of Kueue's Admission Flow.
+The annotation value is a comma-separated list of 1 or more gate names and can only be added during Job
 creation. After creation, the annotation may only be deleted or modified to remove 1 or more gates.
 
 ### kueue.x-k8s.io/cluster-queue-name
