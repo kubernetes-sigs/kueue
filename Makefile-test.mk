@@ -37,7 +37,7 @@ INTEGRATION_API_LOG_LEVEL ?= 0
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_K8S_VERSIONS ?= 1.32.11 1.33.7 1.34.3 1.35.0
+E2E_K8S_VERSIONS ?= 1.33.7 1.34.3 1.35.0
 E2E_K8S_VERSION ?= 1.35
 E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
