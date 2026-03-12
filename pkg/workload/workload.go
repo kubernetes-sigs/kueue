@@ -1423,8 +1423,8 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 	// These checks are considered valid by this logic, as intended,
 	// because checks with empty OnFlavor lists have their lists populated
 	// with all flavors in the CQ when initially processed by Kueue.
-	if wl.Status.Admission != nil {
-		return filterChecksForAdmission(allChecks, *wl.Status.Admission)
+	if admissionFlavors := admissionFlavors(wl.Status.Admission); len(admissionFlavors) > 0 {
+		return filterChecksForFlavors(allChecks, admissionFlavors)
 	}
 
 	// If unable to determine flavors assigned to a workload we can only list
@@ -1441,19 +1441,14 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 	return checksForAllFlavors
 }
 
-// filterChecksForAdmission return all checks which cover at least one of the admission's flavors
-func filterChecksForAdmission(allChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], admission kueue.Admission) sets.Set[kueue.AdmissionCheckReference] {
-	admissionFlavors := admissionFlavors(admission)
+// filterChecksForFlavors return all checks which cover at least one of the provided flavors
+func filterChecksForFlavors(allChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], flavors flavorSet) sets.Set[kueue.AdmissionCheckReference] {
 	return filterChecks(allChecks, func(acFlavors flavorSet) bool {
-		return admissionFlavors.Intersection(acFlavors).Len() > 0
+		return flavors.Intersection(acFlavors).Len() > 0
 	})
 }
 
 func filterChecks(acs map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], fsPredicate func(flavorSet) bool) sets.Set[kueue.AdmissionCheckReference] {
-	if len(acs) == 0 {
-		return nil
-	}
-
 	acNames := sets.New[kueue.AdmissionCheckReference]()
 	for acName, acFlavors := range acs {
 		if fsPredicate(acFlavors) {
@@ -1463,7 +1458,10 @@ func filterChecks(acs map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceF
 	return acNames
 }
 
-func admissionFlavors(admission kueue.Admission) sets.Set[kueue.ResourceFlavorReference] {
+func admissionFlavors(admission *kueue.Admission) sets.Set[kueue.ResourceFlavorReference] {
+	if admission == nil {
+		return nil
+	}
 	assignedFlavors := sets.New[kueue.ResourceFlavorReference]()
 	for _, podSet := range admission.PodSetAssignments {
 		for _, flavor := range podSet.Flavors {
