@@ -73,6 +73,7 @@ type JobFailedReason string
 const (
 	SubmissionFailed                                 JobFailedReason = "SubmissionFailed"
 	DeadlineExceeded                                 JobFailedReason = "DeadlineExceeded"
+	PreRunningDeadlineExceeded                       JobFailedReason = "PreRunningDeadlineExceeded"
 	AppFailed                                        JobFailedReason = "AppFailed"
 	JobDeploymentStatusTransitionGracePeriodExceeded JobFailedReason = "JobDeploymentStatusTransitionGracePeriodExceeded"
 	ValidationFailed                                 JobFailedReason = "ValidationFailed"
@@ -140,13 +141,26 @@ type DeletionRule struct {
 }
 
 // DeletionCondition specifies the trigger conditions for a deletion action.
+// Exactly one of JobStatus or JobDeploymentStatus must be specified:
+//   - JobStatus (application-level): Match the Ray job execution status.
+//   - JobDeploymentStatus (infrastructure-level): Match the RayJob deployment lifecycle status. This is particularly useful for cleaning up resources when Ray jobs fail to be submitted.
+//
+// +kubebuilder:validation:XValidation:rule="!(has(self.jobStatus) && has(self.jobDeploymentStatus))",message="JobStatus and JobDeploymentStatus cannot be used together within the same deletion condition."
+// +kubebuilder:validation:XValidation:rule="has(self.jobStatus) || has(self.jobDeploymentStatus)",message="the deletion condition requires either the JobStatus or the JobDeploymentStatus field."
 type DeletionCondition struct {
-	// JobStatus is the terminal status of the RayJob that triggers this condition. This field is required.
+	// JobStatus is the terminal status of the RayJob that triggers this condition.
 	// For the initial implementation, only "SUCCEEDED" and "FAILED" are supported.
 	// +kubebuilder:validation:Enum=SUCCEEDED;FAILED
-	JobStatus JobStatus `json:"jobStatus"`
+	// +optional
+	JobStatus *JobStatus `json:"jobStatus,omitempty"`
 
-	// TTLSeconds is the time in seconds from when the JobStatus
+	// JobDeploymentStatus is the terminal status of the RayJob deployment that triggers this condition.
+	// For the initial implementation, only "Failed" is supported.
+	// +kubebuilder:validation:Enum=Failed
+	// +optional
+	JobDeploymentStatus *JobDeploymentStatus `json:"jobDeploymentStatus,omitempty"`
+
+	// TTLSeconds is the time in seconds from when the JobStatus or JobDeploymentStatus
 	// reaches the specified terminal state to when this deletion action should be triggered.
 	// The value must be a non-negative integer.
 	// +kubebuilder:default=0
@@ -192,6 +206,8 @@ type RayJobStatusInfo struct {
 }
 
 // RayJobSpec defines the desired state of RayJob
+//
+//nolint:govet // Prevent reordering fields and removing comments
 type RayJobSpec struct {
 	// ActiveDeadlineSeconds is the duration in seconds that the RayJob may be active before
 	// KubeRay actively tries to terminate the RayJob; value must be positive integer.
@@ -267,6 +283,14 @@ type RayJobSpec struct {
 	// +kubebuilder:default:=0
 	// +optional
 	TTLSecondsAfterFinished int32 `json:"ttlSecondsAfterFinished,omitempty"`
+	// PreRunningDeadlineSeconds is the deadline in seconds for a RayJob to reach the Running state
+	// from when it is first initialized (StartTime). If the RayJob does not transition to
+	// Running within this time, it will be marked as Failed.
+	// This is useful for cleaning up jobs stuck in Initializing or Waiting states.
+	// If not set, there is no deadline. Value must be a positive integer.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	PreRunningDeadlineSeconds *int32 `json:"preRunningDeadlineSeconds,omitempty"`
 	// ShutdownAfterJobFinishes will determine whether to delete the ray cluster once rayJob succeed or failed.
 	// +optional
 	ShutdownAfterJobFinishes bool `json:"shutdownAfterJobFinishes,omitempty"`

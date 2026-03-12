@@ -24,8 +24,14 @@ const (
 	RayClusterServingServiceLabelKey         = "ray.io/serve"
 	RayClusterHeadlessServiceLabelKey        = "ray.io/headless-worker-svc"
 	HashWithoutReplicasAndWorkersToDeleteKey = "ray.io/hash-without-replicas-and-workers-to-delete"
+	UpgradeStrategyRecreateHashKey           = "ray.io/upgrade-strategy-recreate-hash"
 	NumWorkerGroupsKey                       = "ray.io/num-worker-groups"
 	KubeRayVersion                           = "ray.io/kuberay-version"
+	RayCronJobNameLabelKey                   = "ray.io/cronjob-name"
+	RayCronJobTimestampAnnotationKey         = "ray.io/cronjob-scheduled-timestamp"
+	RayJobSubmissionModeLabelKey             = "ray.io/job-submission-mode"
+	// DisableProvisionedHeadRestartAnnotationKey marks RayClusters created for sidecar-mode RayJobs to skip head Pod recreation after provisioning.
+	DisableProvisionedHeadRestartAnnotationKey = "ray.io/disable-provisioned-head-restart"
 
 	// Labels for feature RayMultihostIndexing
 	//
@@ -46,7 +52,6 @@ const (
 
 	// Batch scheduling labels
 	// TODO(tgaddair): consider making these part of the CRD
-	RaySchedulerName         = "ray.io/scheduler-name"
 	RayPriorityClassName     = "ray.io/priority-class-name"
 	RayGangSchedulingEnabled = "ray.io/gang-scheduling-enabled"
 
@@ -125,6 +130,7 @@ const (
 
 	// Use as container env variable
 	RAY_CLUSTER_NAME                        = "RAY_CLUSTER_NAME"
+	RAY_CLUSTER_NAMESPACE                   = "RAY_CLUSTER_NAMESPACE"
 	RAY_IP                                  = "RAY_IP"
 	FQ_RAY_IP                               = "FQ_RAY_IP"
 	RAY_PORT                                = "RAY_PORT"
@@ -162,6 +168,12 @@ const (
 	RAY_AUTH_TOKEN_ENV_VAR = "RAY_AUTH_TOKEN" // #nosec G101
 	// RAY_AUTH_TOKEN_SECRET_KEY is the key used in the Secret containing Ray auth token
 	RAY_AUTH_TOKEN_SECRET_KEY = "auth_token"
+	// RAY_ENABLE_K8S_TOKEN_AUTH is the Ray environment variable for enabling K8s token authentication.
+	RAY_ENABLE_K8S_TOKEN_AUTH_ENV_VAR = "RAY_ENABLE_K8S_TOKEN_AUTH" // #nosec G101
+	// RayTokenVolumeName is the name of the projected volume for Kubernetes token authentication.
+	RayTokenVolumeName = "ray-token" // #nosec G101
+	// RayTokenMountPath is the mount path for the projected volume for Kubernetes token authentication.
+	RayTokenMountPath = "/var/run/secrets/ray.io/serviceaccount" // #nosec G101
 
 	// This KubeRay operator environment variable is used to determine if random Pod
 	// deletion should be enabled. Note that this only takes effect when autoscaling
@@ -239,7 +251,13 @@ const (
 	RayAgentRayletHealthPath  = "api/local_raylet_healthz"
 	RayDashboardGCSHealthPath = "api/gcs_healthz"
 	RayServeProxyHealthPath   = "-/healthz"
-	BaseWgetHealthCommand     = "wget --tries 1 -T %d -q -O- http://localhost:%d/%s | grep success"
+	// BaseWgetHealthCommand checks a single health URL; args: timeout_sec, port, path (no leading slash).
+	// This is used for Ray versions that rely on exec probes and assume common CLI tools exist in the image.
+	BaseWgetHealthCommand = "wget --tries 1 -T %d -q -O- http://localhost:%d/%s | grep success"
+	// BasePythonHealthCommand checks a single health URL; args: port, path (no leading slash), timeout_sec.
+	// This is used when wget is not available (e.g. slim Ray images).
+	BasePythonHealthCommand = `python -c "import urllib.request; r=urllib.request.urlopen('http://localhost:%d/%s', timeout=%d); exit(0 if b'success' in r.read() else 1)"`
+	RayNodeHealthPath       = "/api/healthz"
 
 	// Finalizers for RayJob
 	RayJobStopJobFinalizer = "ray.io/rayjob-finalizer"
@@ -255,7 +273,7 @@ const (
 	// The version is included in the RAY_USAGE_STATS_EXTRA_TAGS environment variable
 	// as well as the user-agent. This constant is updated before release.
 	// TODO: Update KUBERAY_VERSION to be a build-time variable.
-	KUBERAY_VERSION = "v1.5.1"
+	KUBERAY_VERSION = "v1.6.0-rc.0"
 
 	// KubeRayController represents the value of the default job controller
 	KubeRayController = "ray.io/kuberay-operator"
@@ -352,6 +370,14 @@ const (
 	FailedToDeleteRayCluster      K8sEventType = "FailedToDeleteRayCluster"
 	FailedToUpdateRayCluster      K8sEventType = "FailedToUpdateRayCluster"
 	RayClusterNotFound            K8sEventType = "RayClusterNotFound"
+
+	// Batch scheduler event list
+	BatchSchedulerCleanedUp       K8sEventType = "BatchSchedulerCleanedUp"
+	FailedToCleanupBatchScheduler K8sEventType = "FailedToCleanupBatchScheduler"
+
+	// RayCronJob event list
+	InvalidRayCronJobSpec K8sEventType = "InvalidRayCronJobSpec"
+	SuspendedRayCronJob   K8sEventType = "SuspendedRayCronJob"
 
 	// RayService event list
 	CreatedGateway                  K8sEventType = "CreatedGateway"

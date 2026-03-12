@@ -4,7 +4,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
 
-type RuntimeEnvType map[string]interface{}
+type RuntimeEnvType map[string]any
 
 // RayJobInfo is the response of "ray job status" api.
 // Reference to https://docs.ray.io/en/latest/cluster/running-applications/job-submission/rest.html#ray-job-rest-api-spec
