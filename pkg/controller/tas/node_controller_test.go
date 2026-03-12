@@ -113,17 +113,21 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	basePod := testingpod.MakePod("test-pod", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
+		Annotation(kueue.PodSetPreferredTopologyAnnotation, "true").
+		StatusPhase(corev1.PodRunning).
 		NodeName(nodeName).
 		Obj()
 
 	pendingPodWithSelector := testingpod.MakePod("pending-pod-selector", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
+		Annotation(kueue.PodSetPreferredTopologyAnnotation, "true").
 		NodeSelector(corev1.LabelHostname, nodeName).
 		StatusPhase(corev1.PodPending).
 		Obj()
 
 	gatedPod := testingpod.MakePod("gated-pod", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
+		Annotation(kueue.PodSetPreferredTopologyAnnotation, "true").
 		TopologySchedulingGate().
 		StatusPhase(corev1.PodPending).
 		Obj()
@@ -457,7 +461,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
-		"Node has untolerated NoExecute taint, ReplaceNodeOnPodTermination on, no pods -> Unhealthy": {
+		"Node has untolerated NoExecute taint, ReplaceNodeOnPodTermination on, no pods -> Unhealthy (immediate)": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -530,44 +534,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
-		"Node has NoExecute taint with TolerationSeconds, no pods -> Healthy (wait)": {
-			initObjs: []client.Object{
-				baseNode.Clone().StatusConditions(corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionTrue,
-					LastTransitionTime: now}).
-					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoExecute}).Obj(),
-				utiltestingapi.MakeWorkload(wlName, nsName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-						Request(corev1.ResourceCPU, "1").
-						Toleration(corev1.Toleration{
-							Key:               "foo",
-							Effect:            corev1.TaintEffectNoExecute,
-							Operator:          corev1.TolerationOpExists,
-							TolerationSeconds: ptr.To[int64](300),
-						}).
-						Obj()).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("cq").
-							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
-								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
-									Obj()).
-								Obj()).
-							Obj(), testStartTime,
-					).
-					AdmittedAt(true, testStartTime).
-					Obj(),
-			},
-			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantUnhealthyNodes: nil,
-			wantRequeue:        1 * time.Second,
-			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints: true,
-			},
-		},
 		"Node has NoExecute taint with TolerationSeconds, ReplaceNodeOnPodTermination off, pod terminating -> Unhealthy": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
@@ -607,7 +573,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
-		"Node has untolerated NoExecute taint and pods missing -> Unhealthy": {
+		"Node has NoExecute taint and pods missing -> Unhealthy (immediate)": {
 			initObjs: []client.Object{
 				testingnode.MakeNode(nodeName).
 					Taints(corev1.Taint{
@@ -641,7 +607,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
-		"Node NotReady, pod pending (gated by TopologySchedulingGate) -> Healthy (wait)": {
+		"Node NotReady, pod pending (gated by TopologySchedulingGate) -> Unhealthy (immediate)": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -651,8 +617,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				gatedPod,
 			},
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantUnhealthyNodes: nil,
-			wantRequeue:        1 * time.Second,
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
 		"Node has untolerated NoExecute taint, pod pending (assigned via nodeSelector) -> Unhealthy": {
 			initObjs: []client.Object{
@@ -670,7 +635,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnNodeTaints: true,
 			},
 		},
-		"Node has untolerated NoExecute taint, pod pending (gated by TopologySchedulingGate) -> Unhealthy": {
+		"Node has untolerated NoExecute taint, pod pending (gated by TopologySchedulingGate) -> Unhealthy (immediate)": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -737,6 +702,12 @@ func TestNodeFailureReconciler(t *testing.T) {
 			// Register WorkloadSliceNameKey index used by ListPodsForWorkloadSlice.
 			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
 				t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
+			}
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
+				pod := o.(*corev1.Pod)
+				return []string{pod.Spec.NodeName}
+			}); err != nil {
+				t.Fatalf("Could not setup spec.nodeName index: %v", err)
 			}
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
@@ -812,11 +783,13 @@ func TestGetWorkloadStatus(t *testing.T) {
 
 	basePod := testingpod.MakePod("test-pod", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
+		Annotation(kueue.PodSetPreferredTopologyAnnotation, "true").
 		NodeName(nodeName).
 		Obj()
 
 	strayPod := testingpod.MakePod("stray-pod", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
+		Annotation(kueue.PodSetPreferredTopologyAnnotation, "true").
 		NodeSelector(corev1.LabelHostname, nodeNameUnassigned).
 		StatusPhase(corev1.PodPending).
 		Obj()
@@ -894,6 +867,12 @@ func TestGetWorkloadStatus(t *testing.T) {
 			}
 			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
 				t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
+			}
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
+				pod := o.(*corev1.Pod)
+				return []string{pod.Spec.NodeName}
+			}); err != nil {
+				t.Fatalf("Could not setup spec.nodeName index: %v", err)
 			}
 			cl := clientBuilder.Build()
 

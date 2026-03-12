@@ -115,6 +115,12 @@ func managerSetup(resourceTransformations ...config.ResourceTransformation) func
 		err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		err = mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
+			pod := o.(*corev1.Pod)
+			return []string{pod.Spec.NodeName}
+		})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

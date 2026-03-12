@@ -541,6 +541,12 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk); err != nil {
 		return err
 	}
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
+		pod := o.(*corev1.Pod)
+		return []string{pod.Spec.NodeName}
+	}); err != nil {
+		return err
+	}
 	return nil
 }
 
