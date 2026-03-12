@@ -281,8 +281,8 @@ func (r *nodeReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string
 			continue
 		}
 
-		// Also find workloads from any pods that are bound to this node,
-		// because they might be stale "late" pods for a workload that has already
+		// Also find workloads from any pods that are assigned to this node by TopologyAssignment
+		// but not yet bound. These might be stale "late" pods for a workload that has already
 		// been reassigned to another node.
 		sliceName := workloadslicing.SliceName(&wl)
 		pods, err := ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
@@ -369,7 +369,7 @@ func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, w
 		return workloadHealthCheck{status: workloadHealthUnknown}, fmt.Errorf("failed to get pods assigned to node %s: %w", nodeName, err)
 	}
 
-	podsToTerminate, hasPodsToRetain := classifyPodsForReplacement(podsAssigned, expectedOnNode)
+	podsToTerminate, hasRunningPods := classifyPodsForReplacement(podsAssigned)
 
 	if expectedOnNode == 0 {
 		// This node is not part of the workload's topology assignment. If pods are assigned
@@ -377,7 +377,7 @@ func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, w
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
-	if shouldWait(int32(len(podsAssigned)), expectedOnNode, hasPodsToRetain, len(untolerated)) {
+	if shouldWait(int32(len(podsAssigned)), expectedOnNode, hasRunningPods, len(untolerated)) {
 		return workloadHealthCheck{status: workloadHealthUnknown}, nil
 	}
 
@@ -387,22 +387,12 @@ func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, w
 // shouldWait encapsulates the logic for deciding if we need to
 // wait for pods to be fully created and assigned before declaring a node failure.
 func shouldWait(podsAssigned, expectedOnNode int32, hasPodsToRetain bool, untoleratedCount int) bool {
-	// Not all expected pods have been created and assigned to the node yet.
-	if podsAssigned < expectedOnNode {
-		return true
+	if untoleratedCount == 0 {
+		return podsAssigned < expectedOnNode || hasPodsToRetain
 	}
 
-	// There are pods currently still running on the node.
-	if hasPodsToRetain {
-		// If there are no untolerated taints, it's not a node failure that requires replacement yet.
-		if untoleratedCount == 0 {
-			return true
-		}
-		// If the node has untolerated taints, but the feature gate to replace node on pod termination is enabled,
-		// we must wait for the pod to actually terminate before replacing the node.
-		if features.Enabled(features.TASReplaceNodeOnPodTermination) {
-			return true
-		}
+	if hasPodsToRetain && features.Enabled(features.TASReplaceNodeOnPodTermination) {
+		return true
 	}
 
 	return false
@@ -531,16 +521,13 @@ func (r *nodeReconciler) reconcileWorkloadsOnNode(ctx context.Context, nodeName 
 	return result, nil
 }
 
-func classifyPodsForReplacement(pods []*corev1.Pod, expectedOnNode int32) (podsToTerminate []*corev1.Pod, hasPodsToRetain bool) {
+func classifyPodsForReplacement(pods []*corev1.Pod) (podsToTerminate []*corev1.Pod, hasPodsToRetain bool) {
 	for _, pod := range pods {
 		if !pod.DeletionTimestamp.IsZero() || utilpod.IsTerminated(pod) {
 			continue
 		}
-		switch {
-		case expectedOnNode > 0 && pod.Status.Phase == corev1.PodPending && !utilpod.HasGate(pod, kueue.TopologySchedulingGate):
-			podsToTerminate = append(podsToTerminate, pod)
-		case expectedOnNode == 0:
-			// Orphaned late pods without any expected nodes must be terminated
+		switch pod.Status.Phase {
+		case corev1.PodPending:
 			podsToTerminate = append(podsToTerminate, pod)
 		default:
 			hasPodsToRetain = true

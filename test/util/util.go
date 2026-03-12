@@ -710,6 +710,27 @@ func BindPodWithNode(ctx context.Context, k8sClient client.Client, nodeName stri
 	}
 }
 
+func ExpectPodTerminatedByKueueCondition(ctx context.Context, k8sClient client.Client, podKey client.ObjectKey, reason string) {
+	ginkgo.GinkgoHelper()
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		pod := &corev1.Pod{}
+		g.Expect(k8sClient.Get(ctx, podKey, pod)).To(gomega.Succeed())
+		g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodFailed), "Pod should be Failed")
+
+		expectedCondition := corev1.PodCondition{
+			Type:   "TerminatedByKueue",
+			Status: corev1.ConditionTrue,
+		}
+		if reason != "" {
+			expectedCondition.Reason = reason
+		}
+
+		g.Expect(pod.Status.Conditions).To(gomega.ContainElement(
+			gomega.BeComparableTo(expectedCondition, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime", "Message", "LastProbeTime")),
+		), "Pod should have TerminatedByKueue condition")
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectPodUnsuspendedWithNodeSelectors(ctx context.Context, k8sClient client.Client, key types.NamespacedName, ns map[string]string) {
 	createdPod := &corev1.Pod{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {

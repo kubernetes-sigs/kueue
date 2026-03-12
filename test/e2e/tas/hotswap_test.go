@@ -583,17 +583,14 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					}
 				})
 
+				var victimPodName string
 				ginkgo.By("Wait for the victim pod to be Failed", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						victimPod := findByPodIndex(ctx, k8sClient, g, ns.Name, jobName, "0", initialUIDs, true)
 						g.Expect(victimPod).NotTo(gomega.BeNil(), "Victim pod should still exist")
-						g.Expect(victimPod.Status.Phase).To(gomega.Equal(corev1.PodFailed), "Victim pod should be Failed")
-						g.Expect(victimPod.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
-							Type:   "TerminatedByKueue",
-							Status: corev1.ConditionTrue,
-							Reason: "UnschedulableOnAssignedNode",
-						}, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime", "Message", "LastProbeTime"))), "Victim pod should have TerminatedByKueue condition with reason UnschedulableOnAssignedNode")
+						victimPodName = victimPod.Name
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					util.ExpectPodTerminatedByKueueCondition(ctx, k8sClient, client.ObjectKey{Name: victimPodName, Namespace: ns.Name}, "UnschedulableOnAssignedNode")
 				})
 
 				var replacementPodName string

@@ -97,6 +97,20 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 	})
 
 	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			var pods corev1.PodList
+			g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			for i := range pods.Items {
+				if len(pods.Items[i].Finalizers) > 0 {
+					pods.Items[i].Finalizers = nil
+					g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, &pods.Items[i]))).To(gomega.Succeed())
+				}
+				err := k8sClient.Delete(ctx, &pods.Items[i], client.GracePeriodSeconds(0))
+				g.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
+			}
+			g.Expect(pods.Items).To(gomega.BeEmpty())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
@@ -1951,11 +1965,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					))
 				})
 			})
-			ginkgo.It("should wait for pods when tainted, then process failure correctly as pods are created incrementally", framework.SlowSpec, func() {
+			ginkgo.It("should process failure immediately when untolerated taint is added, ignoring missing pods", framework.SlowSpec, func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnNodeTaints, true)
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnPodTermination, true)
 
 				var wl1 *kueue.Workload
+				var firstPod, secondPod *corev1.Pod
 				nodeName := nodes[0].Name
 
 				ginkgo.By("creating a workload", func() {
@@ -1993,49 +2008,59 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("verify the workload does NOT get UnhealthyNodes immediately because len(podsForWl) == 0 waits", func() {
-					gomega.Consistently(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-						g.Expect(wl1.Status.UnhealthyNodes).To(gomega.BeEmpty())
-					}, 2*time.Second, util.Interval).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("creating the first pod, which triggers a reconcile and makes it Unhealthy because expected pods logic is removed", func() {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-					ta := utiltas.InternalFrom(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment)
-					pod := testingpod.MakePod(fmt.Sprintf("%s-0", wl1.Name), ns.Name).
-						Annotation(kueue.WorkloadAnnotation, wl1.Name).
-						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
-						Annotation(kueue.WorkloadSliceNameAnnotation, wl1.Name).
-						NodeName(ta.Domains[0].Values[0]).
-						Obj()
-					util.MustCreate(ctx, k8sClient, pod)
-				})
-
-				ginkgo.By("verify the workload still does NOT get UnhealthyNodes immediately with 1 pod, because node expects 2 pods based on TopologyAssignment", func() {
-					gomega.Consistently(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-						g.Expect(wl1.Status.UnhealthyNodes).To(gomega.BeEmpty())
-					}, 2*time.Second, util.Interval).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("creating the second pod, fulfilling the assignment quota", func() {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-					ta := utiltas.InternalFrom(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment)
-					pod := testingpod.MakePod(fmt.Sprintf("%s-1", wl1.Name), ns.Name).
-						Annotation(kueue.WorkloadAnnotation, wl1.Name).
-						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
-						Annotation(kueue.WorkloadSliceNameAnnotation, wl1.Name).
-						NodeName(ta.Domains[0].Values[0]).
-						Obj()
-					util.MustCreate(ctx, k8sClient, pod)
-				})
-
-				ginkgo.By("verify the workload gets UnhealthyNodes since all expected pods are present", func() {
+				ginkgo.By("verify the workload gets UnhealthyNodes immediately because untolerated taint is present and there are no pods", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
 						g.Expect(wl1.Status.UnhealthyNodes).To(gomega.ConsistOf(kueue.UnhealthyNode{Name: nodeName}))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("creating the first pod and setting its status to Pending to simulate a late pod", func() {
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					ta := utiltas.InternalFrom(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+					firstPod = testingpod.MakePod(fmt.Sprintf("%s-0", wl1.Name), ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl1.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+						Annotation(kueue.WorkloadSliceNameAnnotation, wl1.Name).
+						NodeName(ta.Domains[0].Values[0]).
+						Obj()
+					util.MustCreate(ctx, k8sClient, firstPod)
+
+					firstPod.Status.Phase = corev1.PodPending
+					gomega.Expect(k8sClient.Status().Update(ctx, firstPod)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the pending pod is marked Failed by Kueue because of the failed node", func() {
+					util.ExpectPodTerminatedByKueueCondition(ctx, k8sClient, client.ObjectKeyFromObject(firstPod), "UnschedulableOnAssignedNode")
+				})
+
+				ginkgo.By("creating the second pod and setting its status to Pending", func() {
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					secondPod = testingpod.MakePod(fmt.Sprintf("%s-1", wl1.Name), ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl1.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+						Annotation(kueue.WorkloadSliceNameAnnotation, wl1.Name).
+						NodeName(nodeName).
+						Obj()
+					util.MustCreate(ctx, k8sClient, secondPod)
+
+					secondPod.Status.Phase = corev1.PodPending
+					gomega.Expect(k8sClient.Status().Update(ctx, secondPod)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the second pending pod is also marked Failed by Kueue", func() {
+					util.ExpectPodTerminatedByKueueCondition(ctx, k8sClient, client.ObjectKeyFromObject(secondPod), "UnschedulableOnAssignedNode")
+				})
+				ginkgo.By("cleaning up pods explicitly as envtest doesn't cascade delete them via namespace deletion", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, firstPod, true)
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, secondPod, true)
+
+					nodeToUpdate := &corev1.Node{}
+					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
+					nodeToUpdate.Spec.Taints = slices.DeleteFunc(nodeToUpdate.Spec.Taints, func(taint corev1.Taint) bool {
+						return taint.Key == "example.com/failure"
+					})
+					gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
 				})
 			})
 			ginkgo.It("should update workload UnhealthyNodes immediately when node has NoExecute taint and TASReplaceNodeOnPodTermination is disabled", framework.SlowSpec, func() {
@@ -2139,6 +2164,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
 						g.Expect(wl1.Status.UnhealthyNodes).To(gomega.ContainElement(kueue.UnhealthyNode{Name: nodeName}))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("cleaning up node taint explicitly", func() {
+					nodeToUpdate := &corev1.Node{}
+					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
+					nodeToUpdate.Spec.Taints = slices.DeleteFunc(nodeToUpdate.Spec.Taints, func(taint corev1.Taint) bool {
+						return taint.Key == "example.com/failure"
+					})
+					gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
 				})
 			})
 			ginkgo.It("should selectively recover workload health based on tolerations of remaining taints", framework.SlowSpec, func() {
