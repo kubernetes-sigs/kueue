@@ -9580,6 +9580,34 @@ func TestRequeueAndUpdate(t *testing.T) {
 			},
 			wantStatusUpdates: 1,
 		},
+		{
+			name: "preemption gated",
+			e: entry{
+				status:          preemptionGated,
+				inadmissibleMsg: "preemption gated",
+			},
+			wantStatus: kueue.WorkloadStatus{
+				Conditions: []metav1.Condition{
+					{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "preemption gated",
+					},
+					{
+						Type:    kueue.WorkloadPreemptionBlocked,
+						Status:  metav1.ConditionTrue,
+						Reason:  "PreemptionGated",
+						Message: "preemption gated",
+					},
+				},
+				ResourceRequests: []kueue.PodSetRequest{{Name: kueue.DefaultPodSetName}},
+			},
+			wantWorkloads: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq": {workload.Key(w1)},
+			},
+			wantStatusUpdates: 1,
+		},
 	}
 
 	for _, tc := range cases {
