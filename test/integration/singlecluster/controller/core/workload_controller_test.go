@@ -288,7 +288,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor1, true)
 		})
 
-		ginkgo.It("the workload should get the AdditionalChecks that cover all flavors added", func() {
+		ginkgo.It("the workload should have checks updated when changed on the cluster queue", func() {
 			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
 			wlKey := client.ObjectKeyFromObject(wl)
 			createdWl := kueue.Workload{}

@@ -1863,16 +1863,16 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 	ginkgo.When("an additional admission check covering only some flavors supported by the cluster queue is present", func() {
 		var (
-			additionalAc      *kueue.AdmissionCheck
-			additionalFlavor1 *kueue.ResourceFlavor
-			additionalFlavor2 *kueue.ResourceFlavor
+			additionalAc *kueue.AdmissionCheck
+			flavor1      *kueue.ResourceFlavor
+			flavor2      *kueue.ResourceFlavor
 		)
 		ginkgo.BeforeEach(func() {
-			additionalFlavor1 = utiltestingapi.MakeResourceFlavor("flavor1").Obj()
-			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, additionalFlavor1)).Should(gomega.Succeed())
+			flavor1 = utiltestingapi.MakeResourceFlavor("flavor1").Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, flavor1)).Should(gomega.Succeed())
 
-			additionalFlavor2 = utiltestingapi.MakeResourceFlavor("flavor2-will-not-be-assigned").Obj()
-			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, additionalFlavor2)).Should(gomega.Succeed())
+			flavor2 = utiltestingapi.MakeResourceFlavor("flavor2-will-not-be-assigned").Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, flavor2)).Should(gomega.Succeed())
 
 			additionalAc = utiltestingapi.MakeAdmissionCheck("non-mk-ac").
 				ControllerName(kueue.MultiKueueControllerName).
@@ -1880,8 +1880,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, additionalAc)
 			util.SetAdmissionCheckActive(managerTestCluster.ctx, managerTestCluster.client, additionalAc, metav1.ConditionTrue)
 
-			flavor1Quotas := *utiltestingapi.MakeFlavorQuotas(additionalFlavor1.Name).Resource(corev1.ResourceCPU, "10").Obj()
-			flavor2Quotas := *utiltestingapi.MakeFlavorQuotas(additionalFlavor2.Name).Resource(corev1.ResourceMemory, "100Gi").Obj()
+			flavor1Quotas := *utiltestingapi.MakeFlavorQuotas(flavor1.Name).Resource(corev1.ResourceCPU, "10").Obj()
+			flavor2Quotas := *utiltestingapi.MakeFlavorQuotas(flavor2.Name).Resource(corev1.ResourceMemory, "100Gi").Obj()
 			resourceGroups := []kueue.ResourceGroup{
 				utiltestingapi.ResourceGroup(flavor1Quotas),
 				utiltestingapi.ResourceGroup(flavor2Quotas),
@@ -1889,12 +1889,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 			rule1 := *utiltestingapi.MakeAdmissionCheckStrategyRule(
 				kueue.AdmissionCheckReference(multiKueueAC.Name),
-				kueue.ResourceFlavorReference(additionalFlavor1.Name),
-				kueue.ResourceFlavorReference(additionalFlavor2.Name),
+				kueue.ResourceFlavorReference(flavor1.Name),
+				kueue.ResourceFlavorReference(flavor2.Name),
 			).Obj()
 			rule2 := *utiltestingapi.MakeAdmissionCheckStrategyRule(
 				kueue.AdmissionCheckReference(additionalAc.Name),
-				kueue.ResourceFlavorReference(additionalFlavor2.Name),
+				kueue.ResourceFlavorReference(flavor2.Name),
 			).Obj()
 			acRules := []kueue.AdmissionCheckStrategyRule{
 				rule1,
@@ -1917,8 +1917,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.AfterEach(func() {
 			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
-			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalFlavor1, true)
-			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalFlavor2, true)
+			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, flavor1, true)
+			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, flavor2, true)
 			util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, additionalAc, true)
 		})
 
@@ -1982,7 +1982,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				kueue.PodSetAssignment{
 					Name: "replicated-job-1",
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: kueue.ResourceFlavorReference(additionalFlavor1.Name),
+						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 					},
 					ResourceUsage: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1"),
@@ -1990,7 +1990,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				}, kueue.PodSetAssignment{
 					Name: "replicated-job-2",
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: kueue.ResourceFlavorReference(additionalFlavor1.Name),
+						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 					},
 					ResourceUsage: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1"),
