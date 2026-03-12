@@ -246,6 +246,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "test-deviceclass-1", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
+				&resourcev1.DeviceClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
+				},
 				&resourcev1.ResourceSlice{
 					ObjectMeta: metav1.ObjectMeta{Name: "slice-1"},
 					Spec: resourcev1.ResourceSliceSpec{
@@ -271,12 +274,70 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
+			name: "CEL selectors pre-filtered by DeviceClass selectors",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-filtered", "ns1").
+					DeviceRequest("req", "gpu-class", 1).
+					WithCELSelectors("device.driver == \"gpu-driver\"").
+					Obj(),
+				&resourcev1.DeviceClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "gpu-class"},
+					Spec: resourcev1.DeviceClassSpec{
+						Selectors: []resourcev1.DeviceSelector{
+							{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == \"gpu-driver\""}},
+						},
+					},
+				},
+				&resourcev1.ResourceSlice{
+					ObjectMeta: metav1.ObjectMeta{Name: "gpu-slice"},
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "gpu-driver",
+						Pool:   resourcev1.ResourcePool{Name: "gpu-pool", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{Name: "gpu-0"},
+						},
+					},
+				},
+				&resourcev1.ResourceSlice{
+					ObjectMeta: metav1.ObjectMeta{Name: "nic-slice"},
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "nic-driver",
+						Pool:   resourcev1.ResourcePool{Name: "nic-pool", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{Name: "nic-0"},
+							{Name: "nic-1"},
+							{Name: "nic-2"},
+						},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-filtered", ResourceClaimTemplateName: ptr.To("claim-tmpl-cel-filtered")},
+				}
+			},
+			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+				if dc == "gpu-class" {
+					return "res-1", true
+				}
+				return "", false
+			},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"res-1": resource.MustParse("1"),
+				},
+			},
+		},
+		{
 			name: "CEL selectors with unsatisfiable expression returns error",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-unsat", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 2).
 					WithCELSelectors("device.driver == \"nonexistent-driver\"").
 					Obj(),
+				&resourcev1.DeviceClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
+				},
 				&resourcev1.ResourceSlice{
 					ObjectMeta: metav1.ObjectMeta{Name: "slice-2"},
 					Spec: resourcev1.ResourceSliceSpec{
@@ -305,6 +366,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "test-deviceclass-1", 3).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
+				&resourcev1.DeviceClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
+				},
 				&resourcev1.ResourceSlice{
 					ObjectMeta: metav1.ObjectMeta{Name: "slice-3"},
 					Spec: resourcev1.ResourceSliceSpec{
@@ -334,6 +398,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "test-deviceclass-1", 1).
 					WithCELSelectors("this is not valid CEL!!!").
 					Obj(),
+				&resourcev1.DeviceClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
+				},
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -425,7 +492,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				mappings := []configapi.DeviceClassMapping{
 					{
 						Name:             corev1.ResourceName("res-1"),
-						DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"},
+						DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1", "gpu-class"},
 					},
 					{
 						Name:             corev1.ResourceName("res-2"),

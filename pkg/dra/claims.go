@@ -37,9 +37,10 @@ import (
 // celDeviceRequest tracks a device request that has CEL selectors,
 // along with the requested count, for validation against actual devices.
 type celDeviceRequest struct {
-	index     int
-	count     int64
-	selectors []resourcev1.DeviceSelector
+	index           int
+	count           int64
+	deviceClassName string
+	selectors       []resourcev1.DeviceSelector
 }
 
 // countDevicesPerClass returns a resources.Requests representing the
@@ -254,9 +255,10 @@ func extractCELRequests(claimSpec *resourcev1.ResourceClaimSpec) []celDeviceRequ
 		}
 		if hasCEL {
 			result = append(result, celDeviceRequest{
-				index:     i,
-				count:     req.Exactly.Count,
-				selectors: req.Exactly.Selectors,
+				index:           i,
+				count:           req.Exactly.Count,
+				deviceClassName: req.Exactly.DeviceClassName,
+				selectors:       req.Exactly.Selectors,
 			})
 		}
 	}
@@ -265,6 +267,10 @@ func extractCELRequests(claimSpec *resourcev1.ResourceClaimSpec) []celDeviceRequ
 
 // validateCELSelectorsAgainstDevices lists all ResourceSlices in the cluster and
 // evaluates the CEL selectors from each request against the actual devices.
+// For each request, it resolves the DeviceClassName to its DeviceClass and uses
+// the class selectors to pre-filter devices before evaluating the request's own
+// CEL selectors. This avoids running CEL against devices that belong to
+// unrelated drivers or classes.
 // If fewer devices match than requested, it returns field errors indicating the
 // workload is unsatisfiable, preventing quota from being consumed by workloads
 // whose pods can never be scheduled.
@@ -296,7 +302,43 @@ func validateCELSelectorsAgainstDevices(ctx context.Context, cl client.Client, c
 	compiler := dracel.GetCompiler(dracel.Features{})
 	var allErrs field.ErrorList
 
+	// Cache DeviceClass lookups so we resolve each class at most once.
+	classCache := make(map[string]*resourcev1.DeviceClass)
+
 	for _, cr := range celReqs {
+		// Resolve the DeviceClass and compile its selectors for pre-filtering.
+		var classSelectors []dracel.CompilationResult
+		if cr.deviceClassName != "" {
+			dc, ok := classCache[cr.deviceClassName]
+			if !ok {
+				dc = &resourcev1.DeviceClass{}
+				if err := cl.Get(ctx, client.ObjectKey{Name: cr.deviceClassName}, dc); err != nil {
+					allErrs = append(allErrs, field.InternalError(
+						basePath.Child("devices", "requests").Index(cr.index),
+						fmt.Errorf("failed to get DeviceClass %s: %w", cr.deviceClassName, err),
+					))
+					continue
+				}
+				classCache[cr.deviceClassName] = dc
+			}
+			for _, sel := range dc.Spec.Selectors {
+				if sel.CEL == nil {
+					continue
+				}
+				result := compiler.CompileCELExpression(sel.CEL.Expression, dracel.Options{})
+				if result.Error != nil {
+					// DeviceClass has invalid CEL — no devices can match.
+					allErrs = append(allErrs, field.Invalid(
+						basePath.Child("devices", "requests").Index(cr.index),
+						cr.deviceClassName,
+						fmt.Sprintf("DeviceClass %s has invalid CEL selector: %s", cr.deviceClassName, result.Error.Detail),
+					))
+					continue
+				}
+				classSelectors = append(classSelectors, result)
+			}
+		}
+
 		// Compile all CEL selectors for this request.
 		var compiled []dracel.CompilationResult
 		for _, sel := range cr.selectors {
@@ -318,9 +360,23 @@ func validateCELSelectorsAgainstDevices(ctx context.Context, cl client.Client, c
 			continue
 		}
 
-		// Evaluate against all cluster devices.
+		// Evaluate against cluster devices, pre-filtering by class selectors.
 		var matchCount int64
 		for _, dev := range clusterDevices {
+			// First check class selectors to skip devices that don't belong to this class.
+			classMatch := true
+			for _, comp := range classSelectors {
+				matches, _, err := comp.DeviceMatches(ctx, dev)
+				if err != nil || !matches {
+					classMatch = false
+					break
+				}
+			}
+			if !classMatch {
+				continue
+			}
+
+			// Then evaluate the request's own selectors.
 			allMatch := true
 			for _, comp := range compiled {
 				matches, _, err := comp.DeviceMatches(ctx, dev)
