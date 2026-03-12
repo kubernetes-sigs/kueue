@@ -535,13 +535,15 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 	})
 
 	ginkgo.When("MultiKueueOrchestratedPreemption is enabled", func() {
-		var lowWlKey1 types.NamespacedName
-		var managerLowWl1 *kueue.Workload
-		var workerLowWl1 *kueue.Workload
+		var (
+			lowWlKey1     types.NamespacedName
+			managerLowWl1 *kueue.Workload
+			workerLowWl1  *kueue.Workload
 
-		var lowWlKey2 types.NamespacedName
-		var managerLowWl2 *kueue.Workload
-		var workerLowWl2 *kueue.Workload
+			lowWlKey2     types.NamespacedName
+			managerLowWl2 *kueue.Workload
+			workerLowWl2  *kueue.Workload
+		)
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueOrchestratedPreemption, true)
