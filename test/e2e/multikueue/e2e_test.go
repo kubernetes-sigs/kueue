@@ -2171,7 +2171,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			// Fits only in worker2
+			// Fits only in worker2, because lowJob1 took quota from worker1
 			lowJob2 := testingjob.MakeJob("low-job2", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerLowWPC.Name).
@@ -2203,7 +2203,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			// Fits in both workers
+			// Can fit in both workers after preemptions
 			highJob := testingjob.MakeJob("high-job", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerHighWPC.Name).
