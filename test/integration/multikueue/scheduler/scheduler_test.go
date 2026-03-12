@@ -607,7 +607,6 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey2, &kueue.Workload{})).To(testing.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
-
 		})
 
 		ginkgo.It("should not trigger concurrent preemptions", func() {
