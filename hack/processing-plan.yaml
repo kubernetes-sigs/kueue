@@ -702,6 +702,13 @@ files:
         indentation: 2
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
       - type: INSERT_TEXT
+        key: .spec.template.metadata
+        value: |
+          annotations:
+            charts.kueue.x-k8s.io/config-checksum: {{ include (print .Template.BasePath "/kueueviz/frontend-configmap.yaml") . | sha256sum }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
         key: .spec.template.spec
         value: |
           {{- with .Values.kueueViz.frontend.imagePullSecrets  }}
