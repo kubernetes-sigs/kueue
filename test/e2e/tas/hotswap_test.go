@@ -585,21 +585,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 
 				ginkgo.By("Wait for the victim pod to be Failed", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
-							"job-name": jobName,
-						})).To(gomega.Succeed())
-
-						var victimPod *corev1.Pod
-
-						for i := range pods.Items {
-							p := &pods.Items[i]
-							if p.Labels["batch.kubernetes.io/job-completion-index"] == "0" {
-								if initialUIDs.Has(string(p.UID)) {
-									victimPod = p
-								}
-							}
-						}
-
+						victimPod := findByPodIndex(ctx, k8sClient, g, ns.Name, jobName, "0", initialUIDs, true)
 						g.Expect(victimPod).NotTo(gomega.BeNil(), "Victim pod should still exist")
 						g.Expect(victimPod.Status.Phase).To(gomega.Equal(corev1.PodFailed), "Victim pod should be Failed")
 						g.Expect(victimPod.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
@@ -613,21 +599,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				var replacementPodName string
 				ginkgo.By("Wait for the replacement pod to be created", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
-							"job-name": jobName,
-						})).To(gomega.Succeed())
-
-						var replacementPod *corev1.Pod
-
-						for i := range pods.Items {
-							p := &pods.Items[i]
-							if p.Labels["batch.kubernetes.io/job-completion-index"] == "0" {
-								if _, ok := initialUIDs[string(p.UID)]; !ok {
-									replacementPod = p
-								}
-							}
-						}
-
+						replacementPod := findByPodIndex(ctx, k8sClient, g, ns.Name, jobName, "0", initialUIDs, false)
 						g.Expect(replacementPod).NotTo(gomega.BeNil(), "Replacement pod should appear")
 						replacementPodName = replacementPod.Name
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
@@ -719,4 +691,21 @@ func expectPodsOnNodes(ctx context.Context, k8sClient client.Client, nsName stri
 		g.Expect(gotNodes).To(gomega.HaveLen(numPods))
 		g.Expect(gotNodes).To(gomega.ConsistOf(expectedNodes))
 	}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+}
+
+func findByPodIndex(ctx context.Context, k8sClient client.Client, g gomega.Gomega, nsName, jobName, index string, initialUIDs sets.Set[string], wantInitialUID bool) *corev1.Pod {
+	pods := &corev1.PodList{}
+	g.Expect(k8sClient.List(ctx, pods, client.InNamespace(nsName), client.MatchingLabels{
+		"job-name": jobName,
+	})).To(gomega.Succeed())
+
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if p.Labels["batch.kubernetes.io/job-completion-index"] == index {
+			if initialUIDs.Has(string(p.UID)) == wantInitialUID {
+				return p
+			}
+		}
+	}
+	return nil
 }
