@@ -120,7 +120,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 	ginkgo.Context("Long PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
-			podsReadyTimeout = util.LongTimeout
+			podsReadyTimeout = util.MediumTimeout
 		})
 
 		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", framework.SlowSpec, func() {
@@ -661,7 +661,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 
 	ginkgo.Context("Long PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
-			podsReadyTimeout = util.LongTimeout
+			podsReadyTimeout = util.MediumTimeout
 		})
 
 		ginkgo.It("Should not block admission of one new workload if two are considered in the same scheduling cycle", func() {

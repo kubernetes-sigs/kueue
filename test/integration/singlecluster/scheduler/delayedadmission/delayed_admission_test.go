@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
 					g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Marking AC as Retry to trigger a delayed retry", func() {
@@ -181,7 +181,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
 					g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Marking AC as Ready", func() {

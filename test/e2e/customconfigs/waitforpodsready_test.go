@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 	})
 
 	ginkgo.AfterAll(func() {
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.MediumTimeout)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
 	})
 
@@ -195,7 +195,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 				g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeFalse())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
@@ -284,7 +284,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 	})
 
 	ginkgo.AfterAll(func() {
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.MediumTimeout)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
 	})
 
@@ -311,7 +311,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("simulating pod failure", func() {
@@ -334,7 +334,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 						Count:           1,
 					}}),
 				)
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying that the metric is updated", func() {
@@ -383,7 +383,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  ptr.To(true),
-				RecoveryTimeout: &metav1.Duration{Duration: util.LongTimeout},
+				RecoveryTimeout: &metav1.Duration{Duration: util.MediumTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          ptr.To(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: ptr.To(int32(1)),
@@ -429,7 +429,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 	})
 
 	ginkgo.AfterAll(func() {
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.MediumTimeout)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
 	})
 
@@ -456,7 +456,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying that the metric is updated", func() {
@@ -475,7 +475,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadRecovered))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying that the metric is not updated", func() {
