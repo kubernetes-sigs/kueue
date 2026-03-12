@@ -182,7 +182,7 @@ func mainWithExitCode() int {
 	cCache := schdcache.New(mgr.GetClient())
 
 	// setup inadmissible workload requeuer
-	requeuer := qcache.NewRequeuer(qcache.RequeueBatchPeriodProd)
+	requeuer := qcache.NewRequeuer()
 	if err := mgr.Add(requeuer); err != nil {
 		log.Error(err, "Unable to add workloadRequeuer to manager")
 		return 1

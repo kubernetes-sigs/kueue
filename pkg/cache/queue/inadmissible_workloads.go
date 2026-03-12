@@ -30,12 +30,33 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
-	RequeueBatchPeriodProd = 1 * time.Second
+	requeueBatchPeriod     = 1 * time.Second
+	requeueLongBatchPeriod = 10 * time.Second
 )
+
+func getRequeueBatchPeriod() time.Duration {
+	if features.Enabled(features.SchedulerLongRequeueInterval) {
+		return requeueLongBatchPeriod
+	}
+	return requeueBatchPeriod
+}
+
+type requeuerOptions struct {
+	batchPeriod time.Duration
+}
+
+type RequeuerOption func(*requeuerOptions)
+
+func WithBatchPeriod(period time.Duration) RequeuerOption {
+	return func(o *requeuerOptions) {
+		o.batchPeriod = period
+	}
+}
 
 // inadmissibleWorkloads is a thin wrapper around a map to encapsulate
 // operations on inadmissible workloads and prevent direct map access.
@@ -225,10 +246,16 @@ type workqueueRequeuer struct {
 	batchPeriod time.Duration
 }
 
-func NewRequeuer(batchPeriod time.Duration) *workqueueRequeuer {
+func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
+	options := requeuerOptions{
+		batchPeriod: getRequeueBatchPeriod(),
+	}
+	for _, opt := range opts {
+		opt(&options)
+	}
 	return &workqueueRequeuer{
 		queue:       workqueue.NewTypedDelayingQueue[requeueRequest](),
-		batchPeriod: batchPeriod,
+		batchPeriod: options.batchPeriod,
 	}
 }
 
