@@ -202,6 +202,7 @@ func setSkipped(e *entry, inadmissibleMsg string) {
 func setPreemptionGated(e *entry, preemptionGatedMsg string) {
 	e.status = preemptionGated
 	e.inadmissibleMsg = preemptionGatedMsg
+	e.requeueReason = qcache.RequeueReasonPreemptionGated
 	// Reset assignment so that we retry all flavors
 	// after being gated.
 	e.LastAssignment = nil

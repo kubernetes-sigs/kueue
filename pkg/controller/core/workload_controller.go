@@ -983,7 +983,6 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
-
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
 		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
@@ -1050,6 +1049,13 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		// and are not supposed to actually change anything.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
+
+	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
+		if workload.HasClosedPreemptionGate(e.ObjectOld) && !workload.HasClosedPreemptionGate(e.ObjectNew) {
+			r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, nil)
+		}
+	}
+
 	r.queues.QueueSecondPassIfNeeded(ctx, e.ObjectNew, 0)
 	return true
 }

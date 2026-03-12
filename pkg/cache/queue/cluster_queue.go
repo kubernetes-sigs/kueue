@@ -53,6 +53,7 @@ const (
 	RequeueReasonFailedAfterNomination RequeueReason = "FailedAfterNomination"
 	RequeueReasonNamespaceMismatch     RequeueReason = "NamespaceMismatch"
 	RequeueReasonGeneric               RequeueReason = ""
+	RequeueReasonPreemptionGated       RequeueReason = "PreemptionGated"
 	RequeueReasonPendingPreemption     RequeueReason = "PendingPreemption"
 	RequeueReasonPreemptionFailed      RequeueReason = "PreemptionFailed"
 )
