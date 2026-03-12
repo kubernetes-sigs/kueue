@@ -2144,8 +2144,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerLowWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
-				RequestAndLimit(corev1.ResourceCPU, "0.5").
-				RequestAndLimit(corev1.ResourceMemory, "0.5G").
+				RequestAndLimit(corev1.ResourceCPU, "0.1").
+				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(corev1.ResourceEphemeralStorage, "15G").
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob1)
@@ -2171,13 +2171,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			// Fits only in worker2, because lowJob1 took quota from worker1
+			// Fits only in worker2
 			lowJob2 := testingjob.MakeJob("low-job2", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerLowWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
-				RequestAndLimit(corev1.ResourceCPU, "0.5").
-				RequestAndLimit(corev1.ResourceMemory, "0.5G").
+				RequestAndLimit(corev1.ResourceCPU, "0.1").
+				RequestAndLimit(corev1.ResourceMemory, "1.5G").
 				RequestAndLimit(corev1.ResourceEphemeralStorage, "5G").
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob2)
@@ -2208,8 +2208,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerHighWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
-				RequestAndLimit(corev1.ResourceCPU, "0.5").
-				RequestAndLimit(corev1.ResourceMemory, "0.5G").
+				RequestAndLimit(corev1.ResourceCPU, "0.1").
+				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(corev1.ResourceEphemeralStorage, "5G").
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
