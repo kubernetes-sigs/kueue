@@ -162,7 +162,7 @@ func HasAllChecksReady(wl *kueue.Workload) bool {
 // (They don't have to be in the Ready state; for that, see HasAllChecksReady).
 func HasAllRequiredChecks(wl *kueue.Workload, allChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]) bool {
 	admissionFlavors := admissionFlavors(wl.Status.Admission)
-	if (admissionFlavors.Len() == 0) {
+	if admissionFlavors.Len() == 0 {
 		return true
 	}
 
