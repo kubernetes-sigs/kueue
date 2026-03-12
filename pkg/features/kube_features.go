@@ -165,6 +165,15 @@ const (
 	ManagedJobsNamespaceSelectorAlwaysRespected featuregate.Feature = "ManagedJobsNamespaceSelectorAlwaysRespected"
 
 	// owner: @pajakd
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
+	//
+	// In flavor fungibility, infer the preference between borrowing and preemption
+	// from the legacy policies when .spec.flavorFungibility.preference is unset.
+	//
+	// Deprecated: planned to be removed in 0.18.
+	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
+
+	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
 	// Use balanced placement algorithm in TAS. This feature gate is going to be replaced by an API
@@ -379,6 +388,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+	},
+	FlavorFungibilityImplicitPreferenceDefault: {
+		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.16"), Default: false, PreRelease: featuregate.Deprecated},
 	},
 	TASBalancedPlacement: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},

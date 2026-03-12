@@ -3888,6 +3888,7 @@ func TestIsPreferred(t *testing.T) {
 	}
 
 	cases := map[string]struct {
+		enableGate    bool
 		a             granularMode
 		b             granularMode
 		config        kueue.FlavorFungibility
@@ -3901,6 +3902,26 @@ func TestIsPreferred(t *testing.T) {
 				WhenCanPreempt: kueue.TryNextFlavor,
 			},
 			wantPreferred: true,
+		},
+		"legacy gate enabled infers preference from borrow policy": {
+			enableGate: true,
+			a:          granularMode{preemptionMode: preempt, borrowingLevel: 0},
+			b:          granularMode{preemptionMode: fit, borrowingLevel: 1},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			},
+			wantPreferred: true,
+		},
+		"legacy gate enabled keeps borrowing default when borrow policy does not try next": {
+			enableGate: true,
+			a:          granularMode{preemptionMode: preempt, borrowingLevel: 0},
+			b:          granularMode{preemptionMode: fit, borrowingLevel: 1},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.MayStopSearch,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			},
+			wantPreferred: false,
 		},
 		"explicit BorrowingOverPreemption prioritises borrowing distance": {
 			a: granularMode{preemptionMode: preempt, borrowingLevel: 1},
@@ -3936,6 +3957,7 @@ func TestIsPreferred(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, tc.enableGate)
 			if got := isPreferred(tc.a, tc.b, tc.config); got != tc.wantPreferred {
 				t.Fatalf("isPreferred(%+v, %+v, %+v)=%t, want %t", tc.a, tc.b, tc.config, got, tc.wantPreferred)
 			}

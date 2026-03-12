@@ -59,6 +59,16 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: FlavorFungibilityImplicitPreferenceDefault
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.13"
+  - default: false
+    lockToDefault: false
+    preRelease: Deprecated
+    version: "0.16"
 - name: HierarchicalCohorts
   versionedSpecs:
   - default: true
