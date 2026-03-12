@@ -54,7 +54,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [StrictFIFO](#strictfifo)
   - [Risks and Mitigations](#risks-and-mitigations)
   - [FlavorFungibility Misinterpretation](#flavorfungibility-misinterpretation)
-    - [Misconfiguration](#misconfiguration)
+  - [Misconfiguration](#misconfiguration)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -445,16 +445,24 @@ To maintain a clear relationship between the parent and its virtual clones, the 
 **Default RF Variants**: When Variants are created automatically for each ResourceFlavor in the ClusterQueue, the name follows:
 
 ```
-${original_workload_name}-variant-${resource_flavors_names}
+${job-kind}-${job-name}-variant-${resource-flavor-1}-${resource-flavor-2}-${hash}
+```
+
+Example:
+```
+job-kind-job-name-variant-highcpu-highmem-foohash
 ```
 
 **Explicit Variants**: When specific names are provided in the ExplicitVariants configuration:
 
 ```
-${original_workload_name}-variant-${explicit_variant_name}
+${job-kind}-${job-name}-variant-${variant-name}-${hash}
 ```
 
-Note: Variant names are designed to be deterministic. If a name collision occurs (due to long Workload/RF names), standard Kueue suffix truncation logic will be applied while maintaining the -variant- identifier.
+Example:
+```
+job-kind-job-name-variant-spot-foohash
+```
 
 #### Workload Spec
 
@@ -679,7 +687,7 @@ For Alpha and Beta version of this feature we don't plan to support `StrictFIFO`
 ### FlavorFungibility Misinterpretation
 
 In the first iteration of the feature we don't plan to integrate with the `FlavorFungibility` on the
-inter-Variants level. It means that the `OnSuccessPolicy` is binary - if a Variant has been admitted or not.
+inter-Variants level. It means that the decision about migrating to a different flavor is binary - if a Variant has been admitted or not.
 It doesn't take into account if preemption or borrowing was necessary to admit a Variant. The preference order of Variants
 is purely based on ResourceFlavors used, and user doesn't have capabilities to express what to do if e.g. two Variants can be
 admitted, but the more preferable one requires preemption. The more preferable one will always be chosen.
@@ -689,7 +697,7 @@ the `FlavorFungibility` config.
 
 This may lead to confusion, so we need to address this use-case directly in the documentation.
 
-#### Misconfiguration
+### Misconfiguration
 
 The overall complexity of this feature may lead to misconfigurations. To mitigate this risk
 we should provide users with comprehensive documentation and examples.
@@ -729,6 +737,10 @@ implementing this enhancement to ensure the enhancements have also solid foundat
 
 #### Unit Tests
 
+Unit tests will be added for:
+- the new variant controller
+- scheduler to cover flavor assignment constraints
+
 <!--
 In principle every added code should have complete unit test coverage, so providing
 the exact set of tests will not bring additional value.
@@ -749,6 +761,15 @@ extending the production code to implement this enhancement.
 - `<package>`: `<date>` - `<test coverage>`
 
 #### Integration tests
+
+In the first iteration of the feature integration tests will be added to conver following scenarios:
+- Parent Workloads are not picked up by the scheduler
+- Scheduler assigns flavors with respect to the flavor assignment constraints
+- Variant controller creates proper number of Variant Workloads with respect to CQ's config
+- Only one Variant can preempt other Workloads
+- Variants are created/deleted upon the changes in CQ's config
+- Workload can migrate to a target flavor if the quota is released
+- Workload cannot migrate to a different flavor if the flavor is below min target
 
 <!--
 Describe what tests will be added to ensure proper quality of the enhancement.
@@ -822,8 +843,7 @@ Major milestones might include:
 ## Drawbacks
 
 ### Increased API Object Count
-
-With this feature Kueue creates more API Object that put pressure on core k8s components such as e.g. API Server or etcd.
+With this feature Kueue creates more API Objects that put pressure on core k8s components such as e.g. API Server or etcd.
 
 Additionally, since one Job corresponds to potentially multiple Workloads it increases the cost of scheduling a Job by Kueue.
 In worst case scenario Kueue scheduler needs to do **V** (number of Variants per Job) number of scheduling cycles before it admits the last one.
