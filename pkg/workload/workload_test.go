@@ -1203,7 +1203,7 @@ func TestAdmissionCheckStrategyForAdmittedWorkload(t *testing.T) {
 	}
 }
 
-func TestAdmissionCheckListingForWorkload(t *testing.T) {
+func TestAdmissionChecksForWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
 		wl                  *kueue.Workload
