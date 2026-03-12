@@ -194,10 +194,17 @@ func metricFromCall(expr ast.Expr) (Metric, bool) {
 	}
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
+		// Unwrap single-argument wrapper (e.g. trackGaugeVec(prometheus.NewGaugeVec(...))).
+		if len(call.Args) == 1 {
+			return metricFromCall(call.Args[0])
+		}
 		return Metric{}, false
 	}
 	pkgIdent, ok := sel.X.(*ast.Ident)
 	if !ok || pkgIdent.Name != "prometheus" {
+		if len(call.Args) == 1 {
+			return metricFromCall(call.Args[0])
+		}
 		return Metric{}, false
 	}
 	fun := sel.Sel.Name
@@ -243,15 +250,20 @@ func metricFromCall(expr ast.Expr) (Metric, bool) {
 }
 
 func parseLabels(arg ast.Expr) []string {
-	var labels []string
-	cl, ok := arg.(*ast.CompositeLit)
-	if !ok {
+	switch v := arg.(type) {
+	case *ast.CompositeLit:
+		var labels []string
+		for _, elt := range v.Elts {
+			labels = append(labels, stringLiteral(elt))
+		}
 		return labels
+	case *ast.CallExpr:
+		// Extract only the static labels from append(base, dynamic...) calls.
+		if ident, ok := v.Fun.(*ast.Ident); ok && ident.Name == "append" && len(v.Args) >= 1 {
+			return parseLabels(v.Args[0])
+		}
 	}
-	for _, elt := range cl.Elts {
-		labels = append(labels, stringLiteral(elt))
-	}
-	return labels
+	return nil
 }
 
 func stringLiteral(e ast.Expr) string {

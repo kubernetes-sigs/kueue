@@ -155,6 +155,56 @@ var (
 	}
 }
 
+func TestExtractMetricsWrapperAndAppendLabels(t *testing.T) {
+	dir := t.TempDir()
+	src := `package metrics
+
+import "github.com/prometheus/client_golang/prometheus"
+
+const KueueName = "kueue"
+
+var extraLabels []string
+
+func trackGaugeVec(g *prometheus.GaugeVec) *prometheus.GaugeVec { return g }
+
+var (
+	// +metricsdoc:group=clusterqueue
+	PendingWorkloads *prometheus.GaugeVec
+)
+
+func initMetrics() {
+	PendingWorkloads = trackGaugeVec(prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: KueueName,
+			Name:      "pending_workloads",
+			Help:      "The number of pending workloads",
+		},
+		append([]string{"cluster_queue", "status"}, extraLabels...),
+	))
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "metrics.go"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := extractMetricsFromPackage(dir)
+	if err != nil {
+		t.Fatalf("extractMetricsFromPackage: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 metric, got %d", len(got))
+	}
+	want := Metric{
+		FullName: "kueue_pending_workloads",
+		Type:     "Gauge",
+		Group:    "clusterqueue",
+		Help:     "The number of pending workloads",
+		Labels:   []string{"cluster_queue", "status"},
+	}
+	if diff := cmp.Diff(want, got[0]); diff != "" {
+		t.Errorf("unexpected metric (-want/+got):\n%s", diff)
+	}
+}
+
 func TestExtractMetricsUnresolvedDeferred(t *testing.T) {
 	dir := t.TempDir()
 	src := `package metrics
