@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 				g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperSucceeded))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Delete the appwrapper", func() {
@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 				g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeFalse())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Check that only one workload is created and admitted", func() {
@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 				g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 				g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(appwrapper.GetWorkloadNameForAppWrapper(aw.Name, aw.UID)))
 				g.Expect(createdWorkloads.Items[0].Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying that the Deployment ready", func() {
@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, deploymentKey, createdDeployment)).To(gomega.Succeed())
 				g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

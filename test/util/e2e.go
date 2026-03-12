@@ -314,7 +314,7 @@ func waitForDeploymentAvailability(ctx context.Context, k8sClient client.Client,
 				}
 			}
 		}
-	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
 	ginkgo.GinkgoLogr.Info("Deployment is available", "deployment", key, "noRestarts", checkNoRestarts, "waitingTime", time.Since(waitStart))
 }
 
@@ -558,7 +558,7 @@ func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient cli
 				Status: corev1.ConditionTrue,
 			}, cmpopts.IgnoreFields(corev1.PodCondition{}, "Reason", "LastTransitionTime", "LastProbeTime"))))
 		}
-	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func GetKuberayTestImage() string {
