@@ -18,14 +18,10 @@ package jobframework
 
 import (
 	"context"
-	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 )
 
@@ -37,29 +33,6 @@ func JobPodSets(ctx context.Context, job GenericJob) ([]kueue.PodSet, error) {
 		return nil, err
 	}
 	SanitizePodSets(podSets)
-	return podSets, nil
-}
-
-// GetJobPodSetsWithUpdateJob retrieves the pod sets from a GenericJob and applies environment variable
-// deduplication. It will also patch any in-memory changes (e.g. annotation updates) to the API server.
-func GetJobPodSetsWithUpdateJob(ctx context.Context, job GenericJob, c client.Client) ([]kueue.PodSet, error) {
-	object := job.Object()
-	var podSets []kueue.PodSet
-
-	// JobPodSets() may update job in-memory data, thus use clientutil.Patch to update job in the API server
-	err := clientutil.Patch(ctx, c, object, func() (bool, error) {
-		objectSnapshot := object.DeepCopyObject()
-		var err error
-		podSets, err = JobPodSets(ctx, job)
-		if err != nil {
-			return false, err
-		}
-		return !equality.Semantic.DeepEqual(objectSnapshot, object), nil
-	}, clientutil.WithRetryOnConflict(), clientutil.WithLoose())
-	if err != nil {
-		return nil, fmt.Errorf("failed to patch changes on object %s: %w", object.GetName(), err)
-	}
-
 	return podSets, nil
 }
 

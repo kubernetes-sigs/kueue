@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -122,6 +123,7 @@ type RayJob rayv1.RayJob
 var _ jobframework.GenericJob = (*RayJob)(nil)
 var _ jobframework.JobWithManagedBy = (*RayJob)(nil)
 var _ jobframework.JobWithSkip = (*RayJob)(nil)
+var _ jobframework.JobWithCustomAnnotations = (*RayJob)(nil)
 
 func (j *RayJob) Object() client.Object {
 	return (*rayv1.RayJob)(j)
@@ -179,25 +181,27 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		return nil, err
 	}
 
-	previousCounts, err := parsePodSetReplicaSizes(j.Annotations[jobframework.PodsetReplicaSizesAnnotation])
-	if err != nil {
-		return nil, err
-	}
-
-	// Compare current counts against previous annotation. If any differ, update the in-memory
-	// annotation with ALL current podSet counts (not just the changed ones). The actual API server
-	// patch is handled by the reconciler.
-	changed := comparePodSetCounts(podSets, previousCounts)
-	if changed {
-		podSetsJSON, err := serializePodSetCounts(podSets)
+	if workloadslicing.Enabled(j.Object()) {
+		previousCounts, err := parsePodSetReplicaSizes(j.Annotations[jobframework.PodsetReplicaSizesAnnotation])
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
+			return nil, err
 		}
 
-		if j.Annotations == nil {
-			j.Annotations = make(map[string]string)
+		// Compare current counts against previous annotation. If any differ, update the in-memory
+		// annotation with ALL current podSet counts (not just the changed ones). The actual API server
+		// patch is handled by the reconciler.
+		changed := comparePodSetCounts(podSets, previousCounts)
+		if changed {
+			podSetsJSON, err := serializePodSetCounts(podSets)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
+			}
+
+			if j.Annotations == nil {
+				j.Annotations = make(map[string]string)
+			}
+			j.Annotations[jobframework.PodsetReplicaSizesAnnotation] = string(podSetsJSON)
 		}
-		j.Annotations[jobframework.PodsetReplicaSizesAnnotation] = string(podSetsJSON)
 	}
 
 	return podSets, nil
@@ -309,6 +313,19 @@ func (j *RayJob) Finished(ctx context.Context) (message string, success, finishe
 
 func (j *RayJob) PodsReady(ctx context.Context) bool {
 	return j.Status.RayClusterStatus.State == rayv1.Ready
+}
+
+func (j *RayJob) UpdateAnnotations(ctx context.Context, c client.Client) error {
+	obj := (*rayv1.RayJob)(j)
+	patchData, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"annotations": obj.GetAnnotations(),
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return c.Patch(ctx, obj, client.RawPatch(types.MergePatchType, patchData))
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
