@@ -775,6 +775,11 @@ func TestGetWorkloadStatus(t *testing.T) {
 			LastTransitionTime: metav1.NewTime(testStartTime)}).
 		Obj()
 
+	basePod := testingpod.MakePod("test-pod", nsName).
+		Annotation(kueue.WorkloadAnnotation, wlName).
+		NodeName(nodeName).
+		Obj()
+
 	strayPod := testingpod.MakePod("stray-pod", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
 		NodeSelector(corev1.LabelHostname, nodeNameUnassigned).
@@ -782,17 +787,43 @@ func TestGetWorkloadStatus(t *testing.T) {
 		Obj()
 
 	tests := map[string]struct {
-		node        *corev1.Node
-		nodeName    string
-		initObjs    []client.Object
-		wantStatus  workloadStatus
-		wantDeleted []string
+		node         *corev1.Node
+		nodeName     string
+		initObjs     []client.Object
+		wantStatus   workloadStatus
+		wantDeleted  []string
+		featureGates map[featuregate.Feature]bool
 	}{
 		"Healthy pod on assigned node": {
-			node:     baseNode,
+			node:       baseNode,
+			nodeName:   nodeName,
+			initObjs:   []client.Object{baseWorkload, basePod},
+			wantStatus: workloadHealthy,
+		},
+		"Workload not found returns workloadHealthy": {
+			node:       baseNode,
+			nodeName:   nodeName,
+			initObjs:   []client.Object{basePod}, // Only pod is created
+			wantStatus: workloadHealthy,
+		},
+		"Node Ready, TASReplaceNodeOnNodeTaints disabled -> Healthy": {
+			node:         baseNode,
+			nodeName:     nodeName,
+			initObjs:     []client.Object{baseWorkload, basePod},
+			wantStatus:   workloadHealthy,
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnNodeTaints: false},
+		},
+		"Node NotReady, ReplaceNodeOnPodTermination disabled -> Unhealthy immediately": {
+			node:         testingnode.MakeNode(nodeName).StatusConditions(corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse, LastTransitionTime: metav1.NewTime(testStartTime)}).Obj(),
+			nodeName:     nodeName,
+			initObjs:     []client.Object{baseWorkload, basePod},
+			wantStatus:   workloadUnhealthy,
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
+		},
+		"Node NotReady, ReplaceNodeOnPodTermination enabled -> HealthUnknown (Waiting for pod termination)": {
+			node:     testingnode.MakeNode(nodeName).StatusConditions(corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse, LastTransitionTime: metav1.NewTime(testStartTime)}).Obj(),
 			nodeName: nodeName,
 			initObjs: []client.Object{
-				baseNode.DeepCopy(),
 				baseWorkload.DeepCopy(),
 				testingpod.MakePod("valid-pod", nsName).
 					Annotation(kueue.WorkloadAnnotation, wlName).
@@ -800,7 +831,8 @@ func TestGetWorkloadStatus(t *testing.T) {
 					StatusPhase(corev1.PodRunning).
 					Obj(),
 			},
-			wantStatus: workloadHealthy,
+			wantStatus:   workloadHealthUnknown,
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: true},
 		},
 		"Stray pending pod on unassigned node gets terminated (expectedOnNode == 0)": {
 			node:     unassignedNode,
@@ -817,6 +849,9 @@ func TestGetWorkloadStatus(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			for fg, enable := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enable)
+			}
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(tc.initObjs...)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {

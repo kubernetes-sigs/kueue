@@ -328,10 +328,7 @@ func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string,
 		return workloadHealthCheck{status: workloadHealthUnknown}, err
 	}
 
-	shouldWait := false
 	ready := utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)
-	var untolerated, temporarilyTolerated []corev1.Taint
-
 	expectedOnNode := utiltas.ExpectedPodsOnNode(wl.Status.Admission.PodSetAssignments, nodeName)
 
 	switch {
@@ -339,34 +336,35 @@ func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string,
 		// If a pod arrives late (via nodeSelector) and its node is no longer part
 		// of the topology assignment (expected == 0), we must always check pods
 		// to catch and fail the stray pod.
-		shouldWait = true
-	case ready && features.Enabled(features.TASReplaceNodeOnNodeTaints):
-		// Ready node, check for taints
-		untolerated, temporarilyTolerated = classifyNoExecuteTaints(ctx, node.Spec.Taints, workload.PodSetsOnNode(wl, nodeName))
-		switch {
-		case len(untolerated) > 0:
+		return r.checkPodsOnNode(ctx, nodeName, wl, nil, expectedOnNode)
+	case !ready:
+		if !features.Enabled(features.TASReplaceNodeOnPodTermination) {
+			return workloadHealthCheck{status: workloadUnhealthy}, nil
+		}
+		// NotReady node
+		return r.checkPodsOnNode(ctx, nodeName, wl, nil, expectedOnNode)
+	case ready && !features.Enabled(features.TASReplaceNodeOnNodeTaints):
+		// Node is Ready, but taint replacement is disabled
+		return workloadHealthCheck{status: workloadHealthy}, nil
+	default:
+		// Node is Ready, and taint replacement is enabled
+		untolerated, temporarilyTolerated := classifyNoExecuteTaints(ctx, node.Spec.Taints, workload.PodSetsOnNode(wl, nodeName))
+
+		if len(untolerated) > 0 {
 			if !features.Enabled(features.TASReplaceNodeOnPodTermination) {
 				return workloadHealthCheck{status: workloadUnhealthy}, nil
 			}
-			shouldWait = true
-		case len(temporarilyTolerated) > 0:
-			shouldWait = true
-		default:
-			return workloadHealthCheck{status: workloadHealthy}, nil
+			return r.checkPodsOnNode(ctx, nodeName, wl, untolerated, expectedOnNode)
 		}
-	case !ready && features.Enabled(features.TASReplaceNodeOnPodTermination):
-		// NotReady node
-		shouldWait = true
+		if len(temporarilyTolerated) > 0 {
+			return r.checkPodsOnNode(ctx, nodeName, wl, untolerated, expectedOnNode)
+		}
+		return workloadHealthCheck{status: workloadHealthy}, nil
 	}
-
-	if shouldWait {
-		return r.checkPodsOnNode(ctx, nodeName, wl, untolerated, expectedOnNode)
-	}
-	return workloadHealthCheck{status: workloadHealthy}, nil
 }
 
 func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, wl *kueue.Workload, untolerated []corev1.Taint, expectedOnNode int32) (workloadHealthCheck, error) {
-	podsAssigned, hasGatedPods, err := r.getPodsAssignedToNode(ctx, wl, nodeName)
+	podsAssigned, err := r.getPodsAssignedToNode(ctx, wl, nodeName)
 	if err != nil {
 		return workloadHealthCheck{status: workloadHealthUnknown}, fmt.Errorf("failed to get pods assigned to node %s: %w", nodeName, err)
 	}
@@ -379,7 +377,7 @@ func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, w
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
-	if shouldWait(int32(len(podsAssigned)), expectedOnNode, hasGatedPods, hasPodsToRetain, len(untolerated)) {
+	if shouldWait(int32(len(podsAssigned)), expectedOnNode, hasPodsToRetain, len(untolerated)) {
 		return workloadHealthCheck{status: workloadHealthUnknown}, nil
 	}
 
@@ -388,14 +386,9 @@ func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, w
 
 // shouldWait encapsulates the logic for deciding if we need to
 // wait for pods to be fully created and assigned before declaring a node failure.
-func shouldWait(podsAssigned, expectedOnNode int32, hasGatedPods, hasPodsToRetain bool, untoleratedCount int) bool {
+func shouldWait(podsAssigned, expectedOnNode int32, hasPodsToRetain bool, untoleratedCount int) bool {
 	// Not all expected pods have been created and assigned to the node yet.
 	if podsAssigned < expectedOnNode {
-		return true
-	}
-
-	// If there are gated pods, the assignment/admission process is still ongoing.
-	if hasGatedPods {
 		return true
 	}
 
@@ -668,13 +661,11 @@ func getTopologyAssignmentLevelsForPod(pod *corev1.Pod, wl *kueue.Workload, psaM
 
 // getPodsAssignedToNode returns a list of pods that are assigned to the node (via spec.nodeName)
 // or are assigned by topology assignment but are not scheduled to the node (e.g. because of a taint).
-// It also returns a boolean indicating if there are any pods assigned to the Workload's topology
-// that are still gated by TopologySchedulingGate (missing nodeSelector).
-func (r *nodeReconciler) getPodsAssignedToNode(ctx context.Context, wl *kueue.Workload, nodeName string) ([]*corev1.Pod, bool, error) {
+func (r *nodeReconciler) getPodsAssignedToNode(ctx context.Context, wl *kueue.Workload, nodeName string) ([]*corev1.Pod, error) {
 	sliceName := workloadslicing.SliceName(wl)
 	podsForWl, err := ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName)
 	if err != nil {
-		return nil, false, fmt.Errorf("list pods: %w", err)
+		return nil, fmt.Errorf("list pods: %w", err)
 	}
 
 	psaMap := make(map[kueue.PodSetReference]*kueue.PodSetAssignment)
@@ -683,18 +674,14 @@ func (r *nodeReconciler) getPodsAssignedToNode(ctx context.Context, wl *kueue.Wo
 	}
 
 	var podsAssignedToNode []*corev1.Pod
-	hasGatedPods := false
 	for _, pod := range podsForWl {
 		levels := getTopologyAssignmentLevelsForPod(pod, wl, psaMap)
 		isAssigned := isPodAssignedToNode(pod, nodeName, levels)
 		if isAssigned {
 			podsAssignedToNode = append(podsAssignedToNode, pod)
 		}
-		if utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
-			hasGatedPods = true
-		}
 	}
-	return podsAssignedToNode, hasGatedPods, nil
+	return podsAssignedToNode, nil
 }
 
 func checkTaintTolerations(logger logr.Logger, taint *corev1.Taint, podSets []kueue.PodSet) taintToleration {
