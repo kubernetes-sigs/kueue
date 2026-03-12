@@ -472,6 +472,61 @@ func TestValidateCreate(t *testing.T) {
 			},
 			admissionGatedBy: true,
 		},
+		{
+			name: "invalid AdmissionGatedBy annotation - space in path component",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate name").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "gate name", "Invalid path (regex used for validation is '[A-Za-z0-9/\\-._~%!$&'()*+,;=:]+')"),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - space in domain component",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/gate").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "example .com", "a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')"),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - leading space",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, " example.com/gate").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, " example.com", "a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')"),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - trailing space",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate ").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "gate ", "Invalid path (regex used for validation is '[A-Za-z0-9/\\-._~%!$&'()*+,;=:]+')"),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - multiple gates with one containing space",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "valid.com/gate,invalid gate.com/controller").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", "a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')"),
+			},
+			admissionGatedBy: true,
+		},
 	}
 
 	for _, tc := range testcases {

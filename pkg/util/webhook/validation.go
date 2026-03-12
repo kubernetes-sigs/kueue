@@ -96,8 +96,6 @@ func ValidateAdmissionGatedByAnnotation(oldValue, newValue *string, isUpdate boo
 		seen := make(map[string]bool)
 
 		for _, gate := range gates {
-			gate = strings.TrimSpace(gate)
-
 			// Check for empty gates
 			if gate == "" {
 				allErrs = append(allErrs, field.Invalid(admissionGatedByAnnotationsPath, newVal,
