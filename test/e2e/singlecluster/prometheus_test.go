@@ -52,7 +52,7 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 				}
 			}
 			g.Expect(hasKueueTarget).To(gomega.BeTrue(), "Kueue target not found. Active targets: %v", result.Active)
-		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should scrape kueue_build_info metric via PromQL", func() {
@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 			g.Expect(ok).To(gomega.BeTrue())
 			g.Expect(vector).NotTo(gomega.BeEmpty())
 			g.Expect(string(vector[0].Metric[model.MetricNameLabel])).To(gomega.Equal(kueueBuildInfoMetric))
-		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should report workload admission metrics via PromQL", func() {
@@ -123,6 +123,6 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 			vector, ok := result.(model.Vector)
 			g.Expect(ok).To(gomega.BeTrue())
 			g.Expect(vector).NotTo(gomega.BeEmpty())
-		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 	})
 })

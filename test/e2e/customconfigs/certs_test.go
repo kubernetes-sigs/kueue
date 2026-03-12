@@ -67,8 +67,8 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, onDemandFlavor, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, onDemandFlavor, true, util.MediumTimeout)
 	})
 
 	ginkgo.It("should rotate the certificates for the CRD resources", func() {
@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 				for _, webhook := range mwc.Webhooks {
 					g.Expect(webhook.ClientConfig.CABundle).ToNot(gomega.BeEmpty())
 				}
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("clear the caBundle field", func() {
@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 
 				caBundle := localQueueCRD.Spec.Conversion.Webhook.ClientConfig.CABundle
 				g.Expect(caBundle).NotTo(gomega.BeEmpty())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verify the caBundle is set again for mutating webhooks", func() {
@@ -125,7 +125,7 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 				for _, webhook := range mwc.Webhooks {
 					g.Expect(webhook.ClientConfig.CABundle).ToNot(gomega.BeEmpty())
 				}
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verify the localQueue can be fetched and mutated", func() {
@@ -133,14 +133,14 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
 				localQueue.Spec.StopPolicy = ptr.To(kueue.Hold)
 				g.Expect(k8sClient.Update(ctx, localQueue)).Should(gomega.Succeed())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verify the LocalQueue status is updated", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
 				g.Expect(localQueue.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.LocalQueueActive))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -155,7 +155,7 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 				oldReplicas = max(oldReplicas, int(ptr.Deref(deployment.Spec.Replicas, 0)))
 				deployment.Spec.Replicas = ptr.To[int32](0)
 				g.Expect(k8sClient.Update(ctx, deployment)).Should(gomega.Succeed())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("await for no replicas", func() {
@@ -163,7 +163,7 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 				g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 				g.Expect(deployment.Status.Replicas).To(gomega.Equal(int32(0)))
 				g.Expect(ptr.Deref(deployment.Status.TerminatingReplicas, 0)).To(gomega.Equal(int32(0)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("clear the caBundle field", func() {
@@ -190,14 +190,14 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 				g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 				deployment.Spec.Replicas = ptr.To(int32(oldReplicas))
 				g.Expect(k8sClient.Update(ctx, deployment)).Should(gomega.Succeed())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("await for ready replicas", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 				g.Expect(deployment.Status.ReadyReplicas).To(gomega.Equal(int32(oldReplicas)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("await for Kueue to be available", func() {
@@ -209,7 +209,7 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 				g.Expect(k8sClient.Get(ctx, localQueueCRDKey, localQueueCRD)).To(gomega.Succeed())
 				caBundle := localQueueCRD.Spec.Conversion.Webhook.ClientConfig.CABundle
 				g.Expect(caBundle).NotTo(gomega.BeEmpty())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verify the caBundle is set again for mutating webhooks", func() {
@@ -219,7 +219,7 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 				for _, webhook := range mwc.Webhooks {
 					g.Expect(webhook.ClientConfig.CABundle).ToNot(gomega.BeEmpty())
 				}
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verify the localQueue can be fetched and mutated", func() {
@@ -227,14 +227,14 @@ var _ = ginkgo.Describe("Kueue Certs", ginkgo.Label("area:singlecluster", "featu
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
 				localQueue.Spec.StopPolicy = ptr.To(kueue.Hold)
 				g.Expect(k8sClient.Update(ctx, localQueue)).Should(gomega.Succeed())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verify the LocalQueue status is updated", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
 				g.Expect(localQueue.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.LocalQueueActive))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

@@ -291,7 +291,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 					}
 				}
 				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected admitted workload")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for the RayJob cluster become ready", func() {
@@ -315,7 +315,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 
 				// Store initial pod names for later verification
 				initialPodNames = workerPodNames
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		// RayJob is top level job, the submitter job created by RayJob will not create its own workload, there will be only 1 workload
@@ -325,7 +325,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected exactly 1 workload")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for 5 workers due to scaling up", func() {
@@ -351,7 +351,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(len(workloadList.Items)).To(gomega.BeNumerically(">=", 2), "Expected at least 2 workloads")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for workers reduced to 1 due to scaling down", func() {

@@ -1094,7 +1094,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			var wg sync.WaitGroup
 			defer wg.Wait() // Wait for goroutines stopped.
 
-			ctx, cancel := context.WithTimeout(ginkgo.GinkgoTB().Context(), util.LongTimeout)
+			ctx, cancel := context.WithTimeout(ginkgo.GinkgoTB().Context(), util.MediumTimeout)
 			defer cancel() // Stop goroutines.
 
 			setClusterStatusPending := func() {
@@ -1143,7 +1143,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 					return le.Level >= zapcore.ErrorLevel
 				}).All()).Should(gomega.BeEmpty(),
 					"Log level should be smaller than error")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
