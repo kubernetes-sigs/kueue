@@ -161,10 +161,7 @@ func HasAllChecksReady(wl *kueue.Workload) bool {
 // HasAllRequiredChecks returns true if all the relevant checks are present in the workload.
 // (They don't have to be in the Ready state; for that, see HasAllChecksReady).
 func HasAllRequiredChecks(wl *kueue.Workload, allChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]) bool {
-	admissionFlavors := admissionFlavors(wl.Status.Admission)
-	mustHaveChecks := filterChecks(allChecks, func(acFlavors flavorSet) bool {
-		return admissionFlavors.Intersection(acFlavors).Len() > 0
-	})
+	mustHaveChecks := filterChecksForAdmission(allChecks, *wl.Status.Admission)
 	if mustHaveChecks.Len() == 0 {
 		return true
 	}

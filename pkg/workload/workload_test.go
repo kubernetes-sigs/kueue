@@ -1075,7 +1075,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 	}
 }
 
-func TestAdmissionCheckStrategyForAdmittedWorkload(t *testing.T) {
+func TestFilterChecksForAdmission(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
 		cq                  *kueue.ClusterQueue
@@ -1191,10 +1191,7 @@ func TestAdmissionCheckStrategyForAdmittedWorkload(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			admissionFlavors := admissionFlavors(tc.wl.Status.Admission)
-			gotAdmissionChecks := filterChecks(admissioncheck.NewAdmissionChecks(tc.cq), func(acFlavors flavorSet) bool {
-				return admissionFlavors.Intersection(acFlavors).Len() > 0
-			})
+			gotAdmissionChecks := filterChecksForAdmission(admissioncheck.NewAdmissionChecks(tc.cq), *tc.wl.Status.Admission)
 
 			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
 				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
