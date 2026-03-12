@@ -104,7 +104,7 @@ The current single-flavor evaluation leads to several inefficiencies:
 - Inability to migrate: Workloads cannot move to a more preferred RF (like a Reservation) once they are already running on a less preferred one.
 - Sequential bottlenecks: Users cannot pursue multiple flavors (which often include long-running AdmissionChecks) in parallel to find placement as quickly as possible.
 
-The feature is intended for environments where gains from the accuracy of scheduling decision (potential migration) outweighs
+The feature is intended for environments where gains from more accurate scheduling decisions (potential migration) outweigh
 the throughput degradation. This is also intended for Jobs that can tolerate disruption, since migration involves
 recreating Pods on more preferable Nodes.
 
@@ -500,7 +500,7 @@ The controller creates Variants based on the CQ's `ExplicitVariants` or Resource
 It happens in a standalone asynchronous reconciliation loop right after the Parent Workload has been created.
 
 The controller doesn't evaluate ResourceFlavors on its own, in particular it doesn't check if a Variant
-can be ever admitted with the ResourceFlavor assigned. It defers all scheduling decision to the scheduler.
+can be ever admitted with the ResourceFlavor assigned. It defers all scheduling decisions to the scheduler.
 It is the cluster admin's responsibilities to configure ResourceFlavors and ConcurrentAdmission API in a way to prevent creation of Variants that can never schedule.
 
 The controller also reacts on changes both in CQ's `ExplicitVariants` and ResourceFlavor list creating and deleting Variants accordingly.
@@ -551,10 +551,10 @@ A more preferred Variant must evict the less preferable one immediately before a
 ### Multiple Preemptions
 
 When pursuing multiple flavors concurrently, Kueue might preempt Workloads to accommodate multiple Variants belonging to the same Parent Workload.
-While we only issue preemptions coming from one Workload per CQ, what happen is:
+While we only issue preemptions coming from one Workload per CQ, what happens is:
 1. A Variant preempted a Workload and got the quota reserved.
 2. The same Variants is now running AdmissionChecks
-3. A sibling Variants is picked up by the scheduler and is preempting some other Workloads
+3. A sibling Variant is picked up by the scheduler and is preempting some other Workloads
 
 We want to disallow other Variants to preempt if one of the Variants has already preempted some Workloads.
 We achieve it by storing in memory a map of Workloads that have issued a preemption during their current admission cycle.
@@ -573,7 +573,7 @@ results in Kueue scheduler picking sibling Variants one after the another, witho
 
 #### Beta API
 
-Part of the proposed API will be introduced in Beta. For the sake of clarify and ease of reviewing, we place
+Part of the proposed API will be introduced in Beta. For the sake of clarity and ease of reviewing, we place
 the API here. We'd like to reconsider below proposal when graduating to Beta.
 
 
@@ -597,7 +597,7 @@ type ConcurrentAdmissionMigrationConstraints struct {
     // MinTargetExplicitVariant defines the minimal Variant a Workload can migrate to.
     // The order is based on the order of variant in `ExplicitVariants`.
     // It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is specified.
-    // It the Mode is `UpgradeOnly` and MinTargetExplicitVariant is not specified, then there's
+    // If the Mode is `UpgradeOnly` and MinTargetExplicitVariant is not specified, then there's
     // no constraints on what Variant a Workload can migrate to.
     //
     // +optional
