@@ -217,6 +217,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: SchedulerTimestampPreemptionBuffer
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.15"
 - name: SchedulingEquivalenceHashing
   versionedSpecs:
   - default: true

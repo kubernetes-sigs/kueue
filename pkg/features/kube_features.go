@@ -277,6 +277,13 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/9799
 	// Use 10s interval for scheduler requeuing.
 	SchedulerLongRequeueInterval featuregate.Feature = "SchedulerLongRequeueInterval"
+
+	// owner: @mbobrovskyi
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/9799
+	// Use a 5min buffer so that workloads with scheduling timestamps within this
+	// buffer do not preempt each other based on LowerOrNewerEqualPriority.
+	SchedulerTimestampPreemptionBuffer featuregate.Feature = "SchedulerTimestampPreemptionBuffer"
 )
 
 func init() {
@@ -429,6 +436,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	SchedulerLongRequeueInterval: {
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
+	},
+	SchedulerTimestampPreemptionBuffer: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
 	},
 }
