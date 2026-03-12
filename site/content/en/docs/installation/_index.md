@@ -331,6 +331,10 @@ The SanitizePodSets and MultiKueueAllowInsecureKubeconfigs features are availabl
 The PropagateBatchJobLabelsToWorkload feature is available starting from versions 0.13.10 and 0.14.5.
 {{% /alert %}}
 
+{{% alert title="Note" color="primary" %}}
+The SchedulerLongRequeueInterval features are available starting from versions 0.15.6 and 0.16.3.
+{{% /alert %}}
+
 ### Feature gates for graduated or deprecated features
 
 | Feature                               | Default | Stage      | Since | Until |
