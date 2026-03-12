@@ -644,11 +644,20 @@ func GenerateHashWithoutReplicasAndWorkersToDelete(rayClusterSpec rayv1.RayClust
 	// Mute certain fields that will not trigger new RayCluster preparation. For example,
 	// Autoscaler will update `Replicas` and `WorkersToDelete` when scaling up/down.
 	updatedRayClusterSpec := rayClusterSpec.DeepCopy()
+
+	// Mute tolerations and scheduling gates for all pod templates.
+	// External controllers like Kueue may inject these fields into the RayCluster
+	// after creation, which should not trigger a new RayCluster preparation.
+	updatedRayClusterSpec.HeadGroupSpec.Template.Spec.Tolerations = nil
+	updatedRayClusterSpec.HeadGroupSpec.Template.Spec.SchedulingGates = nil
+
 	for i := 0; i < len(updatedRayClusterSpec.WorkerGroupSpecs); i++ {
 		updatedRayClusterSpec.WorkerGroupSpecs[i].Replicas = nil
 		updatedRayClusterSpec.WorkerGroupSpecs[i].MaxReplicas = nil
 		updatedRayClusterSpec.WorkerGroupSpecs[i].MinReplicas = nil
 		updatedRayClusterSpec.WorkerGroupSpecs[i].ScaleStrategy.WorkersToDelete = nil
+		updatedRayClusterSpec.WorkerGroupSpecs[i].Template.Spec.Tolerations = nil
+		updatedRayClusterSpec.WorkerGroupSpecs[i].Template.Spec.SchedulingGates = nil
 	}
 	updatedRayClusterSpec.UpgradeStrategy = nil
 
@@ -963,6 +972,9 @@ func GetRayDashboardClientFunc(ctx context.Context, mgr manager.Manager, useKube
 
 		if rayCluster != nil && rayCluster.Spec.AuthOptions != nil && rayCluster.Spec.AuthOptions.Mode == rayv1.AuthModeToken {
 			secretName := CheckName(rayCluster.Name)
+			if rayCluster.Spec.AuthOptions.SecretName != nil && *rayCluster.Spec.AuthOptions.SecretName != "" {
+				secretName = *rayCluster.Spec.AuthOptions.SecretName
+			}
 			secret := &corev1.Secret{}
 			secretKey := types.NamespacedName{
 				Name:      secretName,

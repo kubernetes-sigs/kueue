@@ -256,6 +256,9 @@ func ValidateRayClusterSpec(spec *rayv1.RayClusterSpec, annotations map[string]s
 			if rayVersion.LessThan(minVersion) {
 				return fmt.Errorf("authOptions.enableK8sTokenAuth is enabled but minimum Ray version is 2.55.0, got %s", spec.RayVersion)
 			}
+			if spec.AuthOptions.SecretName != nil && *spec.AuthOptions.SecretName != "" {
+				return fmt.Errorf("authOptions.enableK8sTokenAuth is enabled and authOptions.secretName is also set")
+			}
 		}
 	} else {
 		if IsK8sAuthEnabled(spec.AuthOptions) {
@@ -346,6 +349,9 @@ func ValidateRayJobSpec(rayJob *rayv1.RayJob) error {
 	}
 
 	if rayJob.Spec.RayClusterSpec != nil {
+		if IsK8sAuthEnabled(rayJob.Spec.RayClusterSpec.AuthOptions) {
+			return fmt.Errorf("The RayJob spec is invalid: K8s token auth mode is currently not supported for RayJob")
+		}
 		if err := ValidateRayClusterSpec(rayJob.Spec.RayClusterSpec, rayJob.Annotations); err != nil {
 			return fmt.Errorf("The RayJob spec is invalid: %w", err)
 		}
@@ -358,6 +364,9 @@ func ValidateRayJobSpec(rayJob *rayv1.RayJob) error {
 	}
 	if rayJob.Spec.ActiveDeadlineSeconds != nil && *rayJob.Spec.ActiveDeadlineSeconds <= 0 {
 		return fmt.Errorf("The RayJob spec is invalid: activeDeadlineSeconds must be a positive integer")
+	}
+	if rayJob.Spec.PreRunningDeadlineSeconds != nil && *rayJob.Spec.PreRunningDeadlineSeconds <= 0 {
+		return fmt.Errorf("The RayJob spec is invalid: preRunningDeadlineSeconds must be a positive integer")
 	}
 	if rayJob.Spec.BackoffLimit != nil && *rayJob.Spec.BackoffLimit < 0 {
 		return fmt.Errorf("The RayJob spec is invalid: backoffLimit must be a positive integer")
@@ -415,6 +424,10 @@ func validateInitializingTimeout(annotations map[string]string) error {
 }
 
 func ValidateRayServiceSpec(rayService *rayv1.RayService) error {
+	if IsK8sAuthEnabled(rayService.Spec.RayClusterSpec.AuthOptions) {
+		return fmt.Errorf("The RayService spec is invalid: K8s token auth mode is currently not supported for RayService")
+	}
+
 	if err := ValidateRayClusterSpec(&rayService.Spec.RayClusterSpec, rayService.Annotations); err != nil {
 		return fmt.Errorf("The RayService spec is invalid: %w", err)
 	}
