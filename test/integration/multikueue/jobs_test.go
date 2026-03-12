@@ -2020,7 +2020,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("admit the new workload and finish the old workload in the manager cluster", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-<<<<<<< HEAD
 				oldWorkload := getWorkload(g, manager.ctx, manager.client, workloadKey)
 				g.Expect(workload.Finish(manager.ctx, manager.client, oldWorkload, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", util.RealClock)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2169,14 +2168,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				condition.LastTransitionTime = now
 				return condition
 			}, gomega.Equal(completedJobCondition))))
-=======
-				createdWorkload := &kueue.Workload{}
-				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
->>>>>>> Restructure E2E test timeout constants
 		})
 	})
 })
