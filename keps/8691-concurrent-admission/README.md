@@ -22,8 +22,8 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-  - [Architecture &amp; Cardinality](#architecture--cardinality)
-  - [Scheduling &amp; Lifecycle](#scheduling--lifecycle)
+  - [Architecture overview](#architecture-overview)
+    - [Scheduling &amp; Lifecycle](#scheduling--lifecycle)
   - [User Stories](#user-stories)
     - [Story 1: ResourceFlavor Upgrade](#story-1-resourceflavor-upgrade)
     - [Story 2: Upgrade only to Reservation](#story-2-upgrade-only-to-reservation)
@@ -130,7 +130,7 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 
   - Migrate only to a subset of RFs
 
-  - Do not migrate after certain amount of time
+  - Do not migrate after a certain amount of time
 
 - Delay fallback to "lower" RFs than the currently tried
 
@@ -159,31 +159,25 @@ This proposal introduces two new logical categories of Workloads that coexist wi
 1) Parent Workload: Acts as an owner and status aggregator for its associated Variants. It is explicitly excluded from Kueue's core scheduling logic.
 2) Variant Workload: A cloned view of the Parent Workload with specific scheduling constraints. Most notably, a Variant is restricted to a subset of ResourceFlavors.
 
-### Architecture & Cardinality
-The relationship between a Parent and its Variants follows a parent–child model with 1:N cardinality (where $N \ge 1$). While the number of Variants is typically determined by the variety of PodSets and ClusterQueue ResourceFlavors, each remains a distinct Kubernetes object persisted in etcd.
+### Architecture overview
+
+The relationship between a Parent and its Variants follows a parent–child model with 1:N cardinality (where $N \ge 1$). The number of Variants is typically determined by the variety of PodSets and ClusterQueue ResourceFlavors, each remains a distinct Kubernetes object persisted in etcd.
 
 ![Workload Diagram](variants.svg)
 
-### Scheduling & Lifecycle
+#### Scheduling & Lifecycle
 A Variant Workload functions near-identically to a "regular" Workload regarding quota accounting, preemption, and core scheduling features.
 
-At any given point in time, only one Variant per Parent may be admitted by Kueue.
+At any given point in time, only one Variant per Parent may be admitted by Kueue. To support this, we will introduce a new controller and extend the ClusterQueue API with a new `.spec` field to manage Variant activation and deactivation.
 
-To support this, we will introduce a new controller and extend the ClusterQueue API with a new `.spec` field to manage Variant activation and deactivation.
+Variants can freely coexist with "regular" Workloads in a cluster.
 
-Those new types of Workloads can freely coexist with "regular" Workloads in a cluster.
-
-The relationship between a Parent and its Variants is parent–child, with 1:1+ cardinality.
-Every Parent has at least one Variant, and potentially more depending on PodSets and ClusterQueue ResourceFlavors.
-All of them are separate k8s objects stored in etcd.
-
-A parent Workload is excluded from the scheduling logic in Kueue. It acts as a owner and status aggregator of Variants.
+A parent Workload is excluded from the scheduling logic in Kueue. It acts as an owner and status aggregator of Variants.
 
 A Variant Workload is a cloned view of its Parent with some additional scheduling constraints,
 in particular it can be scheduled on a limited number of ResourceFlavors.
-Apart from that a Variant Workload acts almost identically as a "regular" Workload regarding scheduling, quota accounting and other core features.
-At any given point in time, only one Variant can be admitted by Kueue.
 
+Apart from that a Variant Workload acts almost identically as a "regular" Workload regarding scheduling, quota accounting and other core features.
 
 <!--
 This is where we get down to the specifics of what the proposal actually is.
@@ -520,7 +514,7 @@ A Variant can be evicted because of its sibling Variant during the "upgrade" pro
 is simply deactivated.
 
 In case of preemption by other Workloads (e.g. priority-based preemption), we reset all the Variants and treat them as if
-Parent Workload has just been created - we reset the delay countdown, and activate all Variants again (beside those ones with `CreateDelaySeconds`)
+Parent Workload has just been created - we reset the delay countdown, and activate all Variants again (beside those  with `CreateDelaySeconds`)
 
 ### Observability
 
@@ -618,7 +612,7 @@ type ConcurrentAdmissionExplicitVariant struct {
 
     // MaxDeleteDelaySeconds defines how long after admission of other Variants,
     // this Variant should be deactivated.
-    // Allows disallowing migration after certain amount of time
+    // Allows disallowing migration after a certain amount of time
     //
     // +optional
     MaxDeleteDelaySeconds *int32
@@ -762,7 +756,7 @@ extending the production code to implement this enhancement.
 
 #### Integration tests
 
-In the first iteration of the feature integration tests will be added to conver following scenarios:
+In the first iteration of the feature integration tests will be added to cover following scenarios:
 - Parent Workloads are not picked up by the scheduler
 - Scheduler assigns flavors with respect to the flavor assignment constraints
 - Variant controller creates proper number of Variant Workloads with respect to CQ's config
