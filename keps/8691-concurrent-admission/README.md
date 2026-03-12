@@ -432,7 +432,7 @@ const (
 ### Workload API
 
 A Variant Workload references its Parent in the `metadata.ownerReferences` field.
-Besides that a Parent Workload has the `kueue.x-k8s.io/parent-variant` annotation to distinguish it from
+Besides that a Parent Workload has the `kueue.x-k8s.io/parent-variant` label to distinguish it from
 "regular" Workloads, in a cluster.
 
 This way of distinguishing Variants, Parents, and "regular" Workloads is introduced in the Alpha, and will be
@@ -872,7 +872,7 @@ Such a change would make Kueue much harder to debug and maintain, whereas the Va
 
 ### WorkloadTypes API
 
-Instead of using `kueue.x-k8s.io/parent-variant` annotation and owner references we could implement a new API `WorkloadType`.
+Instead of using `kueue.x-k8s.io/parent-variant` label and owner references we could implement a new API `WorkloadType`.
 We might migrate to that approach but it was deferred in the first version, as it was unclear what's the semantic of this
 field and how it should be used with the existing "types" such, as WorkloadSlice, PrebuiltWorkload, etc.
 
