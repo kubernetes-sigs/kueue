@@ -2142,13 +2142,25 @@ func ensurePodWorkloadsRunning(deployment *appsv1.Deployment, managerNs corev1.N
 		client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 
 	for _, pod := range pods.Items { // We want to test that all deployment pods have workloads.
-		createdLeaderWorkload := &kueue.Workload{}
+		var createdLeaderWorkload *kueue.Workload
+		var admissionCheck *kueue.AdmissionCheckState
 		wlLookupKey := types.NamespacedName{Name: workloadpod.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: managerNs.Name}
-		gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			createdLeaderWorkload = &kueue.Workload{}
+			gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
+			admissionCheck = admissioncheck.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))
+			gomega.Expect(admissionCheck.State).To(gomega.Equal(kueue.CheckStateReady))
+		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 
 		// By checking the assigned cluster we can discern which client to use
-		admissionCheckMessage := admissioncheck.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name)).Message
-		workerCluster := kubernetesClients[GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheckMessage)]
+		workerClusterName := GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheck.Message)
+		if workerClusterName == "" {
+			ginkgo.Fail(fmt.Sprintf("Could not find Worker Cluster for multikueue admission check message: \"%s\"", admissionCheck.Message))
+		}
+		workerCluster, ok := kubernetesClients[workerClusterName]
+		if !ok {
+			ginkgo.Fail(fmt.Sprintf("Worker Cluster not found: %s", workerClusterName))
+		}
 
 		// Worker pods should be in "Running" phase
 		gomega.Eventually(func(g gomega.Gomega) {
