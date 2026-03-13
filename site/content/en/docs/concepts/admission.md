@@ -6,7 +6,8 @@ description: >
   Kueue's admission process determines when a Job should be started.
 ---
 
-Kueue's admission process determines whether a Workload can begin execution. 
+Kueue's admission process determines whether a Workload can begin execution.
+Admission may also be subject to the [admission gate mechanism](/docs/reference/labels-and-annotations/#kueuex-k8sioadmission-gated-by) which is currently in alpha.
 
 It involves verifying:
 - logical resource availability via quota reservation
