@@ -349,7 +349,7 @@ func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Wo
 		log.V(3).Info("Evicting workload due to multiple node failures")
 		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
-		if evictionErr := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "", r.clock, r.roleTracker); evictionErr != nil {
+		if evictionErr := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "", r.clock, r.roleTracker, nil); evictionErr != nil {
 			log.Error(evictionErr, "Failed to complete eviction process")
 			return false, evictionErr
 		} else {

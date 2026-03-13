@@ -38,6 +38,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
@@ -45,6 +46,7 @@ import (
 type CohortReconcilerOptions struct {
 	FairSharingEnabled bool
 	roleTracker        *roletracker.RoleTracker
+	customLabels       *metrics.CustomLabels
 }
 
 type CohortReconcilerOption func(*CohortReconcilerOptions)
@@ -61,6 +63,12 @@ func CohortReconcilerWithRoleTracker(tracker *roletracker.RoleTracker) CohortRec
 	}
 }
 
+func CohortReconcilerWithCustomLabels(customLabels *metrics.CustomLabels) CohortReconcilerOption {
+	return func(o *CohortReconcilerOptions) {
+		o.customLabels = customLabels
+	}
+}
+
 // CohortReconciler is responsible for synchronizing the in-memory
 // representation of Cohorts in cache.Cache and queue.Manager with
 // Cohort Kubernetes objects.
@@ -72,6 +80,7 @@ type CohortReconciler struct {
 	cqUpdateCh         chan event.GenericEvent
 	fairSharingEnabled bool
 	roleTracker        *roletracker.RoleTracker
+	customLabels       *metrics.CustomLabels
 }
 
 func NewCohortReconciler(
@@ -93,6 +102,7 @@ func NewCohortReconciler(
 		cqUpdateCh:         make(chan event.GenericEvent, updateChBuffer),
 		fairSharingEnabled: options.FairSharingEnabled,
 		roleTracker:        options.roleTracker,
+		customLabels:       options.customLabels,
 	}
 }
 
@@ -121,13 +131,27 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 		Complete(WithLeadingManager(mgr, r, &kueue.Cohort{}, cfg))
 }
 
-func (r *CohortReconciler) Create(event.TypedCreateEvent[*kueue.Cohort]) bool {
+func (r *CohortReconciler) Create(e event.TypedCreateEvent[*kueue.Cohort]) bool {
+	if e.Object != nil && features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.CohortStore(kueue.CohortReference(e.Object.GetName()), e.Object.GetLabels(), e.Object.GetAnnotations())
+	}
 	return true
 }
 
 func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool {
 	log := r.logger().WithValues("cohort", klog.KObj(e.ObjectNew))
-	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) {
+
+	var customLabelsChanged bool
+	if features.Enabled(features.CustomMetricLabels) {
+		customLabelsChanged = r.customLabels.CohortStoreAndClear(
+			kueue.CohortReference(e.ObjectNew.GetName()),
+			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
+			func() {
+				metrics.ClearCohortMetrics(e.ObjectNew.GetName())
+			})
+	}
+
+	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) && !customLabelsChanged {
 		log.V(2).Info("Skip Cohort update event as Cohort unchanged")
 		return false
 	}
@@ -135,7 +159,10 @@ func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool 
 	return true
 }
 
-func (r *CohortReconciler) Delete(event.TypedDeleteEvent[*kueue.Cohort]) bool {
+func (r *CohortReconciler) Delete(e event.TypedDeleteEvent[*kueue.Cohort]) bool {
+	if e.Object != nil && features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.CohortDelete(kueue.CohortReference(e.Object.GetName()))
+	}
 	return true
 }
 
@@ -157,8 +184,18 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			r.cache.ClearCohortMetrics(log, kueue.CohortReference(req.Name))
 			r.cache.DeleteCohort(kueue.CohortReference(req.Name))
 			r.qManager.DeleteCohort(kueue.CohortReference(req.Name))
+			metrics.ClearCohortMetrics(req.Name)
+			if features.Enabled(features.CustomMetricLabels) {
+				r.customLabels.CohortDelete(kueue.CohortReference(req.Name))
+			}
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.CohortStoreAndClear(kueue.CohortReference(cohort.Name),
+			cohort.GetLabels(), cohort.GetAnnotations(),
+			func() { metrics.ClearCohortMetrics(cohort.Name) })
 	}
 
 	log.V(2).Info("Cohort is being created or updated", "resources", cohort.Spec.ResourceGroups)
@@ -184,7 +221,7 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	}
 
 	if r.fairSharingEnabled {
-		metrics.ReportCohortWeightedShare(cohort.Name, stats.WeightedShare, r.roleTracker)
+		metrics.ReportCohortWeightedShare(kueue.CohortReference(cohort.Name), stats.WeightedShare, r.customLabels.CohortGet(kueue.CohortReference(cohort.Name)), r.roleTracker)
 		if cohort.Status.FairSharing == nil {
 			cohort.Status.FairSharing = &kueue.FairSharingStatus{}
 		}

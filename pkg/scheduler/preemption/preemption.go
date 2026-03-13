@@ -40,6 +40,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -66,6 +67,7 @@ type Preemptor struct {
 
 	enabledAfs             bool
 	roleTracker            *roletracker.RoleTracker
+	customLabels           *metrics.CustomLabels
 	preemptionExpectations *expectations.Store
 }
 
@@ -89,6 +91,7 @@ func New(
 	clock clock.Clock,
 	tracker *roletracker.RoleTracker,
 	preemptionExpectations *expectations.Store,
+	customLabels *metrics.CustomLabels,
 ) *Preemptor {
 	p := &Preemptor{
 		clock:                  clock,
@@ -99,6 +102,7 @@ func New(
 		fsStrategies:           parseStrategies(fs),
 		enabledAfs:             enabledAfs,
 		roleTracker:            tracker,
+		customLabels:           customLabels,
 		preemptionExpectations: preemptionExpectations,
 	}
 	return p
@@ -197,7 +201,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 		message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
 		err := workload.Evict(
-			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, p.roleTracker,
+			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, p.roleTracker, p.customLabels,
 			workload.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),
@@ -213,7 +217,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 			"preemptorJobUID", preemptor.Obj.Labels[constants.JobUIDLabel], "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", string(target.WorkloadInfo.ClusterQueue)),
 			"preemptorPath", preemptorPath, "preempteePath", preempteePath)
 		p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message)
-		workload.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, p.roleTracker)
+		workload.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, p.roleTracker, p.customLabels)
 		successfullyPreempted.Add(1)
 	})
 	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()

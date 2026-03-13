@@ -1,3 +1,52 @@
+## v0.15.6
+
+Changes since `v0.15.5`:
+
+## Changes by Kind
+
+### Feature
+
+- Observability: Add scheduler logs for the scheduling cycle phase boundaries. (#9815, @sohankunkerkar)
+- Scheduling: Add the alpha SchedulerLongRequeueInterval feature gate (disabled by default) to increase the 
+  inadmissible workload requeue interval from 1s to 10s. This may help to mitigate, on large environments with 
+  many pending workloads, issues with frequent re-queues that prevent the scheduler from reaching schedulable 
+  workloads deeper in the queue and result in constant re-evaluation of the same top workloads. (#9820, @mbobrovskyi)
+- Scheduling: Add the alpha SchedulerTimestampPreemptionBuffer feature gate (disabled by default) to use
+  5-minute buffer so that workloads with scheduling timestamps within this buffer don’t preempt each other
+  based on LowerOrNewerEqualPriority. (#9838, @mbobrovskyi)
+
+### Bug or Regression
+
+- FailureRecoveryPolicy: forcefully delete stuck pods (without grace period) in addition to transitioning them
+  to the `Failed` phase. This fixes a scenario where foreground propagating deletions were blocked by a stuck pod. (#9672, @kshalot)
+- Fix a race where updated workload priority could remain stuck in the inadmissible queue and delay rescheduling. (#9661, @sohankunkerkar)
+- In fair sharing preemption, bypass DRS strategy gates when the preemptor ClusterQueue is within nominal quota for contested resources, allowing preemption even if the CQ's aggregate DRS is high due to borrowing on other flavors. (#9593, @mukund-wayve)
+- Kueueviz: fetch Cohort CRD directly, instead of deriving from ClusterQueue (#9744, @samzong)
+- LeaderWorkerSet: fix workload recreation delay during rolling updates by watching for workload deletions. (#9631, @PannagaRao)
+- Scheduling: Fix a BestEffortFIFO performance issue where many equivalent workloads could
+  prevent the scheduler from reaching schedulable workloads deeper in the queue. Kueue now
+  skips redundant evaluation by bulk-moving same-hash workloads to inadmissible when one
+  representative is categorized as NoFit. (#9698, @sohankunkerkar)
+- Scheduling: Fix that the Kueue's scheduler could issue duplicate preemption requests and events for the same workload. (#9641, @sohankunkerkar)
+- Scheduling: Fixed a race condition where a workload could simultaneously exist in the scheduler's heap
+  and the "inadmissible workloads" list. This fix prevents unnecessary scheduler cycles and prevents temporary 
+  double counting for the metric of pending workloads. (#9639, @sohankunkerkar)
+- Scheduling: Reduced the maximum sleep time between scheduling cycles from 100ms to 10ms.
+  This change fixes a bug where the 100ms delay was excessive on busy systems, in which completed
+  workloads can trigger requeue events every second. In such cases, the scheduler could spend up to 10%
+  of the time between requeue events sleeping. Reducing the delay allows the scheduler to spend more time
+  progressing through the ClusterQueue heap between requeue events. (#9762, @mimowo)
+- StatefulSet integration: fix the bug that when using `generateName` the Workload names generated
+  for two different StatefulSets would conflict, not allowing to run the second StatefulSet. (#9695, @IrvingMg)
+- TAS: Fix performance bug where snapshotting would take very long due to List and DeepCopy
+  of all Nodes. Now the cached set of nodes is maintained in event-driven fashion. (#9786, @mbobrovskyi)
+- TAS: support ResourceTransformations to define "virtual" resources which allow putting a cap on
+  some "virtual" credits across multiple-flavors, see [sharing quotas](https://kueue.sigs.k8s.io/docs/tasks/manage/share_quotas_across_flavors/) for quota-only resources.
+  This is considered a bug since there was no validation preventing such configuration before. (#9691, @mbobrovskyi)
+- VisibilityOnDemand: Fix the bug that when running Kueue with the custom `--kubeconfig` flag the visibility server
+  fails to initialize, because the custom value of the flag is not propagated to it, leading to errors such as:
+  "Unable to create and start visibility server","error":"unable to apply VisibilityServerOptions: failed to get delegated authentication kubeconfig:  failed to get delegated authentication kubeconfig: ..." (#9806, @Nilsachy)
+
 ## v0.15.5
 
 Changes since `v0.15.4`:

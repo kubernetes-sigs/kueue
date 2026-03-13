@@ -296,6 +296,12 @@ const (
 	// buffer do not preempt each other based on LowerOrNewerEqualPriority.
 	SchedulerTimestampPreemptionBuffer featuregate.Feature = "SchedulerTimestampPreemptionBuffer"
 
+	// owner: @IrvingMg
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7066-custom-metric-labels
+	//
+	// Enable custom metadata labels on Kueue metrics
+	CustomMetricLabels featuregate.Feature = "CustomMetricLabels"
+
 	// owner: @kshalot
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8303
@@ -467,6 +473,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	SchedulerTimestampPreemptionBuffer: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
+	},
+	CustomMetricLabels: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	MultiKueueOrchestratedPreemption: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},

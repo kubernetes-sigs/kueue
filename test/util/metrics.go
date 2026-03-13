@@ -49,11 +49,12 @@ func expectAdmissionAttempts(want int, operation string, result metrics.Admissio
 
 var pendingStatuses = []string{metrics.PendingStatusActive, metrics.PendingStatusInadmissible}
 
-func ExpectLQPendingWorkloadsMetric(lq *kueue.LocalQueue, active, inadmissible int) {
+func ExpectLQPendingWorkloadsMetric(lq *kueue.LocalQueue, active, inadmissible int, customLabels ...string) {
 	ginkgo.GinkgoHelper()
 	vals := []int{active, inadmissible}
 	for i, status := range pendingStatuses {
-		metric := metrics.LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, status, roletracker.RoleStandalone)
+		lvs := append([]string{lq.Name, lq.Namespace, status, roletracker.RoleStandalone}, customLabels...)
+		metric := metrics.LocalQueuePendingWorkloads.WithLabelValues(lvs...)
 		expectGaugeMetric(metric, gomega.Equal(float64(vals[i])), "pending_workloads with status=%s", status)
 	}
 }
@@ -64,9 +65,10 @@ func ExpectLQReservingActiveWorkloadsMetric(lq *kueue.LocalQueue, value int) {
 	expectGaugeMetric(metric, gomega.Equal(float64(value)))
 }
 
-func ExpectLQAdmittedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass string, value int) {
+func ExpectLQAdmittedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass string, value int, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.LocalQueueAdmittedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
+	lvs := append([]string{lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone}, customLabels...)
+	metric := metrics.LocalQueueAdmittedWorkloadsTotal.WithLabelValues(lvs...)
 	expectCounterMetric(metric, value)
 }
 
@@ -92,11 +94,12 @@ func ExpectLQByStatusMetric(lq *kueue.LocalQueue, status metav1.ConditionStatus)
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible int) {
+func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible int, customLabels ...string) {
 	ginkgo.GinkgoHelper()
 	vals := []int{active, inadmissible}
 	for i, status := range pendingStatuses {
-		metric := metrics.PendingWorkloads.WithLabelValues(cq.Name, status, roletracker.RoleStandalone)
+		lvs := append([]string{cq.Name, status, roletracker.RoleStandalone}, customLabels...)
+		metric := metrics.PendingWorkloads.WithLabelValues(lvs...)
 		expectGaugeMetric(metric, gomega.Equal(float64(vals[i])), "pending_workloads with status=%s", status)
 	}
 }
@@ -107,9 +110,10 @@ func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 	expectGaugeMetric(metric, gomega.Equal(float64(value)))
 }
 
-func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int) {
+func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
+	lvs := append([]string{cq.Name, priorityClass, roletracker.RoleStandalone}, customLabels...)
+	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(lvs...)
 	expectCounterMetric(metric, v)
 }
 
@@ -170,9 +174,10 @@ func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCaus
 	expectCounterMetric(metric, v)
 }
 
-func ExpectLQEvictedWorkloadsTotalMetric(lq *kueue.LocalQueue, reason, underlyingCause, priorityClass string, v int) {
+func ExpectLQEvictedWorkloadsTotalMetric(lq *kueue.LocalQueue, reason, underlyingCause, priorityClass string, v int, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.LocalQueueEvictedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, reason, underlyingCause, priorityClass, roletracker.RoleStandalone)
+	lvs := append([]string{lq.Name, lq.Namespace, reason, underlyingCause, priorityClass, roletracker.RoleStandalone}, customLabels...)
+	metric := metrics.LocalQueueEvictedWorkloadsTotal.WithLabelValues(lvs...)
 	expectCounterMetric(metric, v)
 }
 

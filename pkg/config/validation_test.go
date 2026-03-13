@@ -1522,3 +1522,204 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateCustomLabels(t *testing.T) {
+	testCases := map[string]struct {
+		cfg     *configapi.Configuration
+		wantErr field.ErrorList
+	}{
+		"empty custom labels": {
+			cfg: &configapi.Configuration{},
+		},
+		"valid name only": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team"},
+						},
+					},
+				},
+			},
+		},
+		"valid with sourceLabelKey": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team", SourceLabelKey: "org.example.com/team"},
+						},
+					},
+				},
+			},
+		},
+		"valid with sourceAnnotationKey": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "cost_center", SourceAnnotationKey: "billing.example.com/cost-center"},
+						},
+					},
+				},
+			},
+		},
+		"valid multiple entries": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team"},
+							{Name: "env", SourceLabelKey: "environment"},
+							{Name: "cost", SourceAnnotationKey: "billing/cost"},
+						},
+					},
+				},
+			},
+		},
+		"invalid name - special chars": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team-name"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].name",
+				},
+			},
+		},
+		"invalid name - leading digit": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "1team"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].name",
+				},
+			},
+		},
+		"invalid name - empty": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: ""},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].name",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].name",
+				},
+			},
+		},
+		"duplicate names": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team"},
+							{Name: "team"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "metrics.customLabels[1].name",
+				},
+			},
+		},
+		"mutually exclusive sources": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team", SourceLabelKey: "team-label", SourceAnnotationKey: "team-annotation"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0]",
+				},
+			},
+		},
+		"invalid sourceLabelKey": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team", SourceLabelKey: "invalid key with spaces"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].sourceLabelKey",
+				},
+			},
+		},
+		"invalid sourceAnnotationKey": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team", SourceAnnotationKey: "invalid key with spaces"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].sourceAnnotationKey",
+				},
+			},
+		},
+		"name with underscore valid as k8s label key": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "has_underscore"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got := validateCustomLabels(tc.cfg)
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("validateCustomLabels() returned unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

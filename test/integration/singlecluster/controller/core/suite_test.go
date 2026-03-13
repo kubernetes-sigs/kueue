@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -115,19 +116,26 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
+		var customLabels *metrics.CustomLabels
+		if features.Enabled(features.CustomMetricLabels) && len(controllersCfg.Metrics.CustomLabels) > 0 {
+			customLabels = metrics.NewCustomLabels(controllersCfg.Metrics.CustomLabels)
+		}
+
 		cacheOpts := []schdcache.Option{
 			schdcache.WithResourceMetrics(controllersCfg.Metrics.EnableClusterQueueResources),
 			schdcache.WithRoleTracker(opts.roleTracker),
+			schdcache.WithCustomLabels(customLabels),
 		}
 		queueOpts := []qcache.Option{
 			qcache.WithRoleTracker(opts.roleTracker),
+			qcache.WithCustomLabels(customLabels),
 		}
 
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOpts...)
 
 		preemptionExpectations := preemptexpectations.New()
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, opts.roleTracker, preemptionExpectations)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, opts.roleTracker, preemptionExpectations, customLabels)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		if opts.roleTracker != nil {
@@ -139,7 +147,7 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 		}
 
 		if opts.runScheduler {
-			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations), scheduler.WithCustomLabels(customLabels))
 			err = sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

@@ -70,6 +70,7 @@ type LocalQueueReconcilerOptions struct {
 	admissionFSConfig *config.AdmissionFairSharing
 	clock             clock.Clock
 	roleTracker       *roletracker.RoleTracker
+	customLabels      *metrics.CustomLabels
 }
 
 // LocalQueueReconcilerOption configures the reconciler.
@@ -93,6 +94,12 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) LocalQueueReconcilerOptio
 	}
 }
 
+func WithCustomLabels(cl *metrics.CustomLabels) LocalQueueReconcilerOption {
+	return func(o *LocalQueueReconcilerOptions) {
+		o.customLabels = cl
+	}
+}
+
 var defaultLQOptions = LocalQueueReconcilerOptions{
 	clock: realClock,
 }
@@ -107,6 +114,7 @@ type LocalQueueReconciler struct {
 	admissionFSConfig *config.AdmissionFairSharing
 	clock             clock.Clock
 	roleTracker       *roletracker.RoleTracker
+	customLabels      *metrics.CustomLabels
 }
 
 var _ reconcile.Reconciler = (*LocalQueueReconciler)(nil)
@@ -131,6 +139,7 @@ func NewLocalQueueReconciler(
 		admissionFSConfig: options.admissionFSConfig,
 		clock:             options.clock,
 		roleTracker:       options.roleTracker,
+		customLabels:      options.customLabels,
 	}
 }
 
@@ -165,6 +174,17 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile LocalQueue")
+
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.LQStoreAndClear(utilqueue.Key(&queueObj),
+			queueObj.GetLabels(), queueObj.GetAnnotations(),
+			func() {
+				lqRef := localQueueReferenceFromLocalQueue(&queueObj)
+				metrics.ClearLocalQueueMetrics(lqRef)
+				metrics.ClearLocalQueueCacheMetrics(lqRef)
+				metrics.ClearLocalQueueResourceMetrics(lqRef)
+			})
+	}
 
 	if ptr.Deref(queueObj.Spec.StopPolicy, kueue.None) != kueue.None {
 		err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, StoppedReason, localQueueIsInactiveMsg)
@@ -225,8 +245,12 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 		log.Error(err, "Failed to add localQueue to the cache")
 	}
 
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.LQStore(utilqueue.Key(e.Object), e.Object.GetLabels(), e.Object.GetAnnotations())
+	}
+
 	if features.Enabled(features.LocalQueueMetrics) {
-		recordLocalQueueUsageMetrics(e.Object, r.roleTracker)
+		recordLocalQueueUsageMetrics(e.Object, r.roleTracker, r.customLabels)
 	}
 
 	return true
@@ -242,6 +266,10 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 		r.queues.AfsEntryPenalties.Delete(lqKey)
 	}
 
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.LQDelete(utilqueue.Key(e.Object))
+	}
+
 	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
 	log.V(2).Info("LocalQueue delete event")
 	r.queues.DeleteLocalQueue(log, e.Object)
@@ -253,8 +281,19 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	log := r.logger().WithValues("localQueue", klog.KObj(e.ObjectNew))
 	log.V(2).Info("Queue update event")
 
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.LQStoreAndClear(utilqueue.Key(e.ObjectNew),
+			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
+			func() {
+				lqRef := localQueueReferenceFromLocalQueue(e.ObjectNew)
+				metrics.ClearLocalQueueMetrics(lqRef)
+				metrics.ClearLocalQueueCacheMetrics(lqRef)
+				metrics.ClearLocalQueueResourceMetrics(lqRef)
+			})
+	}
+
 	if features.Enabled(features.LocalQueueMetrics) {
-		updateLocalQueueResourceMetrics(e.ObjectNew, r.roleTracker)
+		updateLocalQueueResourceMetrics(e.ObjectNew, r.roleTracker, r.customLabels)
 	}
 
 	oldStopPolicy := ptr.Deref(e.ObjectOld.Spec.StopPolicy, kueue.None)
@@ -371,22 +410,23 @@ func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueR
 	}
 }
 
-func recordLocalQueueUsageMetrics(queue *kueue.LocalQueue, tracker *roletracker.RoleTracker) {
+func recordLocalQueueUsageMetrics(queue *kueue.LocalQueue, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {
+	lqKey := utilqueue.Key(queue)
 	for _, flavor := range queue.Status.FlavorsUsage {
 		for _, r := range flavor.Resources {
-			metrics.ReportLocalQueueResourceUsage(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
+			metrics.ReportLocalQueueResourceUsage(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total), cl.LQGet(lqKey), tracker)
 		}
 	}
 	for _, flavor := range queue.Status.FlavorsReservation {
 		for _, r := range flavor.Resources {
-			metrics.ReportLocalQueueResourceReservations(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total), tracker)
+			metrics.ReportLocalQueueResourceReservations(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total), cl.LQGet(lqKey), tracker)
 		}
 	}
 }
 
-func updateLocalQueueResourceMetrics(queue *kueue.LocalQueue, tracker *roletracker.RoleTracker) {
+func updateLocalQueueResourceMetrics(queue *kueue.LocalQueue, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {
 	metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(queue))
-	recordLocalQueueUsageMetrics(queue, tracker)
+	recordLocalQueueUsageMetrics(queue, tracker, cl)
 }
 
 func (r *LocalQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.LocalQueue]) bool {
@@ -544,7 +584,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 			metrics.ReportLocalQueueStatus(metrics.LocalQueueReference{
 				Name:      kueue.LocalQueueName(queue.Name),
 				Namespace: queue.Namespace,
-			}, conditionStatus, r.roleTracker)
+			}, conditionStatus, r.customLabels.LQGet(utilqueue.Key(queue)), r.roleTracker)
 		}
 	}
 	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {

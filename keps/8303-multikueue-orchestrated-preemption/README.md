@@ -12,7 +12,7 @@
 - [Design Details](#design-details)
   - [API Definition](#api-definition)
     - [Workload API](#workload-api)
-    - [<code>SingleClusterPreemptionTimeout</code> Configuration](#singleclusterpreemptiontimeout-configuration)
+    - [<code>SingleClusterPreemptionTimeout</code> Default](#singleclusterpreemptiontimeout-default)
   - [MultiKueue Controller](#multikueue-controller)
   - [Kueue Scheduler](#kueue-scheduler)
   - [Test Plan](#test-plan)
@@ -115,7 +115,7 @@ The proposal is to preserve as much of the existing admission semantics as possi
 The controller responsible for dispatching workloads in MultiKueue will be responsible for adding the preemption gate to the workloads they manage.
 
 If a preemption fails for some reason or the workload is not admitted after preemption, a **timeout mechanism** will ensure that the gate is eventually removed for other replica workloads so that
-another worker gets a chance to preempt. If a worker was ungated, the `SingleClusterPreemptionTimeout` elapsed and the workload is still pending, another worker can be considered for ungating.
+another worker gets a chance to preempt. If a worker was ungated, the `SingleClusterPreemptionTimeout` (5 minutes by default) elapsed and the workload is still pending, another worker can be considered for ungating.
 This prevents a single failing preemption from blocking all others.
 
 ### User Stories
@@ -251,20 +251,11 @@ The structure of the API is inspired both by the [`AdmissionCheckState` API](htt
 and the [`schedulingGate` API](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#podschedulinggate-v1-core) in the `Pod` spec.
 
 
-#### `SingleClusterPreemptionTimeout` Configuration
+#### `SingleClusterPreemptionTimeout` Default
 
-The `MultiKueue` field in the `Configuration` struct will be extended with a `SingleClusterPreemptionTimeout` that defines
-the timeout of preemption, after which another worker replica can be ungated, measured since the previous ungating
-of the workload.
-
-```go
-type MultiKueue struct {
-  // The timeout after which another worker cluster replica can be ungated, measured since the previous time a replica was ungated.
-  // Defaults to 5 minutes.
-  // +optional
-  SingleClusterPreemptionTimeout *metav1.Duration `json:"singleClusterPreemptionTimeout,omitempty"`
-}
-```
+In the alpha, a hard-coded default value of 5 minutes will be set for the `SingleClusterPreemptionTimeout`.
+This is done in anticipation of a new opt-in API in beta, in order to avoid locking into the wrong API structure in the alpha
+(see [Graduation Criteria](#graduation-criteria)).
 
 ### MultiKueue Controller
 
@@ -357,8 +348,6 @@ to implement this enhancement.
 ### Graduation Criteria
 
 The feature will be introduced behind a `MultiKueueOrchestratedPreemption` feature gate.
-
-The `SingleClusterPreemptionTimeout` will be configurable in the Kueue configuration.
 
 - **Alpha**:
   - Feature implemented behind the feature gate, disabled by default.
