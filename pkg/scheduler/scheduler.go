@@ -797,8 +797,8 @@ func makeClassicalIterator(entries []entry, workloadOrdering workload.Ordering) 
 
 		// 2. Higher priority first if not disabled.
 		if features.Enabled(features.PrioritySortingWithinCohort) {
-			p1 := priority.Priority(a.Obj)
-			p2 := priority.Priority(b.Obj)
+			p1 := priority.EffectivePriority(a.Obj)
+			p2 := priority.EffectivePriority(b.Obj)
 			if p1 != p2 {
 				return cmp.Compare(p2, p1)
 			}
