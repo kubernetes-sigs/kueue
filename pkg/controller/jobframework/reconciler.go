@@ -1039,7 +1039,7 @@ func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r record.Event
 
 	r.Eventf(obj,
 		corev1.EventTypeNormal, ReasonUpdatedWorkload,
-		"Updated workload AdmissionGatedBy to \"%s\"", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
+		"Updated workload AdmissionGatedBy to %q", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
 	)
 
 	return nil
