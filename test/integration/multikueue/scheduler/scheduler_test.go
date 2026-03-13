@@ -535,19 +535,11 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 	})
 
 	ginkgo.When("MultiKueueOrchestratedPreemption is enabled", func() {
-		var (
-			lowWlKey1     types.NamespacedName
-			managerLowWl1 *kueue.Workload
-			workerLowWl1  *kueue.Workload
-
-			lowWlKey2     types.NamespacedName
-			managerLowWl2 *kueue.Workload
-			workerLowWl2  *kueue.Workload
-		)
-
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueOrchestratedPreemption, true)
+		})
 
+		ginkgo.It("should not trigger concurrent preemptions", func() {
 			// Fits only in worker1
 			lowJob1 := testingjob.MakeJob("low-job1", managerNs.Name).
 				WorkloadPriorityClass(managerLowWPC.Name).
@@ -558,9 +550,9 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				Obj()
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowJob1)
 
-			lowWlKey1 = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob1.Name, lowJob1.UID), Namespace: managerNs.Name}
-			managerLowWl1 = &kueue.Workload{}
-			workerLowWl1 = &kueue.Workload{}
+			lowWlKey1 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob1.Name, lowJob1.UID), Namespace: managerNs.Name}
+			managerLowWl1 := &kueue.Workload{}
+			workerLowWl1 := &kueue.Workload{}
 
 			ginkgo.By("Checking that the first low-priority workload is created and admitted in the manager cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -588,9 +580,9 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				Obj()
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowJob2)
 
-			lowWlKey2 = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob2.Name, lowJob2.UID), Namespace: managerNs.Name}
-			managerLowWl2 = &kueue.Workload{}
-			workerLowWl2 = &kueue.Workload{}
+			lowWlKey2 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob2.Name, lowJob2.UID), Namespace: managerNs.Name}
+			managerLowWl2 := &kueue.Workload{}
+			workerLowWl2 := &kueue.Workload{}
 
 			ginkgo.By("Checking that the second low-priority workload is created and admitted in the manager cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -607,9 +599,6 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey2, &kueue.Workload{})).To(testing.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
-		})
-
-		ginkgo.It("should not trigger concurrent preemptions", func() {
 			// Can fit in both workers after preemptions
 			highJob := testingjob.MakeJob("high-job", managerNs.Name).
 				WorkloadPriorityClass(managerHighWPC.Name).
