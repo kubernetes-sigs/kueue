@@ -365,6 +365,7 @@ The `SingleClusterPreemptionTimeout` will be configurable in the Kueue configura
   - Unit and integration tests are implemented.
 - **Beta**:
   - Feature gate is enabled by default.
+  - An API to configure and explicitly opt-in to this feature is added (for example to `Configuration`).
   - The feature has been tested in a production-like environment.
   - User feedback was gathered and emerging use-cases are taken into consideration.
   - The Kueue APIs are finalized and potentially extended, based upon the alpha experience.
