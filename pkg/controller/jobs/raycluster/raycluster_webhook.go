@@ -103,6 +103,11 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj *rayv1.RayCluster) 
 
 			utilpod.GateTemplate(&wgs.Template, kueue.ElasticJobSchedulingGate)
 		}
+	} else {
+		log.V(3).Info("skipping elastic scheduling gates",
+			"name", obj.Name,
+			"namespace", obj.Namespace,
+			"reason", "RayCluster is not an elastic job")
 	}
 
 	return nil
