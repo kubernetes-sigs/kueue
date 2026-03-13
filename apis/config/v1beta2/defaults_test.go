@@ -89,11 +89,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	defaultMultiKueue := &MultiKueue{
-		GCInterval:                     &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
-		Origin:                         ptr.To(DefaultMultiKueueOrigin),
-		WorkerLostTimeout:              &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:                 ptr.To(MultiKueueDispatcherModeAllAtOnce),
-		SingleClusterPreemptionTimeout: &metav1.Duration{Duration: DefaultMultiKueueSingleClusterPreemptionTimeout},
+		GCInterval:        &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
+		Origin:            ptr.To(DefaultMultiKueueOrigin),
+		WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
+		DispatcherName:    ptr.To(MultiKueueDispatcherModeAllAtOnce),
 	}
 
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
@@ -503,11 +502,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: ptr.To(false),
 				},
 				MultiKueue: &MultiKueue{
-					GCInterval:                     &metav1.Duration{Duration: time.Second},
-					Origin:                         ptr.To("multikueue-manager1"),
-					WorkerLostTimeout:              &metav1.Duration{Duration: time.Minute},
-					DispatcherName:                 ptr.To(MultiKueueDispatcherModeIncremental),
-					SingleClusterPreemptionTimeout: &metav1.Duration{Duration: time.Minute},
+					GCInterval:        &metav1.Duration{Duration: time.Second},
+					Origin:            ptr.To("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					DispatcherName:    ptr.To(MultiKueueDispatcherModeIncremental),
 				},
 			},
 			want: &Configuration{
@@ -519,11 +517,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				MultiKueue: &MultiKueue{
-					GCInterval:                     &metav1.Duration{Duration: time.Second},
-					Origin:                         ptr.To("multikueue-manager1"),
-					WorkerLostTimeout:              &metav1.Duration{Duration: time.Minute},
-					DispatcherName:                 ptr.To(MultiKueueDispatcherModeIncremental),
-					SingleClusterPreemptionTimeout: &metav1.Duration{Duration: time.Minute},
+					GCInterval:        &metav1.Duration{Duration: time.Second},
+					Origin:            ptr.To("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					DispatcherName:    ptr.To(MultiKueueDispatcherModeIncremental),
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
@@ -534,11 +531,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: ptr.To(false),
 				},
 				MultiKueue: &MultiKueue{
-					GCInterval:                     &metav1.Duration{Duration: time.Second},
-					Origin:                         ptr.To(""),
-					WorkerLostTimeout:              &metav1.Duration{Duration: time.Minute},
-					DispatcherName:                 defaultMultiKueue.DispatcherName,
-					SingleClusterPreemptionTimeout: &metav1.Duration{Duration: time.Minute},
+					GCInterval:        &metav1.Duration{Duration: time.Second},
+					Origin:            ptr.To(""),
+					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					DispatcherName:    defaultMultiKueue.DispatcherName,
 				},
 			},
 			want: &Configuration{
@@ -550,11 +546,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				MultiKueue: &MultiKueue{
-					GCInterval:                     &metav1.Duration{Duration: time.Second},
-					Origin:                         ptr.To(DefaultMultiKueueOrigin),
-					WorkerLostTimeout:              &metav1.Duration{Duration: time.Minute},
-					DispatcherName:                 defaultMultiKueue.DispatcherName,
-					SingleClusterPreemptionTimeout: &metav1.Duration{Duration: time.Minute},
+					GCInterval:        &metav1.Duration{Duration: time.Second},
+					Origin:            ptr.To(DefaultMultiKueueOrigin),
+					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					DispatcherName:    defaultMultiKueue.DispatcherName,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
@@ -578,11 +573,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				MultiKueue: &MultiKueue{
-					GCInterval:                     &metav1.Duration{},
-					Origin:                         ptr.To("multikueue-manager1"),
-					WorkerLostTimeout:              &metav1.Duration{Duration: 15 * time.Minute},
-					DispatcherName:                 defaultMultiKueue.DispatcherName,
-					SingleClusterPreemptionTimeout: &metav1.Duration{Duration: 5 * time.Minute},
+					GCInterval:        &metav1.Duration{},
+					Origin:            ptr.To("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: 15 * time.Minute},
+					DispatcherName:    defaultMultiKueue.DispatcherName,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},

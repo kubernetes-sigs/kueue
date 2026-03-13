@@ -650,14 +650,6 @@ GroupVersionKind (GVK) for MultiKueue operations.</p>
    <p>ClusterProfile defines configuration for using the ClusterProfile API.</p>
 </td>
 </tr>
-<tr><td><code>singleClusterPreemptionTimeout</code><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
-</td>
-<td>
-   <p>The timeout after which another worker cluster replica can be ungated, measured since the previous time a replica was ungated.
-Defaults to 5 minutes.</p>
-</td>
-</tr>
 </tbody>
 </table>
 

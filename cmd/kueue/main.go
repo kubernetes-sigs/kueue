@@ -462,7 +462,6 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfile),
 			multikueue.WithRoleTracker(roleTracker),
-			multikueue.WithSingleClusterPreemptionTimeout(cfg.MultiKueue.SingleClusterPreemptionTimeout.Duration),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}

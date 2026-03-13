@@ -283,11 +283,6 @@ type MultiKueue struct {
 	// ClusterProfile defines configuration for using the ClusterProfile API.
 	// +optional
 	ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
-
-	// The timeout after which another worker cluster replica can be ungated, measured since the previous time a replica was ungated.
-	// Defaults to 5 minutes.
-	// +optional
-	SingleClusterPreemptionTimeout *metav1.Duration `json:"singleClusterPreemptionTimeout,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.

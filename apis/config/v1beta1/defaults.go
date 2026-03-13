@@ -30,28 +30,27 @@ import (
 )
 
 const (
-	DefaultNamespace                                        = "kueue-system"
-	DefaultWebhookServiceName                               = "kueue-webhook-service"
-	DefaultWebhookSecretName                                = "kueue-webhook-server-cert"
-	DefaultWebhookPort                                      = 9443
-	DefaultWebhookCertDir                                   = "/tmp/k8s-webhook-server/serving-certs"
-	DefaultHealthProbeBindAddress                           = ":8081"
-	DefaultMetricsBindAddress                               = ":8443"
-	DefaultLeaderElectionID                                 = "c1f6bfd2.kueue.x-k8s.io"
-	DefaultLeaderElectionLeaseDuration                      = 15 * time.Second
-	DefaultLeaderElectionRenewDeadline                      = 10 * time.Second
-	DefaultLeaderElectionRetryPeriod                        = 2 * time.Second
-	DefaultClientConnectionQPS                      float32 = 20.0
-	DefaultClientConnectionBurst                    int32   = 30
-	defaultPodsReadyTimeout                                 = 5 * time.Minute
-	defaultJobFrameworkName                                 = "batch/job"
-	DefaultMultiKueueGCInterval                             = time.Minute
-	DefaultMultiKueueOrigin                                 = "multikueue"
-	DefaultMultiKueueWorkerLostTimeout                      = 15 * time.Minute
-	DefaultMultiKueueSingleClusterPreemptionTimeout         = 5 * time.Minute
-	DefaultRequeuingBackoffBaseSeconds                      = 60
-	DefaultRequeuingBackoffMaxSeconds                       = 3600
-	DefaultResourceTransformationStrategy                   = Retain
+	DefaultNamespace                              = "kueue-system"
+	DefaultWebhookServiceName                     = "kueue-webhook-service"
+	DefaultWebhookSecretName                      = "kueue-webhook-server-cert"
+	DefaultWebhookPort                            = 9443
+	DefaultWebhookCertDir                         = "/tmp/k8s-webhook-server/serving-certs"
+	DefaultHealthProbeBindAddress                 = ":8081"
+	DefaultMetricsBindAddress                     = ":8443"
+	DefaultLeaderElectionID                       = "c1f6bfd2.kueue.x-k8s.io"
+	DefaultLeaderElectionLeaseDuration            = 15 * time.Second
+	DefaultLeaderElectionRenewDeadline            = 10 * time.Second
+	DefaultLeaderElectionRetryPeriod              = 2 * time.Second
+	DefaultClientConnectionQPS            float32 = 20.0
+	DefaultClientConnectionBurst          int32   = 30
+	defaultPodsReadyTimeout                       = 5 * time.Minute
+	defaultJobFrameworkName                       = "batch/job"
+	DefaultMultiKueueGCInterval                   = time.Minute
+	DefaultMultiKueueOrigin                       = "multikueue"
+	DefaultMultiKueueWorkerLostTimeout            = 15 * time.Minute
+	DefaultRequeuingBackoffBaseSeconds            = 60
+	DefaultRequeuingBackoffMaxSeconds             = 3600
+	DefaultResourceTransformationStrategy         = Retain
 )
 
 func getOperatorNamespace() string {
@@ -123,7 +122,6 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.MultiKueue.GCInterval = cmp.Or(cfg.MultiKueue.GCInterval, &metav1.Duration{Duration: DefaultMultiKueueGCInterval})
 	cfg.MultiKueue.Origin = ptr.To(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
 	cfg.MultiKueue.WorkerLostTimeout = cmp.Or(cfg.MultiKueue.WorkerLostTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout})
-	cfg.MultiKueue.SingleClusterPreemptionTimeout = cmp.Or(cfg.MultiKueue.SingleClusterPreemptionTimeout, &metav1.Duration{Duration: DefaultMultiKueueSingleClusterPreemptionTimeout})
 	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, ptr.To(MultiKueueDispatcherModeAllAtOnce))
 
 	if fs := cfg.FairSharing; fs != nil && fs.Enable && len(fs.PreemptionStrategies) == 0 {

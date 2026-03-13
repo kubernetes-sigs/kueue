@@ -417,11 +417,6 @@ func (in *MultiKueue) DeepCopyInto(out *MultiKueue) {
 		*out = new(v1.Duration)
 		**out = **in
 	}
-	if in.SingleClusterPreemptionTimeout != nil {
-		in, out := &in.SingleClusterPreemptionTimeout, &out.SingleClusterPreemptionTimeout
-		*out = new(v1.Duration)
-		**out = **in
-	}
 	if in.DispatcherName != nil {
 		in, out := &in.DispatcherName, &out.DispatcherName
 		*out = new(string)

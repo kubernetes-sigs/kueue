@@ -280,11 +280,6 @@ type MultiKueue struct {
 	// +optional
 	WorkerLostTimeout *metav1.Duration `json:"workerLostTimeout,omitempty"`
 
-	// The timeout after which another worker cluster replica can be ungated, measured since the previous time a replica was ungated.
-	// Defaults to 5 minutes.
-	// +optional
-	SingleClusterPreemptionTimeout *metav1.Duration `json:"singleClusterPreemptionTimeout,omitempty"`
-
 	// DispatcherName defines the dispatcher responsible for selecting worker clusters to handle the workload.
 	// - If specified, the workload will be handled by the named dispatcher.
 	// - If not specified, the workload will be handled by the default ("kueue.x-k8s.io/multikueue-dispatcher-all-at-once") dispatcher.

@@ -59,23 +59,23 @@ import (
 )
 
 var (
-	realClock = clock.RealClock{}
+	realClock                      = clock.RealClock{}
+	singleClusterPreemptionTimeout = 5 * time.Minute
 )
 
 type wlReconciler struct {
-	client                         client.Client
-	helper                         *admissioncheck.MultiKueueStoreHelper
-	clusters                       *clustersReconciler
-	origin                         string
-	workerLostTimeout              time.Duration
-	deletedWlCache                 *utilmaps.SyncMap[string, *kueue.Workload]
-	eventsBatchPeriod              time.Duration
-	adapters                       map[string]jobframework.MultiKueueAdapter
-	recorder                       record.EventRecorder
-	clock                          clock.Clock
-	dispatcherName                 string
-	roleTracker                    *roletracker.RoleTracker
-	singleClusterPreemptionTimeout time.Duration
+	client            client.Client
+	helper            *admissioncheck.MultiKueueStoreHelper
+	clusters          *clustersReconciler
+	origin            string
+	workerLostTimeout time.Duration
+	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
+	eventsBatchPeriod time.Duration
+	adapters          map[string]jobframework.MultiKueueAdapter
+	recorder          record.EventRecorder
+	clock             clock.Clock
+	dispatcherName    string
+	roleTracker       *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -810,23 +810,21 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
 	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
 	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, roleTracker *roletracker.RoleTracker,
-	singleClusterPreemptionTimeout time.Duration,
 	options ...Option,
 ) *wlReconciler {
 	r := &wlReconciler{
-		client:                         c,
-		helper:                         helper,
-		clusters:                       cRec,
-		origin:                         origin,
-		workerLostTimeout:              workerLostTimeout,
-		deletedWlCache:                 utilmaps.NewSyncMap[string, *kueue.Workload](0),
-		eventsBatchPeriod:              eventsBatchPeriod,
-		adapters:                       adapters,
-		recorder:                       recorder,
-		clock:                          realClock,
-		dispatcherName:                 dispatcherName,
-		roleTracker:                    roleTracker,
-		singleClusterPreemptionTimeout: singleClusterPreemptionTimeout,
+		client:            c,
+		helper:            helper,
+		clusters:          cRec,
+		origin:            origin,
+		workerLostTimeout: workerLostTimeout,
+		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
+		eventsBatchPeriod: eventsBatchPeriod,
+		adapters:          adapters,
+		recorder:          recorder,
+		clock:             realClock,
+		dispatcherName:    dispatcherName,
+		roleTracker:       roleTracker,
 	}
 	for _, option := range options {
 		option(r)
@@ -1059,7 +1057,7 @@ func (w *wlReconciler) workloadToOpenPreemptionGate(group *wlGroup) (*kueue.Work
 	} else {
 		timeSinceUngate = w.clock.Now().Sub(previousUngateTime.Time)
 	}
-	timeLeftInTimeout := w.singleClusterPreemptionTimeout - timeSinceUngate
+	timeLeftInTimeout := singleClusterPreemptionTimeout - timeSinceUngate
 	// If the timeout elapsed or no workload was ungated yet, return the workload with the oldest signal.
 	if previousUngateTime == nil || timeLeftInTimeout <= 0 {
 		var rescheduleIn time.Duration
