@@ -315,7 +315,7 @@ controllerManager:
 apiServer:
   extraArgs:
     enable-aggregator-routing: \"true\"
-    runtime-config: \"scheduling.k8s.io/v1alpha1=true\"
+    runtime-config: \"scheduling.k8s.io/v1alpha2=true\"
     v: \"3\"
 "' "$patched_config"
 
