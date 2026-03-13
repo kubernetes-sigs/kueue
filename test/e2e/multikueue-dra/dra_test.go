@@ -33,7 +33,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -231,13 +230,13 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 					assignedWorkerCluster = k8sWorker2Client
 					expectedDeviceCount = 3
 				}
-
-				g.Expect(admissioncheck.FindAdmissionCheck(managerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-					Name:    kueue.AdmissionCheckReference(multiKueueAc.Name),
-					State:   kueue.CheckStateReady,
-					Message: fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName),
-				}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmissionCheckStateWithMessage(
+				ctx, k8sManagerClient, wlLookupKey,
+				multiKueueAc.Name,
+				kueue.CheckStateReady,
+				fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName),
+			)
 
 			ginkgo.By(fmt.Sprintf("Verifying workload admitted on %s has correct DRA resource usage (expecting %d devices)", assignedClusterName, expectedDeviceCount))
 			workerWlLookupKey := types.NamespacedName{Name: wlLookupKey.Name, Namespace: managerNs.Name}
@@ -354,13 +353,13 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				g.Expect(managerWl.Status.ClusterName).NotTo(gomega.BeNil())
 				g.Expect(*managerWl.Status.ClusterName).To(gomega.Equal(workerCluster1.Name))
-
-				g.Expect(admissioncheck.FindAdmissionCheck(managerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-					Name:    kueue.AdmissionCheckReference(multiKueueAc.Name),
-					State:   kueue.CheckStateReady,
-					Message: fmt.Sprintf(`The workload got reservation on "%s"`, workerCluster1.Name),
-				}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmissionCheckStateWithMessage(
+				ctx, k8sManagerClient, wlLookupKey,
+				multiKueueAc.Name,
+				kueue.CheckStateReady,
+				fmt.Sprintf(`The workload got reservation on "%s"`, workerCluster1.Name),
+			)
 
 			ginkgo.By("Verifying workload is admitted on worker1 with correct DRA resource usage")
 			workerWl := &kueue.Workload{}

@@ -32,7 +32,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -253,13 +252,13 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					} else {
 						assignedWorkerCluster = k8sWorker2Client
 					}
-
-					g.Expect(admissioncheck.FindAdmissionCheck(managerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:    kueue.AdmissionCheckReference(multiKueueAc.Name),
-						State:   kueue.CheckStateReady,
-						Message: fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName),
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sManagerClient, wlLookupKey,
+					multiKueueAc.Name,
+					kueue.CheckStateReady,
+					fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName),
+				)
 			})
 
 			ginkgo.By(fmt.Sprintf("Waiting for TopologyAssignment to be computed in %s", assignedClusterName), func() {

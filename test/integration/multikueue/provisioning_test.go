@@ -34,7 +34,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -264,25 +263,11 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 		})
 
 		ginkgo.By("checking the provisioning admission check is ready on worker", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				workerWl := &kueue.Workload{}
-				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, worker1WlKey, workerWl)).To(gomega.Succeed())
-
-				provCheck := admissioncheck.FindAdmissionCheck(workerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(worker1ProvReqAC.Name))
-				g.Expect(provCheck).NotTo(gomega.BeNil())
-				g.Expect(provCheck.State).To(gomega.Equal(kueue.CheckStateReady))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmissionCheckState(worker1TestCluster.ctx, worker1TestCluster.client, worker1WlKey, worker1ProvReqAC.Name, kueue.CheckStateReady)
 		})
 
 		ginkgo.By("checking the multikueue admission check is ready on manager", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, managerWlKey, managerWl)).To(gomega.Succeed())
-
-				mkCheck := admissioncheck.FindAdmissionCheck(managerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
-				g.Expect(mkCheck).NotTo(gomega.BeNil())
-				g.Expect(mkCheck.State).To(gomega.Equal(kueue.CheckStateReady))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmissionCheckState(managerTestCluster.ctx, managerTestCluster.client, managerWlKey, multiKueueAC.Name, kueue.CheckStateReady)
 		})
 
 		ginkgo.By("verifying the workload is admitted on worker", func() {
@@ -393,13 +378,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 		})
 
 		ginkgo.By("verifying the multikueue admission check is ready on manager", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, managerWlKey, managerWl)).To(gomega.Succeed())
-				mkCheck := admissioncheck.FindAdmissionCheck(managerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
-				g.Expect(mkCheck).NotTo(gomega.BeNil())
-				g.Expect(mkCheck.State).To(gomega.Equal(kueue.CheckStateReady))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmissionCheckState(managerTestCluster.ctx, managerTestCluster.client, managerWlKey, multiKueueAC.Name, kueue.CheckStateReady)
 		})
 	})
 })
