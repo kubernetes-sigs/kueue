@@ -24,11 +24,11 @@ type RayServiceUpgradeType string
 const (
 	// During upgrade, NewClusterWithIncrementalUpgrade strategy will create an upgraded cluster to gradually scale
 	// and migrate traffic to using Gateway API.
-	NewClusterWithIncrementalUpgrade RayServiceUpgradeType = "NewClusterWithIncrementalUpgrade"
+	RayServiceNewClusterWithIncrementalUpgrade RayServiceUpgradeType = "NewClusterWithIncrementalUpgrade"
 	// During upgrade, NewCluster strategy will create new upgraded cluster and switch to it when it becomes ready
-	NewCluster RayServiceUpgradeType = "NewCluster"
+	RayServiceNewCluster RayServiceUpgradeType = "NewCluster"
 	// No new cluster will be created while the strategy is set to None
-	None RayServiceUpgradeType = "None"
+	RayServiceUpgradeNone RayServiceUpgradeType = "None"
 )
 
 // These statuses should match Ray Serve's application statuses
@@ -75,7 +75,7 @@ type ClusterUpgradeOptions struct {
 }
 
 type RayServiceUpgradeStrategy struct {
-	// Type represents the strategy used when upgrading the RayService. Currently supports `NewCluster` and `None`.
+	// Type represents the strategy used when upgrading the RayService. Currently supports `NewCluster`, `NewClusterWithIncrementalUpgrade` and `None`.
 	// +optional
 	Type *RayServiceUpgradeType `json:"type,omitempty"`
 	// ClusterUpgradeOptions defines the behavior of a NewClusterWithIncrementalUpgrade type.
@@ -102,6 +102,16 @@ type RayServiceSpec struct {
 	// UpgradeStrategy defines the scaling policy used when upgrading the RayService.
 	// +optional
 	UpgradeStrategy *RayServiceUpgradeStrategy `json:"upgradeStrategy,omitempty"`
+	// ManagedBy is an optional configuration for the controller or entity that manages a RayService.
+	// The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.
+	// The kuberay-operator reconciles a RayService which doesn't have this field at all or
+	// the field value is the reserved string 'ray.io/kuberay-operator',
+	// but delegates reconciling the RayService with 'kueue.x-k8s.io/multikueue' to the Kueue.
+	// The field is immutable.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="the managedBy field is immutable"
+	// +kubebuilder:validation:XValidation:rule="self in ['ray.io/kuberay-operator', 'kueue.x-k8s.io/multikueue']",message="the managedBy field value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'"
+	// +optional
+	ManagedBy *string `json:"managedBy,omitempty"`
 	// Important: Run "make" to regenerate code after modifying this file
 	// Defines the applications and deployments to deploy, should be a YAML multi-line scalar string.
 	// +optional
@@ -206,6 +216,7 @@ const (
 	BothActivePendingClustersExist RayServiceConditionReason = "BothActivePendingClustersExist"
 	NoPendingCluster               RayServiceConditionReason = "NoPendingCluster"
 	NoActiveCluster                RayServiceConditionReason = "NoActiveCluster"
+	RayServiceValidationFailed     RayServiceConditionReason = "ValidationFailed"
 )
 
 // +kubebuilder:object:root=true
