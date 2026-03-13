@@ -682,6 +682,12 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		w.enqueueComponentWorkloads(ctx, group.local)
 	}
 
+	// check nonMK AdmissionChecks are Ready before nominating clusters, to avoid nominating clusters for workloads that are not fully admitted yet.
+	if ready, ac := allNonMKAdmissionChecksReady(group.local, group.acName); !ready {
+		log.V(3).Info("Waiting for all non-MultiKueue admission checks to be ready before nominating clusters", "admissionCheck", ac)
+		return reconcile.Result{}, nil
+	}
+
 	assignedWorkerCluster, err := w.getComponentWorkloadsClusterName(ctx, group.local, componentWorkloads)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("checking component workloads: %w", err)
@@ -999,4 +1005,16 @@ func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
 	return remoteWl
+}
+
+func allNonMKAdmissionChecksReady(wl *kueue.Workload, mkACName kueue.AdmissionCheckReference) (bool, kueue.AdmissionCheckReference) {
+	for _, ac := range wl.Status.AdmissionChecks {
+		if ac.Name == mkACName {
+			continue
+		}
+		if ac.State != kueue.CheckStateReady {
+			return false, ac.Name
+		}
+	}
+	return true, ""
 }
