@@ -362,6 +362,7 @@ func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
 	if i == nil {
 		return total
 	}
+	// TODO: optimize this to not iterate over all podsets if there are no flavors.
 	for _, psReqs := range i.TotalRequests {
 		for res, q := range psReqs.Requests {
 			flv := psReqs.Flavors[res]

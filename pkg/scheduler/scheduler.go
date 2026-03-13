@@ -80,6 +80,7 @@ type Scheduler struct {
 	workloadOrdering        workload.Ordering
 	fairSharing             *config.FairSharing
 	admissionFairSharing    *config.AdmissionFairSharing
+	quotaCheckStrategy      config.QuotaCheckStrategy
 	clock                   clock.Clock
 	roleTracker             *roletracker.RoleTracker
 	customLabels            *metrics.CustomLabels
@@ -93,6 +94,7 @@ type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	fairSharing                 *config.FairSharing
 	admissionFairSharing        *config.AdmissionFairSharing
+	quotaCheckStrategy          config.QuotaCheckStrategy
 	clock                       clock.Clock
 	roleTracker                 *roletracker.RoleTracker
 	preemptionExpectations      *expectations.Store
@@ -156,6 +158,12 @@ func WithCustomLabels(cl *metrics.CustomLabels) Option {
 	}
 }
 
+func WithQuotaCheckStrategy(qcs config.QuotaCheckStrategy) Option {
+	return func(o *options) {
+		o.quotaCheckStrategy = qcs
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -175,6 +183,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		workloadOrdering:        wo,
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
+		quotaCheckStrategy:      options.quotaCheckStrategy,
 		roleTracker:             options.roleTracker,
 		customLabels:            options.customLabels,
 	}
@@ -585,8 +594,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
-
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice, s.quotaCheckStrategy)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
 	arm := fullAssignment.RepresentativeMode()
