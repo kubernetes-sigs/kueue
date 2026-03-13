@@ -599,6 +599,7 @@ type VisibilityServerConfiguration struct {
 	BindAddress *string `json:"bindAddress,omitempty"`
 
 	// BindPort is the port on which to listen for the visibility server.
+	// Defaults to 8082.
 	// +optional
 	BindPort *int32 `json:"bindPort,omitempty"`
 }

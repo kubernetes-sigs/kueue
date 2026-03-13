@@ -104,7 +104,6 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cf
 		visibilityv1beta1.SchemeGroupVersion,
 	))
 	o.Etcd = nil
-	o.SecureServing.BindPort = 8082
 
 	// Apply visibility overrides from Configuration API if present
 	if cfg.Visibility != nil {
