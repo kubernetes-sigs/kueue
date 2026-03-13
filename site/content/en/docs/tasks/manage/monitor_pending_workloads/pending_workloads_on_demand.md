@@ -74,6 +74,8 @@ You can disable it by setting the `VisibilityOnDemand` feature gate. Check the [
 
 If you disable the feature, you also need to remove the associated `APIService` from your cluster by doing `kubectl delete APIService v1beta2.visibility.kueue.x-k8s.io`.
 
+If you need the embedded visibility server to run on a different port, you can use the `--visibility-secure-port` flag when running the Kueue controller manager. For example: `--visibility-secure-port=8443`.
+
 {{% /alert %}}
 
 To install a simple setup of ClusterQueue
