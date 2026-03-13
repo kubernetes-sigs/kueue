@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -2654,5 +2655,151 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 				g.Expect(nodeNames[0]).ShouldNot(gomega.Equal(nodeName))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+	})
+})
+
+var _ = ginkgo.Describe("AdmissionGatedBy controls whether Pod is admissible", ginkgo.Label("admissiongatedby"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns             *corev1.Namespace
+		resourceFlavor *kueue.ResourceFlavor
+		clusterQueue   *kueue.ClusterQueue
+		localQueue     *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(false, true, nil))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("default").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+	})
+
+	ginkgo.It("Should not admit Pod while AdmissionGatedBy is present", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
+
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a Pod with admission gate annotation")
+		pod := testingpod.MakePod("gated-pod", ns.Name).
+			Queue(localQueue.Name).
+			Annotation(constants.AdmissionGatedByAnnotation, gateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID),
+			Namespace: ns.Name,
+		}
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, pod, wlLookupKey, gateValue)
+
+		ginkgo.By("Checking the pod remains gated")
+		lookupKey := types.NamespacedName{Name: pod.Name, Namespace: ns.Name}
+		createdPod := &corev1.Pod{}
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+			g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should admit Pod when AdmissionGatedBy is removed", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
+
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a Pod with admission gate annotation")
+		pod := testingpod.MakePod("gated-pod-2", ns.Name).
+			Queue(localQueue.Name).
+			Annotation(constants.AdmissionGatedByAnnotation, gateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID),
+			Namespace: ns.Name,
+		}
+
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, pod, wlLookupKey, gateValue)
+
+		util.VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(ctx, k8sClient, pod, wlLookupKey)
+
+		ginkgo.By("Checking the pod is ungated")
+		podLookupKey := types.NamespacedName{Name: pod.Name, Namespace: ns.Name}
+		createdPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
+			g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should allow removing one gate from a Pod with multiple gates", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
+
+		initialGateValue := "example.com/controller1,example.com/controller2"
+		updatedGateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a Pod with two admission gates")
+		pod := testingpod.MakePod("multi-gated-pod", ns.Name).
+			Queue(localQueue.Name).
+			Annotation(constants.AdmissionGatedByAnnotation, initialGateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID),
+			Namespace: ns.Name,
+		}
+		ginkgo.By("Removing one gate and verifying the pod remains inadmissible")
+		util.VerifyAdmissionGatedByJobAllowsRemovingOneGate(ctx, k8sClient, pod, wlLookupKey, initialGateValue, updatedGateValue)
+	})
+
+	ginkgo.It("Should admit Pod when AdmissionGatedBy annotation is present but feature gate is disabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, false)
+
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a Pod with admission gate annotation but feature gate disabled")
+		pod := testingpod.MakePod("gated-pod-feature-disabled", ns.Name).
+			Queue(localQueue.Name).
+			Annotation(constants.AdmissionGatedByAnnotation, gateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID),
+			Namespace: ns.Name,
+		}
+
+		util.VerifyJobAdmittedWhenFeatureGateDisabled(ctx, k8sClient, pod, wlLookupKey)
+
+		ginkgo.By("Checking the pod is ungated")
+		podLookupKey := types.NamespacedName{Name: pod.Name, Namespace: ns.Name}
+		createdPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
+			g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })

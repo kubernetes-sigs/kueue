@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package statefulset
+package leaderworkerset
 
 import (
 	"context"
@@ -22,7 +22,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -33,35 +32,34 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
+	"sigs.k8s.io/kueue/pkg/controller/tas"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
-	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
-	cfg                  *rest.Config
-	k8sClient            client.Client
-	serverVersionFetcher *kubeversion.ServerVersionFetcher
-	ctx                  context.Context
-	fwk                  *framework.Framework
+	cfg       *rest.Config
+	k8sClient client.Client
+	ctx       context.Context
+	fwk       *framework.Framework
 )
 
 func TestAPIs(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecs(t,
-		"StatefulSet Controller Suite",
+		"LeaderWorkerSet Controller Suite",
 	)
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		DepCRDPaths: []string{util.LeaderWorkerSetCrds},
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -71,63 +69,60 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(enableScheduler bool, opts ...jobframework.Option) framework.ManagerSetup {
+func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		err = pod.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		err = statefulset.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		reconciler, err := statefulset.NewReconciler(
+		reconciler, err := leaderworkerset.NewReconciler(
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = leaderworkerset.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		podReconciler, err := statefulset.NewPodReconciler(
-			ctx,
-			mgr.GetClient(),
-			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
-			opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = podReconciler.SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		cCache := schdcache.New(mgr.GetClient())
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
-		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
-
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{}, nil, preemptexpectations.New(), nil)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
-
-		err = statefulset.SetupWebhook(mgr, opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = pod.SetupWebhook(mgr, opts...)
+		err = leaderworkerset.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+		jobframework.EnableIntegration(leaderworkerset.FrameworkName)
+	}
+}
 
-		jobframework.EnableIntegration(statefulset.FrameworkName)
+func managerAndControllersSetup(
+	setupTASControllers bool,
+	enableScheduler bool,
+	configuration *config.Configuration,
+	opts ...jobframework.Option,
+) framework.ManagerSetup {
+	return func(ctx context.Context, mgr manager.Manager) {
+		managerSetup(opts...)(ctx, mgr)
+		if configuration == nil {
+			configuration = &config.Configuration{}
+		}
+		mgr.GetScheme().Default(configuration)
+
+		cCache := schdcache.New(mgr.GetClient())
+		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
+
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptexpectations.New())
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+		if setupTASControllers {
+			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
+
+			err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		if enableScheduler {
 			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptexpectations.New()))
 			err = sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-
-		discoveryClient, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
-		err = serverVersionFetcher.FetchServerVersion()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
