@@ -18,6 +18,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"slices"
 	"strings"
 
@@ -64,6 +65,7 @@ var (
 	objectRetentionPoliciesWorkloadsPath         = objectRetentionPoliciesPath.Child("workloads")
 	tlsPath                                      = field.NewPath("tls")
 	featureGatesPath                             = field.NewPath("featureGates")
+	visibilityBindAddressPath                    = field.NewPath("visibility", "bindAddress")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -79,6 +81,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
 	allErrs = append(allErrs, validateTLS(c)...)
+	allErrs = append(allErrs, validateVisibility(c)...)
 	return allErrs
 }
 
@@ -560,6 +563,17 @@ func validateTLS(c *configapi.Configuration) field.ErrorList {
 	if c.TLS.MinVersion == "VersionTLS13" && len(c.TLS.CipherSuites) > 0 {
 		allErrs = append(allErrs, field.Invalid(tlsPath.Child("cipherSuites"),
 			c.TLS.CipherSuites, "may not be specified when `minVersion` is 'VersionTLS13'"))
+	}
+	return allErrs
+}
+
+func validateVisibility(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.Visibility == nil || c.Visibility.BindAddress == nil || *c.Visibility.BindAddress == "" {
+		return allErrs
+	}
+	if net.ParseIP(*c.Visibility.BindAddress) == nil {
+		allErrs = append(allErrs, field.Invalid(visibilityBindAddressPath, *c.Visibility.BindAddress, "must be a valid IP address"))
 	}
 	return allErrs
 }
