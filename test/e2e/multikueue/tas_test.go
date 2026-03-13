@@ -233,7 +233,12 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 						assignedWorkerCtx = ctx
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckStateWithMessage(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name, kueue.CheckStateReady, fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName))
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sManagerClient, wlLookupKey,
+					multiKueueAc.Name,
+					kueue.CheckStateReady,
+					fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName),
+				)
 			})
 
 			ginkgo.By(fmt.Sprintf("Waiting for TopologyAssignment to be computed in %s", assignedClusterName), func() {

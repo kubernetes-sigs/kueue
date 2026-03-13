@@ -248,7 +248,12 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			admission := utiltestingapi.MakeAdmission(managerMkCq.Name).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
 
-			util.ExpectAdmissionCheckStateWithMessage(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, multiKueueAC.Name, kueue.CheckStateReady, `The workload got reservation on "worker1"`)
+			util.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey,
+				multiKueueAC.Name,
+				kueue.CheckStateReady,
+				`The workload got reservation on "worker1"`,
+			)
 
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
 				Reason:  "MultiKueue",
@@ -422,7 +427,12 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			admission := utiltestingapi.MakeAdmission(managerMkCq.Name).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
 
-			util.ExpectAdmissionCheckStateWithMessage(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, multiKueueAC.Name, kueue.CheckStateReady, `The workload got reservation on "worker1"`)
+			util.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey,
+				multiKueueAC.Name,
+				kueue.CheckStateReady,
+				`The workload got reservation on "worker1"`,
+			)
 
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
 				Reason:  "MultiKueue",
