@@ -630,6 +630,7 @@ files:
     removeComments: true
     excludes:
       - kustomization.yaml
+      - frontend-configmap.yaml
     continueOnError: true
     operations:
       - type: UPDATE
@@ -673,11 +674,10 @@ files:
       - type: UPDATE
         key: .metadata.namespace
         value: '"{{ .Release.Namespace }}"'
-      - type: UPDATE
-        key: .spec.template.spec.containers.[].env.[].value
-        value: '"wss://{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
+      - type: APPEND
+        key: .spec.template.spec.volumes.[].configMap.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
         onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
-        onItemCondition: '.spec.template.spec.containers.[].env.[].name == "REACT_APP_WEBSOCKET_URL"'
       - type: DELETE
         key: .spec.template.spec.containers.[].resources
         onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-backend")'
@@ -701,6 +701,13 @@ files:
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+      - type: INSERT_TEXT
+        key: .spec.template.metadata
+        value: |
+          annotations:
+            charts.kueue.x-k8s.io/config-checksum: {{ include (print .Template.BasePath "/kueueviz/frontend-configmap.yaml") . | sha256sum }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
       - type: INSERT_TEXT
         key: .spec.template.spec
         value: |

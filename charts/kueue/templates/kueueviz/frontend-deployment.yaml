@@ -29,6 +29,8 @@ spec:
       app: kueueviz-frontend
   template:
     metadata:
+      annotations:
+        charts.kueue.x-k8s.io/config-checksum: {{ include (print .Template.BasePath "/kueueviz/frontend-configmap.yaml") . | sha256sum }}
       labels:
         app: kueueviz-frontend
     spec:
@@ -51,6 +53,10 @@ spec:
       securityContext:
       {{- toYaml . | nindent 8 }}
       {{- end }}
+      volumes:
+        - name: env-config
+          configMap:
+            name: '{{ include "kueue.fullname" . }}-kueueviz-frontend-env'
       containers:
         - name: frontend
           {{- with .Values.kueueViz.frontend.env }}
@@ -67,4 +73,9 @@ spec:
           {{- end }}
           ports:
             - containerPort: 8080
+          volumeMounts:
+            - name: env-config
+              mountPath: /app/build/env.js
+              subPath: env.js
+              readOnly: true
 {{- end }}

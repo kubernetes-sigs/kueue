@@ -17,7 +17,7 @@ install:
 # Run target: serves the built app
 .PHONY: run
 run:
-	npx react-inject-env set && npx http-server build
+	npm run serve
 
 # Debug target: runs the app in development mode
 .PHONY: debug
