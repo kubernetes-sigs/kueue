@@ -714,6 +714,33 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(admissionGatedByAnnotationsPath, "invalid_gate", ""),
 			}.ToAggregate(),
 		},
+		"AdmissionGatedBy Annotation with feature gate disabled - valid value": {
+			admissionGatedBy: false,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").
+				Obj(),
+			wantErr: nil,
+		},
+		"AdmissionGatedBy Annotation with feature gate disabled - invalid value": {
+			admissionGatedBy: false,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
+				Obj(),
+			wantErr: nil,
+		},
+		"AdmissionGatedBy Annotation with feature gate enabled - empty string": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "").
+				Obj(),
+			wantErr: nil,
+		},
 	}
 
 	for name, tc := range testCases {

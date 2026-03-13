@@ -47,14 +47,10 @@ import (
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	testutil "sigs.k8s.io/kueue/test/util"
 
 	// without this only the job framework is registered
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
-)
-
-const (
-	invalidRFC1123Message  = `a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')`
-	invalidLabelKeyMessage = `name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my.name',  or '123-abc', regex used for validation is '([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]')`
 )
 
 var (
@@ -84,7 +80,7 @@ func TestValidateCreate(t *testing.T) {
 		{
 			name:               "invalid queue-name label",
 			job:                testingutil.MakeJob("job", "default").Queue("queue name").Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
+			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", testutil.InvalidRFC1123Message)},
 		},
 		{
 			name: "invalid partial admission annotation (format)",
@@ -183,7 +179,7 @@ func TestValidateCreate(t *testing.T) {
 				Indexed(true).
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(prebuiltWlNameLabelPath, "workload name", invalidRFC1123Message),
+				field.Invalid(prebuiltWlNameLabelPath, "workload name", testutil.InvalidRFC1123Message),
 			},
 		},
 		{
@@ -269,7 +265,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-required-topology"), "some required value",
-					invalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
+					testutil.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
 			topologyAwareScheduling: true,
 		},
@@ -280,7 +276,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-preferred-topology"), "some preferred value",
-					invalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
+					testutil.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
 			topologyAwareScheduling: true,
 		},
@@ -515,7 +511,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate name").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "gate name", "Invalid path (regex used for validation is '[A-Za-z0-9/\\-._~%!$&'()*+,;=:]+')"),
+				field.Invalid(admissionGatedByAnnotationsPath, "gate name", testutil.InvalidPathMessage),
 			},
 			admissionGatedBy: true,
 		},
@@ -526,7 +522,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/gate").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "example .com", "a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')"),
+				field.Invalid(admissionGatedByAnnotationsPath, "example .com", testutil.InvalidRFC1123Message),
 			},
 			admissionGatedBy: true,
 		},
@@ -537,8 +533,32 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "valid.com/gate,invalid gate.com/controller").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", "a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')"),
+				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", testutil.InvalidRFC1123Message),
 			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "AdmissionGatedBy annotation with feature gate disabled - valid value",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").
+				Obj(),
+			admissionGatedBy: false,
+		},
+		{
+			name: "AdmissionGatedBy annotation with feature gate disabled - invalid value",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
+				Obj(),
+			admissionGatedBy: false,
+		},
+		{
+			name: "AdmissionGatedBy annotation with feature gate enabled - empty string",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "").
+				Obj(),
 			admissionGatedBy: true,
 		},
 	}
@@ -613,7 +633,7 @@ func TestValidateUpdate(t *testing.T) {
 			name:               "change queue name with suspend is true, but invalid value",
 			oldJob:             testingutil.MakeJob("job", "default").Obj(),
 			newJob:             testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
+			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", testutil.InvalidRFC1123Message)},
 		},
 		{
 			name: "immutable parallelism while unsuspended with partial admission enabled",
