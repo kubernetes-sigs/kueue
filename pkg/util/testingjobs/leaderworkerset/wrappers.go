@@ -239,3 +239,11 @@ func (w *LeaderWorkerSetWrapper) TerminationGracePeriod(seconds int64) *LeaderWo
 func (w *LeaderWorkerSetWrapper) WorkloadPriorityClass(wpc string) *LeaderWorkerSetWrapper {
 	return w.Label(constants.WorkloadPriorityClassLabel, wpc)
 }
+
+// RolloutStrategy sets the rollout strategy of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) RolloutStrategy(strategy leaderworkersetv1.RolloutStrategyType) *LeaderWorkerSetWrapper {
+	w.Spec.RolloutStrategy = leaderworkersetv1.RolloutStrategy{
+		Type: strategy,
+	}
+	return w
+}
