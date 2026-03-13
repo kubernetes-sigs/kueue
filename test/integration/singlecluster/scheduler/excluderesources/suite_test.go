@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -94,7 +95,8 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
+		preemptionExpectations := preemptexpectations.New()
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		// Setup TAS controllers for TAS integration tests
@@ -114,7 +116,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.AdmissionName))
+			mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}

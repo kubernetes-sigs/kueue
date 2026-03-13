@@ -17,7 +17,6 @@ limitations under the License.
 package features
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -52,6 +51,13 @@ const (
 	//
 	// Enable priority sorting within the cohort.
 	PrioritySortingWithinCohort featuregate.Feature = "PrioritySortingWithinCohort"
+
+	// owner: @mukund-wayve
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/9406
+	//
+	// In fair sharing preemption, allow preemption when the preemptor CQ
+	// is within nominal quota for contested resources, bypassing DRS gates.
+	FairSharingPreemptWithinNominal featuregate.Feature = "FairSharingPreemptWithinNominal"
 
 	// owner: @mukund-wayve
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/9406
@@ -263,6 +269,32 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/9156
 	// Enables pod labeling with corresponding cluster and local queue names
 	AssignQueueLabelsForPods featuregate.Feature = "AssignQueueLabelsForPods"
+
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable multi-layer topology constraints for TAS, allowing up to 3 slice
+	// layers (in addition to the podset-level constraint) for fine-grained
+	// placement across deep topology hierarchies.
+	TASMultiLayerTopology featuregate.Feature = "TASMultiLayerTopology"
+
+	// owner: @sohankunkerkar
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/9694
+	// Skip equivalent inadmissible workloads in BestEffortFIFO scheduling.
+	SchedulingEquivalenceHashing featuregate.Feature = "SchedulingEquivalenceHashing"
+
+	// owner: @mbobrovskyi
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/9799
+	// Use 10s interval for scheduler requeuing.
+	SchedulerLongRequeueInterval featuregate.Feature = "SchedulerLongRequeueInterval"
+
+	// owner: @mbobrovskyi
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/9799
+	// Use a 5min buffer so that workloads with scheduling timestamps within this
+	// buffer do not preempt each other based on LowerOrNewerEqualPriority.
+	SchedulerTimestampPreemptionBuffer featuregate.Feature = "SchedulerTimestampPreemptionBuffer"
 )
 
 func init() {
@@ -289,6 +321,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	PrioritySortingWithinCohort: {
 		{Version: version.MustParse("0.6"), Default: true, PreRelease: featuregate.Beta},
+	},
+	FairSharingPreemptWithinNominal: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 	FairSharingPrioritizeNonBorrowing: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
@@ -325,6 +360,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	HierarchicalCohorts: {
 		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	AdmissionFairSharing: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
@@ -384,7 +420,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	// PropagateBatchJobLabelsToWorkload is enabled from 0.13.10 and 0.14.5.
 	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA},
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	MultiKueueClusterProfile: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
@@ -413,6 +449,18 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	AssignQueueLabelsForPods: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
+	TASMultiLayerTopology: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	SchedulingEquivalenceHashing: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+	SchedulerLongRequeueInterval: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
+	},
+	SchedulerTimestampPreemptionBuffer: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
+	},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
@@ -422,13 +470,6 @@ func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) 
 // Enabled is helper for `utilfeature.DefaultFeatureGate.Enabled()`
 func Enabled(f featuregate.Feature) bool {
 	return utilfeature.DefaultFeatureGate.Enabled(f)
-}
-
-// SetEnable helper function that can be used to set the enabled value of a feature gate,
-// it should only be used in integration test pending the merge of
-// https://github.com/kubernetes/kubernetes/pull/118346
-func SetEnable(f featuregate.Feature, v bool) error {
-	return utilfeature.DefaultMutableFeatureGate.Set(fmt.Sprintf("%s=%v", f, v))
 }
 
 func LogFeatureGates(log logr.Logger) {

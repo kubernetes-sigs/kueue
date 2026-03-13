@@ -155,10 +155,10 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Verifying workload remains pending")
+			updatedWl := &kueue.Workload{}
 			gomega.Consistently(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(updatedWl)).To(gomega.BeFalse())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
@@ -365,10 +365,10 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Verifying workload with ResourceClaimTemplate remains pending due to quota")
+			updatedWl := &kueue.Workload{}
 			gomega.Consistently(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(updatedWl)).To(gomega.BeFalse())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
@@ -409,7 +409,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 						gomega.ContainSubstring("is not mapped"),
 					)),
 				)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Restarting the controller with new config mapping the device class")
 			fwk.StopManager(ctx)
@@ -523,7 +523,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
 					gomega.HaveField("Message", gomega.ContainSubstring("AllocationMode 'All' is not supported")),
 				)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should reject workload with CEL selectors", func() {
@@ -561,7 +561,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
 					gomega.HaveField("Message", gomega.ContainSubstring("CEL selectors are not supported")),
 				)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should reject workload with device constraints", func() {
@@ -600,7 +600,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
 					gomega.HaveField("Message", gomega.ContainSubstring("device constraints (MatchAttribute) are not supported")),
 				)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should reject workload with AdminAccess", func() {
@@ -647,7 +647,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
 					gomega.HaveField("Message", gomega.ContainSubstring("AdminAccess is not supported")),
 				)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should reject workload with device config", func() {
@@ -685,7 +685,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
 					gomega.HaveField("Message", gomega.ContainSubstring("device config is not supported")),
 				)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should reject workload with FirstAvailable", func() {
@@ -722,7 +722,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
 					gomega.HaveField("Message", gomega.ContainSubstring("FirstAvailable device selection is not supported")),
 				)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should admit workload with empty AllocationMode that defaults to ExactCount", func() {

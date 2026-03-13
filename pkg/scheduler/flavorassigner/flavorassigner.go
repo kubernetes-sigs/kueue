@@ -21,7 +21,6 @@ import (
 	"maps"
 	"math"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -74,7 +73,7 @@ type Assignment struct {
 }
 
 // UpdateForTASResult updates the Assignment with the TAS result
-func (a *Assignment) UpdateForTASResult(result schdcache.TASAssignmentsResult) {
+func (a *Assignment) UpdateForTASResult(cq *schdcache.ClusterQueueSnapshot, result schdcache.TASAssignmentsResult) {
 	for psName, psResult := range result {
 		psAssignment := a.podSetAssignmentByName(psName)
 		psAssignment.TopologyAssignment = psResult.TopologyAssignment
@@ -82,19 +81,32 @@ func (a *Assignment) UpdateForTASResult(result schdcache.TASAssignmentsResult) {
 			psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
 		}
 	}
-	a.Usage.TAS = a.ComputeTASNetUsage(nil)
+	a.Usage.TAS = a.ComputeTASNetUsage(cq, nil)
 }
 
 // ComputeTASNetUsage computes the net TAS usage for the assignment
-func (a *Assignment) ComputeTASNetUsage(prevAdmission *kueue.Admission) workload.TASUsage {
+func (a *Assignment) ComputeTASNetUsage(cq *schdcache.ClusterQueueSnapshot, prevAdmission *kueue.Admission) workload.TASUsage {
 	result := make(workload.TASUsage)
 	for i, psa := range a.PodSets {
 		if psa.TopologyAssignment != nil {
 			if prevAdmission != nil && prevAdmission.PodSetAssignments[i].TopologyAssignment != nil {
 				continue
 			}
-			singlePodRequests := resources.NewRequests(psa.Requests).ScaledDown(int64(psa.Count))
+			tasRequests := make(corev1.ResourceList, len(psa.Requests))
+			for resourceName, quantity := range psa.Requests {
+				flv := psa.Flavors[resourceName]
+				if flv == nil || cq.TASFlavors[flv.Name] == nil {
+					// This is the quota-only resources, skip when computing TAS usage.
+					continue
+				}
+				tasRequests[resourceName] = quantity
+			}
+			singlePodRequests := resources.NewRequests(tasRequests).ScaledDown(int64(psa.Count))
 			for _, flv := range psa.Flavors {
+				if cq.TASFlavors[flv.Name] == nil {
+					// This is a quota-only flavor, skip when computing TAS usage.
+					continue
+				}
 				if _, ok := result[flv.Name]; !ok {
 					result[flv.Name] = make(workload.TASFlavorUsage, 0)
 				}
@@ -236,7 +248,7 @@ func (s *Status) Message() string {
 	if s.err != nil {
 		return s.err.Error()
 	}
-	sort.Strings(s.reasons)
+	slices.Sort(s.reasons)
 	return strings.Join(s.reasons, ", ")
 }
 
@@ -267,7 +279,7 @@ func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
 		return Fit
 	}
 	if psa.Status.IsError() {
-		// e.g. onlyFlavor failed in WorkloadsTopologyRequests, or TAS request build failed
+		// e.g. onlyTASFlavor failed in WorkloadsTopologyRequests, or TAS request build failed
 		return NoFit
 	}
 	if len(psa.Flavors) == 0 {
@@ -683,7 +695,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				assignment.representativeMode = ptr.To(Preempt)
 			} else {
 				// All PodSets fit, we just update the TopologyAssignments
-				assignment.UpdateForTASResult(result)
+				assignment.UpdateForTASResult(a.cq, result)
 			}
 		}
 		if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
@@ -783,7 +795,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
 
-		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors); !flavorStatus.IsFit() {
+		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors, resourceGroup); !flavorStatus.IsFit() {
 			status.reasons = append(status.reasons, flavorStatus.reasons...)
 			consideredFlavors.AddNoFitFlavorAttempt(fName, flavorStatus)
 			if flavorStatus.err != nil {
@@ -890,6 +902,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	psIDs []int,
 	podSets []*kueue.PodSet,
 	selectors []nodeaffinity.RequiredNodeAffinity,
+	rg *schdcache.ResourceGroup,
 ) *Status {
 	status := NewStatus()
 
@@ -903,7 +916,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	for psIdx, psID := range psIDs {
 		if features.Enabled(features.TopologyAwareScheduling) {
 			ps := &a.wl.Obj.Spec.PodSets[psID]
-			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor); message != nil {
+			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor, rg); message != nil {
 				log.Error(nil, *message)
 				status.appendf("%s", *message)
 				return status

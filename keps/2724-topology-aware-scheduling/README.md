@@ -921,10 +921,11 @@ the rules is deactivated):
 - the value of `kueue.x-k8s.io/podset-slice-size` has to be a numeric value greater or equal
   than 1. It has to evenly divide the size of a PodSet.
 - multi-layer topology constraints (`kueue.x-k8s.io/podset-slice-required-topology-constraints`):
-  - it has to be exclusively used with `kueue.x-k8s.io/podset-slice-required-topology` and `kueue.x-k8s.io/podset-slice-size`
+  - it is mutually exclusive with `kueue.x-k8s.io/podset-slice-required-topology` and `kueue.x-k8s.io/podset-slice-size`
   - it must be ordered from coarsest to finest
   - each layer's size must be evenly divisible by the size of the layer immediately below it
   - the number of layers must be less than or equal to the number of levels in the topology
+  - topology labels must be unique within the constraints list
 - if `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology`
   or `kueue.x-k8s.io/podset-preferred-topology` has to also be specified in all other
   PodTemplates included in the PodSet Group and it has to have the same value.
@@ -1406,35 +1407,37 @@ We introduce the `TASReplaceNodeOnNodeTaints` feature gate from v0.17 as Beta, a
 When enabled, Kueue treats tainted nodes as unhealthy. This applies to nodes with `NoExecute` taint,
 or nodes with `NoSchedule` taint where all pods of the workload running on that node are failing, terminating, or in unscheduled state.
 
-- **NoExecute**: Nodes with the `NoExecute` effect taint, that is not tolerated by the workload, are considered unhealthy.
+- **NoExecute**: Nodes with the `NoExecute` taint, that is not tolerated by the workload, are considered unhealthy.
 The pods on such nodes are expected to be terminated by the node controller. Once terminated, Kueue will attempt
 to replace the node if `TASFailedNodeReplacement` is enabled, and evict the workload if no replacement is possible.
 If `tolerationSeconds` is specified, Kueue waits for the duration before treating the node as unhealthy.
-- **NoSchedule**: Nodes with the `NoSchedule` effect taint, that is not tolerated by the workload, are considered unhealthy
+- **NoSchedule**: Nodes with the `NoSchedule` taint, that is not tolerated by the workload, are considered unhealthy
 only if all pods of the workload that have topology assignment to that node are terminating, in the failed state,
 or if they are unscheduled. In this case, Kueue can trigger node replacement.
 
-  While `NoSchedule` taint does not evict running pods (unlike `NoExecute`), Kueue triggers recovery for unscheduled or failed pods.
-  If a workload is assigned to a node that is tainted with `NoSchedule`, the pods will remain in a pending state because
-  the Kubernetes scheduler will not schedule them on that node.
+While the `NoSchedule` taint does not evict running pods (unlike `NoExecute`), Kueue triggers recovery for unscheduled or failed pods.
+Kueue also performs node replacement if pods fail or terminate after the `NoSchedule` taint is assigned, ensuring the workload is not blocked by unschedulable Pods which are assigned to a tainted node.
 
-  Kueue also performs node replacement if pods fail or terminate after `NoSchedule` is assigned. Since the taint may indicate
-  an underlying node problem, replacement ensures the workload is not blocked by the unavailable node.
+Notably the analogous problem exists not just for Pods assigned to nodes tainted with the `NoSchedule` taint, but also nodes with the untolerated `NoExecute` taint, or in the `NotReady` state. 
 
-For workloads for which a single Node replacement is possible, and the pods bound to the node are unscheduled (no `spec.nodeName` set),
-because they cannot run due to a taint, Kueue marks the pods as `Failed` and adds the following condition to the pods:
-  ```yaml
-  type: TerminatedByKueue
-  status: True
-  reason: UnschedulableOnAssignedNode
-  message: "..."
-  ```
-  This ensures that the pods are re-created by the Job controller for placement on other nodes, while keeping the original
-  pods in Failed state for debuggability. Without this step, the pending pods would block the creation of replacement pods.
+In order to remediate the problem, for workloads where a single Node replacement is possible, the node failure controller transitions these `Pending` Pods to the `Failed` phase so that replacement Pods are created.
 
-  In addition, Kueue emits a Normal event with reason `PodTerminated` on the Pod to inform about the termination.
+This ensures that the pods are re-created by the Job controller for placement on other nodes, while keeping the original
+pods in the `Failed` state for debuggability. Without this step, the pending pods would block the creation of replacement pods.
 
-Nodes with `.spec.unschedulable` set to true are treated as having `NoSchedule` taint.
+When transitioning the `Pending` Pods, the controller appends the following condition:
+```yaml
+type: TerminatedByKueue
+status: True
+reason: UnschedulableOnAssignedNode
+message: "..."
+```
+
+In addition, Kueue emits a Normal event with the reason `PodTerminated` on Pod termination.
+
+Kueue will not terminate a `Pending` Pod if there is more than one node requiring replacement, because this scenario is handled by a full workload eviction.
+
+Nodes with `.spec.unschedulable` set to true are treated as having the `NoSchedule` taint.
 
 ##### User stories
 
@@ -1602,6 +1605,11 @@ on the child domains as `state / innerSliceSize`, since the `sliceState`
 populated during phase 1 reflects only the outermost slice size. The same
 sorting and selection logic (BestFit / BalancedPlacement) is applied at each
 level.
+
+> [!NOTE]
+> BalancedPlacement applies to the two-level topology path only, so it's not fully compatible with
+> multi-layer slice constraints because the domain-selection step does not account for deeper
+> slicing constraints.
 
 #### Example
 

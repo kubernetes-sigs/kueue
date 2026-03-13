@@ -74,8 +74,8 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.MediumTimeout)
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 		util.MustCreate(ctx, k8sClient, testSts)
 
 		ginkgo.By("verifying StatefulSet workload is created and admitted", func() {
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(testSts.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(testSts.UID, testSts.Name), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -127,16 +127,16 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 		util.MustCreate(ctx, k8sClient, testPod)
 
 		ginkgo.By("verifying pod is not managed by Kueue", func() {
+			createdPod := &corev1.Pod{}
 			gomega.Consistently(func(g gomega.Gomega) {
-				createdPod := &corev1.Pod{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testPod), createdPod)).To(gomega.Succeed())
 				g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying no workload is created for the pod", func() {
+			workloads := &kueue.WorkloadList{}
 			gomega.Consistently(func(g gomega.Gomega) {
-				workloads := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				for _, wl := range workloads.Items {
 					g.Expect(wl.Name).NotTo(gomega.ContainSubstring("plain-pod"))

@@ -33,6 +33,7 @@ If you are using Kueue, feel free to open a pull request to add your organizatio
 | [Octue](https://octue.com)                              | End User | [Scientific data service framework][octue-sdk]                  |               batch/job               | [@cortadocodes](https://github.com/cortadocodes) |
 | [LY Corporation](https://www.lycorp.co.jp/en/)          | End User | On-premise AI Platform                   | batch/job</br>TensorFlow Job</br>Ray Cluster</br>pod</br>... | [@everpeace](https://github.com/everpeace)       |
 | [Preferred Networks, Inc.](https://www.preferred.jp/en) | End User |                   Cloud/On-premise ML Platform                  |     batch/job </br> pod </br> ...     |     [@wafrelka](https://github.com/wafrelka)     |
+| [Wayve](https://wayve.ai/)                              | End User |       Part of the AI Platform powering Wayve AI Driver          |          RayJob </br> pod             | [@mukund-wayve](https://github.com/mukund-wayve) |
 
 [gcmldemo]: https://cloud.google.com/blog/products/compute/the-worlds-largest-distributed-llm-training-job-on-tpu-v5e
 [mlbatch]: https://github.com/project-codeflare/mlbatch

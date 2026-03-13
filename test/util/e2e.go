@@ -21,6 +21,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,6 +54,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/tools/portforward"
+	"k8s.io/client-go/transport/spdy"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
@@ -312,7 +316,7 @@ func waitForDeploymentAvailability(ctx context.Context, k8sClient client.Client,
 				}
 			}
 		}
-	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
 	ginkgo.GinkgoLogr.Info("Deployment is available", "deployment", key, "noRestarts", checkNoRestarts, "waitingTime", time.Since(waitStart))
 }
 
@@ -556,7 +560,7 @@ func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient cli
 				Status: corev1.ConditionTrue,
 			}, cmpopts.IgnoreFields(corev1.PodCondition{}, "Reason", "LastTransitionTime", "LastProbeTime"))))
 		}
-	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func GetKuberayTestImage() string {
@@ -687,4 +691,57 @@ func CreatePrometheusClient(cfg *rest.Config) prometheusv1.API {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return prometheusv1.NewAPI(client)
+}
+
+// KPortForward establishes a port-forward connection to a pod and returns
+// the local port, a stop channel to close the connection, and any error.
+func KPortForward(cfg *rest.Config, restClient *rest.RESTClient, ns, podName string, remotePort int) (int, chan struct{}, error) {
+	// Build the URL to the pod's portforward endpoint
+	url := restClient.Post().
+		Resource("pods").
+		Namespace(ns).
+		Name(podName).
+		SubResource("portforward").
+		URL()
+
+	// Create SPDY transport
+	transport, upgrader, err := spdy.RoundTripperFor(cfg)
+	if err != nil {
+		return 0, nil, fmt.Errorf("creating SPDY round tripper: %w", err)
+	}
+
+	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, "POST", url)
+
+	// Setup channels
+	stopChan := make(chan struct{})
+	readyChan := make(chan struct{})
+
+	// Use port 0 so the OS atomically assigns a free local port, avoiding the
+	// TOCTOU race of finding a port and then trying to bind it separately.
+	ports := []string{fmt.Sprintf("0:%d", remotePort)}
+
+	// Create port forwarder
+	pf, err := portforward.New(dialer, ports, stopChan, readyChan, io.Discard, io.Discard)
+	if err != nil {
+		return 0, nil, fmt.Errorf("creating port forwarder: %w", err)
+	}
+
+	// Run in goroutine
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- pf.ForwardPorts()
+	}()
+
+	// Wait for ready or error
+	select {
+	case <-readyChan:
+		forwardedPorts, err := pf.GetPorts()
+		if err != nil {
+			close(stopChan)
+			return 0, nil, fmt.Errorf("getting forwarded ports: %w", err)
+		}
+		return int(forwardedPorts[0].Local), stopChan, nil
+	case err := <-errChan:
+		return 0, nil, fmt.Errorf("port forward failed: %w", err)
+	}
 }

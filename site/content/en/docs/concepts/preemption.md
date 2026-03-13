@@ -126,11 +126,6 @@ achieve an equal or weighted share of the borrowable resources between the
 tenants of a cohort.
 
 {{< feature-state state="stable" for_version="v0.7" >}}
-{{% alert title="Note" color="primary" %}}
-Fair Sharing is compatible with Hierarchical Cohorts (any Cohort which has a
-parent) as of v0.11. Using these features together in V0.9 and V0.10 is
-unsupported, and results in undefined behavior.
-{{% /alert %}}
 
 To enable Fair Sharing, [use a Kueue Configuration](/docs/installation#install-a-custom-configured-release-version) similar to the following:
 

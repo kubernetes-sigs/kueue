@@ -17,6 +17,9 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	"github.com/onsi/ginkgo/v2"
@@ -288,7 +291,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 					}
 				}
 				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected admitted workload")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for the RayJob cluster become ready", func() {
@@ -312,7 +315,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 
 				// Store initial pod names for later verification
 				initialPodNames = workerPodNames
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		// RayJob is top level job, the submitter job created by RayJob will not create its own workload, there will be only 1 workload
@@ -322,7 +325,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected exactly 1 workload")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for 5 workers due to scaling up", func() {
@@ -348,7 +351,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(len(workloadList.Items)).To(gomega.BeNumerically(">=", 2), "Expected at least 2 workloads")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for workers reduced to 1 due to scaling down", func() {
@@ -526,6 +529,38 @@ app = HelloWorld.bind()`,
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
 				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(ptr.To(false)))
 				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying the RayService responds to HTTP requests via port-forward", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				// Find the head pod in this namespace
+				pods := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, pods,
+					client.InNamespace(ns.Name),
+					client.MatchingLabels{
+						"ray.io/node-type": "head",
+					},
+				)).To(gomega.Succeed())
+				g.Expect(pods.Items).NotTo(gomega.BeEmpty())
+
+				headPodName := pods.Items[0].Name
+
+				// Port-forward to the head pod on port 8000 (Ray Serve default)
+				localPort, stopChan, err := util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				defer close(stopChan)
+
+				// Send HTTP GET to the Ray Serve endpoint
+				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/", localPort))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				defer resp.Body.Close()
+
+				g.Expect(resp.StatusCode).To(gomega.Equal(http.StatusOK))
+
+				body, err := io.ReadAll(resp.Body)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(strings.TrimSpace(string(body))).To(gomega.ContainSubstring("Hello, World!"))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

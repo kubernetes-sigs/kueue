@@ -59,7 +59,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 		util.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-flavor").Resource(extraResource, "8").Resource(corev1.ResourceCPU, "1").Obj()).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-flavor").Resource(extraResource, "8").Resource(corev1.ResourceCPU, "2").Obj()).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
@@ -125,7 +125,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(replicas))
 					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(int(podsTotalCount)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
@@ -254,7 +254,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(replicas))
 					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -265,7 +265,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(int(podsTotalCount)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
@@ -387,7 +387,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(replicas))
 					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -398,7 +398,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(int(podsTotalCount)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
@@ -449,11 +449,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 								Args:  util.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
-										corev1.ResourceCPU: resource.MustParse("100m"),
+										corev1.ResourceCPU: resource.MustParse("200m"),
 										extraResource:      resource.MustParse("1"),
 									},
 									Requests: map[corev1.ResourceName]resource.Quantity{
-										corev1.ResourceCPU: resource.MustParse("100m"),
+										corev1.ResourceCPU: resource.MustParse("200m"),
 										extraResource:      resource.MustParse("1"),
 									},
 								},
@@ -476,10 +476,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 								Args:  util.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
-										corev1.ResourceCPU: resource.MustParse("100m"),
+										corev1.ResourceCPU: resource.MustParse("200m"),
 									},
 									Requests: map[corev1.ResourceName]resource.Quantity{
-										corev1.ResourceCPU: resource.MustParse("100m"),
+										corev1.ResourceCPU: resource.MustParse("200m"),
 									},
 								},
 							},
@@ -498,7 +498,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(replicas))
 					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -509,7 +509,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(int(podsTotalCount)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {

@@ -77,8 +77,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 	ginkgo.When("There are pending workloads due to capacity maxed by the admitted job", func() {
 		ginkgo.BeforeEach(func() {
 			defaultRF = utiltestingapi.MakeResourceFlavor(defaultFlavor).Obj()
-			gomega.Eventually(func() error {
-				return k8sClient.Create(ctx, defaultRF)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Create(ctx, defaultRF)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + nsA.Name).
@@ -168,7 +168,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
 					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](1)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Terminate execution of the first workload to release the quota", func() {
@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					info, err := kueueClientset.VisibilityV1beta1().ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(info.Items).Should(gomega.BeEmpty())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -216,7 +216,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
 					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](1)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Terminate execution of the first workload to release the quota", func() {
@@ -228,7 +228,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					info, err := kueueClientset.VisibilityV1beta2().ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(info.Items).Should(gomega.BeEmpty())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -339,7 +339,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
 					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](1)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Terminate execution of the first workload to release the quota", func() {
@@ -351,7 +351,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					info, err := kueueClientset.VisibilityV1beta2().LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(info.Items).Should(gomega.BeEmpty())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 

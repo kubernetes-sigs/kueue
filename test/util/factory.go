@@ -30,7 +30,7 @@ func NewManagerForIntegrationTests(ctx context.Context, client client.Client, ch
 }
 
 func NewManagerForIntegrationTestsWithBatchPeriod(ctx context.Context, client client.Client, checker qcache.StatusChecker, batchPeriod time.Duration, options ...qcache.Option) *qcache.Manager {
-	requeuer := qcache.NewRequeuer(batchPeriod)
+	requeuer := qcache.NewRequeuer(qcache.WithBatchPeriod(batchPeriod))
 	go func() {
 		// ignore error to make linter happy.
 		_ = requeuer.Start(ctx)

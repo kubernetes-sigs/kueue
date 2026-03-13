@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -4131,7 +4132,7 @@ func TestPreemption(t *testing.T) {
 					t.Fatalf("Failed adding kueue scheme: %v", err)
 				}
 				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New())
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -4353,7 +4354,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 					t.Fatalf("Failed adding kueue scheme: %v", err)
 				}
 				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New())
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -4391,6 +4392,127 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 
 				if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, snapCmpOpts); diff != "" {
 					t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
+				}
+			})
+		}
+	}
+}
+
+func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	rf := utiltestingapi.MakeResourceFlavor("default").Obj()
+	cq := utiltestingapi.MakeClusterQueue("standalone").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "6").
+				Obj(),
+		).ResourceGroup().
+		Preemption(kueue.ClusterQueuePreemption{
+			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+		}).
+		Obj()
+
+	cases := map[string]struct {
+		workloads  []kueue.Workload
+		incoming   *kueue.Workload
+		assignment flavorassigner.Assignment
+	}{
+		"skip duplicate preemption across calls": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("low", "").
+					UID("low-uid").
+					ResourceVersion("1").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("in", "").
+				UID("wl-in").
+				ResourceVersion("1").
+				Label(controllerconstants.JobUIDLabel, "job-in").Clone().
+				Priority(1).
+				Request(corev1.ResourceCPU, "2").
+				Obj(),
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: kueue.ResourceFlavorReference(rf.Name),
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+		},
+	}
+	for name, tc := range cases {
+		for _, useMergePatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+				ctx, log := utiltesting.ContextWithLog(t)
+				var patchCount int64
+				store := preemptexpectations.New()
+				cl := utiltesting.NewClientBuilder().
+					WithLists(&kueue.WorkloadList{Items: tc.workloads}).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							patchCount++
+							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						},
+					}).
+					Build()
+
+				cqCache := schdcache.New(cl)
+				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+				}
+
+				broadcaster := record.NewBroadcaster()
+				scheme := runtime.NewScheme()
+				if err := kueue.AddToScheme(scheme); err != nil {
+					t.Fatalf("Failed adding kueue scheme: %v", err)
+				}
+				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store)
+
+				snapshot, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+				wlInfo := workload.NewInfo(tc.incoming)
+				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
+				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshot)
+
+				if len(targets) == 0 {
+					t.Fatal("Expected preemption targets")
+				}
+
+				// First call should issue the preemption.
+				preempted, _, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshot.ClusterQueue(wlInfo.ClusterQueue))
+				if err != nil {
+					t.Fatalf("First IssuePreemptions failed: %v", err)
+				}
+				if preempted != 1 {
+					t.Fatalf("Expected 1 preempted, got %d", preempted)
+				}
+				patchAfterFirst := patchCount
+
+				// Second call with same stale targets should skip (expectation unsatisfied).
+				preempted2, _, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshot.ClusterQueue(wlInfo.ClusterQueue))
+				if err != nil {
+					t.Fatalf("Second IssuePreemptions failed: %v", err)
+				}
+				if preempted2 != 1 {
+					t.Fatalf("Expected 1 (skipped) on second call, got %d", preempted2)
+				}
+				if patchCount != patchAfterFirst {
+					t.Errorf("Expected no additional API patches on second call, got %d more", patchCount-patchAfterFirst)
 				}
 			})
 		}

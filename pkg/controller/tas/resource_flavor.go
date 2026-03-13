@@ -43,15 +43,17 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 type rfReconciler struct {
-	logName     string
-	queues      *qcache.Manager
-	cache       *schdcache.Cache
-	client      client.Client
-	recorder    record.EventRecorder
-	roleTracker *roletracker.RoleTracker
+	logName      string
+	queues       *qcache.Manager
+	cache        *schdcache.Cache
+	client       client.Client
+	recorder     record.EventRecorder
+	roleTracker  *roletracker.RoleTracker
+	nodeUpdateCh chan event.GenericEvent
 }
 
 var _ reconcile.Reconciler = (*rfReconciler)(nil)
@@ -63,12 +65,13 @@ var _ predicate.TypedPredicate[*kueue.ResourceFlavor] = (*rfReconciler)(nil)
 
 func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *rfReconciler {
 	return &rfReconciler{
-		logName:     TASResourceFlavorController,
-		client:      c,
-		queues:      queues,
-		cache:       cache,
-		recorder:    recorder,
-		roleTracker: roleTracker,
+		logName:      TASResourceFlavorController,
+		client:       c,
+		queues:       queues,
+		cache:        cache,
+		recorder:     recorder,
+		roleTracker:  roleTracker,
+		nodeUpdateCh: make(chan event.GenericEvent, updateChBuffer),
 	}
 }
 
@@ -77,9 +80,6 @@ func (r *rfReconciler) logger() logr.Logger {
 }
 
 func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache, cfg *configapi.Configuration) (string, error) {
-	nodeHandler := nodeHandler{
-		cache: cache,
-	}
 	return TASResourceFlavorController, builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("tas_resource_flavor_controller").
 		WatchesRawSource(source.TypedKind(
@@ -88,13 +88,28 @@ func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache
 			&handler.TypedEnqueueRequestForObject[*kueue.ResourceFlavor]{},
 			r,
 		)).
-		Watches(&corev1.Node{}, &nodeHandler).
+		WatchesRawSource(source.Channel(r.nodeUpdateCh, &nodeHandler{cache: cache})).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ResourceFlavor").GroupKind().String()],
 		}).
 		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASResourceFlavorController)).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.ResourceFlavor{}, cfg))
+}
+
+var _ NodeUpdateWatcher = (*rfReconciler)(nil)
+
+func (r *rfReconciler) NotifyNodeUpdate(oldNode *corev1.Node, newNode *corev1.Node) {
+	if oldNode != nil && newNode != nil && checkNodeSchedulingPropertiesChanged(newNode, oldNode) == nodeUnchanged {
+		r.logger().V(5).Info("Skipping node update as scheduling properties are unchanged", "node", newNode.Name)
+		return
+	}
+	if oldNode != nil {
+		r.nodeUpdateCh <- event.GenericEvent{Object: oldNode}
+	}
+	if newNode != nil {
+		r.nodeUpdateCh <- event.GenericEvent{Object: newNode}
+	}
 }
 
 var _ handler.EventHandler = (*nodeHandler)(nil)
@@ -104,53 +119,28 @@ type nodeHandler struct {
 	cache *schdcache.Cache
 }
 
-func (h *nodeHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *nodeHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *nodeHandler) Update(_ context.Context, _ event.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *nodeHandler) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *nodeHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	node, isNode := e.Object.(*corev1.Node)
 	if !isNode {
-		return
-	}
-	h.queueReconcileForNode(node, q)
-}
-
-func (h *nodeHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	oldNode, isOldNode := e.ObjectOld.(*corev1.Node)
-	newNode, isNewNode := e.ObjectNew.(*corev1.Node)
-	if !isOldNode || !isNewNode {
-		return
-	}
-
-	if checkNodeSchedulingPropertiesChanged(newNode, oldNode) == nodeUnchanged {
-		ctrl.LoggerFrom(ctx).V(5).Info("Skipping node update as scheduling properties are unchanged", "node", newNode.Name)
-		return
-	}
-
-	h.queueReconcileForNode(oldNode, q)
-	h.queueReconcileForNode(newNode, q)
-}
-
-func (h *nodeHandler) Delete(_ context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	node, isNode := e.Object.(*corev1.Node)
-	if !isNode {
-		return
-	}
-	h.queueReconcileForNode(node, q)
-}
-
-func (h *nodeHandler) queueReconcileForNode(node *corev1.Node, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if node == nil {
 		return
 	}
 	// trigger reconcile for TAS flavors affected by the node being created or updated
 	for name, cache := range h.cache.CloneTASCache() {
-		if nodeBelongsToFlavor(node, cache.NodeLabels(), cache.TopologyLevels()) {
+		if utiltas.NodeMatchesFlavor(node.Labels, cache.NodeLabels(), cache.TopologyLevels()) {
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
 				Name: string(name),
 			}}, constants.UpdatesBatchPeriod)
 		}
 	}
-}
-
-func (h *nodeHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
 func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -203,20 +193,6 @@ func (r *rfReconciler) Update(event event.TypedUpdateEvent[*kueue.ResourceFlavor
 
 func (r *rfReconciler) Generic(event event.TypedGenericEvent[*kueue.ResourceFlavor]) bool {
 	return false
-}
-
-func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels []string) bool {
-	for k, v := range nodeLabels {
-		if node.Labels[k] != v {
-			return false
-		}
-	}
-	for i := range levels {
-		if _, ok := node.Labels[levels[i]]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 type eventType int64

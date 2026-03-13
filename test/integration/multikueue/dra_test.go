@@ -64,8 +64,6 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 	)
 
 	ginkgo.BeforeAll(func() {
-		gomega.Expect(features.SetEnable(features.DynamicResourceAllocation, true)).To(gomega.Succeed())
-
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
 		})
@@ -73,10 +71,11 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 
 	ginkgo.AfterAll(func() {
 		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
-		gomega.Expect(features.SetEnable(features.DynamicResourceAllocation, false)).To(gomega.Succeed())
 	})
 
 	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
+
 		managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-dra-")
 		worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
 		worker2Ns = util.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
@@ -247,7 +246,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -274,6 +273,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 			})
 
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+			createdWorkload := &kueue.Workload{}
 
 			ginkgo.By("setting workload reservation in the management cluster", func() {
 				admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
@@ -281,7 +281,6 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 			})
 
 			ginkgo.By("checking the workload creation in the worker clusters", func() {
-				createdWorkload := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -290,9 +289,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 
 			ginkgo.By("verifying workload is not assigned to any worker (missing RCT on workers)", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
-					var managerWl kueue.Workload
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, &managerWl)).To(gomega.Succeed())
-					g.Expect(managerWl.Status.ClusterName).To(gomega.BeNil())
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.ClusterName).To(gomega.BeNil())
 				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 			})
 		})

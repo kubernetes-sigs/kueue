@@ -491,7 +491,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 					createdWl := kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
 					util.MustHaveOwnerReference(g, createdWl.OwnerReferences, job, k8sClient.Scheme())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -2581,17 +2581,16 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 			ginkgo.By("checking the first job and workload stay suspended and unadmitted")
 			gomega.Consistently(func(g gomega.Gomega) {
-				// Job should stay pending
+				// Job should stay suspended.
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: sampleJob.Name, Namespace: sampleJob.Namespace}, createdJob)).
 					Should(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
-				// Workload should get unadmitted
+
+				// Workload should stay unadmitted.
 				g.Expect(k8sClient.Get(ctx, wlKey, wll)).Should(gomega.Succeed())
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wll)
-				// Workload should stay pending
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wll), wll)).Should(gomega.Succeed())
-				// Should have Evicted condition
-				g.Expect(wll.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+				g.Expect(wll.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, "Deactivated"))
+				g.Expect(wll.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+				g.Expect(wll.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadAdmitted, "NoReservation"))
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("checking the first job becomes unsuspended after we update the Active field back to true")
@@ -3080,7 +3079,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 	ginkgo.When("A long recoveryTimeout is configured and a pod fails", func() {
 		ginkgo.BeforeEach(func() {
 			waitForPodsReadyTimeout = metav1.Duration{Duration: 5 * time.Minute}
-			waitForPodsReadyRecoveryTimeout = &metav1.Duration{Duration: util.LongTimeout}
+			waitForPodsReadyRecoveryTimeout = &metav1.Duration{Duration: util.MediumTimeout}
 		})
 
 		ginkgo.It("should wait for .recoveryTimeout for a workload to recover", func() {
@@ -3911,14 +3910,14 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 						}
 						g.Expect(err).NotTo(gomega.HaveOccurred())
 						g.Expect(createdJob.GetDeletionTimestamp()).ToNot(gomega.BeNil())
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
 		})
 
 		ginkgo.When("long deactivation retention period", func() {
 			ginkgo.BeforeEach(func() {
-				afterDeactivatedByKueue = &metav1.Duration{Duration: util.LongTimeout}
+				afterDeactivatedByKueue = &metav1.Duration{Duration: util.MediumTimeout}
 			})
 
 			ginkgo.It("shouldn't delete job", framework.SlowSpec, func() {
@@ -4379,9 +4378,9 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 	ginkgo.AfterAll(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, managedNs)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, unmanagedNs)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, rf, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, lq, true, util.LongTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cq, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, rf, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, lq, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cq, true, util.MediumTimeout)
 		fwk.StopManager(ctx)
 	})
 

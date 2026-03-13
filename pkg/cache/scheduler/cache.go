@@ -25,6 +25,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -41,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -95,6 +97,12 @@ func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
 	}
 }
 
+func WithResourceMetrics(enabled bool) Option {
+	return func(c *Cache) {
+		c.resourceMetricsEnabled = enabled
+	}
+}
+
 // WithRoleTracker sets the roleTracker for HA metrics.
 func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
 	return func(c *Cache) {
@@ -107,13 +115,14 @@ type Cache struct {
 	sync.RWMutex
 	podsReadyCond sync.Cond
 
-	client               client.Client
-	resourceFlavors      map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
-	podsReadyTracking    bool
-	admissionChecks      map[kueue.AdmissionCheckReference]AdmissionCheck
-	workloadInfoOptions  []workload.InfoOption
-	fairSharingEnabled   bool
-	admissionFairSharing *config.AdmissionFairSharing
+	client                 client.Client
+	resourceFlavors        map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	podsReadyTracking      bool
+	admissionChecks        map[kueue.AdmissionCheckReference]AdmissionCheck
+	workloadInfoOptions    []workload.InfoOption
+	fairSharingEnabled     bool
+	admissionFairSharing   *config.AdmissionFairSharing
+	resourceMetricsEnabled bool
 	// Tracks Workload's ClusterQueue assignment throughout its presence in the cache, which is when they reserve quota (`QuotaReserved=True`).
 	workloadAssignedQueues map[workload.Reference]kueue.ClusterQueueReference
 
@@ -903,6 +912,36 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue
 		}
 	}
 	return cqs
+}
+
+// ResyncGaugeMetrics re-reports CQ/LQ status, active workload, resource, and weighted share gauge metrics.
+func (c *Cache) ResyncGaugeMetrics() {
+	c.RLock()
+	defer c.RUnlock()
+	for _, cq := range c.hm.ClusterQueues() {
+		metrics.ReportClusterQueueStatus(cq.Name, cq.Status, c.roleTracker)
+		cq.reportActiveWorkloads()
+		if c.resourceMetricsEnabled {
+			cq.reportResourceMetrics(c.fairSharingEnabled)
+		}
+		if features.Enabled(features.LocalQueueMetrics) {
+			for _, lq := range cq.localQueues {
+				lq.reportActiveWorkloads(c.roleTracker)
+				lq.reportResourceMetrics(cq.resourceNode.Quotas, c.roleTracker)
+			}
+		}
+	}
+	if c.fairSharingEnabled {
+		for _, cohort := range c.hm.Cohorts() {
+			drs := dominantResourceShare(cohort, nil)
+			metrics.ReportCohortWeightedShare(string(cohort.Name), drs.PreciseWeightedShare(), c.roleTracker)
+		}
+	}
+}
+
+func resourceFloat(name corev1.ResourceName, v int64) float64 {
+	q := resources.ResourceQuantity(name, v)
+	return utilresource.QuantityToFloat(&q)
 }
 
 // Key is the key used to index the queue.

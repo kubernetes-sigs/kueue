@@ -1635,7 +1635,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod2), createdPod2)).Should(gomega.Succeed())
 						g.Expect(createdPod2.Spec.SchedulingGates).Should(gomega.BeEmpty())
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
 
@@ -2529,14 +2529,14 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 			pod := &corev1.Pod{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				for _, p := range podgroup {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
 					g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeEmpty())
 				}
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.BindPodWithNode(ctx, k8sClient, nodeName, podgroup...)
 			gomega.Eventually(func(g gomega.Gomega) {
 				for _, p := range podgroup {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
 					g.Expect(pod.Spec.NodeName).Should(gomega.Equal(nodeName))
 				}
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2563,12 +2563,12 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 		})
 
 		ginkgo.By("verify the workload is assigned a new node", func() {
-			gomega.Eventually(func(g gomega.Gomega) string {
-				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
-				gomega.Expect(nodeNames).To(gomega.HaveLen(1))
-				return nodeNames[0]
-			}, util.Timeout, util.Interval).ShouldNot(gomega.Equal(nodeName))
+				g.Expect(nodeNames).To(gomega.HaveLen(1))
+				g.Expect(nodeNames[0]).ToNot(gomega.Equal(nodeName))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 	ginkgo.It("should immediately replace a failed node when pods are terminating before node failure", framework.SlowSpec, func() {
@@ -2613,14 +2613,14 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 			pod := &corev1.Pod{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				for _, p := range podgroup {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
 					g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeEmpty())
 				}
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.BindPodWithNode(ctx, k8sClient, nodeName, podgroup...)
 			gomega.Eventually(func(g gomega.Gomega) {
 				for _, p := range podgroup {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
 					g.Expect(pod.Spec.NodeName).Should(gomega.Equal(nodeName))
 				}
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2647,12 +2647,12 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 		})
 
 		ginkgo.By("verify the workload is assigned a new node", func() {
-			gomega.Eventually(func(g gomega.Gomega) string {
-				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
-				gomega.Expect(nodeNames).To(gomega.HaveLen(1))
-				return nodeNames[0]
-			}, util.Timeout, util.Interval).ShouldNot(gomega.Equal(nodeName))
+				g.Expect(nodeNames).To(gomega.HaveLen(1))
+				g.Expect(nodeNames[0]).ShouldNot(gomega.Equal(nodeName))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

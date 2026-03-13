@@ -285,6 +285,10 @@ spec:
 
 {{< feature-gates-table stage="alpha-beta" >}}
 
+{{% alert title="Note" color="primary" %}}
+The SchedulerLongRequeueInterval and SchedulerTimestampPreemptionBuffer features are available starting from versions 0.15.6 and 0.16.3.
+{{% /alert %}}
+
 ### Feature gates for graduated or deprecated features
 
 {{< feature-gates-table stage="ga-deprecated" >}}

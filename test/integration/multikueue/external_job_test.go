@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
@@ -86,7 +87,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				configuration := &config.Configuration{}
 				mgr.GetScheme().Default(configuration)
 
-				failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil)
+				failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptexpectations.New())
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 				failedWebhook, err := webhooks.Setup(mgr, nil)
@@ -344,7 +345,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("breaking the connection to worker2", func() {
@@ -455,7 +456,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			ginkgo.By("the worker2 wl is removed by the garbage collector", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("restoring the connection to worker1", func() {
@@ -482,7 +483,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, rayclusterLookupKey, createdRayCluster)).To(utiltesting.BeNotFoundError())
 					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

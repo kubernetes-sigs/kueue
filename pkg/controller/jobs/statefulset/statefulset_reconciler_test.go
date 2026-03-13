@@ -25,6 +25,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,73 +63,46 @@ func TestReconciler(t *testing.T) {
 	}{
 		"statefulset not found": {
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
-			pods: []corev1.Pod{
-				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
-					KueueFinalizer().
-					StatusPhase(corev1.PodSucceeded).
-					Obj(),
-				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
-					KueueFinalizer().
-					StatusPhase(corev1.PodFailed).
-					Obj(),
-				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
-					KueueFinalizer().
-					Obj(),
-			},
-			wantPods: []corev1.Pod{
-				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
-					StatusPhase(corev1.PodSucceeded).
-					Obj(),
-				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
-					StatusPhase(corev1.PodFailed).
-					Obj(),
-				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
-					Obj(),
-			},
 		},
 		"statefulset with finished pods": {
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
 				Replicas(0).
 				Queue("lq").
 				DeepCopy(),
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
 				Replicas(0).
 				Queue("lq").
 				DeepCopy(),
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					Obj(),
 			},
@@ -136,27 +110,29 @@ func TestReconciler(t *testing.T) {
 		"statefulset with update revision": {
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
 				CurrentRevision("1").
 				UpdateRevision("2").
 				DeepCopy(),
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
 				CurrentRevision("1").
 				UpdateRevision("2").
 				DeepCopy(),
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
 					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
 					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "2").
 					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
@@ -164,15 +140,15 @@ func TestReconciler(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "2").
 					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
@@ -186,7 +162,7 @@ func TestReconciler(t *testing.T) {
 				Queue("lq").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					Obj(),
 			},
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -194,7 +170,7 @@ func TestReconciler(t *testing.T) {
 				Queue("lq").
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					Queue("lq").
 					OwnerReference(gvk, "sts", "sts-uid").
 					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
@@ -210,7 +186,7 @@ func TestReconciler(t *testing.T) {
 				Queue("lq").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					Obj(),
 			},
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -219,7 +195,7 @@ func TestReconciler(t *testing.T) {
 				Queue("lq").
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					Obj(),
 			},
 		},
@@ -231,7 +207,7 @@ func TestReconciler(t *testing.T) {
 				Replicas(0).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					OwnerReference(gvk, "sts", "sts-uid").
 					Obj(),
 			},
@@ -241,7 +217,7 @@ func TestReconciler(t *testing.T) {
 				Replicas(0).
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					Obj(),
 			},
 		},
@@ -256,7 +232,7 @@ func TestReconciler(t *testing.T) {
 				Queue("lq").
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					Queue("lq").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Priority(0).
@@ -288,7 +264,7 @@ func TestReconciler(t *testing.T) {
 				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts"), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					Queue("lq").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Priority(0).
@@ -332,19 +308,89 @@ func TestReconciler(t *testing.T) {
 				UID("sts-uid").
 				DeepCopy(),
 		},
+		"should adopt legacy workload instead of creating duplicate": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				DeepCopy(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					Label(controllerconstants.QueueLabel, "lq").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+		},
+		"should list pods by legacy workload name": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(0).
+				Queue("lq").
+				DeepCopy(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					KueueFinalizer().
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(0).
+				Queue("lq").
+				DeepCopy(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Obj(),
+			},
+		},
 		"should finalize deleted pod": {
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
 				Replicas(0).
 				Queue("lq").
 				DeepCopy(),
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
 				Replicas(0).
 				Queue("lq").
 				DeepCopy(),
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts")).
+					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					DeletionTimestamp(now).
 					Obj(),
@@ -413,6 +459,41 @@ func TestReconciler(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloadList.Items, baseCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGetWorkloadName(t *testing.T) {
+	testCases := map[string]struct {
+		uid1      types.UID
+		name1     string
+		uid2      types.UID
+		name2     string
+		wantEqual bool
+	}{
+		"same name, different UIDs should produce different workload names": {
+			uid1: "uid-aaa", name1: "prefix-abc12",
+			uid2: "uid-bbb", name2: "prefix-abc12",
+			wantEqual: false,
+		},
+		"different names, different UIDs should produce different workload names": {
+			uid1: "uid-aaa", name1: "sts-one",
+			uid2: "uid-bbb", name2: "sts-two",
+			wantEqual: false,
+		},
+		"same name, same UID should produce same workload name": {
+			uid1: "uid-aaa", name1: "sts",
+			uid2: "uid-aaa", name2: "sts",
+			wantEqual: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got := GetWorkloadName(tc.uid1, tc.name1) == GetWorkloadName(tc.uid2, tc.name2)
+			if got != tc.wantEqual {
+				t.Errorf("GetWorkloadName(%q, %q) == GetWorkloadName(%q, %q) = %v, want %v",
+					tc.uid1, tc.name1, tc.uid2, tc.name2, got, tc.wantEqual)
 			}
 		})
 	}

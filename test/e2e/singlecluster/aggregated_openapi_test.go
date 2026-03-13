@@ -43,6 +43,6 @@ var _ = ginkgo.Describe("Aggregated OpenAPI", ginkgo.Label("area:singlecluster",
 			// This is the same reference validation used by kubectl's OpenAPI schema loader.
 			_, err = proto.NewOpenAPIData(doc)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
-		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 	})
 })

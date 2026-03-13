@@ -41,6 +41,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: FairSharingPreemptWithinNominal
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.17"
 - name: FairSharingPrioritizeNonBorrowing
   versionedSpecs:
   - default: true
@@ -59,6 +65,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.11"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
 - name: LendingLimit
   versionedSpecs:
   - default: false
@@ -202,7 +212,7 @@
     preRelease: Beta
     version: "0.15"
   - default: true
-    lockToDefault: false
+    lockToDefault: true
     preRelease: GA
     version: "0.17"
 - name: ReclaimablePods
@@ -226,6 +236,24 @@
   - default: true
     lockToDefault: true
     preRelease: GA
+    version: "0.17"
+- name: SchedulerLongRequeueInterval
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
+- name: SchedulerTimestampPreemptionBuffer
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
+- name: SchedulingEquivalenceHashing
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
     version: "0.17"
 - name: SkipFinalizersForPodsSuspendedByParent
   versionedSpecs:
@@ -259,6 +287,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASMultiLayerTopology
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false

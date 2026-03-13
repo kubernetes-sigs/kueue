@@ -30,12 +30,33 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
-	RequeueBatchPeriodProd = 1 * time.Second
+	requeueBatchPeriod     = 1 * time.Second
+	requeueLongBatchPeriod = 10 * time.Second
 )
+
+func getRequeueBatchPeriod() time.Duration {
+	if features.Enabled(features.SchedulerLongRequeueInterval) {
+		return requeueLongBatchPeriod
+	}
+	return requeueBatchPeriod
+}
+
+type requeuerOptions struct {
+	batchPeriod time.Duration
+}
+
+type RequeuerOption func(*requeuerOptions)
+
+func WithBatchPeriod(period time.Duration) RequeuerOption {
+	return func(o *requeuerOptions) {
+		o.batchPeriod = period
+	}
+}
 
 // inadmissibleWorkloads is a thin wrapper around a map to encapsulate
 // operations on inadmissible workloads and prevent direct map access.
@@ -78,8 +99,8 @@ func (iw *inadmissibleWorkloads) replaceAll(newMap inadmissibleWorkloads) {
 	*iw = newMap
 }
 
-// requeueWorkloadsCQ moves all workloads in the same
-// cohort with this ClusterQueue from inadmissibleWorkloads to heap.
+// requeueWorkloadsCQ moves all workloads in this ClusterQueue
+// from inadmissibleWorkloads to heap.
 // It expects to be passed a ClusterQueue without any Cohort.
 // WARNING: must only be called by the InadmissibleWorkloadRequeuer
 func requeueWorkloadsCQ(ctx context.Context, m *Manager, clusterQueueName kueue.ClusterQueueReference) int {
@@ -141,7 +162,7 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 	return total
 }
 
-// queueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
+// queueInadmissibleWorkloads moves all (eligible) workloads from inadmissibleWorkloads to heap.
 // Returns the number of workloads moved.
 // WARNING: must only be called (indirectly) by InadmissibleWorkloadRequeuer.
 func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client client.Client) int {
@@ -149,6 +170,8 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 	defer c.rwm.Unlock()
 	log := ctrl.LoggerFrom(ctx)
 	c.queueInadmissibleCycle = c.popCycle
+	// Clear NoFit scheduling hashes so re-queued workloads are re-evaluated fresh.
+	c.noFitSchedulingHashes = sets.New[string]()
 	if c.inadmissibleWorkloads.empty() {
 		return 0
 	}
@@ -166,7 +189,7 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 	}
 
 	c.inadmissibleWorkloads.replaceAll(newInadmissibleWorkloads)
-	log.V(5).Info("Moved all workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name)
+	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", len(c.inadmissibleWorkloads))
 	return moved
 }
 
@@ -223,10 +246,16 @@ type workqueueRequeuer struct {
 	batchPeriod time.Duration
 }
 
-func NewRequeuer(batchPeriod time.Duration) *workqueueRequeuer {
+func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
+	options := requeuerOptions{
+		batchPeriod: getRequeueBatchPeriod(),
+	}
+	for _, opt := range opts {
+		opt(&options)
+	}
 	return &workqueueRequeuer{
 		queue:       workqueue.NewTypedDelayingQueue[requeueRequest](),
-		batchPeriod: batchPeriod,
+		batchPeriod: options.batchPeriod,
 	}
 }
 

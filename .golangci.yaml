@@ -60,11 +60,12 @@ linters:
             - - skip-package-name-collision-with-go-std: true
         - name: redundant-import-alias
         - name: use-any
+        - name: use-slices-sort
         - name: use-waitgroup-go
     forbidigo:
       forbid:
-        - pattern: ^sort\.Slice$
-          msg: Please use slices.SortFunc instead of sort.Slice for better performance and consistency
+        - pattern: ^sort\.(Slice|Sort|Stable|String).*$
+          msg: Please use slices package instead of sort for better performance and consistency
     modernize:
       disable:
         - omitzero
