@@ -75,6 +75,7 @@ const (
 var (
 	admissionManagedConditions = []string{
 		kueue.WorkloadQuotaReserved,
+		kueue.WorkloadPreemptionBlocked,
 		kueue.WorkloadEvicted,
 		kueue.WorkloadAdmitted,
 		kueue.WorkloadPreempted,
@@ -849,6 +850,10 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 		changed = true
 	}
 
+	if resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadPreemptionBlocked, reason, clock) {
+		changed = true
+	}
+
 	return changed
 }
 
@@ -949,6 +954,64 @@ func SetFinishedCondition(w *kueue.Workload, now time.Time, reason string, messa
 	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
+func SetPreemptionBlockedCondition(w *kueue.Workload, now time.Time, reason string, message string) bool {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadPreemptionBlocked,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: w.Generation,
+	}
+	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
+// HasClosedPreemptionGate checks if the workload contains any PreemptionGate
+// that is considered closed, preventing it from triggering preemptions.
+func HasClosedPreemptionGate(w *kueue.Workload) bool {
+	gateStates := make(map[string]kueue.GateState)
+	for _, gateState := range w.Status.PreemptionGates {
+		gateStates[gateState.Name] = gateState.State
+	}
+
+	return slices.ContainsFunc(w.Spec.PreemptionGates, func(pg kueue.PreemptionGate) bool {
+		state, hasState := gateStates[pg.Name]
+		// Preemption gates that are present only in `.spec` are considered closed.
+		// This ensures that the workload can be created gated atomically.
+		if !hasState {
+			return true
+		}
+		return state == kueue.GateStateClosed
+	})
+}
+
+// SetPreemptionGateState sets the state of a preemption gate with the given name.
+func SetPreemptionGateState(w *kueue.Workload, gateName string, gateState kueue.GateState, transitionTime metav1.Time) bool {
+	gateIdx := slices.IndexFunc(w.Spec.PreemptionGates, func(gate kueue.PreemptionGate) bool {
+		return gate.Name == gateName
+	})
+	if gateIdx == -1 {
+		return false
+	}
+
+	gateStateIdx := slices.IndexFunc(w.Status.PreemptionGates, func(gate kueue.PreemptionGateState) bool {
+		return gate.Name == gateName
+	})
+
+	if gateStateIdx == -1 {
+		w.Status.PreemptionGates = append(w.Status.PreemptionGates, kueue.PreemptionGateState{
+			Name:               gateName,
+			State:              gateState,
+			LastTransitionTime: transitionTime,
+		})
+	} else {
+		w.Status.PreemptionGates[gateStateIdx].State = gateState
+		w.Status.PreemptionGates[gateStateIdx].LastTransitionTime = transitionTime
+	}
+
+	return true
+}
+
 // PropagateResourceRequests synchronizes w.Status.ResourceRequests to
 // with info.TotalRequests if the feature gate is enabled and returns true if w was updated
 func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
@@ -1007,6 +1070,7 @@ func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	wlCopy.Status.ClusterName = w.Status.ClusterName
 	wlCopy.Status.NominatedClusterNames = w.Status.NominatedClusterNames
 	wlCopy.Status.UnhealthyNodes = w.Status.UnhealthyNodes
+	wlCopy.Status.PreemptionGates = w.Status.PreemptionGates
 }
 
 func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -1579,6 +1643,8 @@ func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string
 	resetClusterNomination(w)
 	resetChecksOnEviction(w, now)
 	resetUnhealthyNodes(w)
+	unsetPreemptionBlockedCondition(w, now, reason, message)
+	closeAllPreemptionGates(w, now)
 }
 
 func resetClusterNomination(w *kueue.Workload) {
@@ -1588,6 +1654,30 @@ func resetClusterNomination(w *kueue.Workload) {
 
 func resetUnhealthyNodes(w *kueue.Workload) {
 	w.Status.UnhealthyNodes = nil
+}
+
+func unsetPreemptionBlockedCondition(w *kueue.Workload, now time.Time, reason, message string) {
+	preemptionSignalCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreemptionBlocked)
+	if preemptionSignalCond == nil || preemptionSignalCond.Status != metav1.ConditionTrue {
+		return
+	}
+
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadPreemptionBlocked,
+		Status:             metav1.ConditionFalse,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: w.Generation,
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
+func closeAllPreemptionGates(w *kueue.Workload, now time.Time) {
+	for i := range w.Status.PreemptionGates {
+		w.Status.PreemptionGates[i].State = kueue.GateStateClosed
+		w.Status.PreemptionGates[i].LastTransitionTime = metav1.NewTime(now)
+	}
 }
 
 func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {

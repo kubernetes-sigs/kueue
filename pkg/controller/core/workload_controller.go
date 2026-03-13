@@ -204,6 +204,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
+		updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			updated := r.syncPreemptionGateStates(wl)
+			return updated, nil
+		})
+		if updateErr != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to sync workload preemption gate status: %w", updateErr)
+		}
+	}
+
 	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
 	if finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
 		if r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
@@ -690,6 +700,40 @@ func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, w
 	return false, nil
 }
 
+func (r *WorkloadReconciler) syncPreemptionGateStates(wl *kueue.Workload) bool {
+	changed := false
+
+	preemptionGates := make(map[string]kueue.PreemptionGate)
+	for _, gate := range wl.Spec.PreemptionGates {
+		preemptionGates[gate.Name] = gate
+	}
+	wl.Status.PreemptionGates = slices.DeleteFunc(wl.Status.PreemptionGates, func(gateState kueue.PreemptionGateState) bool {
+		_, ok := preemptionGates[gateState.Name]
+		if !ok {
+			changed = true
+		}
+
+		return !ok
+	})
+
+	preemptionGateStates := make(map[string]kueue.PreemptionGateState)
+	for _, gateState := range wl.Status.PreemptionGates {
+		preemptionGateStates[gateState.Name] = gateState
+	}
+	for _, gate := range wl.Spec.PreemptionGates {
+		if _, ok := preemptionGateStates[gate.Name]; !ok {
+			wl.Status.PreemptionGates = append(wl.Status.PreemptionGates, kueue.PreemptionGateState{
+				Name:               gate.Name,
+				State:              kueue.GateStateClosed,
+				LastTransitionTime: metav1.NewTime(r.clock.Now()),
+			})
+			changed = true
+		}
+	}
+
+	return changed
+}
+
 func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Context, wl *kueue.Workload, lqExists bool, lq *kueue.LocalQueue) (bool, error) {
 	queueStopPolicy := ptr.Deref(lq.Spec.StopPolicy, kueue.None)
 
@@ -951,7 +995,6 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
-
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
 		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
@@ -1018,6 +1061,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		// and are not supposed to actually change anything.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
+
 	r.queues.QueueSecondPassIfNeeded(ctx, e.ObjectNew, 0)
 	return true
 }

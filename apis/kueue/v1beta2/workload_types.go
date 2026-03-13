@@ -75,6 +75,15 @@ type WorkloadSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
+
+	// preemptionGates is a list of gates governing whether the workload
+	// can trigger preemptions.
+	// The gates are closed by default.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	PreemptionGates []PreemptionGate `json:"preemptionGates,omitempty"`
 }
 
 // PriorityClassGroup indicates the API group of the PriorityClass object.
@@ -592,6 +601,14 @@ type PodSet struct {
 	TopologyRequest *PodSetTopologyRequest `json:"topologyRequest,omitempty"`
 }
 
+type PreemptionGate struct {
+	// name identifies the preemption gate.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +required
+	Name string `json:"name"`
+}
+
 // WorkloadStatus defines the observed state of Workload
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.clusterName) || !has(self.clusterName) || oldSelf.clusterName == self.clusterName", message="clusterName is immutable once set"
 // +kubebuilder:validation:XValidation:rule="!has(self.clusterName) || (!has(self.nominatedClusterNames) || (has(self.nominatedClusterNames) && size(self.nominatedClusterNames) == 0))", message="clusterName and nominatedClusterNames are mutually exclusive"
@@ -698,6 +715,14 @@ type WorkloadStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=8
 	UnhealthyNodes []UnhealthyNode `json:"unhealthyNodes,omitempty"`
+
+	// preemptionGates is a list of states of gates governing whether the workload
+	// can trigger preemptions.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	PreemptionGates []PreemptionGateState `json:"preemptionGates,omitempty"`
 }
 
 type SchedulingStats struct {
@@ -871,10 +896,44 @@ type PodSetRequest struct {
 	Resources corev1.ResourceList `json:"resources,omitempty"`
 }
 
+type GateState string
+
+const (
+	// GateStateClosed means that the gate is blocking the workload from preempting.
+	GateStateClosed GateState = "Closed"
+
+	// GateStateOpen means that the gate is not blocking the workload from preempting.
+	GateStateOpen GateState = "Open"
+)
+
+type PreemptionGateState struct {
+	// name identifies the preemption gate.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +required
+	Name string `json:"name"`
+
+	// state of the preemption gate. One of
+	// +kubebuilder:validation:Enum=Closed;Open
+	// +required
+	State GateState `json:"state,omitempty"`
+
+	// lastTransitionTime is the last time the gate transitioned from one status to another.
+	// +required
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty,omitzero"`
+}
+
 const (
 	// WorkloadAdmitted means that the Workload has reserved quota and all the admissionChecks
 	// defined in the ClusterQueue are satisfied.
 	WorkloadAdmitted = "Admitted"
+
+	// WorkloadPreemptionBlocked means that the Workload attempted to reserve quota via a preemption, but was blocked.
+	// The possible reasons for this condition are:
+	// - "PreemptionGated": the workload could not preempt to acquire quota due to a preemption gate.
+	WorkloadPreemptionBlocked = "PreemptionBlocked"
 
 	// WorkloadQuotaReserved means that the Workload has reserved quota a ClusterQueue.
 	WorkloadQuotaReserved = "QuotaReserved"
@@ -911,6 +970,13 @@ const (
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
+)
+
+// Reasons for the WorkloadPreemptionBlocked condition.
+const (
+	// PreemptionGated indicates the Workload could free up quota via
+	// preemption, but was prevented from doing so by a preemption gate.
+	PreemptionGated string = "PreemptionGated"
 )
 
 // Reasons for the WorkloadPreempted condition.

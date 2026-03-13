@@ -169,6 +169,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: MultiKueueOrchestratedPreemption
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
 - name: MultiKueueRedoAdmissionOnEvictionInWorker
   versionedSpecs:
   - default: true

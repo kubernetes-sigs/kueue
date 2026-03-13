@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -1130,6 +1131,80 @@ var _ = ginkgo.Describe("Preemption", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowWl)
+		})
+	})
+
+	ginkgo.Context("Queue head is preemption gated", func() {
+		var (
+			cq *kueue.ClusterQueue
+			q  *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueOrchestratedPreemption, true)
+
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "2").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+
+			q = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, q)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		ginkgo.It("Should not block lower priority workloads while the preemption gate is closed", func() {
+			lowWl := utiltestingapi.MakeWorkload("low", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "1.5").
+				Obj()
+			lowWlKey := types.NamespacedName{Name: lowWl.Name, Namespace: lowWl.Namespace}
+
+			ginkgo.By("Creating low priority workload and waiting for it to reserve quota", func() {
+				util.MustCreate(ctx, k8sClient, lowWl)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+			})
+
+			highWl := utiltestingapi.MakeWorkload("high", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				PreemptionGates(kueue.PreemptionGate{Name: "testgate"}).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			highWlKey := types.NamespacedName{Name: highWl.Name, Namespace: highWl.Namespace}
+
+			ginkgo.By("Creating a preemption gated, high priority workload and waiting for it to be pending", func() {
+				util.MustCreate(ctx, k8sClient, highWl)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, highWl)
+			})
+
+			ginkgo.By("Checking that the lower priority workload was not preempted", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lowWlKey, lowWl)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, highWlKey, highWl)).To(gomega.Succeed())
+
+					g.Expect(workload.HasQuotaReservation(lowWl)).To(gomega.BeTrue())
+					g.Expect(workload.HasQuotaReservation(highWl)).To(gomega.BeFalse())
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+
+			lowWl2 := utiltestingapi.MakeWorkload("low2", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "0.5").
+				Obj()
+			ginkgo.By("Creating a second, small low priority workload and waiting for it to reserve quota", func() {
+				util.MustCreate(ctx, k8sClient, lowWl2)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl2)
+			})
 		})
 	})
 })
