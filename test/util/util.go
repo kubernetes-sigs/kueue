@@ -574,15 +574,18 @@ func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, 
 
 func mustAdmissionCheckState(g gomega.Gomega, updatedWl *kueue.Workload, admissionCheckName string, expectedState kueue.CheckState, expectedMessage string, podSetUpdates ...kueue.PodSetUpdate) {
 	ginkgo.GinkgoHelper()
-	wlJSON := toJSON(updatedWl)
+	getWLJSON := func() string {
+		wlJSON := toJSON(updatedWl)
+		return wlJSON
+	}
 	check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(admissionCheckName))
-	g.Expect(check).NotTo(gomega.BeNil(), "Admission check \"%s\" not found in workload\n%s", admissionCheckName, wlJSON)
-	g.Expect(check.State).To(gomega.Equal(expectedState), "Unexpected state for admission check \"%s\" in workload\n%s", admissionCheckName, wlJSON)
+	g.Expect(check).NotTo(gomega.BeNil(), getWLJSON)
+	g.Expect(check.State).To(gomega.Equal(expectedState), getWLJSON)
 	if expectedMessage != "" {
-		g.Expect(check.Message).To(gomega.Equal(expectedMessage), "Unexpected message for admission check \"%s\" in workload\n%s", admissionCheckName, wlJSON)
+		g.Expect(check.Message).To(gomega.Equal(expectedMessage), getWLJSON)
 	}
 	if len(podSetUpdates) > 0 {
-		g.Expect(check.PodSetUpdates).To(gomega.BeComparableTo(podSetUpdates), "Unexpected podSetUpdates for admission check \"%s\" in workload\n%s", admissionCheckName, wlJSON)
+		g.Expect(check.PodSetUpdates).To(gomega.BeComparableTo(podSetUpdates), getWLJSON)
 	}
 }
 
