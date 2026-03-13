@@ -355,26 +355,32 @@ var _ = ginkgo.Describe("Cohorts", func() {
 		ginkgo.It("correctly handles cohort metrics when clusterQueue moves between cohorts", func() {
 			ginkgo.By("Creating cohort ch1 with 5 CPUs and 1 GPU, and cohort ch2 with 4 CPUs and 1 GPU", func() {
 				createCohort(utiltestingapi.MakeCohort("ch1").
+					Parent("root").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
-							Resource(corev1.ResourceCPU, "5").
-							Resource("nvidia.com/gpu", "1").
+							Resource(corev1.ResourceCPU, "5", "3").
+							Resource("nvidia.com/gpu", "1", "2").
 							Obj(),
 					).Obj())
 
 				createCohort(utiltestingapi.MakeCohort("ch2").
+					Parent("root").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
-							Resource(corev1.ResourceCPU, "3").
-							Resource("nvidia.com/gpu", "1").
+							Resource(corev1.ResourceCPU, "3", "5").
+							Resource("nvidia.com/gpu", "1", "2").
 							Obj(),
 					).Obj())
 
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, "nvidia.com/gpu", 1)
+				util.ExpectCohortBorrowingLimitGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 3_000)
+				util.ExpectCohortBorrowingLimitGaugeMetric("ch1", flavor1.Name, "nvidia.com/gpu", 2)
 
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", flavor1.Name, corev1.ResourceCPU.String(), 3_000)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", flavor1.Name, "nvidia.com/gpu", 1)
+				util.ExpectCohortBorrowingLimitGaugeMetric("ch2", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortBorrowingLimitGaugeMetric("ch2", flavor1.Name, "nvidia.com/gpu", 2)
 			})
 
 			ginkgo.By("Create cluster queue cq1 under implicit cohort ch0 with 1 CPU and 1 GPU", func() {
@@ -382,8 +388,8 @@ var _ = ginkgo.Describe("Cohorts", func() {
 					Cohort("ch0").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
-							Resource(corev1.ResourceCPU, "1").
-							Resource("nvidia.com/gpu", "1").
+							Resource(corev1.ResourceCPU, "1", "1").
+							Resource("nvidia.com/gpu", "1", "1").
 							Obj(),
 					).Obj())
 
@@ -402,10 +408,16 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				// updated values for ch1 with cq1 added
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 6_000)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, "nvidia.com/gpu", 2)
+				// borrowingLimit does not get update as the value is not aggregated from children cohorts, but defined in the cohort itself
+				util.ExpectCohortBorrowingLimitGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 3_000)
+				util.ExpectCohortBorrowingLimitGaugeMetric("ch1", flavor1.Name, "nvidia.com/gpu", 2)
 
 				// cleared up values for ch0 with cq1 removed
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("ch0", flavor1.Name, corev1.ResourceCPU.String())
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("ch0", flavor1.Name, "nvidia.com/gpu")
+				// borrowingLimit metric gets cleared as the cohort ch0 does not have borrowingLimit defined
+				util.ExpectCohortBorrowingLimitGaugeMetricCleaned("ch0", flavor1.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortBorrowingLimitGaugeMetricCleaned("ch0", flavor1.Name, "nvidia.com/gpu")
 			})
 
 			ginkgo.By("Re-assign cq1 from ch1 to ch2", func() {
@@ -419,10 +431,16 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				// updated values for ch2 with cq1 added
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", flavor1.Name, corev1.ResourceCPU.String(), 4_000)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", flavor1.Name, "nvidia.com/gpu", 2)
+				// borrowingLimit does not get update as the value is not aggregated from children cohorts, but defined in the cohort itself
+				util.ExpectCohortBorrowingLimitGaugeMetric("ch2", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortBorrowingLimitGaugeMetric("ch2", flavor1.Name, "nvidia.com/gpu", 2)
 
 				// updated values for ch1 with cq1 removed
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, "nvidia.com/gpu", 1)
+				// borrowingLimit does not get update as the value is not aggregated from children cohorts, but defined in the cohort itself
+				util.ExpectCohortBorrowingLimitGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 3_000)
+				util.ExpectCohortBorrowingLimitGaugeMetric("ch1", flavor1.Name, "nvidia.com/gpu", 2)
 			})
 		})
 	})
