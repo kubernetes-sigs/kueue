@@ -257,7 +257,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			// the execution should be given to worker2
 			ginkgo.By("Waiting to be admitted in worker2", func() {
-				util.ExpectAdmissionCheckStateWithMessage(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name, kueue.CheckStateReady, `The workload got reservation on "worker2"`)
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sManagerClient, wlLookupKey, 
+					multiKueueAc.Name, 
+					kueue.CheckStateReady, 
+					`The workload got reservation on "worker2"`,
+				)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdPod := &corev1.Pod{}
@@ -660,7 +665,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			// the execution should be given to worker2
 			ginkgo.By("Waiting to be admitted in worker2", func() {
-				util.ExpectAdmissionCheckStateWithMessage(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name, kueue.CheckStateReady, `The workload got reservation on "worker2"`)
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sManagerClient, wlLookupKey,
+					multiKueueAc.Name,
+					kueue.CheckStateReady,
+					`The workload got reservation on "worker2"`,
+				)
 
 				ginkgo.By("ensure all pods are created", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -707,7 +717,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			// the execution should be given to the worker
 			ginkgo.By("Waiting to be admitted in worker2, and the manager's job unsuspended", func() {
-				util.ExpectAdmissionCheckStateWithMessage(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name, kueue.CheckStateReady, `The workload got reservation on "worker2"`)
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sManagerClient, wlLookupKey,
+					multiKueueAc.Name,
+					kueue.CheckStateReady,
+					`The workload got reservation on "worker2"`,
+				)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
@@ -2094,7 +2109,12 @@ func waitForJobAdmitted(wlLookupKey types.NamespacedName, acName, workerName str
 			Message: "The workload is admitted",
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 	}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-	util.ExpectAdmissionCheckStateWithMessage(ctx, k8sManagerClient, wlLookupKey, acName, kueue.CheckStateReady, fmt.Sprintf(`The workload got reservation on "%s"`, workerName))
+	util.ExpectAdmissionCheckStateWithMessage(
+		ctx, k8sManagerClient, wlLookupKey,
+		acName,
+		kueue.CheckStateReady,
+		fmt.Sprintf(`The workload got reservation on "%s"`, workerName),
+	)
 }
 
 func checkFinishStatusCondition(g gomega.Gomega, wlLookupKey types.NamespacedName, finishReasonMessage string) {

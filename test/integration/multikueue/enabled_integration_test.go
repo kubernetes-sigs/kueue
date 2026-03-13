@@ -145,7 +145,12 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 			admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 
-			util.ExpectAdmissionCheckStateWithMessage(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, multiKueueAC.Name, kueue.CheckStateReady, `The workload got reservation on "worker1"`)
+			util.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				multiKueueAC.Name,
+				kueue.CheckStateReady,
+				`The workload got reservation on "worker1"`,
+			)
 
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
 				Reason:  "MultiKueue",
@@ -233,7 +238,12 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 		})
 
 		ginkgo.By("checking the workload creation was rejected in the management cluster", func() {
-			util.ExpectAdmissionCheckStateWithMessage(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, multiKueueAC.Name, kueue.CheckStateRejected, `No multikueue adapter found for owner kind "kubeflow.org/v2beta1, Kind=MPIJob"`)
+			util.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				multiKueueAC.Name,
+				kueue.CheckStateRejected,
+				`No multikueue adapter found for owner kind "kubeflow.org/v2beta1, Kind=MPIJob"`,
+			)
 		})
 	})
 })

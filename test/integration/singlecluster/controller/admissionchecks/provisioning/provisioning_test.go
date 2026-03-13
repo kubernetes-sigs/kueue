@@ -274,7 +274,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 			ginkgo.By("Checking that the ETA is propagated to workload", func() {
-				util.ExpectAdmissionCheckStateWithMessage(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending, "Not provisioned, ETA: 2024-02-22T10:36:40Z.")
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sClient, wlKey,
+					ac.Name,
+					kueue.CheckStatePending,
+					"Not provisioned, ETA: 2024-02-22T10:36:40Z.",
+				)
 			})
 
 			ginkgo.By("Setting the provision request as Provisioned", func() {
@@ -331,7 +336,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckStateWithMessage(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending, "Reset to Pending after eviction. Previously: Rejected")
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sClient, wlKey,
+					ac.Name,
+					kueue.CheckStatePending,
+					"Reset to Pending after eviction. Previously: Rejected",
+				)
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
@@ -383,7 +393,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckStateWithMessage(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending, "Reset to Pending after eviction. Previously: Rejected")
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sClient, wlKey,
+					ac.Name,
+					kueue.CheckStatePending,
+					"Reset to Pending after eviction. Previously: Rejected",
+				)
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
@@ -422,7 +437,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckStateWithMessage(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending, "Reset to Pending after eviction. Previously: Rejected")
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sClient, wlKey,
+					ac.Name,
+					kueue.CheckStatePending,
+					"Reset to Pending after eviction. Previously: Rejected",
+				)
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
@@ -624,7 +644,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 
 			ginkgo.By("Checking the admission check state indicates an inactive check", func() {
-				util.ExpectAdmissionCheckStateWithMessage(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending, provisioning.CheckInactiveMessage)
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sClient, wlKey,
+					ac.Name,
+					kueue.CheckStatePending,
+					provisioning.CheckInactiveMessage,
+				)
 			})
 		})
 
@@ -1043,7 +1068,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(ok).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckStateWithMessage(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending, "Reset to Pending after eviction. Previously: Rejected")
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sClient, wlKey,
+					ac.Name,
+					kueue.CheckStatePending,
+					"Reset to Pending after eviction. Previously: Rejected",
+				)
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
