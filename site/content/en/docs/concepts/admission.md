@@ -13,17 +13,12 @@ It involves verifying:
 - physical resource availability via Topology-Aware Scheduling, when used,
 - optional AdmissionChecks for additional admission guards.
 
-Kueue implements this through a three-phase admission cycle:
+Kueue implements this through a two-phase admission cycle: 
 
-1. **Admission Gating**: This phase only exists when the [AdmissionGatedBy](/docs/reference/labels-and-annotations/#kueuex-k8sioadmission-gated-by) feature gate is on (off by default).
-A Job remains in this phase while the `AdmissionGatedBy` annotation is set to a non-empty value. 
-Jobs that do not specify the annotation, or specify it with an empty value, proceed directly to 
-the Quota Reservation phase.
-
-2. **Quota Reservation:** When a user submits a Workload, it enters a LocalQueue first. This LocalQueue points to a ClusterQueue which is responsible for managing the available resources. The Kueue checks if the targeted ClusterQueue's available quota and resource flavors can accomodate requested resources (CPU, memory, GPUs, etc.). If the quota is available, the Kueue reserves resources for this Workload and prevents other Workloads from using the same resources. This phase also includes checking the availability of physical resources when 
+1. **Quota Reservation:** When a user submits a Workload, it enters a LocalQueue first. This LocalQueue points to a ClusterQueue which is responsible for managing the available resources. The Kueue checks if the targeted ClusterQueue's available quota and resource flavors can accomodate requested resources (CPU, memory, GPUs, etc.). If the quota is available, the Kueue reserves resources for this Workload and prevents other Workloads from using the same resources. This phase also includes checking the availability of physical resources when 
     Topology-Aware Scheduling is enabled.
 
-3. **Admission Checks:** Await for [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue. Checks can be either built-in such as [MultiKueue](/docs/concepts/multikueue/) or [ProvisioningRequest](/docs/concepts/admission_check/provisioning_request/), or user-created plugins.
+2. **Admission Checks:** Await for [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue. Checks can be either built-in such as [MultiKueue](/docs/concepts/multikueue/) or [ProvisioningRequest](/docs/concepts/admission_check/provisioning_request/), or user-created plugins.
 
 The Workload is admitted once all [AdmissionCheckStates](/docs/concepts/admission_check/#admissioncheckstates) are in the `Ready` state.
 
