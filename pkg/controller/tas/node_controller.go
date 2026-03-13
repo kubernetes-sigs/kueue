@@ -51,6 +51,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
@@ -64,6 +65,7 @@ import (
 const (
 	nodeMultipleFailuresEvictionMessageFormat = "Workload eviction triggered due to multiple TAS assigned node failures, including: %s"
 	podTerminationCheckPeriod                 = 1 * time.Second
+	nodeReconcileBatchPeriod                  = 100 * time.Millisecond
 
 	podTerminatedByKueueConditionType    = "TerminatedByKueue"
 	podTerminatedByKueueConditionReason  = "UnschedulableOnAssignedNode"
@@ -275,7 +277,7 @@ func (r *nodeReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string
 	tasWorkloadsOnNode := sets.New[types.NamespacedName]()
 	for _, wl := range allWorkloads.Items {
 		wlKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
-		if hasTASAssignmentOnNode(&wl, nodeName) {
+		if workload.IsAdmittedByTAS(&wl) && utiltas.HasTASAssignmentOnNode(wl.Status.Admission.PodSetAssignments, nodeName) {
 			tasWorkloadsOnNode.Insert(wlKey)
 			continue
 		}
@@ -283,10 +285,7 @@ func (r *nodeReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string
 		// Also find workloads from any pods that are assigned to this node by TopologyAssignment
 		// but not yet bound. These might be stale "late" pods for a workload that has already
 		// been reassigned to another node.
-		sliceName := workloadslicing.SliceName(&wl)
-		pods, err := ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
-			indexer.PodNodeSelectorHostnameKey: nodeName,
-		})
+		pods, err := r.listTopologyAssignedPods(ctx, &wl, nodeName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list pods bound to node for workload %s: %w", wlKey.String(), err)
 		}
@@ -296,27 +295,6 @@ func (r *nodeReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string
 	}
 
 	return tasWorkloadsOnNode, nil
-}
-
-func hasTASAssignmentOnNode(wl *kueue.Workload, nodeName string) bool {
-	if !workload.IsAdmittedByTAS(wl) {
-		return false
-	}
-	for _, podSetAssignment := range wl.Status.Admission.PodSetAssignments {
-		topologyAssignment := podSetAssignment.TopologyAssignment
-		if topologyAssignment == nil {
-			continue
-		}
-		if !utiltas.IsLowestLevelHostname(topologyAssignment.Levels) {
-			continue
-		}
-		for value := range utiltas.LowestLevelValues(topologyAssignment) {
-			if value == nodeName {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string, node *corev1.Node, wlKey types.NamespacedName, wl *kueue.Workload) (workloadHealthCheck, error) {
@@ -363,7 +341,7 @@ func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string,
 }
 
 func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, wl *kueue.Workload, untolerated []corev1.Taint, expectedOnNode int32) (workloadHealthCheck, error) {
-	podsToTerminate, hasRunningPods, err := r.getPodsToTerminate(ctx, wl, nodeName)
+	podsToTerminate, hasProgressingPods, err := r.getPodsToTerminate(ctx, wl, nodeName)
 	if err != nil {
 		return workloadHealthCheck{status: workloadHealthUnknown}, fmt.Errorf("failed to get pods to terminate for node %s: %w", nodeName, err)
 	}
@@ -374,7 +352,7 @@ func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, w
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
-	if shouldWait(hasRunningPods, len(untolerated)) {
+	if shouldWait(hasProgressingPods, len(untolerated)) {
 		return workloadHealthCheck{status: workloadHealthUnknown, podsToTerminate: podsToTerminate}, nil
 	}
 
@@ -383,16 +361,12 @@ func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, w
 
 // shouldWait encapsulates the logic for deciding if we need to
 // wait for pods to be fully created and assigned before declaring a node failure.
-func shouldWait(hasRunningPods bool, untoleratedCount int) bool {
+func shouldWait(hasProgressingPods bool, untoleratedCount int) bool {
 	if untoleratedCount == 0 {
-		return hasRunningPods
+		return hasProgressingPods
 	}
 
-	if hasRunningPods && features.Enabled(features.TASReplaceNodeOnPodTermination) {
-		return true
-	}
-
-	return false
+	return hasProgressingPods && features.Enabled(features.TASReplaceNodeOnPodTermination)
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
@@ -599,52 +573,52 @@ func (r *nodeReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.Workloa
 	return nil
 }
 
-// getPodsToTerminate returns a list of pending pods that are assigned to the node
-// (either scheduled or just assigned via topology), and a boolean indicating
-// if there is at least one pod to retain (e.g. running pod).
+// getPodsToTerminate returns a list of pending pods that are assigned to the node by topology (but not yet scheduled),
+// and a boolean indicating if there is at least one pod to retain (e.g. any scheduled pod).
 func (r *nodeReconciler) getPodsToTerminate(ctx context.Context, wl *kueue.Workload, nodeName string) ([]*corev1.Pod, bool, error) {
-	sliceName := workloadslicing.SliceName(wl)
-
-	scheduledPods, err := ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
-		"spec.nodeName": nodeName,
-	})
+	hasProgressingPods, err := r.hasProgressingPods(ctx, wl, nodeName)
 	if err != nil {
 		return nil, false, fmt.Errorf("list scheduled pods: %w", err)
 	}
 
-	topologyAssignedPods, err := ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
-		indexer.PodNodeSelectorHostnameKey: nodeName,
-	})
+	topologyAssignedPods, err := r.listTopologyAssignedPods(ctx, wl, nodeName)
 	if err != nil {
 		return nil, false, fmt.Errorf("list topology assigned pods: %w", err)
 	}
-	var hasRunningPods bool
-	for _, pod := range scheduledPods {
-		if !pod.DeletionTimestamp.IsZero() || utilpod.IsTerminated(pod) {
-			continue
-		}
-		if pod.Status.Phase == corev1.PodRunning {
-			hasRunningPods = true
-			break
-		}
-	}
 
 	var podsToTerminate []*corev1.Pod
-	for _, pod := range scheduledPods {
-		if !pod.DeletionTimestamp.IsZero() || utilpod.IsTerminated(pod) {
-			continue
-		}
-		if pod.Status.Phase == corev1.PodPending && !utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
-			podsToTerminate = append(podsToTerminate, pod)
-		}
-	}
 	for _, pod := range topologyAssignedPods {
 		if pod.Status.Phase == corev1.PodPending && !utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
 			podsToTerminate = append(podsToTerminate, pod)
 		}
 	}
 
-	return podsToTerminate, hasRunningPods, nil
+	return podsToTerminate, hasProgressingPods, nil
+}
+
+func (r *nodeReconciler) hasProgressingPods(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
+	sliceName := workloadslicing.SliceName(wl)
+	pods, err := ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
+		coreindexer.PodNodeNameKey: nodeName,
+	})
+	if err != nil {
+		return false, err
+	}
+	for i := range pods {
+		pod := pods[i]
+		if !pod.DeletionTimestamp.IsZero() || utilpod.IsTerminated(pod) {
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (r *nodeReconciler) listTopologyAssignedPods(ctx context.Context, wl *kueue.Workload, nodeName string) ([]*corev1.Pod, error) {
+	sliceName := workloadslicing.SliceName(wl)
+	return ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
+		indexer.PodNodeSelectorHostnameKey: nodeName,
+	})
 }
 
 func checkTaintTolerations(logger logr.Logger, taint *corev1.Taint, podSets []kueue.PodSet) taintToleration {
@@ -738,6 +712,6 @@ func (h *nodeFailurePodHandler) queueReconcileForPod(object client.Object, q wor
 				Name: pod.Spec.NodeSelector[corev1.LabelHostname],
 			},
 		}
-		q.Add(req)
+		q.AddAfter(req, nodeReconcileBatchPeriod)
 	}
 }

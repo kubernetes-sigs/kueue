@@ -113,21 +113,21 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	basePod := testingpod.MakePod("test-pod", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
-		Annotation(kueue.PodSetPreferredTopologyAnnotation, "true").
+		Annotation(kueue.PodSetPreferredTopologyAnnotation, "unconstrained").
 		StatusPhase(corev1.PodRunning).
 		NodeName(nodeName).
 		Obj()
 
 	pendingPodWithSelector := testingpod.MakePod("pending-pod-selector", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
-		Annotation(kueue.PodSetPreferredTopologyAnnotation, "true").
+		Annotation(kueue.PodSetPreferredTopologyAnnotation, "unconstrained").
 		NodeSelector(corev1.LabelHostname, nodeName).
 		StatusPhase(corev1.PodPending).
 		Obj()
 
 	gatedPod := testingpod.MakePod("gated-pod", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
-		Annotation(kueue.PodSetPreferredTopologyAnnotation, "true").
+		Annotation(kueue.PodSetPreferredTopologyAnnotation, "unconstrained").
 		TopologySchedulingGate().
 		StatusPhase(corev1.PodPending).
 		Obj()
@@ -286,7 +286,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantRequeue:        1 * time.Second,
 		},
-		"Node NotReady, 2 succeeded pods, 1 pending pod, 1 failed pod -> marked as unavailable": {
+		"Node NotReady, 2 succeeded pods, 1 pending pod, 1 failed pod -> waits": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -299,7 +299,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 				testingpod.MakePod("failed-pod-2", nsName).Annotation(kueue.WorkloadAnnotation, wlName).NodeName(nodeName).StatusPhase(corev1.PodFailed).Obj(),
 			},
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			wantRequeue:        1 * time.Second,
 		},
 		"Node Deleted - marked as unavailable": {
 			initObjs: []client.Object{
@@ -703,11 +704,11 @@ func TestNodeFailureReconciler(t *testing.T) {
 			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
 				t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
 			}
-			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.PodNodeNameKey, func(o client.Object) []string {
 				pod := o.(*corev1.Pod)
 				return []string{pod.Spec.NodeName}
 			}); err != nil {
-				t.Fatalf("Could not setup spec.nodeName index: %v", err)
+				t.Fatalf("Could not setup %s index: %v", coreindexer.PodNodeNameKey, err)
 			}
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
@@ -783,13 +784,13 @@ func TestGetWorkloadStatus(t *testing.T) {
 
 	basePod := testingpod.MakePod("test-pod", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
-		Annotation(kueue.PodSetPreferredTopologyAnnotation, "true").
+		Annotation(kueue.PodSetPreferredTopologyAnnotation, "unconstrained").
 		NodeName(nodeName).
 		Obj()
 
 	strayPod := testingpod.MakePod("stray-pod", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
-		Annotation(kueue.PodSetPreferredTopologyAnnotation, "true").
+		Annotation(kueue.PodSetPreferredTopologyAnnotation, "unconstrained").
 		NodeSelector(corev1.LabelHostname, nodeNameUnassigned).
 		StatusPhase(corev1.PodPending).
 		Obj()
@@ -868,11 +869,11 @@ func TestGetWorkloadStatus(t *testing.T) {
 			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
 				t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
 			}
-			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.PodNodeNameKey, func(o client.Object) []string {
 				pod := o.(*corev1.Pod)
 				return []string{pod.Spec.NodeName}
 			}); err != nil {
-				t.Fatalf("Could not setup spec.nodeName index: %v", err)
+				t.Fatalf("Could not setup %s index: %v", coreindexer.PodNodeNameKey, err)
 			}
 			cl := clientBuilder.Build()
 
