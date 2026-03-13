@@ -308,6 +308,46 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"AdmissionGatedBy annotation - leading space": {
+			enableAdmissionGatedBy: true,
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotations(map[string]string{
+					constants.AdmissionGatedByAnnotation: " example.com/gate",
+				}).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"AdmissionGatedBy annotation - space before comma": {
+			enableAdmissionGatedBy: true,
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotations(map[string]string{
+					constants.AdmissionGatedByAnnotation: "example.com/gate ,example.com/gate2",
+				}).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"AdmissionGatedBy annotation - space after comma": {
+			enableAdmissionGatedBy: true,
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotations(map[string]string{
+					constants.AdmissionGatedByAnnotation: "example.com/gate, example.com/gate2",
+				}).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"AdmissionGatedBy annotation - trailing space": {
+			enableAdmissionGatedBy: true,
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotations(map[string]string{
+					constants.AdmissionGatedByAnnotation: "example.com/gate ",
+				}).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Obj(),
+			wantErr: nil,
+		},
 		"invalid AdmissionGatedBy annotation - not in subdomain/path format": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -354,30 +394,6 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "example .com/gate", ""),
-			},
-		},
-		"invalid AdmissionGatedBy annotation - leading space": {
-			enableAdmissionGatedBy: true,
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				Annotations(map[string]string{
-					constants.AdmissionGatedByAnnotation: " example.com/gate",
-				}).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), " example.com/gate", ""),
-			},
-		},
-		"invalid AdmissionGatedBy annotation - trailing space": {
-			enableAdmissionGatedBy: true,
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				Annotations(map[string]string{
-					constants.AdmissionGatedByAnnotation: "example.com/gate ",
-				}).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "example.com/gate ", ""),
 			},
 		},
 		"invalid AdmissionGatedBy annotation - multiple gates with one containing space": {
