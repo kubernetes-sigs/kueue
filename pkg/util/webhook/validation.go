@@ -19,13 +19,13 @@ package webhook
 import (
 	"fmt"
 	"slices"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/util/admissiongates"
 )
 
 // Same as the constraint of the spec.ManagedBy field for Jobs
@@ -78,9 +78,9 @@ func ValidateAdmissionGatedByAnnotation(oldValue, newValue *string, isUpdate boo
 
 		// Can only remove gates or remove entire annotation
 		if oldVal != "" && newVal != "" {
-			oldGates := strings.Split(oldVal, ",")
+			oldGates := admissiongates.Parse(oldVal)
 
-			for newGate := range strings.SplitSeq(newVal, ",") {
+			for _, newGate := range admissiongates.Parse(newVal) {
 				if !slices.Contains(oldGates, newGate) {
 					allErrs = append(allErrs, field.Forbidden(admissionGatedByAnnotationsPath,
 						"can only remove gates, not add new ones"))
@@ -92,7 +92,8 @@ func ValidateAdmissionGatedByAnnotation(oldValue, newValue *string, isUpdate boo
 
 	// Validate format if annotation is present and non-empty
 	if newVal != "" {
-		gates := strings.Split(newVal, ",")
+		gates := admissiongates.Parse(newVal)
+
 		seen := make(map[string]bool)
 
 		for _, gate := range gates {

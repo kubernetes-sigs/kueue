@@ -447,35 +447,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}))
 	}
 
-	// Handle admission gate
-	if features.Enabled(features.AdmissionGatedBy) {
-		hasGateNow := workload.HasAdmissionGate(&wl)
-
-		quotaReservedForAdmGateAlready := false
-		// Check whether the workload needs to be un-gated
-		if condition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); condition != nil {
-			quotaReservedForAdmGateAlready = condition.Reason == kueue.WorkloadAdmissionGated
-		}
-
-		if quotaReservedForAdmGateAlready && !hasGateNow {
-			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "AdmissionGateCleared",
-				"Admission gate cleared, workload is now admissible")
-
-			return ctrl.Result{}, workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-				// Update the condition to indicate the gate is cleared, rather than removing it
-				return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "AdmissionGatedBy cleared, waiting for quota reservation", r.clock.Now()), nil
-			})
-		}
-
-		// This is the first detection of the AdmissionGatedBy annotation
-		if hasGateNow && !quotaReservedForAdmGateAlready {
-			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "AdmissionGated",
-				"Workload admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation])
-
-			return ctrl.Result{}, workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-				return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), r.clock.Now()), nil
-			})
-		}
+	if result, err := r.updateConditionForAdmissionGatedBy(ctx, &wl); err != nil || result != nil {
+		return ptr.Deref(result, ctrl.Result{}), err
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
@@ -797,6 +770,50 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 	}
 
 	return false, nil
+}
+
+// updateConditionForAdmissionGatedBy updates the Condition of a Workload which is either
+// gated by an AdmissionGate or its AdmissionGate just got removed.
+// Returns a non-nil result pointer if the reconciliation should return early,
+// along with any error encountered.
+func (r *WorkloadReconciler) updateConditionForAdmissionGatedBy(ctx context.Context, wl *kueue.Workload) (*ctrl.Result, error) {
+	if !features.Enabled(features.AdmissionGatedBy) {
+		return nil, nil
+	}
+
+	hasGateNow := workload.HasAdmissionGate(wl)
+
+	quotaReservedForAdmGateAlready := false
+	// Check whether the workload needs to be un-gated
+	if condition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); condition != nil {
+		quotaReservedForAdmGateAlready = condition.Reason == kueue.WorkloadAdmissionGated
+	}
+
+	if quotaReservedForAdmGateAlready && !hasGateNow {
+		r.recorder.Eventf(wl, corev1.EventTypeNormal, "AdmissionGateCleared",
+			"Admission gate cleared, workload is now admissible")
+
+		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			// Update the condition to indicate the gate is cleared, rather than removing it
+			return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "AdmissionGatedBy cleared, waiting for quota reservation", r.clock.Now()), nil
+		})
+		result := ctrl.Result{}
+		return &result, err
+	}
+
+	// This is the first detection of the AdmissionGatedBy annotation
+	if hasGateNow && !quotaReservedForAdmGateAlready {
+		r.recorder.Eventf(wl, corev1.EventTypeNormal, "AdmissionGated",
+			"Workload admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation])
+
+		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), r.clock.Now()), nil
+		})
+		result := ctrl.Result{}
+		return &result, err
+	}
+
+	return nil, nil
 }
 
 func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionChecks sets.Set[kueue.AdmissionCheckReference], c clock.Clock) ([]kueue.AdmissionCheckState, bool) {

@@ -1242,7 +1242,11 @@ func HasAdmissionGate(w *kueue.Workload) bool {
 		return false
 	}
 
-	return w.Annotations[constants.AdmissionGatedByAnnotation] != ""
+	if val, exists := w.Annotations[constants.AdmissionGatedByAnnotation]; exists {
+		return val != ""
+	}
+
+	return false
 }
 
 // HasActiveQuotaReservation returns true if the workload has an active quota
