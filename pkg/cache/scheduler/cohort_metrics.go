@@ -28,7 +28,8 @@ import (
 type cohortMetricPoint struct {
 	cohortName     kueue.CohortReference
 	flavorResource resources.FlavorResource
-	qty            int64
+	quotaQty       int64
+	usageQty       int64
 }
 
 func (c *Cache) RecordCohortMetrics(log logr.Logger, cohortName kueue.CohortReference) {
@@ -73,21 +74,38 @@ func (c *Cache) collectCohortMetricPoints(cohortName kueue.CohortReference, simu
 	}
 
 	removedQuota := ch.resourceNode.SubtreeQuota
+	removedUsage := ch.resourceNode.Usage
+
 	var points []cohortMetricPoint
 	for ancestor := range ch.PathSelfToRoot() {
 		quotas := ancestor.resourceNode.SubtreeQuota
+		usages := ancestor.resourceNode.Usage
+
 		if simulateRemoval {
 			quotas = removedQuota
+			usages = removedUsage
 		}
 
-		for flr, qty := range quotas {
+		keys := make(map[resources.FlavorResource]struct{}, len(quotas)+len(usages))
+		for fr := range quotas {
+			keys[fr] = struct{}{}
+		}
+		for fr := range usages {
+			keys[fr] = struct{}{}
+		}
+
+		for fr := range keys {
+			quotaQty := quotas[fr]
+			usageQty := usages[fr]
 			if simulateRemoval {
-				qty = max(ancestor.resourceNode.SubtreeQuota[flr]-qty, 0)
+				quotaQty = max(ancestor.resourceNode.SubtreeQuota[fr]-quotaQty, 0)
+				usageQty = max(ancestor.resourceNode.Usage[fr]-usageQty, 0)
 			}
 			points = append(points, cohortMetricPoint{
 				cohortName:     ancestor.Name,
-				flavorResource: flr,
-				qty:            qty,
+				flavorResource: fr,
+				quotaQty:       quotaQty,
+				usageQty:       usageQty,
 			})
 		}
 	}
@@ -99,19 +117,18 @@ func (c *Cache) withCohortLogger(log logr.Logger, cohortName kueue.CohortReferen
 }
 
 func (c *Cache) applyCohortMetricPoint(p cohortMetricPoint) {
-	if p.qty <= 0 {
-		metrics.ClearCohortSubtreeQuota(
-			p.cohortName,
-			string(p.flavorResource.Flavor),
-			string(p.flavorResource.Resource),
-		)
-		return
+	flavor := string(p.flavorResource.Flavor)
+	resource := string(p.flavorResource.Resource)
+
+	if p.quotaQty <= 0 {
+		metrics.ClearCohortSubtreeQuota(p.cohortName, flavor, resource)
+	} else {
+		metrics.ReportCohortSubtreeQuota(p.cohortName, flavor, resource, float64(p.quotaQty), c.roleTracker)
 	}
-	metrics.ReportCohortSubtreeQuota(
-		p.cohortName,
-		string(p.flavorResource.Flavor),
-		string(p.flavorResource.Resource),
-		float64(p.qty),
-		c.roleTracker,
-	)
+
+	if p.usageQty <= 0 {
+		metrics.ClearCohortSubtreeResourceUsage(p.cohortName, flavor, resource)
+	} else {
+		metrics.ReportCohortSubtreeResourceUsage(p.cohortName, flavor, resource, float64(p.usageQty), c.roleTracker)
+	}
 }

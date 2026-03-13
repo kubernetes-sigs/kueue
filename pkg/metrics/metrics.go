@@ -254,6 +254,10 @@ var (
 	// +metricsdoc:group=cohort
 	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
 	CohortSubtreeQuota *prometheus.GaugeVec
+
+	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortSubtreeResourceUsage *prometheus.GaugeVec
 )
 
 func trackGaugeVec(g *prometheus.GaugeVec) *prometheus.GaugeVec {
@@ -726,6 +730,16 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 			Help:      `Reports the cohort's nominal quota aggregated within the cohort's subtree. The values are reported per resource and flavor`,
 		}, []string{"cohort", "flavor", "resource", "replica_role"},
 	))
+
+	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortSubtreeResourceUsage = trackGaugeVec(prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_subtree_resource_usage",
+			Help:      `Reports the cohort's resource usage aggregated within the cohort's subtree. The values are reported per resource and flavor`,
+		}, []string{"cohort", "flavor", "resource", "replica_role"},
+	))
 }
 
 func init() {
@@ -895,6 +909,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 func ClearCohortMetrics(cohortName string) {
 	CohortSubtreeQuota.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
 	CohortWeightedShare.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
+	CohortSubtreeResourceUsage.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
 }
 
 func ReportClusterQueueStatus(cqName kueue.ClusterQueueReference, cqStatus ClusterQueueStatus, tracker *roletracker.RoleTracker) {
@@ -955,6 +970,23 @@ func ClearCohortSubtreeQuota(cohort kueue.CohortReference, flavor, resource stri
 		lbls["resource"] = resource
 	}
 	CohortSubtreeQuota.DeletePartialMatch(lbls)
+}
+
+func ReportCohortSubtreeResourceUsage(cohort kueue.CohortReference, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
+	CohortSubtreeResourceUsage.WithLabelValues(string(cohort), flavor, resource, roletracker.GetRole(tracker)).Set(usage)
+}
+
+func ClearCohortSubtreeResourceUsage(cohort kueue.CohortReference, flavor, resource string) {
+	lbls := prometheus.Labels{
+		"cohort": string(cohort),
+	}
+	if len(flavor) != 0 {
+		lbls["flavor"] = flavor
+	}
+	if len(resource) != 0 {
+		lbls["resource"] = resource
+	}
+	CohortSubtreeResourceUsage.DeletePartialMatch(lbls)
 }
 
 func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
@@ -1085,6 +1117,7 @@ func Register() {
 		ClusterQueueWeightedShare,
 		CohortWeightedShare,
 		CohortSubtreeQuota,
+		CohortSubtreeResourceUsage,
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()

@@ -3753,3 +3753,64 @@ func TestGetWorkloadFromCache(t *testing.T) {
 		})
 	}
 }
+
+func TestGetCohortNameForWorkload(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+
+	cases := map[string]struct {
+		clusterQueues []kueue.ClusterQueue
+		wl            *kueue.Workload
+		wantCohort    kueue.CohortReference
+	}{
+		"nil workload": {
+			wl:         nil,
+			wantCohort: "",
+		},
+		"workload without admission": {
+			wl:         utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			wantCohort: "",
+		},
+		"cluster queue not found": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: "missing-cq",
+			}, now).Obj(),
+			wantCohort: "",
+		},
+		"cluster queue without cohort": {
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cq").Obj(),
+			},
+			wl: utiltestingapi.MakeWorkload("wl", "ns").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: "cq",
+			}, now).Obj(),
+			wantCohort: "",
+		},
+		"returns workload cohort": {
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cq").Cohort("team-a").Obj(),
+			},
+			wl: utiltestingapi.MakeWorkload("wl", "ns").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: "cq",
+			}, now).Obj(),
+			wantCohort: "team-a",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+
+			for i := range tc.clusterQueues {
+				if err := cache.AddClusterQueue(ctx, &tc.clusterQueues[i]); err != nil {
+					t.Fatalf("failed adding clusterQueue %s: %v", tc.clusterQueues[i].Name, err)
+				}
+			}
+
+			got := cache.GetCohortNameForWorkload(tc.wl)
+			if diff := cmp.Diff(tc.wantCohort, got); diff != "" {
+				t.Errorf("GetCohortNameForWorkload() mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

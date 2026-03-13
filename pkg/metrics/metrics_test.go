@@ -298,9 +298,25 @@ func TestCohortMetrics(t *testing.T) {
 	ReportCohortSubtreeQuota("cohort_two", "flavor", "res", 5, leaderTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
 
+	ReportCohortSubtreeResourceUsage("cohort", "flavor", "res", 5, leaderTracker)
+	expectFilteredMetricsCount(t, CohortSubtreeResourceUsage, 1, "cohort", "cohort", "replica_role", "leader")
+
+	ReportCohortSubtreeResourceUsage("cohort", "flavor", "res", 3, followerTracker)
+	expectFilteredMetricsCount(t, CohortSubtreeResourceUsage, 1, "cohort", "cohort", "replica_role", "follower")
+
+	ReportCohortSubtreeResourceUsage("cohort_two", "flavor", "res", 3, leaderTracker)
+	expectFilteredMetricsCount(t, CohortSubtreeResourceUsage, 1, "cohort", "cohort_two", "replica_role", "leader")
+
+	ClearCohortSubtreeResourceUsage("cohort", "", "")
+	expectFilteredMetricsCount(t, CohortSubtreeResourceUsage, 1, "cohort", "cohort_two", "replica_role", "leader")
+
 	ClearCohortSubtreeQuota("cohort", "", "")
 
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
 
 	ClearCohortSubtreeQuota("cohort_two", "", "")
+	ClearCohortSubtreeResourceUsage("cohort_two", "", "")
+
+	expectFilteredMetricsCount(t, CohortSubtreeQuota, 0, "cohort", "cohort_two")
+	expectFilteredMetricsCount(t, CohortSubtreeResourceUsage, 0, "cohort", "cohort_two")
 }
