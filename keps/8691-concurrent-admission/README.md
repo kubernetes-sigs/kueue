@@ -430,7 +430,8 @@ Besides that a Parent Workload has the `kueue.x-k8s.io/parent-variant` label to 
 "regular" Workloads, in a cluster.
 
 This way of distinguishing Variants, Parents, and "regular" Workloads is introduced in the Alpha, and will be
-revisited when graduating to Beta.
+revisited when graduating to 
+.
 
 #### Naming Convention
 
@@ -551,7 +552,8 @@ While we only issue preemptions coming from one Workload per CQ, what happens is
 3. A sibling Variant is picked up by the scheduler and is preempting some other Workloads
 
 We want to disallow other Variants to preempt if one of the Variants has already preempted some Workloads.
-We achieve it by storing in memory a map of Workloads that have issued a preemption during their current admission cycle.
+In Alpha we achieve it by storing in memory a map of Workloads that have issued a preemption during their current admission cycle.
+For Beta we will reconsider using PreemptionGates.
 
 ### Ordering Variants
 
@@ -798,6 +800,8 @@ Positive feedback from users.
 Adding/updating Kueue metrics based on users' feedback.
 
 Revisit the [`WorkloadStatus`](#workload-status) changes
+
+Revisit `PreemptionGates` API to avoid excessive number of preemptions for a single job.
 
 #### GA
 
