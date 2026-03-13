@@ -258,9 +258,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			// the execution should be given to worker2
 			ginkgo.By("Waiting to be admitted in worker2", func() {
 				util.ExpectAdmissionCheckStateWithMessage(
-					ctx, k8sManagerClient, wlLookupKey, 
-					multiKueueAc.Name, 
-					kueue.CheckStateReady, 
+					ctx, k8sManagerClient, wlLookupKey,
+					multiKueueAc.Name,
+					kueue.CheckStateReady,
 					`The workload got reservation on "worker2"`,
 				)
 
