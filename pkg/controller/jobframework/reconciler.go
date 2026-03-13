@@ -980,8 +980,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	}
 
 	if match != nil {
-		if err := UpdateAdmissionGatedBy(ctx, r.client, r.record, job.Object(), match); err != nil {
-			return nil, err
+		if features.Enabled(features.AdmissionGatedBy) {
+			if err := UpdateAdmissionGatedBy(ctx, r.client, r.record, job.Object(), match); err != nil {
+				return nil, err
+			}
 		}
 
 		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), match, getCustomPriorityClassFuncFromJob(job)); err != nil {
@@ -1027,13 +1029,9 @@ func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r record.Event
 		return nil
 	}
 
-	base := wl.DeepCopy()
-
-	if !CopyAdmissionGatedByButNoUpdate(obj, wl) {
-		return nil
-	}
-
-	if err := c.Patch(ctx, wl, client.MergeFrom(base)); err != nil {
+	if err := clientutil.Patch(ctx, c, wl, func() (bool, error) {
+		return CopyAdmissionGatedByButNoUpdate(obj, wl), nil
+	}); err != nil {
 		return fmt.Errorf("updating the AdmissionGatedBy of existing workload: %w", err)
 	}
 
@@ -1209,7 +1207,6 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	}
 	wl.Spec = newWl.Spec
 
-	// Propagates the AdmissionGatedBy annotation to the wl object but does not update the Workload
 	CopyAdmissionGatedByButNoUpdate(object, wl)
 
 	if err = r.client.Update(ctx, wl); err != nil {
