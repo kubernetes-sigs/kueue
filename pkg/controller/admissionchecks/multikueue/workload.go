@@ -509,6 +509,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 	}
 
+	// 7. Open the preemption gate if applicable
 	var requeueAfterSynchronize time.Duration
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
 		remWl, remClient, requeueIn := w.workloadToOpenPreemptionGate(group)
