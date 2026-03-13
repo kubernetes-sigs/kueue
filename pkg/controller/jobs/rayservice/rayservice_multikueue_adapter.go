@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package rayjob
+package rayservice
 
 import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -27,25 +27,25 @@ import (
 
 var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy)
 
-func copyJobStatus(dst, src *rayv1.RayJob) {
+func copyJobStatus(dst, src *rayv1.RayService) {
 	dst.Status = src.Status
 }
 
-func copyJobSpec(dst, src *rayv1.RayJob) {
-	*dst = rayv1.RayJob{
+func copyJobSpec(dst, src *rayv1.RayService) {
+	*dst = rayv1.RayService{
 		ObjectMeta: api.CloneObjectMetaForCreation(&src.ObjectMeta),
 		Spec:       *src.Spec.DeepCopy(),
 	}
 }
 
 func getEmptyList() client.ObjectList {
-	return &rayv1.RayJobList{}
+	return &rayv1.RayServiceList{}
 }
 
-func getManagedBy(job *rayv1.RayJob) *string {
+func getManagedBy(job *rayv1.RayService) *string {
 	return job.Spec.ManagedBy
 }
 
-func setManagedBy(job *rayv1.RayJob, val *string) {
+func setManagedBy(job *rayv1.RayService, val *string) {
 	job.Spec.ManagedBy = val
 }

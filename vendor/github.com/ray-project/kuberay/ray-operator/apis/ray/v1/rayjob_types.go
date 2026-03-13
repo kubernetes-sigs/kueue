@@ -140,13 +140,26 @@ type DeletionRule struct {
 }
 
 // DeletionCondition specifies the trigger conditions for a deletion action.
+// Exactly one of JobStatus or JobDeploymentStatus must be specified:
+//   - JobStatus (application-level): Match the Ray job execution status.
+//   - JobDeploymentStatus (infrastructure-level): Match the RayJob deployment lifecycle status. This is particularly useful for cleaning up resources when Ray jobs fail to be submitted.
+//
+// +kubebuilder:validation:XValidation:rule="!(has(self.jobStatus) && has(self.jobDeploymentStatus))",message="JobStatus and JobDeploymentStatus cannot be used together within the same deletion condition."
+// +kubebuilder:validation:XValidation:rule="has(self.jobStatus) || has(self.jobDeploymentStatus)",message="the deletion condition requires either the JobStatus or the JobDeploymentStatus field."
 type DeletionCondition struct {
-	// JobStatus is the terminal status of the RayJob that triggers this condition. This field is required.
+	// JobStatus is the terminal status of the RayJob that triggers this condition.
 	// For the initial implementation, only "SUCCEEDED" and "FAILED" are supported.
 	// +kubebuilder:validation:Enum=SUCCEEDED;FAILED
-	JobStatus JobStatus `json:"jobStatus"`
+	// +optional
+	JobStatus *JobStatus `json:"jobStatus,omitempty"`
 
-	// TTLSeconds is the time in seconds from when the JobStatus
+	// JobDeploymentStatus is the terminal status of the RayJob deployment that triggers this condition.
+	// For the initial implementation, only "Failed" is supported.
+	// +kubebuilder:validation:Enum=Failed
+	// +optional
+	JobDeploymentStatus *JobDeploymentStatus `json:"jobDeploymentStatus,omitempty"`
+
+	// TTLSeconds is the time in seconds from when the JobStatus or JobDeploymentStatus
 	// reaches the specified terminal state to when this deletion action should be triggered.
 	// The value must be a non-negative integer.
 	// +kubebuilder:default=0

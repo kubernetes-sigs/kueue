@@ -37,7 +37,9 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
@@ -53,12 +55,13 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewJob:        newJob,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupRayServiceWebhook,
-		JobType:       &rayv1.RayService{},
-		AddToScheme:   rayv1.AddToScheme,
+		SetupIndexes:      SetupIndexes,
+		NewJob:            newJob,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupRayServiceWebhook,
+		JobType:           &rayv1.RayService{},
+		AddToScheme:       rayv1.AddToScheme,
+		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy),
 	}))
 }
 
@@ -115,6 +118,7 @@ func (r *rayServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 type RayService rayv1.RayService
 
 var _ jobframework.GenericJob = (*RayService)(nil)
+var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
@@ -196,6 +200,20 @@ func (j *RayService) Finished(ctx context.Context) (message string, success, fin
 
 func (j *RayService) PodsReady(ctx context.Context) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
+}
+
+func (j *RayService) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == rayutils.KubeRayController)
+}
+
+func (j *RayService) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *RayService) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
