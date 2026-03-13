@@ -1050,12 +1050,6 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
 
-	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
-		if workload.HasClosedPreemptionGate(e.ObjectOld) && !workload.HasClosedPreemptionGate(e.ObjectNew) {
-			r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, nil)
-		}
-	}
-
 	r.queues.QueueSecondPassIfNeeded(ctx, e.ObjectNew, 0)
 	return true
 }
