@@ -200,7 +200,12 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 			})
 
 			ginkgo.By("verifying AC state is updated in manager and worker2 wl is removed", func() {
-				util.ExpectAdmissionCheckStateWithMessage(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, multiKueueAC.Name, kueue.CheckStateReady, `The workload got reservation on "worker1"`)
+				util.ExpectAdmissionCheckStateWithMessage(
+					managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+					multiKueueAC.Name,
+					kueue.CheckStateReady,
+					`The workload got reservation on "worker1"`,
+				)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())

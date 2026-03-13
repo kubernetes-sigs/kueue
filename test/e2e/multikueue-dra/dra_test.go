@@ -231,7 +231,12 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 					expectedDeviceCount = 3
 				}
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			util.ExpectAdmissionCheckStateWithMessage(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name, kueue.CheckStateReady, fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName))
+			util.ExpectAdmissionCheckStateWithMessage(
+				ctx, k8sManagerClient, wlLookupKey,
+				multiKueueAc.Name,
+				kueue.CheckStateReady,
+				fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName),
+			)
 
 			ginkgo.By(fmt.Sprintf("Verifying workload admitted on %s has correct DRA resource usage (expecting %d devices)", assignedClusterName, expectedDeviceCount))
 			workerWlLookupKey := types.NamespacedName{Name: wlLookupKey.Name, Namespace: managerNs.Name}
@@ -349,7 +354,12 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				g.Expect(managerWl.Status.ClusterName).NotTo(gomega.BeNil())
 				g.Expect(*managerWl.Status.ClusterName).To(gomega.Equal(workerCluster1.Name))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			util.ExpectAdmissionCheckStateWithMessage(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name, kueue.CheckStateReady, fmt.Sprintf(`The workload got reservation on "%s"`, workerCluster1.Name))
+			util.ExpectAdmissionCheckStateWithMessage(
+				ctx, k8sManagerClient, wlLookupKey,
+				multiKueueAc.Name,
+				kueue.CheckStateReady,
+				fmt.Sprintf(`The workload got reservation on "%s"`, workerCluster1.Name),
+			)
 
 			ginkgo.By("Verifying workload is admitted on worker1 with correct DRA resource usage")
 			workerWl := &kueue.Workload{}
