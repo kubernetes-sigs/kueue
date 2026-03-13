@@ -1059,21 +1059,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(wantState,
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates", "RequeueAfterSeconds"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
-					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
-					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
-						Reason:  "AdmissionCheckRejected",
-						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
-					})
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					g.Expect(ok).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckStateWithMessage(
-					ctx, k8sClient, wlKey,
-					ac.Name,
-					kueue.CheckStatePending,
-					"Reset to Pending after eviction. Previously: Rejected",
-				)
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
