@@ -83,6 +83,15 @@ func (d *DeploymentWrapper) Label(k, v string) *DeploymentWrapper {
 	return d
 }
 
+// SetAnnotation sets the annotation of the Deployment
+func (d *DeploymentWrapper) SetAnnotation(k, v string) *DeploymentWrapper {
+	if d.Annotations == nil {
+		d.Annotations = make(map[string]string)
+	}
+	d.Annotations[k] = v
+	return d
+}
+
 // Queue updates the queue name of the Deployment
 func (d *DeploymentWrapper) Queue(q string) *DeploymentWrapper {
 	return d.Label(controllerconstants.QueueLabel, q)
