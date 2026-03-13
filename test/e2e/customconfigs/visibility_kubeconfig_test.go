@@ -18,6 +18,7 @@ package customconfigse2e
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -27,6 +28,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -35,24 +37,30 @@ import (
 )
 
 const (
-	kubeSystemNamespace = "kube-system"
-	kueueManagerName    = "kueue-controller-manager"
-	configMapName       = "visibility-kubeconfig-test"
-	customSAName        = "visibility-test-sa"
-	customSecretName    = "visibility-test-sa-token"
-	testLabelKey        = "visibility-test-rbac"
-	testLabelValue      = "true"
-	kubeconfigVolName   = "kubeconfig-vol"
-	customSAVolName     = "custom-sa-vol"
-	customSAMountPath   = "/etc/custom-sa"
-	cqName              = "test-kubeconfig-cq"
+	kubeSystemNamespace       = "kube-system"
+	kueueManagerName          = "kueue-controller-manager"
+	kueueVisibilityServerName = "kueue-visibility-server"
+	configMapName             = "visibility-kubeconfig-test"
+	customSAName              = "visibility-test-sa"
+	customSecretName          = "visibility-test-sa-token"
+	testLabelKey              = "visibility-test-rbac"
+	testLabelValue            = "true"
+	kubeconfigVolName         = "kubeconfig-vol"
+	customSAVolName           = "custom-sa-vol"
+	customSAMountPath         = "/etc/custom-sa"
+	visibilityServerPort      = 9444
+	cqName                    = "test-kubeconfig-cq"
 )
 
 var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 	var originalDeployment appsv1.Deployment
+	var originalService corev1.Service
 
 	ginkgo.BeforeEach(func() {
 		err := k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, &originalDeployment)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err = k8sClient.Get(ctx, types.NamespacedName{Name: kueueVisibilityServerName, Namespace: kueueNS}, &originalService)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating Custom ServiceAccount")
@@ -115,6 +123,13 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, latestDeployment)).To(gomega.Succeed())
 		latestDeployment.Spec = originalDeployment.Spec
 		gomega.Expect(k8sClient.Update(ctx, latestDeployment)).To(gomega.Succeed())
+
+		ginkgo.By("Restoring the original service")
+		latestService := &corev1.Service{}
+		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueVisibilityServerName, Namespace: kueueNS}, latestService)).To(gomega.Succeed())
+		latestService.Spec.Ports = originalService.Spec.Ports
+		gomega.Expect(k8sClient.Update(ctx, latestService)).To(gomega.Succeed())
+
 		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		ginkgo.By("Cleaning up created resources")
@@ -151,11 +166,20 @@ var _ = ginkgo.Describe("Visibility Server KubeConfig flag with RBAC", func() {
 					corev1.VolumeMount{Name: kubeconfigVolName, MountPath: "/etc/kubeconfig", ReadOnly: true},
 					corev1.VolumeMount{Name: customSAVolName, MountPath: customSAMountPath, ReadOnly: true},
 				)
-				container.Args = append(c.Args, "--kubeconfig=/etc/kubeconfig/config")
+				container.Args = append(c.Args, "--kubeconfig=/etc/kubeconfig/config", fmt.Sprintf("--visibility-secure-port=%d", visibilityServerPort))
 			}
 		}
 
 		gomega.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
+
+		patchedService := originalService.DeepCopy()
+		for i, p := range patchedService.Spec.Ports {
+			if p.Name == "https" {
+				patchedService.Spec.Ports[i].TargetPort = intstr.FromInt32(visibilityServerPort)
+			}
+		}
+		gomega.Expect(k8sClient.Update(ctx, patchedService)).To(gomega.Succeed())
+
 		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		// NEGATIVE TEST: The custom SA lacks 'system:auth-delegator'. The visibility server
