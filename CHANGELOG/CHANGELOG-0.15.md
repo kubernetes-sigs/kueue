@@ -1,3 +1,35 @@
+## v0.15.5
+
+Changes since `v0.15.4`:
+
+## Changes by Kind
+
+### Feature
+
+- KueueViz Helm: Add podSecurityContext and containerSecurityContext configuration options to KueueViz Helm chart for restricted pod security profile compliance (#9320, @ziadmoubayed)
+- Observability: Increased the maximum finite bucket boundary for admission_wait_time_seconds histogram from ~2.84 hours to ~11.3 hours for better observability of long queue times. (#9530, @mukund-wayve)
+- TAS: Introduce the TASReplaceNodeOnNodeTaints feature gate (alpha) to allow TAS workloads to be evicted or replaced when a node is tainted with NoExecute. (#9441, @j-skiba)
+
+### Bug or Regression
+
+- ElasticJobs: fix the temporary double-counting of quota during workload replacement. 
+  In particular it was causing double-counting of quota requests for unchanged PodSets. (#9365, @benkermani)
+- FairSharing: workloads fitting within their ClusterQueue's nominal quota are now preferred over workloads that require borrowing, preventing heavy borrowing on one flavor from deprioritizing a CQ's nominal entitlement on another flavor. (#9533, @mukund-wayve)
+- Fix non-deterministic workload ordering in ClusterQueue by adding UID tie-breaker to queue ordering function. (#9164, @sohankunkerkar)
+- Fix serverName substitution in kustomize prometheus ServiceMonitor TLS patch for cert-manager deployments. (#9190, @IrvingMg)
+- Fixed invalid field name in the `ClusterQueue` printer columns. The "Cohort" column will now correctly display the assigned cohort in kubectl, k9s, and other UI tools instead of being blank. (#9447, @polinasand)
+- Fixed the bug that prevented managing workloads with duplicated environment variable names in initContainers. This issue manifested when creating the Workload via the API. (#9127, @monabil08)
+- LeaderWorkerSet: fix an occasional race condition resulting in workload deletion getting stuck during scale down. (#9135, @PannagaRao)
+- MultiKueue: Fix a bug that the remote Job object was occasionally left by MultiKueue GC, 
+  even when the corresponding Job object on the management cluster was deleted.
+  This issue was observed for LeaderWorkerSet. (#9309, @sohankunkerkar)
+- Scheduling: Fix the bug where inadmissible workloads would be re-queued too frequently at scale.
+  This resulted in excessive processing, lock contention, and starvation of workloads deeper in the queue.
+  The fix is to throttle the process with a batch period of 1s per CQ or Cohort. (#9232, @gabesaba)
+- TAS: Fix a bug that LeaderWorkerSet with multiple PodTemplates (`.spec.leaderWorkerTemplate.leaderTemplate` and `.spec.leaderWorkerTemplate.workerTemplate`), Pod indexes are not correctly evaluated during rank-based ordering assignments. (#9369, @tenzen-y)
+- TAS: fix a bug where NodeHotSwap may assign a Pod, based on rank-ordering, to a node which is already
+  occupied by another running Pod. (#9283, @j-skiba)
+
 ## v0.15.4
 
 Changes since `v0.15.3`:
