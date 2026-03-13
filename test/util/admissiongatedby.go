@@ -32,6 +32,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+// Validation error messages used in webhook tests
+const (
+	InvalidRFC1123Message  = `a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')`
+	InvalidLabelKeyMessage = `name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my.name',  or '123-abc', regex used for validation is '([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]')`
+	InvalidPathMessage     = `Invalid path (regex used for validation is '[A-Za-z0-9/\-._~%!$&'()*+,;=:]+')`
+)
+
 // IsAdmissible returns false when the workload HasQuotaReservation or is Finished already
 // So there's a chance the workload gets admitted before we get here to test whether it's admissible or not
 func isAdmissibleOrPastQuotaReservation(wl *kueue.Workload) bool {

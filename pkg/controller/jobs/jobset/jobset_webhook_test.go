@@ -35,10 +35,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
-)
-
-const (
-	invalidRFC1123Message = `a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')`
+	testutil "sigs.k8s.io/kueue/test/util"
 )
 
 var (
@@ -61,7 +58,7 @@ func TestValidateCreate(t *testing.T) {
 		{
 			name:    "invalid queue-name label",
 			job:     testingutil.MakeJobSet("job", "default").Queue("queue_name").Obj(),
-			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", invalidRFC1123Message)}.ToAggregate(),
+			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", testutil.InvalidRFC1123Message)}.ToAggregate(),
 		},
 		{
 			name:    "with prebuilt workload",

@@ -37,6 +37,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	testutil "sigs.k8s.io/kueue/test/util"
 )
 
 var (
@@ -288,7 +289,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate name").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "gate name", "Invalid path (regex used for validation is '[A-Za-z0-9/\\-._~%!$&'()*+,;=:]+')"),
+				field.Invalid(admissionGatedByAnnotationsPath, "gate name", testutil.InvalidPathMessage),
 			}.ToAggregate(),
 			admissionGatedBy: true,
 		},
@@ -298,7 +299,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/gate").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "example .com", "a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')"),
+				field.Invalid(admissionGatedByAnnotationsPath, "example .com", testutil.InvalidRFC1123Message),
 			}.ToAggregate(),
 			admissionGatedBy: true,
 		},
@@ -308,8 +309,32 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "valid.com/gate,invalid gate.com/controller").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", "a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')"),
+				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", testutil.InvalidRFC1123Message),
 			}.ToAggregate(),
+			admissionGatedBy: true,
+		},
+		"AdmissionGatedBy annotation with feature gate disabled - valid value": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").
+				Obj(),
+			wantErr:          nil,
+			admissionGatedBy: false,
+		},
+		"AdmissionGatedBy annotation with feature gate disabled - invalid value": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
+				Obj(),
+			wantErr:          nil,
+			admissionGatedBy: false,
+		},
+		"AdmissionGatedBy annotation with feature gate enabled - empty string": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "").
+				Obj(),
+			wantErr:          nil,
 			admissionGatedBy: true,
 		},
 	}
