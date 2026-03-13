@@ -295,6 +295,13 @@ const (
 	// Use a 5min buffer so that workloads with scheduling timestamps within this
 	// buffer do not preempt each other based on LowerOrNewerEqualPriority.
 	SchedulerTimestampPreemptionBuffer featuregate.Feature = "SchedulerTimestampPreemptionBuffer"
+
+	// owner: @kshalot
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8303
+	// Enables preemption orchestration in MultiKueue worker clusters, preventing
+	// concurrent preemptions causing disruptions to other workloads.
+	MultiKueueOrchestratedPreemption featuregate.Feature = "MultiKueueOrchestratedPreemption"
 )
 
 func init() {
@@ -460,6 +467,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	SchedulerTimestampPreemptionBuffer: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
+	},
+	MultiKueueOrchestratedPreemption: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
