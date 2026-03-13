@@ -93,8 +93,10 @@ var SetupLoggerGetObservedLogs = sync.OnceValue(func() *observer.ObservedLogs {
 	return observedLogs
 })
 
-func toJSON(obj any) string {
-	return format.Object(obj, 1)
+func assertMsg(message string, obj client.Object) func() string {
+	return func() string {
+		return message + "\n" + format.Object(obj, 1)
+	}
 }
 
 type objAsPtr[T any] interface {
@@ -126,10 +128,10 @@ func expectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Con
 	if deleteNow {
 		gomega.ExpectWithOffset(2, client.IgnoreNotFound(DeleteObject(ctx, k8sClient, o))).To(gomega.Succeed())
 	}
+	newObj := PtrT(new(T))
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
-		newObj := PtrT(new(T))
-		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)).Should(utiltesting.BeNotFoundError(), "Object still exists\n%s", toJSON(newObj))
-	}, timeout, Interval).Should(gomega.Succeed())
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)).Should(utiltesting.BeNotFoundError())
+	}, timeout, Interval).Should(gomega.Succeed(), assertMsg("Object still exists", newObj))
 }
 
 // DeleteNamespace deletes all objects the tests typically create in the namespace.
@@ -728,8 +730,8 @@ func ExpectPodsJustFinalized(ctx context.Context, k8sClient client.Client, keys 
 		createdPod := &corev1.Pod{}
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, key, createdPod)).To(gomega.Succeed())
-			g.Expect(createdPod.Finalizers).To(gomega.BeEmpty(), "Expected pod to be finalized\n%s", toJSON(createdPod))
-		}, Timeout, Interval).Should(gomega.Succeed())
+			g.Expect(createdPod.Finalizers).To(gomega.BeEmpty())
+		}, Timeout, Interval).Should(gomega.Succeed(), assertMsg("Expected pod to be finalized", createdPod))
 	}
 }
 
@@ -743,8 +745,8 @@ func ExpectPodsFinalizedOrGone(ctx context.Context, k8sClient client.Client, key
 				return
 			}
 			g.Expect(err).To(gomega.Succeed())
-			g.Expect(createdPod.Finalizers).To(gomega.BeEmpty(), "Expected pod to be finalized\n%s", toJSON(createdPod))
-		}, Timeout, Interval).Should(gomega.Succeed())
+			g.Expect(createdPod.Finalizers).To(gomega.BeEmpty())
+		}, Timeout, Interval).Should(gomega.Succeed(), assertMsg("Expected pod to be finalized", createdPod))
 	}
 }
 
@@ -758,8 +760,8 @@ func ExpectWorkloadsFinalizedOrGone(ctx context.Context, k8sClient client.Client
 				return
 			}
 			g.Expect(err).To(gomega.Succeed())
-			g.Expect(createdWorkload.Finalizers).To(gomega.BeEmpty(), "Expected workload to be finalized\n%s", toJSON(createdWorkload))
-		}, Timeout, Interval).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Finalizers).To(gomega.BeEmpty())
+		}, Timeout, Interval).Should(gomega.Succeed(), assertMsg("Expected workload to be finalized", createdWorkload))
 	}
 }
 
