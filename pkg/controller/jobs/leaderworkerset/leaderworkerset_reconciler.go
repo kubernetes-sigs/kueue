@@ -259,6 +259,9 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	createdWorkload.Annotations[constants.JobOwnerNameAnnotation] = lws.Name
 	createdWorkload.Annotations[constants.ComponentWorkloadIndexAnnotation] = strconv.Itoa(index)
 
+	// Copy admission gate annotation if feature is enabled
+	jobframework.CopyAdmissionGatedByButNoUpdate(lws, createdWorkload)
+
 	if err := controllerutil.SetOwnerReference(lws, createdWorkload, r.client.Scheme()); err != nil {
 		return nil, err
 	}
