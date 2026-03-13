@@ -781,15 +781,15 @@ func (r *WorkloadReconciler) updateConditionForAdmissionGatedBy(ctx context.Cont
 		return nil, nil
 	}
 
-	hasGateNow := workload.HasAdmissionGate(wl)
+	isGatedNow := workload.HasAdmissionGate(wl)
 
-	quotaReservedForAdmGateAlready := false
-	// Check whether the workload needs to be un-gated
+	hasAlreadyBeenGated := false
 	if condition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); condition != nil {
-		quotaReservedForAdmGateAlready = condition.Reason == kueue.WorkloadAdmissionGated
+		hasAlreadyBeenGated = condition.Reason == kueue.WorkloadAdmissionGated
 	}
 
-	if quotaReservedForAdmGateAlready && !hasGateNow {
+	// This previously gated workload is now transitioning into being admissible
+	if hasAlreadyBeenGated && !isGatedNow {
 		r.recorder.Eventf(wl, corev1.EventTypeNormal, "AdmissionGateCleared",
 			"Admission gate cleared, workload is now admissible")
 
@@ -802,7 +802,7 @@ func (r *WorkloadReconciler) updateConditionForAdmissionGatedBy(ctx context.Cont
 	}
 
 	// This is the first detection of the AdmissionGatedBy annotation
-	if hasGateNow && !quotaReservedForAdmGateAlready {
+	if isGatedNow && !hasAlreadyBeenGated {
 		r.recorder.Eventf(wl, corev1.EventTypeNormal, "AdmissionGated",
 			"Workload admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation])
 
