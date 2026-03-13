@@ -189,11 +189,20 @@ var _ = ginkgo.Describe("Visibility Server", func() {
 					corev1.VolumeMount{Name: kubeconfigVolName, MountPath: "/etc/kubeconfig", ReadOnly: true},
 					corev1.VolumeMount{Name: customSAVolName, MountPath: customSAMountPath, ReadOnly: true},
 				)
-				container.Args = append(c.Args, "--kubeconfig=/etc/kubeconfig/config")
+				container.Args = append(c.Args, "--kubeconfig=/etc/kubeconfig/config", fmt.Sprintf("--visibility-secure-port=%d", visibilityServerPort))
 			}
 		}
 
 		gomega.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
+
+		patchedService := originalService.DeepCopy()
+		for i, p := range patchedService.Spec.Ports {
+			if p.Name == "https" {
+				patchedService.Spec.Ports[i].TargetPort = intstr.FromInt32(visibilityServerPort)
+			}
+		}
+		gomega.Expect(k8sClient.Update(ctx, patchedService)).To(gomega.Succeed())
+
 		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		// NEGATIVE TEST: The custom SA lacks 'system:auth-delegator'. The visibility server
