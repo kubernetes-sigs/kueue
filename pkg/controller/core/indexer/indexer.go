@@ -45,6 +45,8 @@ const (
 	// WorkloadSliceNameKey is an index for pods by their workload slice name annotation.
 	// Used to find pods belonging to an elastic workload slice chain.
 	WorkloadSliceNameKey = "metadata.workloadSliceName"
+	// PodNodeNameKey is an index for pods by their node name.
+	PodNodeNameKey = "spec.nodeName"
 
 	// OwnerReferenceGroupKindFmt defines the format string used to construct a field path
 	// for indexing or matching against a specific owner Group and Kind in a Kubernetes object's metadata.
@@ -171,6 +173,15 @@ func IndexOwnerUID(obj client.Object) []string {
 	return slices.Map(obj.GetOwnerReferences(), func(o *metav1.OwnerReference) string { return string(o.UID) })
 }
 
+// IndexPodNodeName indexes pods by their node name.
+func IndexPodNodeName(obj client.Object) []string {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+	return []string{pod.Spec.NodeName}
+}
+
 // IndexPodWorkloadSliceName indexes pods by their workload slice name annotation.
 // Uses WorkloadSliceNameAnnotation if present, otherwise falls back to WorkloadAnnotation
 // for non-elastic workloads.
@@ -246,6 +257,9 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.TopologyAwareScheduling) {
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, IndexPodWorkloadSliceName); err != nil {
 			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
+		}
+		if err := indexer.IndexField(ctx, &corev1.Pod{}, PodNodeNameKey, IndexPodNodeName); err != nil {
+			return fmt.Errorf("setting index on %s for Pod: %w", PodNodeNameKey, err)
 		}
 		// OwnerReferenceUID index for Pod is for backwards compatibility only.
 		// TODO(sohankunkerkar): remove in 0.18

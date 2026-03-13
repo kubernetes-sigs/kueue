@@ -111,9 +111,9 @@ func managerSetup(resourceTransformations ...config.ResourceTransformation) func
 
 		err = pod.SetupWebhook(mgr, jobframework.WithQueues(queues))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 
 		err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

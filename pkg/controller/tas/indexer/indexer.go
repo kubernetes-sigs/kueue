@@ -31,6 +31,7 @@ import (
 const (
 	TASKey                        = "metadata.tas"
 	WorkloadNameKey               = "metadata.workload"
+	PodNodeSelectorHostnameKey    = "spec.nodeSelector.hostname"
 	ResourceFlavorTopologyNameKey = "spec.topologyName"
 )
 
@@ -54,6 +55,19 @@ func indexPodWorkload(o client.Object) []string {
 	return []string{value}
 }
 
+func indexPodNodeSelectorHostname(o client.Object) []string {
+	pod, ok := o.(*corev1.Pod)
+	if !ok || !utiltas.IsTAS(pod) {
+		return nil
+	}
+	if pod.Spec.NodeSelector != nil && pod.Spec.NodeName == "" {
+		if nodeName, ok := pod.Spec.NodeSelector[corev1.LabelHostname]; ok {
+			return []string{nodeName}
+		}
+	}
+	return nil
+}
+
 func indexResourceFlavorTopologyName(o client.Object) []string {
 	flavor, ok := o.(*kueue.ResourceFlavor)
 	if !ok || flavor.Spec.TopologyName == nil {
@@ -69,6 +83,10 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 	if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadNameKey, indexPodWorkload); err != nil {
 		return fmt.Errorf("setting index pod workload: %w", err)
+	}
+
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, PodNodeSelectorHostnameKey, indexPodNodeSelectorHostname); err != nil {
+		return fmt.Errorf("setting index pod node selector hostname: %w", err)
 	}
 
 	if err := indexer.IndexField(ctx, &kueue.ResourceFlavor{}, ResourceFlavorTopologyNameKey, indexResourceFlavorTopologyName); err != nil {

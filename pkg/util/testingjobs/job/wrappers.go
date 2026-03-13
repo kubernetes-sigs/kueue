@@ -64,6 +64,11 @@ func MakeJob(name, ns string) *JobWrapper {
 }
 
 // Obj returns the inner Job.
+func (j *JobWrapper) SchedulingGate(name string) *JobWrapper {
+	j.Spec.Template.Spec.SchedulingGates = append(j.Spec.Template.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: name})
+	return j
+}
+
 func (j *JobWrapper) Obj() *batchv1.Job {
 	return &j.Job
 }
