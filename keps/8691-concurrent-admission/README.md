@@ -423,6 +423,9 @@ const (
 )
 ```
 
+In Alpha this API will only be supported in ClusterQueues that have 1 `ResourceGroup`. We will validate against greater number.
+This will be reconsidered when graduating the feature to Beta.
+
 ### Workload API
 
 A Variant Workload references its Parent in the `metadata.ownerReferences` field.
@@ -430,8 +433,7 @@ Besides that a Parent Workload has the `kueue.x-k8s.io/parent-variant` label to 
 "regular" Workloads, in a cluster.
 
 This way of distinguishing Variants, Parents, and "regular" Workloads is introduced in the Alpha, and will be
-revisited when graduating to 
-.
+revisited when graduating to Beta.
 
 #### Naming Convention
 
@@ -440,12 +442,12 @@ To maintain a clear relationship between the parent and its virtual clones, the 
 **Default RF Variants**: When Variants are created automatically for each ResourceFlavor in the ClusterQueue, the name follows:
 
 ```
-${job-kind}-${job-name}-variant-${resource-flavor-1}-${resource-flavor-2}-${hash}
+${job-kind}-${job-name}-variant-${resource-flavor}-${hash}
 ```
 
 Example:
 ```
-job-kind-job-name-variant-highcpu-highmem-foohash
+job-abc-variant-reservation-foohash
 ```
 
 **Explicit Variants**: When specific names are provided in the ExplicitVariants configuration:
@@ -456,7 +458,7 @@ ${job-kind}-${job-name}-variant-${variant-name}-${hash}
 
 Example:
 ```
-job-kind-job-name-variant-spot-foohash
+job-abc-variant-bar-foohash
 ```
 
 #### Workload Spec
@@ -793,15 +795,17 @@ Revisit extending `ExplicitVariants` API with some additional fields.
 
 Minimizing number of Variants issuing preemptions to only one per Parent.
 
-Revisit the idea of [introducing WorkloadType API](#workloadtypes-api)
+Revisit the idea of [introducing WorkloadType API](#workloadtypes-api).
 
 Positive feedback from users.
 
 Adding/updating Kueue metrics based on users' feedback.
 
-Revisit the [`WorkloadStatus`](#workload-status) changes
+Revisit the [`WorkloadStatus`](#workload-status) changes.
 
 Revisit `PreemptionGates` API to avoid excessive number of preemptions for a single job.
+
+Revisit support for ClusterQueues with more than 1 `ResourceGroup`.
 
 #### GA
 
