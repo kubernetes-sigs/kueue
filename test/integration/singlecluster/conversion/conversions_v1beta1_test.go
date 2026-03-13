@@ -110,10 +110,11 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 			util.MustCreate(ctx, k8sClient, cq)
 		}
 
+		updatedCq := &kueue.ClusterQueue{}
+
 		ginkgo.By("Verify the cohort setting on the clusterQueue")
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedCq kueue.ClusterQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueues[0]), &updatedCq)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueues[0]), updatedCq)).To(gomega.Succeed())
 			g.Expect(updatedCq.Spec.Cohort).Should(gomega.Equal(kueue.CohortReference("cohort")))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -138,9 +139,11 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 				},
 			},
 		}
+
+		updatedQueue := &kueue.LocalQueue{}
+
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -184,8 +187,7 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 			},
 		}
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				ReservingWorkloads: 1,
 				AdmittedWorkloads:  1,
@@ -224,8 +226,7 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 			},
 		}
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				ReservingWorkloads: 2,
 				AdmittedWorkloads:  2,
@@ -276,10 +277,11 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 		localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq1.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 
+		updatedQueue := &kueue.LocalQueue{}
+
 		ginkgo.By("await for the LocalQueue to be ready")
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -302,8 +304,7 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 
 		ginkgo.By("Verify the LocalQueue has the workload admitted")
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedQueue kueue.LocalQueue
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &updatedQueue)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), updatedQueue)).To(gomega.Succeed())
 			g.Expect(updatedQueue.Status).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
 				ReservingWorkloads: 1,
 				AdmittedWorkloads:  1,
@@ -320,11 +321,11 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 		jobs = append(jobs, job2)
 
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job1.Name, job1.UID), Namespace: ns.Name}
+		updatedWl := &kueue.Workload{}
 
 		ginkgo.By("Verify workload2 is correct")
 		gomega.Eventually(func(g gomega.Gomega) {
-			var updatedWl kueue.Workload
-			g.Expect(k8sClient.Get(ctx, wlLookupKey, &updatedWl)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, updatedWl)).To(gomega.Succeed())
 			g.Expect(apimeta.IsStatusConditionTrue(updatedWl.Status.Conditions, kueue.WorkloadAdmitted)).Should(gomega.BeFalse())
 			g.Expect(apimeta.IsStatusConditionTrue(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)).Should(gomega.BeFalse())
 			g.Expect(apimeta.IsStatusConditionTrue(updatedWl.Status.Conditions, kueue.WorkloadEvicted)).Should(gomega.BeTrue())

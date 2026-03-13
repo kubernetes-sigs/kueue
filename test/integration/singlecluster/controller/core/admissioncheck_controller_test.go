@@ -117,12 +117,12 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Label("controller:ad
 		ginkgo.It("Should delete the admissionCheck when the corresponding clusterQueue is deleted", func() {
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
 
-			var rf kueue.AdmissionCheck
+			ac := &kueue.AdmissionCheck{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &rf)).To(gomega.Succeed())
-				g.Expect(rf.GetFinalizers()).Should(gomega.BeComparableTo([]string{kueue.ResourceInUseFinalizerName}))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), ac)).To(gomega.Succeed())
+				g.Expect(ac.GetFinalizers()).Should(gomega.BeComparableTo([]string{kueue.ResourceInUseFinalizerName}))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Expect(rf.GetDeletionTimestamp()).ShouldNot(gomega.BeNil())
+			gomega.Expect(ac.GetDeletionTimestamp()).ShouldNot(gomega.BeNil())
 
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, false)

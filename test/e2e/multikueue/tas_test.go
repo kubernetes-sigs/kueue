@@ -226,10 +226,11 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Obj()
 
+			createdJob := &batchv1.Job{}
+
 			ginkgo.By("Creating the job", func() {
 				util.MustCreate(ctx, k8sManagerClient, job)
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := &batchv1.Job{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 					g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.BeEquivalentTo(kueue.MultiKueueControllerName))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -241,8 +242,8 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			var assignedWorkerCluster client.Client
 			var assignedClusterName string
 			ginkgo.By("checking which worker cluster was assigned", func() {
+				managerWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					managerWl := &kueue.Workload{}
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 					g.Expect(managerWl.Status.ClusterName).NotTo(gomega.BeNil())
 
@@ -272,8 +273,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 
 			ginkgo.By("Waiting for the job to get status updates", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := batchv1.Job{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 					g.Expect(createdJob.Status.StartTime).NotTo(gomega.BeNil())
 					g.Expect(createdJob.Status.Active).To(gomega.Equal(int32(2)))
 					g.Expect(createdJob.Status.CompletionTime).To(gomega.BeNil())
@@ -324,8 +324,8 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 
 			ginkgo.By("Creating the job without TAS annotation", func() {
 				util.MustCreate(ctx, k8sManagerClient, job)
+				createdJob := &batchv1.Job{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := &batchv1.Job{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 					g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.BeEquivalentTo(kueue.MultiKueueControllerName))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -336,8 +336,8 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 
 			var assignedClusterName string
 			ginkgo.By("checking which worker cluster was assigned", func() {
+				managerWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					managerWl := &kueue.Workload{}
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 					g.Expect(managerWl.Status.ClusterName).NotTo(gomega.BeNil())
 					assignedClusterName = *managerWl.Status.ClusterName
@@ -584,8 +584,8 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 
 		var assignedClusterName string
 		ginkgo.By("Waiting for workload to be admitted and assigned to a worker")
+		createdWorkload := &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			createdWorkload := &kueue.Workload{}
 			g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
 			g.Expect(createdWorkload.Status.Admission.PodSetAssignments).NotTo(gomega.BeEmpty())
@@ -617,7 +617,6 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		}
 
 		ginkgo.By("Waiting for workload to finish")
-		createdWorkload := &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))

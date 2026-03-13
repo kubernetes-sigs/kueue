@@ -375,10 +375,11 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
 
+			updatedCQ := &kueue.ClusterQueue{}
+
 			ginkgo.By("verify the 'prod' queue resources are used")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCQ kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), &updatedCQ)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), updatedCQ)).To(gomega.Succeed())
 				g.Expect(updatedCQ.Status).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:   0,
 					ReservingWorkloads: 1,
@@ -414,8 +415,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 			ginkgo.By("verify the queue resources are freed")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCQ kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), &updatedCQ)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), updatedCQ)).To(gomega.Succeed())
 				g.Expect(updatedCQ.Status).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:   1,
 					ReservingWorkloads: 0,

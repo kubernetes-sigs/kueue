@@ -268,17 +268,17 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			})
 
 			ginkgo.By("Await for pods to be running", func() {
+				job := &batchv1.Job{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var job batchv1.Job
-					g.Expect(k8sClient.Get(ctx, jobKey, &job)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, jobKey, job)).To(gomega.Succeed())
 					g.Expect(job.Status.Active).To(gomega.BeEquivalentTo(1))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify pods have queue labels assigned", func() {
+				pods := &corev1.PodList{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var pods corev1.PodList
-					g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name), client.MatchingLabels{
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
 						"job-name": sampleJob.Name,
 					})).To(gomega.Succeed())
 					g.Expect(pods.Items).ToNot(gomega.BeEmpty())
@@ -455,9 +455,9 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			})
 
 			ginkgo.By("Verify pods have queue labels assigned", func() {
+				pods := &corev1.PodList{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var pods corev1.PodList
-					g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name), client.MatchingLabels{
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
 						"job-name": sampleJob.Name,
 					})).To(gomega.Succeed())
 					g.Expect(pods.Items).ToNot(gomega.BeEmpty())

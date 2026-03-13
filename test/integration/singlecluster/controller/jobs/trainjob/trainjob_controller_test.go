@@ -125,9 +125,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 			var (
 				createdTrainJob kftrainerapi.TrainJob
 				trainJob        *kftrainerapi.TrainJob
-				wlLookupKey     types.NamespacedName
 			)
-			createdWorkload := &kueue.Workload{}
 			ginkgo.By("creating a non suspended trainjob and its corresponding child jobset", func() {
 				trainJob = testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 					APIGroup: ptr.To("trainer.kubeflow.org"),
@@ -141,12 +139,14 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 
 				util.MustCreate(ctx, k8sClient, trainJob)
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}, &createdTrainJob)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), &createdTrainJob)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			createdWorkload := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(createdTrainJob.Name, createdTrainJob.UID), Namespace: ns.Name}
+
 			ginkgo.By("checking the workload is created with the correct values", func() {
-				wlLookupKey = types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(createdTrainJob.Name, createdTrainJob.UID), Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName("local-queue")))

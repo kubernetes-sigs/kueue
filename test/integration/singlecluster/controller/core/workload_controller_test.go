@@ -339,12 +339,11 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		ginkgo.It("should finish an unadmitted workload with failure when a check is rejected", func() {
 			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
 			wlKey := client.ObjectKeyFromObject(wl)
-			createdWl := kueue.Workload{}
+			createdWl := &kueue.Workload{}
 			ginkgo.By("creating the workload, the check conditions should be added", func() {
 				util.MustCreate(ctx, k8sClient, wl)
-
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
 					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
 						return string(c.Name)
 					})).Should(gomega.ConsistOf("check1", "check2"))
@@ -357,22 +356,22 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 
 			ginkgo.By("setting the check conditions", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateRejected,
 						Message: "check rejected",
 					}, util.RealClock)
-					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
+					g.Expect(k8sClient.Status().Update(ctx, createdWl)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
-				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
+					g.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(createdWl)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
@@ -380,11 +379,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
-					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
-					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
+					g.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
+					g.Expect(workload.IsEvictedByDeactivation(createdWl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
+				util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
 			})
 		})
 
@@ -448,10 +448,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 
 			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				updatedWl := &kueue.Workload{}
+
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
@@ -460,11 +462,11 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-
 					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
-					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
-					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
+				util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
 			})
 		})
 	})
@@ -1032,10 +1034,10 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 				probeWl := utiltestingapi.MakeWorkload("probe-wl", ns.Name).Queue("q").
 					Request(corev1.ResourceCPU, "1").Obj()
 				gomega.Expect(k8sClient.Create(ctx, probeWl)).To(gomega.Succeed())
+				createdLocalQueue := &kueue.LocalQueue{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var lq kueue.LocalQueue
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &lq)).To(gomega.Succeed())
-					g.Expect(lq.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), createdLocalQueue)).To(gomega.Succeed())
+					g.Expect(createdLocalQueue.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, probeWl, true)
 			})

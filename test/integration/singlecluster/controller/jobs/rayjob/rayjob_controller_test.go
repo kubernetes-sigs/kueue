@@ -139,9 +139,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		secondWl.Spec.PodSets[0].Count++
 
 		util.MustCreate(ctx, k8sClient, secondWl)
+
+		wl := &kueue.Workload{}
+		key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
 		gomega.Eventually(func(g gomega.Gomega) {
-			wl := &kueue.Workload{}
-			key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
 			g.Expect(k8sClient.Get(ctx, key, wl)).Should(utiltesting.BeNotFoundError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		// check the original wl is still there

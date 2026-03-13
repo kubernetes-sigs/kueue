@@ -309,11 +309,17 @@ func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.Lo
 }
 
 func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...*kueue.Workload) {
-	for _, w := range workloads {
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-			var newWL kueue.Workload
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-			newWL.Status.Conditions = append(w.Status.Conditions, metav1.Condition{
+	ginkgo.GinkgoHelper()
+	FinishWorkloadsByKey(ctx, k8sClient, workloadKeys(workloads)...)
+}
+
+func FinishWorkloadsByKey(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	var newWL kueue.Workload
+	for _, wKey := range wlKeys {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wKey, &newWL)).To(gomega.Succeed())
+			newWL.Status.Conditions = append(newWL.Status.Conditions, metav1.Condition{
 				Type:               kueue.WorkloadFinished,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.Now(),
@@ -575,11 +581,12 @@ func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, 
 }
 
 func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, admission *kueue.Admission) {
+	ginkgo.GinkgoHelper()
 	clk := testingclock.NewFakeClock(time.Now())
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		updatedWl := &kueue.Workload{}
-		g.ExpectWithOffset(1, k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-		g.ExpectWithOffset(1, workload.PatchAdmissionStatus(ctx, k8sClient, updatedWl, clk, func(wl *kueue.Workload) (bool, error) {
+	updatedWl := &kueue.Workload{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+		g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, updatedWl, clk, func(wl *kueue.Workload) (bool, error) {
 			var updated bool
 			if admission == nil {
 				updated = workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test", clk.Now())
@@ -595,11 +602,12 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey cli
 // the state of quota reservation and admission checks. It should be use in tests that are not running
 // the workload controller.
 func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	ginkgo.GinkgoHelper()
 	var updatedWorkload kueue.Workload
 	for _, wl := range wls {
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-			g.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			g.ExpectWithOffset(1, workload.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, RealClock, func(wl *kueue.Workload) (bool, error) {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, RealClock, func(wl *kueue.Workload) (bool, error) {
 				return workload.SyncAdmittedCondition(wl, time.Now()), nil
 			})).To(gomega.Succeed())
 		}, Timeout, Interval).Should(gomega.Succeed())
@@ -1117,11 +1125,11 @@ func ExpectWorkloadsInNamespace(ctx context.Context, k8sClient client.Client, na
 //     non-nil if the function succeeds; otherwise, the test fails before returning.
 func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWorkload *kueue.Workload) (newWorkload *kueue.Workload) {
 	ginkgo.GinkgoHelper()
+	wlList := &kueue.WorkloadList{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		// Reset newWorkload each iteration to ensure the returned value is from
 		// the current poll, not a stale pointer from a previous retry attempt.
 		newWorkload = nil
-		wlList := &kueue.WorkloadList{}
 		g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(oldWorkload.Namespace))).To(gomega.Succeed())
 		for i := range wlList.Items {
 			wl := &wlList.Items[i]

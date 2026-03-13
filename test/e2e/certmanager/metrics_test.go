@@ -106,8 +106,8 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 		util.MustCreate(ctx, k8sClient, curlPod)
 
 		ginkgo.By("Waiting for kueue-metrics-server-cert secret", func() {
+			secret := &corev1.Secret{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				secret := &corev1.Secret{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{
 					Namespace: kueueNS,
 					Name:      certSecretName,
@@ -291,7 +291,6 @@ func expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName string
 	gomega.Eventually(func(g gomega.Gomega) {
 		metricsOutput, err := getKueueMetricsSecure(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
-
 		g.Expect(string(metricsOutput)).Should(utiltesting.ContainMetrics(metrics))
 	}, timeout, util.Interval).Should(gomega.Succeed())
 }

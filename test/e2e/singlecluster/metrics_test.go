@@ -279,12 +279,14 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 		})
 
 		ginkgo.It("should ensure the admission check metrics are available", func() {
-			createdWorkload = &kueue.Workload{}
-			ginkgo.By("setting the check as successful", func() {
+			ginkgo.By("fetching created workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, workloadKey, createdWorkload)).Should(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, createdWorkload, kueue.AdmissionCheckReference(admissionCheck.Name), kueue.CheckStateReady, false)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting the check as successful", func() {
+				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, createdWorkload, kueue.AdmissionCheckReference(admissionCheck.Name), kueue.CheckStateReady, false)
 			})
 
 			metrics := [][]string{
@@ -500,9 +502,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			ginkgo.By("Deactivate the blocker workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, blockerWorkloadKey, blockerWorkload)).To(gomega.Succeed())
-
 					blockerWorkload.Spec.Active = ptr.To(false)
-
 					g.Expect(k8sClient.Update(ctx, blockerWorkload)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

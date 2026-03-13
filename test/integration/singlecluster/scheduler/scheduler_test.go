@@ -1966,12 +1966,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Queue(kueue.LocalQueueName(lqTeamA.Name)).Request(corev1.ResourceCPU, "5").Priority(1).Obj()
 			util.MustCreate(ctx, k8sClient, admittedWl2)
 
+			updatedCQTeamA := &kueue.ClusterQueue{}
+
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admittedWl1, admittedWl2)
 			gomega.Eventually(func(g gomega.Gomega) {
-				var cq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqTeamA), &cq)).To(gomega.Succeed())
-				cq.Spec.StopPolicy = ptr.To(kueue.Hold)
-				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqTeamA), updatedCQTeamA)).To(gomega.Succeed())
+				updatedCQTeamA.Spec.StopPolicy = ptr.To(kueue.Hold)
+				g.Expect(k8sClient.Update(ctx, updatedCQTeamA)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			// pendingWl exceed nominal+borrowing quota and cannot preempt as priority based
@@ -1993,10 +1994,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.MustCreate(ctx, k8sClient, blockedWl)
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				var cq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqTeamA), &cq)).To(gomega.Succeed())
-				cq.Spec.StopPolicy = ptr.To(kueue.None)
-				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqTeamA), updatedCQTeamA)).To(gomega.Succeed())
+				updatedCQTeamA.Spec.StopPolicy = ptr.To(kueue.None)
+				g.Expect(k8sClient.Update(ctx, updatedCQTeamA)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, pendingWl, blockedWl)
@@ -2112,10 +2112,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			if tp.shouldBeAdmitted {
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
 			} else {
+				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					rwl := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &rwl)).Should(gomega.Succeed())
-					cond := meta.FindStatusCondition(rwl.Status.Conditions, kueue.WorkloadQuotaReserved)
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).Should(gomega.Succeed())
+					cond := meta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
 					g.Expect(cond).ShouldNot(gomega.BeNil())
 					g.Expect(cond.Message).Should(gomega.ContainSubstring(tp.wantedStatus))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2887,12 +2887,12 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Verify workload is admitted with correct initial quota consumption (4 CPU)")
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			updatedClusterQueue := &kueue.ClusterQueue{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), updatedClusterQueue)).Should(gomega.Succeed())
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage).Should(gomega.HaveLen(1))
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Trigger workload slicing by creating a replacement workload (scaling coordinator from 1 to 3)")
@@ -2908,25 +2908,24 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			newSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, wl)
 			gomega.Expect(newSlice).NotTo(gomega.BeNil())
 
+			updatedSlice := &kueue.Workload{}
+
 			ginkgo.By("Verify the new slice is admitted")
 			gomega.Eventually(func(g gomega.Gomega) {
-				updatedSlice := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newSlice), updatedSlice)).Should(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(updatedSlice)).Should(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verify quota after scale-up (should be 8 CPU)")
 			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), updatedClusterQueue)).Should(gomega.Succeed())
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage).Should(gomega.HaveLen(1))
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Test in-place scale-down: update workload slice to reduce coordinator from 3 to 2 (8 -> 6 CPU)")
 			gomega.Eventually(func(g gomega.Gomega) {
-				updatedSlice := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newSlice), updatedSlice)).Should(gomega.Succeed())
 				updatedSlice.Spec.PodSets[1].Count = 2 // Reduce coordinator from 3 to 2
 				g.Expect(k8sClient.Update(ctx, updatedSlice)).Should(gomega.Succeed())
@@ -2934,11 +2933,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Verify quota after in-place scale-down (should be 6 CPU: 2 workers @ 1 + 2 coordinators @ 2)")
 			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("6")))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), updatedClusterQueue)).Should(gomega.Succeed())
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage).Should(gomega.HaveLen(1))
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("6")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -2955,14 +2953,15 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 
+			updatedClusterQueue := &kueue.ClusterQueue{}
+
 			ginkgo.By("Verify workload is admitted with correct initial quota consumption (4 CPU)")
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), updatedClusterQueue)).Should(gomega.Succeed())
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage).Should(gomega.HaveLen(1))
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Trigger workload slicing by creating a replacement workload (scaling coordinator from 1 to 3)")
@@ -2978,20 +2977,20 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			newSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, wl)
 			gomega.Expect(newSlice).NotTo(gomega.BeNil())
 
+			updatedSlice := &kueue.Workload{}
+
 			ginkgo.By("Verify the new slice is admitted")
 			gomega.Eventually(func(g gomega.Gomega) {
-				updatedSlice := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newSlice), updatedSlice)).Should(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(updatedSlice)).Should(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verify quota is NOT double-counted (should be 8 CPU, not 12)")
 			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), updatedClusterQueue)).Should(gomega.Succeed())
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage).Should(gomega.HaveLen(1))
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Create additional workloads to verify quota enforcement prevents over-admission")
@@ -3009,9 +3008,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Verify first workload is admitted (8+2=10, at quota limit)")
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("10")))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), updatedClusterQueue)).Should(gomega.Succeed())
+				g.Expect(updatedClusterQueue.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("10")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verify second workload remains pending (10+2=12 exceeds quota limit of 10)")

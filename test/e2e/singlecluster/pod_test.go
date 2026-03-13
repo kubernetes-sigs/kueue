@@ -109,14 +109,16 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			ginkgo.By("Verify that the Workload is admitted", func() {
 				util.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, gKey)
 			})
+
+			createdPod := &corev1.Pod{}
+
 			ginkgo.By("Starting admission", func() {
 				// Verify that the Pods start with the appropriate selector.
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
-						g.Expect(p.Spec.NodeSelector).To(gomega.Equal(map[string]string{
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(gomega.Succeed())
+						g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(createdPod.Spec.NodeSelector).To(gomega.Equal(map[string]string{
 							"instance-type": "on-demand",
 						}))
 					}
@@ -131,8 +133,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, p := range group {
-						var pCopy corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(utiltesting.BeNotFoundError())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), createdPod)).To(utiltesting.BeNotFoundError())
 					}
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, gKey)
@@ -163,10 +164,10 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				for _, p := range group[:2] {
 					gomega.Expect(k8sClient.Delete(ctx, p)).To(gomega.Succeed())
 				}
+				createdPod := &corev1.Pod{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group[:2] {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(utiltesting.BeNotFoundError())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(utiltesting.BeNotFoundError())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -201,33 +202,32 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			// First pod runs for much longer, so that there is time to terminate it.
 			group[0].Spec.Containers[0].Args = util.BehaviorWaitForDeletionFailOnExit
 
+			createdPod := &corev1.Pod{}
+
 			ginkgo.By("Group starts", func() {
 				for _, p := range group {
 					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(gomega.Succeed())
+						g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Wait for the pod to be running to allow fast termination by Kubelet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					var p corev1.Pod
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
-					g.Expect(p.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Fail a pod", func() {
 				gomega.Expect(k8sClient.Delete(ctx, group[0])).To(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
-					var p corev1.Pod
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
-					g.Expect(p.Status.Phase).Should(gomega.Equal(corev1.PodFailed))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Status.Phase).Should(gomega.Equal(corev1.PodFailed))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -254,9 +254,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				rep.Name = "replacement"
 				util.MustCreate(ctx, k8sClient, rep)
 				gomega.Eventually(func(g gomega.Gomega) {
-					var p corev1.Pod
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), &p)).To(gomega.Succeed())
-					g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				util.ExpectPodsFinalizedOrGone(ctx, k8sClient, client.ObjectKeyFromObject(group[0]))
 			})
@@ -315,15 +314,16 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			// The first pod has a node selector for a missing node.
 			group[0].Spec.NodeSelector = map[string]string{"missing-node-key": "missing-node-value"}
 
+			createdPod := &corev1.Pod{}
+
 			ginkgo.By("Group starts", func() {
 				for _, p := range group {
 					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(gomega.Succeed())
+						g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -332,19 +332,17 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				// Since kueue is not involved in this transition (ungated pod to no pending)
 				// it is acceptable to wait `LongTimeout` for it to happen.
 				gomega.Eventually(func(g gomega.Gomega) {
-					var p corev1.Pod
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[1]), &p)).To(gomega.Succeed())
-					g.Expect(p.Status.Phase).NotTo(gomega.Equal(corev1.PodPending))
-					g.Expect(p.Spec.NodeName).NotTo(gomega.BeEmpty())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[1]), createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Status.Phase).NotTo(gomega.Equal(corev1.PodPending))
+					g.Expect(createdPod.Spec.NodeName).NotTo(gomega.BeEmpty())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Check the first pod is Unschedulable", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					var p corev1.Pod
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
-					g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodPending))
-					g.Expect(p.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodPending))
+					g.Expect(createdPod.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
 						Type:   corev1.PodScheduled,
 						Status: corev1.ConditionFalse,
 						Reason: corev1.PodReasonUnschedulable,
@@ -355,11 +353,10 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			ginkgo.By("Deleting the pod it remains Unschedulable", func() {
 				gomega.Expect(k8sClient.Delete(ctx, group[0])).To(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
-					var p corev1.Pod
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
-					g.Expect(p.DeletionTimestamp.IsZero()).NotTo(gomega.BeTrue())
-					g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodPending))
-					g.Expect(p.Spec.NodeName).To(gomega.BeEmpty())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.DeletionTimestamp.IsZero()).NotTo(gomega.BeTrue())
+					g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodPending))
+					g.Expect(createdPod.Spec.NodeName).To(gomega.BeEmpty())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -368,10 +365,9 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				rep.Name = "replacement"
 				util.MustCreate(ctx, k8sClient, rep)
 				gomega.Eventually(func(g gomega.Gomega) {
-					var p corev1.Pod
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), &p)).To(gomega.Succeed())
-					g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), createdPod)).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -387,15 +383,16 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			// make the group of pods diverse using different amount of resources
 			group[0].Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("2")
 
+			createdPod := &corev1.Pod{}
+
 			ginkgo.By("Group starts", func() {
 				for _, p := range group {
 					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(gomega.Succeed())
+						g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -408,9 +405,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 					gomega.Expect(k8sClient.Delete(ctx, p)).To(gomega.Succeed())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
-					for _, p := range group {
-						var pCopy corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(utiltesting.BeNotFoundError())
+					for _, origPod := range group {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(utiltesting.BeNotFoundError())
 					}
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, gKey)
@@ -446,15 +442,16 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				client.ObjectKeyFromObject(defaultPriorityGroup[1]),
 			)
 
+			createdPod := &corev1.Pod{}
+
 			ginkgo.By("Default-priority group starts", func() {
 				for _, p := range defaultPriorityGroup {
 					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range defaultPriorityGroup {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(gomega.Succeed())
+						g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -474,9 +471,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range highPriorityGroup {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(gomega.Succeed())
+						g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -496,9 +492,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			ginkgo.By("Wait for default-priority pods to fail", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range defaultPriorityGroup {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodFailed), fmt.Sprintf("%#v", p.Status))
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(gomega.Succeed())
+						g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodFailed), fmt.Sprintf("%#v", createdPod.Status))
 					}
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -517,10 +512,9 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 
 			ginkgo.By("Check that the preempted pods are deleted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					var p corev1.Pod
 					for _, origPod := range defaultPriorityGroup {
 						origKey := client.ObjectKeyFromObject(origPod)
-						g.Expect(k8sClient.Get(ctx, origKey, &p)).To(utiltesting.BeNotFoundError())
+						g.Expect(k8sClient.Get(ctx, origKey, createdPod)).To(utiltesting.BeNotFoundError())
 					}
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -528,9 +522,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			ginkgo.By("Verify the high-priority pods are scheduled", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range highPriorityGroup {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(gomega.Succeed())
+						g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -547,9 +540,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			ginkgo.By("Await for the replacement pods to be ungated", func() {
 				for _, replKey := range replacementPods {
 					gomega.Eventually(func(g gomega.Gomega) {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, replKey, &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(k8sClient.Get(ctx, replKey, createdPod)).To(gomega.Succeed())
+						g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				}
 			})
@@ -557,9 +549,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			ginkgo.By("Verify the replacement pods of the default priority workload complete", func() {
 				for _, replKey := range replacementPods {
 					gomega.Eventually(func(g gomega.Gomega) {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, replKey, &p)).To(gomega.Succeed())
-						g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
+						g.Expect(k8sClient.Get(ctx, replKey, createdPod)).To(gomega.Succeed())
+						g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
 					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				}
 			})
@@ -570,57 +561,56 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 		})
 
 		ginkgo.It("Pod should be admitted after the group labels are added", func() {
-			ginkgo.By("creating a pod", func() {
-				p := podtesting.MakePod("pod-0", ns.Name).
-					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-					RequestAndLimit(corev1.ResourceCPU, "1").
-					Label("app-role", "worker").
-					Annotation(podconstants.SuspendedByParentAnnotation, "OtherController").
-					KueueSchedulingGate().
-					Obj()
-				util.MustCreate(ctx, k8sClient, p)
+			p := podtesting.MakePod("pod-0", ns.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				Label("app-role", "worker").
+				Annotation(podconstants.SuspendedByParentAnnotation, "OtherController").
+				KueueSchedulingGate().
+				Obj()
 
+			ginkgo.By("creating a pod", func() {
+				util.MustCreate(ctx, k8sClient, p)
+			})
+
+			createdPod := &corev1.Pod{}
+			pKey := client.ObjectKeyFromObject(p)
+
+			ginkgo.By("checking scheduling gates and annotations", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					var createdPod corev1.Pod
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &createdPod)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, pKey, createdPod)).To(gomega.Succeed())
 					g.Expect(createdPod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
 					g.Expect(createdPod.Annotations).To(gomega.HaveKey(podconstants.RoleHashAnnotation))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
+
 			ginkgo.By("Add the group annotations and labels to the pod", func() {
-				var p corev1.Pod
-				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
-				gomega.Expect(k8sClient.Get(ctx, pKey, &p)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, pKey, createdPod)).To(gomega.Succeed())
 
-				p.Labels[podconstants.GroupNameLabel] = "test-group"
-				p.Annotations[podconstants.GroupTotalCountAnnotation] = "1"
-				p.Annotations[podconstants.SuspendedByParentAnnotation] = "OtherController"
-				p.Labels[controllerconsts.QueueLabel] = lq.Name
-				p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-				gomega.Expect(k8sClient.Update(ctx, &p)).To(gomega.Succeed())
+				createdPod.Labels[podconstants.GroupNameLabel] = "test-group"
+				createdPod.Annotations[podconstants.GroupTotalCountAnnotation] = "1"
+				createdPod.Annotations[podconstants.SuspendedByParentAnnotation] = "OtherController"
+				createdPod.Labels[controllerconsts.QueueLabel] = lq.Name
+				createdPod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
+				gomega.Expect(k8sClient.Update(ctx, createdPod)).To(gomega.Succeed())
 
-				var podWithHash corev1.Pod
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&p), &podWithHash)).To(gomega.Succeed())
-				initialRoleHash := podWithHash.Annotations[podconstants.RoleHashAnnotation]
+				gomega.Expect(k8sClient.Get(ctx, pKey, createdPod)).To(gomega.Succeed())
+				initialRoleHash := createdPod.Annotations[podconstants.RoleHashAnnotation]
 				gomega.Expect(initialRoleHash).NotTo(gomega.BeEmpty())
 			})
 
 			ginkgo.By("Verify pod has queue labels assigned", func() {
-				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var runningPod corev1.Pod
-					g.Expect(k8sClient.Get(ctx, pKey, &runningPod)).To(gomega.Succeed())
-					g.Expect(runningPod.Labels[constants.ClusterQueueLabel]).To(gomega.Equal(cq.Name))
-					g.Expect(runningPod.Labels[constants.LocalQueueLabel]).To(gomega.Equal(lq.Name))
+					g.Expect(k8sClient.Get(ctx, pKey, createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Labels[constants.ClusterQueueLabel]).To(gomega.Equal(cq.Name))
+					g.Expect(createdPod.Labels[constants.LocalQueueLabel]).To(gomega.Equal(lq.Name))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify the pod is scheduled and runs", func() {
-				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
 				gomega.Eventually(func(g gomega.Gomega) {
-					var runningPod corev1.Pod
-					g.Expect(k8sClient.Get(ctx, pKey, &runningPod)).To(gomega.Succeed())
-					g.Expect(runningPod.Spec.SchedulingGates).To(gomega.BeEmpty())
+					g.Expect(k8sClient.Get(ctx, pKey, createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gKey := client.ObjectKey{Namespace: ns.Name, Name: "test-group"}
@@ -628,10 +618,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 
 			ginkgo.By("Ensure the pod is deleted", func() {
-				var p corev1.Pod
-				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
-				gomega.Expect(k8sClient.Get(ctx, pKey, &p)).To(gomega.Succeed())
-				gomega.Expect(k8sClient.Delete(ctx, &p)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, pKey, createdPod)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Delete(ctx, createdPod)).To(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, pKey, &corev1.Pod{})).To(utiltesting.BeNotFoundError())

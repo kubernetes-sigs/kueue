@@ -81,9 +81,9 @@ var _ = ginkgo.BeforeSuite(func() {
 	err = k8sClient.List(ctx, nodes, requiredLabels, requiredLabelKeys)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to list nodes for TAS")
 
+	node := &corev1.Node{}
 	for _, n := range nodes.Items {
 		gomega.Eventually(func(g gomega.Gomega) {
-			node := &corev1.Node{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: n.Name}, node)).To(gomega.Succeed())
 			err := clientutil.PatchStatus(ctx, k8sClient, node, func() (bool, error) {
 				node.Status.Capacity[extraResource] = resource.MustParse("1")

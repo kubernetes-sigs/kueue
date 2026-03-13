@@ -109,10 +109,9 @@ var _ = ginkgo.Describe("Importer", func() {
 
 			ginkgo.By("Starting kueue, the cluster queue status should account for the imported Workloads", func() {
 				fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
-
 				util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
+				updatedQueue := &kueue.ClusterQueue{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					updatedQueue := &kueue.ClusterQueue{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedQueue)).To(gomega.Succeed())
 					g.Expect(updatedQueue.Status.AdmittedWorkloads).To(gomega.Equal(int32(2)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

@@ -99,8 +99,8 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 		})
 
 		ginkgo.By("verifying StatefulSet pods are managed correctly", func() {
+			pods := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				pods := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
 					client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 				g.Expect(pods.Items).To(gomega.HaveLen(2))
@@ -111,8 +111,8 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 		})
 
 		ginkgo.By("verifying StatefulSet becomes ready", func() {
+			createdStatefulSet := &appsv1.StatefulSet{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdStatefulSet := &appsv1.StatefulSet{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testSts), createdStatefulSet)).To(gomega.Succeed())
 				g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

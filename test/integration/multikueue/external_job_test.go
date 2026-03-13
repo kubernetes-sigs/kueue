@@ -230,16 +230,16 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 			admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+			createdRayCluster := rayv1.RayCluster{}
+
 			ginkgo.By("changing the status of the RayCluster in the worker, updates the manager's RayCluster status", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdRayCluster := rayv1.RayCluster{}
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
 					//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
 					createdRayCluster.Status.State = rayv1.Ready
 					g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdRayCluster := rayv1.RayCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
 					//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
 					g.Expect(createdRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
@@ -281,16 +281,16 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 			admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
+			createdRayCluster := rayv1.RayCluster{}
+
 			ginkgo.By("changing the status of the RayCluster in the worker, updates the manager's RayCluster status", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdRayCluster := rayv1.RayCluster{}
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
 					//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
 					createdRayCluster.Status.State = rayv1.Ready
 					g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdRayCluster := rayv1.RayCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
 					//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
 					g.Expect(createdRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
@@ -331,10 +331,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 						Name: "workers-group-0",
 					},
 				)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 			})
 
 			ginkgo.By("checking the workload creation in the worker clusters", func() {
@@ -348,16 +345,16 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			createdCluster := &kueue.MultiKueueCluster{}
+
 			ginkgo.By("breaking the connection to worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 					createdCluster.Spec.ClusterSource.KubeConfig.Location = "bad-secret"
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 					activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
 					g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
@@ -389,14 +386,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 			ginkgo.By("breaking the connection to worker1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
 					createdCluster.Spec.ClusterSource.KubeConfig.Location = "bad-secret"
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
 					activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
 					g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
@@ -435,14 +430,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 			ginkgo.By("restoring the connection to worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 					createdCluster.Spec.ClusterSource.KubeConfig.Location = managerMultiKueueSecret2.Name
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
 					activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
 					g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
@@ -461,14 +454,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 			ginkgo.By("restoring the connection to worker1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
 					createdCluster.Spec.ClusterSource.KubeConfig.Location = managerMultiKueueSecret1.Name
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdCluster := &kueue.MultiKueueCluster{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster1), createdCluster)).To(gomega.Succeed())
 					activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueue.MultiKueueClusterActive)
 					g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{

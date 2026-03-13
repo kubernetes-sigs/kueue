@@ -334,8 +334,8 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 		})
 
 		ginkgo.By("updating workload nomination by cluster2", func() {
+			managerWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				g.Expect(workload.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerWl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					wl.Status.NominatedClusterNames = []string{workerCluster2.Name}
@@ -758,8 +758,8 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Label("area:mul
 
 		ginkgo.It("should re-evaluate existing workload when worker2 is added to config", func() {
 			ginkgo.By("Verify workload initially only sees worker1")
+			managerWorkload := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				managerWorkload := &kueue.Workload{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, workloadLookupKey, managerWorkload)).To(gomega.Succeed())
 				g.Expect(managerWorkload.Status.NominatedClusterNames).To(gomega.ConsistOf(workerCluster1.Name))
 
@@ -782,15 +782,14 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Label("area:mul
 			util.ExpectAdmissionChecksToBeActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
 			ginkgo.By("Wait for worker2 cluster to become active")
+			createdWorkerCluster2 := &kueue.MultiKueueCluster{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				cluster2 := &kueue.MultiKueueCluster{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), cluster2)).To(gomega.Succeed())
-				g.Expect(cluster2.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.MultiKueueClusterActive))
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdWorkerCluster2)).To(gomega.Succeed())
+				g.Expect(createdWorkerCluster2.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.MultiKueueClusterActive))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verify existing workload gets re-evaluated and sees both workers")
 			gomega.Eventually(func(g gomega.Gomega) {
-				managerWorkload := &kueue.Workload{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, workloadLookupKey, managerWorkload)).To(gomega.Succeed())
 				actualClusters := sets.New(managerWorkload.Status.NominatedClusterNames...)
 				g.Expect(actualClusters.Has(workerCluster2.Name)).To(gomega.BeTrue(),
@@ -800,8 +799,8 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Label("area:mul
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verify workloads get created on both worker clusters")
+			remoteWorkload1 := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				remoteWorkload1 := &kueue.Workload{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, workloadLookupKey, remoteWorkload1)).To(gomega.Succeed())
 				remoteWorkload2 := &kueue.Workload{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, workloadLookupKey, remoteWorkload2)).To(gomega.Succeed())

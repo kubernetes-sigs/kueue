@@ -364,8 +364,8 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 			cohort = utiltestingapi.MakeCohort("cohort").Obj()
 			util.MustCreate(ctx, k8sClient, cohort)
 
+			createCohort := &kueue.Cohort{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				createCohort := &kueue.Cohort{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), createCohort)).Should(gomega.Succeed())
 				createCohort.Spec.ParentName = "cohort2"
 				g.Expect(k8sClient.Update(ctx, createCohort)).Should(gomega.Succeed())
@@ -375,8 +375,8 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 			cohort = utiltestingapi.MakeCohort("cohort").Obj()
 			util.MustCreate(ctx, k8sClient, cohort)
 
+			createCohort := &kueue.Cohort{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				createCohort := &kueue.Cohort{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), createCohort)).Should(gomega.Succeed())
 				createCohort.Spec.ParentName = "@cohort2"
 				gomega.Expect(k8sClient.Update(ctx, createCohort)).ShouldNot(gomega.Succeed())

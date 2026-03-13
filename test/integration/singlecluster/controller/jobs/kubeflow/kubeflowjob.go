@@ -106,11 +106,13 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	secondWl.Spec.PodSets[0].Count++
 
 	util.MustCreate(ctx, k8sClient, secondWl)
+
+	wl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
-		wl := &kueue.Workload{}
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secondWl), wl)).Should(utiltesting.BeNotFoundError())
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	// check the original wl is still there
+
+	ginkgo.By("checking the original wl is still there")
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())

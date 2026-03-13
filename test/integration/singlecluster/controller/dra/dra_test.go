@@ -121,12 +121,12 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
+			var updatedWl kueue.Workload
+
 			ginkgo.By("Verifying workload is marked as inadmissible")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
-
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
@@ -204,9 +204,10 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
 
+			var updatedWl1, updatedWl2 kueue.Workload
+
 			ginkgo.By("Verifying both workloads are admitted")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl1, updatedWl2 kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &updatedWl1)).To(gomega.Succeed())
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl2)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl1)).To(gomega.BeTrue())
@@ -215,7 +216,6 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 			ginkgo.By("Verifying total DRA usage doesn't exceed quota")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl1, updatedWl2 kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &updatedWl1)).To(gomega.Succeed())
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl2)).To(gomega.Succeed())
 
@@ -256,9 +256,10 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
+			var updatedWl kueue.Workload
+
 			ginkgo.By("Verifying workload is admitted with ResourceClaimTemplate")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
 				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
@@ -321,9 +322,10 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(workload.HasQuotaReservation(&updatedWl2)).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			var updatedWl1, updatedWl2 kueue.Workload
+
 			ginkgo.By("Verifying total DRA usage from ResourceClaimTemplates")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl1, updatedWl2 kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &updatedWl1)).To(gomega.Succeed())
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl2)).To(gomega.Succeed())
 
@@ -394,12 +396,12 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
+			var updatedWl kueue.Workload
+
 			ginkgo.By("Verifying workload is marked as inadmissible")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
-
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
@@ -429,7 +431,6 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 			ginkgo.By("Verifying workload is admitted")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
 				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
@@ -465,9 +466,10 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
+			var updatedWl kueue.Workload
+
 			ginkgo.By("Verifying workload is admitted with correct total DRA resource usage")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
 				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
@@ -511,12 +513,12 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
+			var updatedWl kueue.Workload
+
 			ginkgo.By("Verifying workload is marked as inadmissible")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
-
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
@@ -549,12 +551,12 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
+			var updatedWl kueue.Workload
+
 			ginkgo.By("Verifying workload is marked as inadmissible")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
-
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
@@ -588,12 +590,12 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
+			var updatedWl kueue.Workload
+
 			ginkgo.By("Verifying workload is marked as inadmissible")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
-
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
@@ -635,12 +637,12 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
+			var updatedWl kueue.Workload
+
 			ginkgo.By("Verifying workload is marked as inadmissible")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
-
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
@@ -673,12 +675,12 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
+			var updatedWl kueue.Workload
+
 			ginkgo.By("Verifying workload is marked as inadmissible")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
-
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
@@ -710,12 +712,12 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
+			var updatedWl kueue.Workload
+
 			ginkgo.By("Verifying workload is marked as inadmissible")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
-
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),

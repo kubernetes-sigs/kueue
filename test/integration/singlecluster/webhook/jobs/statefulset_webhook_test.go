@@ -65,8 +65,8 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Queue("user-queue").Obj()
 				util.MustCreate(ctx, k8sClient, sts)
 
+				createdStatefulSet := &appsv1.StatefulSet{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdStatefulSet)).Should(gomega.Succeed())
 					g.Expect(createdStatefulSet.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation]).
 						To(
@@ -82,8 +82,8 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
 				util.MustCreate(ctx, k8sClient, sts)
 
+				createdStatefulSet := &appsv1.StatefulSet{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdStatefulSet)).Should(gomega.Succeed())
 					g.Expect(createdStatefulSet.Spec.Template.Labels[constants.QueueLabel]).
 						To(

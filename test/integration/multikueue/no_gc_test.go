@@ -162,12 +162,12 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Label("area:multikueue", "fea
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		createdJob := batchv1.Job{}
+
 		ginkgo.By("setting workload reservation in worker1, the job is created in worker1", func() {
 			admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
-
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -178,9 +178,7 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Label("area:multikueue", "fea
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, createdWorkload)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(utiltesting.BeNotFoundError())
 				g.Expect(worker1TestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

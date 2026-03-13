@@ -520,9 +520,9 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					})
 
 					ginkgo.By("add labels & annotations to the admission check", func() {
+						newWL := &kueue.Workload{}
 						gomega.Eventually(func(g gomega.Gomega) {
-							var newWL kueue.Workload
-							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), newWL)).To(gomega.Succeed())
 							workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
 								Name:  "check",
 								State: kueue.CheckStateReady,
@@ -541,7 +541,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 									},
 								},
 							}, util.RealClock)
-							g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
+							g.Expect(k8sClient.Status().Update(ctx, newWL)).Should(gomega.Succeed())
 						}, util.Timeout, util.Interval).Should(gomega.Succeed())
 					})
 
@@ -916,8 +916,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("checking that pod2 fully removed", func() {
+					createdPod := &corev1.Pod{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						createdPod := &corev1.Pod{}
 						g.Expect(client.IgnoreNotFound(k8sClient.Get(ctx, pod2LookupKey, createdPod))).Should(gomega.Succeed())
 						g.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(constants.ManagedByKueueLabelKey))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1803,9 +1803,9 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 
+		workloads := &kueue.WorkloadList{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			var workloads kueue.WorkloadList
-			g.Expect(k8sClient.List(ctx, &workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
 			g.Expect(workloads.Items).Should(
 				gomega.BeEmpty(),
 				"All workloads have to be finalized and deleted before the next test starts",
