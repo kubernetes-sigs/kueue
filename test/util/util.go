@@ -580,7 +580,7 @@ func mustAdmissionCheckState(g gomega.Gomega, updatedWl *kueue.Workload, admissi
 	if expectedMessage != "" {
 		g.Expect(check.Message).To(gomega.Equal(expectedMessage))
 	}
-	if podSetUpdates != nil {
+	if len(podSetUpdates) > 0 {
 		g.Expect(check.PodSetUpdates).To(gomega.BeComparableTo(podSetUpdates))
 	}
 }

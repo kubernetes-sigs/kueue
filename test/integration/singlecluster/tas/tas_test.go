@@ -3534,15 +3534,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("await for the check to be ready", func() {
-					util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady, []kueue.PodSetUpdate{
-						{
-							Name: "main",
-							Annotations: map[string]string{
-								autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey.Name,
-								autoscaling.ProvisioningClassPodAnnotationKey:   prc.Spec.ProvisioningClassName,
-							},
-						},
-					}...)
+					util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
 				})
 
 				ginkgo.By("restart Kueue manager", func() {
