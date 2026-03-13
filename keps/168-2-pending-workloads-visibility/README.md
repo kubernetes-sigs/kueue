@@ -41,6 +41,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [List pending workloads in LocalQueue](#list-pending-workloads-in-localqueue)
   - [API Objects:](#api-objects)
   - [Future extensions](#future-extensions)
+  - [Visibility Server Configuration](#visibility-server-configuration)
   - [Test Plan](#test-plan)
     - [Overview](#overview)
     - [Unit Tests](#unit-tests)
@@ -226,6 +227,13 @@ The introduced API uses mechanism of subresources. It means, that in the future 
 ```
 GET /apis/visibility.kueue.x-k8s.io/VERSION/clusterqueues/CQ_NAME/admitted_workloads?offset=0&limit=1000
 ```
+
+### Visibility Server Configuration
+
+The Visibility server can be configured in the `kueueconfigurations` API under `visibility`. The following options are available:
+
+- `bindAddress`: The IP address on which to listen for the visibility server. If not specified, the server will listen on all available network interfaces.
+- `bindPort`: The port on which to listen for the visibility server. Defaults to `8082`.
 
 ### Test Plan
 
