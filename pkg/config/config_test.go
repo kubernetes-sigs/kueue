@@ -414,6 +414,10 @@ objectRetentionPolicies:
 		DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
 	}
 
+	defaultVisibility := &configapi.VisibilityServerConfiguration{
+		BindPort: ptr.To[int32](configapi.DefaultVisibilityBindPort),
+	}
+
 	testcases := []struct {
 		name                 string
 		configFile           string
@@ -433,6 +437,7 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility:                   defaultVisibility,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -450,6 +455,7 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility:                   defaultVisibility,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -487,6 +493,9 @@ objectRetentionPolicies:
 						},
 					},
 				},
+				Visibility: &configapi.VisibilityServerConfiguration{
+					BindPort: ptr.To[int32](configapi.DefaultVisibilityBindPort),
+				},
 			},
 			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
@@ -505,6 +514,7 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility:                   defaultVisibility,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -540,6 +550,7 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility:                   defaultVisibility,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -560,6 +571,7 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility:                   defaultVisibility,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -578,6 +590,7 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility:                   defaultVisibility,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions("kueue-system"),
@@ -620,6 +633,7 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility:                   defaultVisibility,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -641,6 +655,7 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility:                   defaultVisibility,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -662,6 +677,7 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility:                   defaultVisibility,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -708,6 +724,9 @@ objectRetentionPolicies:
 				},
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility: &configapi.VisibilityServerConfiguration{
+					BindPort: ptr.To[int32](configapi.DefaultVisibilityBindPort),
+				},
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -748,6 +767,7 @@ objectRetentionPolicies:
 					},
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility:                   defaultVisibility,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -766,6 +786,9 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility: &configapi.VisibilityServerConfiguration{
+					BindPort: ptr.To[int32](configapi.DefaultVisibilityBindPort),
+				},
 				Resources: &configapi.Resources{
 					Transformations: []configapi.ResourceTransformation{
 						{
@@ -819,6 +842,7 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				Visibility:                   defaultVisibility,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
 						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
@@ -1104,7 +1128,7 @@ webhook:
 
 			// Compare the loaded configuration
 			configCmpOpts := cmp.Options{
-				cmpopts.IgnoreFields(configapi.Configuration{}, "ControllerManager"),
+				cmpopts.IgnoreFields(configapi.Configuration{}, "ControllerManager", "Visibility"),
 			}
 			if diff := cmp.Diff(tc.wantConfiguration, cfg, configCmpOpts...); diff != "" {
 				t.Errorf("Unexpected config (-want +got):\n%s", diff)
@@ -1217,6 +1241,9 @@ func TestEncode(t *testing.T) {
 					"origin":            "multikueue",
 					"workerLostTimeout": "15m0s",
 					"dispatcherName":    configapi.MultiKueueDispatcherModeAllAtOnce,
+				},
+				"visibility": map[string]any{
+					"bindPort": int64(8082),
 				},
 			},
 		},

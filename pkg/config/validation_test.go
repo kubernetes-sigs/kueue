@@ -961,6 +961,28 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"invalid .visibility.bindAddress": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Visibility: &configapi.VisibilityServerConfiguration{
+					BindAddress: ptr.To("invalid"),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "visibility.bindAddress",
+				},
+			},
+		},
+		"valid .visibility.bindAddress": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Visibility: &configapi.VisibilityServerConfiguration{
+					BindAddress: ptr.To("127.0.0.1"),
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
