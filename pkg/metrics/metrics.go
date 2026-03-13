@@ -261,7 +261,7 @@ func trackGaugeVec(g *prometheus.GaugeVec) *prometheus.GaugeVec {
 	return g
 }
 
-func initMetricVectors(extraLabels []string) {
+func InitMetricVectors(extraLabels []string) {
 	allGaugeVecs = nil
 
 	AdmissionAttemptsTotal = prometheus.NewCounterVec(
@@ -273,7 +273,7 @@ Each admission attempt might try to admit more than one workload.
 The label 'result' can have the following values:
 - 'success' means that at least one workload was admitted.,
 - 'inadmissible' means that no workload was admitted.`,
-		}, append([]string{"result", "replica_role"}, extraLabels...),
+		}, []string{"result", "replica_role"},
 	)
 
 	admissionAttemptDuration = prometheus.NewHistogramVec(
@@ -284,7 +284,7 @@ The label 'result' can have the following values:
 The label 'result' can have the following values:
 - 'success' means that at least one workload was admitted.,
 - 'inadmissible' means that no workload was admitted.`,
-		}, append([]string{"result", "replica_role"}, extraLabels...),
+		}, []string{"result", "replica_role"},
 	)
 
 	AdmissionCyclePreemptionSkips = trackGaugeVec(prometheus.NewGaugeVec(
@@ -304,6 +304,8 @@ The label 'result' can have the following values:
 		},
 		[]string{"git_version", "git_commit", "build_date", "go_version", "compiler", "platform"},
 	)
+	versionInfo := version.Get()
+	buildInfo.WithLabelValues(versionInfo.GitVersion, versionInfo.GitCommit, versionInfo.BuildDate, versionInfo.GoVersion, versionInfo.Compiler, versionInfo.Platform).Set(1)
 
 	PendingWorkloads = trackGaugeVec(prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -729,9 +731,7 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 }
 
 func init() {
-	initMetricVectors(nil)
-	versionInfo := version.Get()
-	buildInfo.WithLabelValues(versionInfo.GitVersion, versionInfo.GitCommit, versionInfo.BuildDate, versionInfo.GoVersion, versionInfo.Compiler, versionInfo.Platform).Set(1)
+	InitMetricVectors(nil)
 }
 
 func generateExponentialBuckets(count int) []float64 {
@@ -744,112 +744,127 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration, tracker *r
 	admissionAttemptDuration.WithLabelValues(string(result), role).Observe(duration.Seconds())
 }
 
-func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	QuotaReservedWorkloadsTotal.WithLabelValues(string(cqName), priorityClass, role).Inc()
-	QuotaReservedWaitTime.WithLabelValues(string(cqName), priorityClass, role).Observe(waitTime.Seconds())
+func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	QuotaReservedWorkloadsTotal.WithLabelValues(labels...).Inc()
+	QuotaReservedWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
 }
 
-func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	LocalQueueQuotaReservedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, role).Inc()
-	LocalQueueQuotaReservedWaitTime.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, role).Observe(waitTime.Seconds())
+func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueQuotaReservedWorkloadsTotal.WithLabelValues(labels...).Inc()
+	LocalQueueQuotaReservedWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
 }
 
 // IncrementFinishedWorkloadTotal increases the counter of finished workloads
 // for the given ClusterQueue, priority class, and workload role.
-func IncrementFinishedWorkloadTotal(cqName kueue.ClusterQueueReference, priorityClass string, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	FinishedWorkloadsTotal.WithLabelValues(string(cqName), priorityClass, role).Inc()
+func IncrementFinishedWorkloadTotal(cqName kueue.ClusterQueueReference, priorityClass string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	FinishedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
 // IncrementLocalQueueFinishedWorkloadTotal increases the counter of finished workloads
 // for the given LocalQueue, priority class, and workload role.
-func IncrementLocalQueueFinishedWorkloadTotal(lq LocalQueueReference, priorityClass string, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	LocalQueueFinishedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, role).Inc()
+func IncrementLocalQueueFinishedWorkloadTotal(lq LocalQueueReference, priorityClass string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueFinishedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
 // ReportFinishedWorkloads sets the current total number of finished workloads
 // for the given ClusterQueue and workload role (gauge).
-func ReportFinishedWorkloads(cqName kueue.ClusterQueueReference, count int, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	FinishedWorkloads.WithLabelValues(string(cqName), role).Set(float64(count))
+func ReportFinishedWorkloads(cqName kueue.ClusterQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
+	FinishedWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
 // ReportLocalQueueFinishedWorkloads sets the current total number of finished workloads
 // for the given LocalQueue and workload role (gauge).
-func ReportLocalQueueFinishedWorkloads(lq LocalQueueReference, count int, tracker *roletracker.RoleTracker) {
+func ReportLocalQueueFinishedWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueFinishedWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
+func AdmittedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	AdmittedWorkloadsTotal.WithLabelValues(labels...).Inc()
+	AdmissionWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
+}
+
+func LocalQueueAdmittedWorkload(lq LocalQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueAdmittedWorkloadsTotal.WithLabelValues(labels...).Inc()
+	LocalQueueAdmissionWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
+}
+
+func ReportAdmissionChecksWaitTime(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	AdmissionChecksWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
+}
+
+func ReportLocalQueueAdmissionChecksWaitTime(lq LocalQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueAdmissionChecksWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
+}
+
+func ReadyWaitTime(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	QueuedUntilReadyWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
+}
+
+func LocalQueueReadyWaitTime(lq LocalQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueQueuedUntilReadyWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
+}
+
+func ReportAdmittedUntilReadyWaitTime(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	AdmittedUntilReadyWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
+}
+
+func ReportLocalQueueAdmittedUntilReadyWaitTime(lq LocalQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueAdmittedUntilReadyWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
+}
+
+func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	role := roletracker.GetRole(tracker)
-	LocalQueueFinishedWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, role).Set(float64(count))
+	activeLabels := append([]string{string(cqName), PendingStatusActive, role}, customLabelValues...)
+	inadmissibleLabels := append([]string{string(cqName), PendingStatusInadmissible, role}, customLabelValues...)
+	PendingWorkloads.WithLabelValues(activeLabels...).Set(float64(active))
+	PendingWorkloads.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
 }
 
-func AdmittedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
+func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	role := roletracker.GetRole(tracker)
-	AdmittedWorkloadsTotal.WithLabelValues(string(cqName), priorityClass, role).Inc()
-	AdmissionWaitTime.WithLabelValues(string(cqName), priorityClass, role).Observe(waitTime.Seconds())
+	activeLabels := append([]string{string(lq.Name), lq.Namespace, PendingStatusActive, role}, customLabelValues...)
+	inadmissibleLabels := append([]string{string(lq.Name), lq.Namespace, PendingStatusInadmissible, role}, customLabelValues...)
+	LocalQueuePendingWorkloads.WithLabelValues(activeLabels...).Set(float64(active))
+	LocalQueuePendingWorkloads.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
 }
 
-func LocalQueueAdmittedWorkload(lq LocalQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	LocalQueueAdmittedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, role).Inc()
-	LocalQueueAdmissionWaitTime.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, role).Observe(waitTime.Seconds())
+func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason, underlyingCause, priorityClass string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), evictionReason, underlyingCause, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	EvictedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
-func ReportAdmissionChecksWaitTime(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
-	AdmissionChecksWaitTime.WithLabelValues(string(cqName), priorityClass, roletracker.GetRole(tracker)).Observe(waitTime.Seconds())
+func ReportReplacedWorkloadSlices(cqName kueue.ClusterQueueReference, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
+	ReplacedWorkloadSlicesTotal.WithLabelValues(labels...).Inc()
 }
 
-func ReportLocalQueueAdmissionChecksWaitTime(lq LocalQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
-	LocalQueueAdmissionChecksWaitTime.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)).Observe(waitTime.Seconds())
+func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason, underlyingCause string, priorityClass string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, reason, underlyingCause, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueEvictedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
-func ReadyWaitTime(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
-	QueuedUntilReadyWaitTime.WithLabelValues(string(cqName), priorityClass, roletracker.GetRole(tracker)).Observe(waitTime.Seconds())
+func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, underlyingCause, priorityClass string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), reason, underlyingCause, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	EvictedWorkloadsOnceTotal.WithLabelValues(labels...).Inc()
 }
 
-func LocalQueueReadyWaitTime(lq LocalQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
-	LocalQueueQueuedUntilReadyWaitTime.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)).Observe(waitTime.Seconds())
-}
-
-func ReportAdmittedUntilReadyWaitTime(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
-	AdmittedUntilReadyWaitTime.WithLabelValues(string(cqName), priorityClass, roletracker.GetRole(tracker)).Observe(waitTime.Seconds())
-}
-
-func ReportLocalQueueAdmittedUntilReadyWaitTime(lq LocalQueueReference, priorityClass string, waitTime time.Duration, tracker *roletracker.RoleTracker) {
-	LocalQueueAdmittedUntilReadyWaitTime.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)).Observe(waitTime.Seconds())
-}
-
-func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmissible int, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	PendingWorkloads.WithLabelValues(string(cqName), PendingStatusActive, role).Set(float64(active))
-	PendingWorkloads.WithLabelValues(string(cqName), PendingStatusInadmissible, role).Set(float64(inadmissible))
-}
-
-func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissible int, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	LocalQueuePendingWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, PendingStatusActive, role).Set(float64(active))
-	LocalQueuePendingWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, PendingStatusInadmissible, role).Set(float64(inadmissible))
-}
-
-func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason, underlyingCause, priorityClass string, tracker *roletracker.RoleTracker) {
-	EvictedWorkloadsTotal.WithLabelValues(string(cqName), evictionReason, underlyingCause, priorityClass, roletracker.GetRole(tracker)).Inc()
-}
-
-func ReportReplacedWorkloadSlices(cqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker) {
-	ReplacedWorkloadSlicesTotal.WithLabelValues(string(cqName), roletracker.GetRole(tracker)).Inc()
-}
-
-func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason, underlyingCause string, priorityClass string, tracker *roletracker.RoleTracker) {
-	LocalQueueEvictedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, reason, underlyingCause, priorityClass, roletracker.GetRole(tracker)).Inc()
-}
-
-func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, underlyingCause, priorityClass string, tracker *roletracker.RoleTracker) {
-	EvictedWorkloadsOnceTotal.WithLabelValues(string(cqName), reason, underlyingCause, priorityClass, roletracker.GetRole(tracker)).Inc()
-}
-
-func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker) {
-	PreemptedWorkloadsTotal.WithLabelValues(string(preemptingCqName), preemptingReason, roletracker.GetRole(tracker)).Inc()
+func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(preemptingCqName), preemptingReason, roletracker.GetRole(tracker)}, customLabelValues...)
+	PreemptedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
@@ -878,6 +893,12 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 }
 
+func ClearClusterQueueMetricsOnLabelChange(cq kueue.ClusterQueueReference) {
+	cqName := string(cq)
+	ReplacedWorkloadSlicesTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	ClusterQueueWeightedShare.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+}
+
 func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueuePendingWorkloads.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
@@ -897,13 +918,15 @@ func ClearCohortMetrics(cohortName string) {
 	CohortWeightedShare.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
 }
 
-func ReportClusterQueueStatus(cqName kueue.ClusterQueueReference, cqStatus ClusterQueueStatus, tracker *roletracker.RoleTracker) {
+func ReportClusterQueueStatus(cqName kueue.ClusterQueueReference, cqStatus ClusterQueueStatus, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
 	for _, status := range CQStatuses {
 		var v float64
 		if status == cqStatus {
 			v = 1
 		}
-		ClusterQueueByStatus.WithLabelValues(string(cqName), string(status), roletracker.GetRole(tracker)).Set(v)
+		labels := append([]string{string(cqName), string(status), role}, customLabelValues...)
+		ClusterQueueByStatus.WithLabelValues(labels...).Set(v)
 	}
 }
 
@@ -911,13 +934,15 @@ var (
 	ConditionStatusValues = []metav1.ConditionStatus{metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionUnknown}
 )
 
-func ReportLocalQueueStatus(lq LocalQueueReference, conditionStatus metav1.ConditionStatus, tracker *roletracker.RoleTracker) {
+func ReportLocalQueueStatus(lq LocalQueueReference, conditionStatus metav1.ConditionStatus, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
 	for _, status := range ConditionStatusValues {
 		var v float64
 		if status == conditionStatus {
 			v = 1
 		}
-		LocalQueueByStatus.WithLabelValues(string(lq.Name), lq.Namespace, string(status), roletracker.GetRole(tracker)).Set(v)
+		labels := append([]string{string(lq.Name), lq.Namespace, string(status), role}, customLabelValues...)
+		LocalQueueByStatus.WithLabelValues(labels...).Set(v)
 	}
 }
 
@@ -933,11 +958,11 @@ func ClearLocalQueueCacheMetrics(lq LocalQueueReference) {
 	LocalQueueByStatus.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 }
 
-func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resource string, nominal, borrowing, lending float64, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	ClusterQueueResourceNominalQuota.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(nominal)
-	ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(borrowing)
-	ClusterQueueResourceLendingLimit.WithLabelValues(string(cohort), queue, flavor, resource, role).Set(lending)
+func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resource string, nominal, borrowing, lending float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cohort), queue, flavor, resource, roletracker.GetRole(tracker)}, customLabelValues...)
+	ClusterQueueResourceNominalQuota.WithLabelValues(labels...).Set(nominal)
+	ClusterQueueResourceBorrowingLimit.WithLabelValues(labels...).Set(borrowing)
+	ClusterQueueResourceLendingLimit.WithLabelValues(labels...).Set(lending)
 }
 
 func ReportCohortSubtreeQuota(cohort kueue.CohortReference, flavor, resource string, quota float64, tracker *roletracker.RoleTracker) {
@@ -957,28 +982,64 @@ func ClearCohortSubtreeQuota(cohort kueue.CohortReference, flavor, resource stri
 	CohortSubtreeQuota.DeletePartialMatch(lbls)
 }
 
-func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
-	ClusterQueueResourceReservations.WithLabelValues(string(cohort), queue, flavor, resource, roletracker.GetRole(tracker)).Set(usage)
+func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cohort), queue, flavor, resource, roletracker.GetRole(tracker)}, customLabelValues...)
+	ClusterQueueResourceReservations.WithLabelValues(labels...).Set(usage)
 }
 
-func ReportLocalQueueResourceReservations(lq LocalQueueReference, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
-	LocalQueueResourceReservations.WithLabelValues(string(lq.Name), lq.Namespace, flavor, resource, roletracker.GetRole(tracker)).Set(usage)
+func ReportLocalQueueResourceReservations(lq LocalQueueReference, flavor, resource string, usage float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, flavor, resource, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueResourceReservations.WithLabelValues(labels...).Set(usage)
 }
 
-func ReportClusterQueueResourceUsage(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
-	ClusterQueueResourceUsage.WithLabelValues(string(cohort), queue, flavor, resource, roletracker.GetRole(tracker)).Set(usage)
+func ReportClusterQueueResourceUsage(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cohort), queue, flavor, resource, roletracker.GetRole(tracker)}, customLabelValues...)
+	ClusterQueueResourceUsage.WithLabelValues(labels...).Set(usage)
 }
 
-func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource string, usage float64, tracker *roletracker.RoleTracker) {
-	LocalQueueResourceUsage.WithLabelValues(string(lq.Name), lq.Namespace, flavor, resource, roletracker.GetRole(tracker)).Set(usage)
+func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource string, usage float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, flavor, resource, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueResourceUsage.WithLabelValues(labels...).Set(usage)
 }
 
-func ReportClusterQueueWeightedShare(cq, cohort string, weightedShare float64, tracker *roletracker.RoleTracker) {
-	ClusterQueueWeightedShare.WithLabelValues(cq, cohort, roletracker.GetRole(tracker)).Set(weightedShare)
+func ReportClusterQueueWeightedShare(cq kueue.ClusterQueueReference, cohort kueue.CohortReference, weightedShare float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cq), string(cohort), roletracker.GetRole(tracker)}, customLabelValues...)
+	ClusterQueueWeightedShare.WithLabelValues(labels...).Set(weightedShare)
 }
 
-func ReportCohortWeightedShare(cohort string, weightedShare float64, tracker *roletracker.RoleTracker) {
-	CohortWeightedShare.WithLabelValues(cohort, roletracker.GetRole(tracker)).Set(weightedShare)
+func ReportCohortWeightedShare(cohort kueue.CohortReference, weightedShare float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cohort), roletracker.GetRole(tracker)}, customLabelValues...)
+	CohortWeightedShare.WithLabelValues(labels...).Set(weightedShare)
+}
+
+func ReportAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
+	AdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
+func ReportReservingActiveWorkloads(cqName kueue.ClusterQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
+	ReservingActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
+func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
+func ReportLocalQueueReservingActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueReservingActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
+func ReportPodsReadyToEvictedTimeSeconds(cqName kueue.ClusterQueueReference, reason, underlyingCause string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), reason, underlyingCause, roletracker.GetRole(tracker)}, customLabelValues...)
+	PodsReadyToEvictedTimeSeconds.WithLabelValues(labels...).Observe(waitTime.Seconds())
+}
+
+func ReportAdmissionCyclePreemptionSkips(cqName kueue.ClusterQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
+	AdmissionCyclePreemptionSkips.WithLabelValues(labels...).Set(float64(count))
 }
 
 var allGaugeVecs []*prometheus.GaugeVec

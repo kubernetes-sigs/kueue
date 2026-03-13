@@ -411,7 +411,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 			ginkgo.By("checking the weighted share metric")
 			gomega.Eventually(func(g gomega.Gomega) {
-				metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cqA.Name, string(cqA.Spec.CohortName), roletracker.RoleStandalone)
+				lvs := []string{cqA.Name, string(cqA.Spec.CohortName), roletracker.RoleStandalone}
+				metric := metrics.ClusterQueueWeightedShare.WithLabelValues(lvs...)
 				v, err := testutil.GetGaugeMetricValue(metric)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
 				g.Expect(math.IsNaN(v)).Should(gomega.BeTrue())
@@ -1232,7 +1233,8 @@ func expectCohortWeightedShare(cohortName string, weightedShare float64) {
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 	// check Metric
-	metric := metrics.CohortWeightedShare.WithLabelValues(cohortName, roletracker.RoleStandalone)
+	lvs := []string{cohortName, roletracker.RoleStandalone}
+	metric := metrics.CohortWeightedShare.WithLabelValues(lvs...)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.ExpectWithOffset(1, err).ToNot(gomega.HaveOccurred())

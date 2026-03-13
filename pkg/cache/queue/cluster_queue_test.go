@@ -347,11 +347,11 @@ func Test_AddFromLocalQueue(t *testing.T) {
 		},
 	}
 	cq.PushOrUpdate(workload.NewInfo(wl))
-	if added := cq.AddFromLocalQueue(queue, nil); added {
+	if added := cq.AddFromLocalQueue(queue, nil, nil); added {
 		t.Error("expected workload not to be added")
 	}
 	cq.Delete(log, workload.Key(wl))
-	if added := cq.AddFromLocalQueue(queue, nil); !added {
+	if added := cq.AddFromLocalQueue(queue, nil, nil); !added {
 		t.Error("workload should be added to the ClusterQueue")
 	}
 }
@@ -444,7 +444,7 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), cq.inadmissibleWorkloads.len())
 	}
 
-	cq.DeleteFromLocalQueue(log, qImpl, nil)
+	cq.DeleteFromLocalQueue(log, qImpl, nil, nil)
 	if cq.PendingTotal() != 0 {
 		t.Error("clusterQueue should be empty")
 	}

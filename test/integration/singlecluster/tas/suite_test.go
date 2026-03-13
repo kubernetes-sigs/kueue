@@ -103,7 +103,7 @@ func managerSetup(resourceTransformations ...config.ResourceTransformation) func
 		qManager = queues
 
 		preemptionExpectations := preemptexpectations.New()
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
 		failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil)

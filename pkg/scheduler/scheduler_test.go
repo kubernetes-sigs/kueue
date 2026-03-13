@@ -8273,7 +8273,8 @@ func TestSchedule(t *testing.T) {
 				}
 
 				for cqName, want := range tc.wantSkippedPreemptions {
-					val, err := testutil.GetGaugeMetricValue(metrics.AdmissionCyclePreemptionSkips.WithLabelValues(cqName, roletracker.RoleStandalone))
+					lvs := []string{cqName, roletracker.RoleStandalone}
+					val, err := testutil.GetGaugeMetricValue(metrics.AdmissionCyclePreemptionSkips.WithLabelValues(lvs...))
 					if err != nil {
 						t.Fatalf("Couldn't get value for metric admission_cycle_preemption_skips for %q: %v", cqName, err)
 					}

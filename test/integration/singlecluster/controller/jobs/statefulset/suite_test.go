@@ -105,7 +105,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
 		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{}, nil, preemptexpectations.New())
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{}, nil, preemptexpectations.New(), nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		err = statefulset.SetupWebhook(mgr, opts...)

@@ -38,6 +38,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
@@ -235,7 +236,7 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 // AddFromLocalQueue pushes all workloads belonging to this queue to
 // the ClusterQueue. If at least one workload is added, returns true,
 // otherwise returns false.
-func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker.RoleTracker) bool {
+func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker.RoleTracker, cl *metrics.CustomLabels) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	added := false
@@ -247,7 +248,7 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 	for finishedWorkload := range q.finishedWorkloads {
 		c.finishedWorkloads.Insert(finishedWorkload)
 	}
-	reportCQFinishedWorkloads(c, roleTracker)
+	reportCQFinishedWorkloads(c, roleTracker, cl)
 	return added
 }
 
@@ -340,7 +341,7 @@ func (c *ClusterQueue) delete(log logr.Logger, key workload.Reference) {
 
 // DeleteFromLocalQueue removes all workloads belonging to this queue from
 // the ClusterQueue.
-func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, roleTracker *roletracker.RoleTracker) {
+func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, roleTracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	for _, w := range q.items {
@@ -350,7 +351,7 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 	for fw := range q.finishedWorkloads {
 		c.finishedWorkloads.Delete(fw)
 	}
-	reportCQFinishedWorkloads(c, roleTracker)
+	reportCQFinishedWorkloads(c, roleTracker, cl)
 }
 
 // requeueIfNotPresent inserts a workload that cannot be admitted into

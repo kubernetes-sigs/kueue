@@ -34,6 +34,8 @@ type LocalQueue struct {
 	admittedWorkloads  int
 	totalReserved      resources.FlavorResourceQuantities
 	admittedUsage      resources.FlavorResourceQuantities
+	// values extracted from K8s labels/annotations, used as custom Prometheus metric labels
+	customMetricLabelValues []string
 }
 
 func (q *LocalQueue) GetAdmittedUsage() corev1.ResourceList {
@@ -57,10 +59,13 @@ func (q *LocalQueue) updateAdmittedUsage(usage resources.FlavorResourceQuantitie
 }
 
 func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
 	namespace, name := queue.MustParseLocalQueueReference(q.key)
-	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(string(name), namespace, role).Set(float64(q.admittedWorkloads))
-	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(string(name), namespace, role).Set(float64(q.reservingWorkloads))
+	lqRef := metrics.LocalQueueReference{
+		Name:      name,
+		Namespace: namespace,
+	}
+	metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, q.admittedWorkloads, q.customMetricLabelValues, tracker)
+	metrics.ReportLocalQueueReservingActiveWorkloads(lqRef, q.reservingWorkloads, q.customMetricLabelValues, tracker)
 }
 
 func (q *LocalQueue) reportResourceMetrics(cqQuotas map[resources.FlavorResource]ResourceQuota, tracker *roletracker.RoleTracker) {
@@ -68,7 +73,7 @@ func (q *LocalQueue) reportResourceMetrics(cqQuotas map[resources.FlavorResource
 	lqRef := metrics.LocalQueueReference{Name: name, Namespace: namespace}
 	for fr := range cqQuotas {
 		fName, rName := string(fr.Flavor), string(fr.Resource)
-		metrics.ReportLocalQueueResourceReservations(lqRef, fName, rName, resourceFloat(fr.Resource, q.totalReserved[fr]), tracker)
-		metrics.ReportLocalQueueResourceUsage(lqRef, fName, rName, resourceFloat(fr.Resource, q.admittedUsage[fr]), tracker)
+		metrics.ReportLocalQueueResourceReservations(lqRef, fName, rName, resourceFloat(fr.Resource, q.totalReserved[fr]), q.customMetricLabelValues, tracker)
+		metrics.ReportLocalQueueResourceUsage(lqRef, fName, rName, resourceFloat(fr.Resource, q.admittedUsage[fr]), q.customMetricLabelValues, tracker)
 	}
 }
