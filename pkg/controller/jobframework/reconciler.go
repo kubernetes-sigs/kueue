@@ -1015,7 +1015,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	return match, nil
 }
 
-func setAdmissionGatedByNoUpdate(obj client.Object, wl *kueue.Workload) bool {
+func CopyAdmissionGatedByButNoUpdate(obj client.Object, wl *kueue.Workload) bool {
 	if !features.Enabled(features.AdmissionGatedBy) {
 		return false
 	}
@@ -1052,7 +1052,7 @@ func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r record.Event
 
 	base := wl.DeepCopy()
 
-	if !setAdmissionGatedByNoUpdate(obj, wl) {
+	if !CopyAdmissionGatedByButNoUpdate(obj, wl) {
 		return nil
 	}
 
@@ -1233,7 +1233,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	wl.Spec = newWl.Spec
 
 	// Propagates the AdmissionGatedBy annotation to the wl object but does not update the Workload
-	setAdmissionGatedByNoUpdate(object, wl)
+	CopyAdmissionGatedByButNoUpdate(object, wl)
 
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)
