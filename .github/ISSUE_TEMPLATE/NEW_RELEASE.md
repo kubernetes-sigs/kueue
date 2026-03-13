@@ -13,8 +13,7 @@ Please do not remove items from the checklist
 - [ ] [OWNERS](https://github.com/kubernetes-sigs/kueue/blob/main/OWNERS) must LGTM the release proposal.
   At least two for minor or major releases. At least one for a patch release.
 - [ ] Verify that the changelog in this issue and the CHANGELOG folder is up-to-date
-  - [ ] Use https://github.com/kubernetes/release/tree/master/cmd/release-notes to gather notes.
-    Example: `release-notes --org kubernetes-sigs --repo kueue --branch release-0.3 --start-sha 4a0ebe7a3c5f2775cdf5fc7d60c23225660f8702 --end-sha a51cf138afe65677f5f5c97f8f8b1bc4887f73d2 --dependencies=false --required-author=""`
+  - [ ] Run `./hack/releasing/sync-notes.sh $VERSION` to generate and publish the release notes
 - [ ] For major or minor releases (v$MAJ.$MIN.0), create a new release branch.
   - [ ] An OWNER creates a vanilla release branch with
         `git branch release-$MAJ.$MIN main`
@@ -42,19 +41,18 @@ Please do not remove items from the checklist
       to generate the artifacts in the `artifacts` folder.
   - [ ] Upload the files in the `artifacts` folder to the draft release - either
       via UI or `gh release --repo kubernetes-sigs/kueue upload $VERSION artifacts/*`.
-- [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io) to
-      [promote the container images and Helm Chart](https://github.com/kubernetes/k8s.io/tree/main/registry.k8s.io#image-promoter)
-      to production: <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
-  - [ ] Update `registry.k8s.io/images/k8s-staging-kueue/images.yaml`. May use `./hack/releasing/promote_pull.sh`
-    [ ] Wait for the PR to be merged
-    [ ] Verify that the image is available `./hack/releasing/wait_for_images.sh --prod $VERSION`
+- [ ] Promote images and Helm Charts to production:
+  - [ ] Run `./hack/releasing/wait_for_images.sh $VERSION` to await for the staging images.
+  - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
+  - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
+  - [ ] Run: `./hack/releasing/wait_for_images.sh --prod $VERSION` to verify that the promoted images are available.
 - [ ] Publish the draft release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
 - [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
 - [ ] Update the `main` branch :
   - [ ] for each release:
-    - [ ] update the changelog (example #9578)
+    - [ ] update the changelog <!-- example #9578 -->
   - [ ] for only the latest release:
     - [ ] Run `./hack/releasing/prepare_pull.sh --target main $VERSION`
     - [ ] Submit a pull request with the changes: <!-- example #3007 -->
