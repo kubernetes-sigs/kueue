@@ -493,9 +493,7 @@ objectRetentionPolicies:
 						},
 					},
 				},
-				Visibility: &configapi.VisibilityServerConfiguration{
-					BindPort: ptr.To[int32](configapi.DefaultVisibilityBindPort),
-				},
+				Visibility: defaultVisibility,
 			},
 			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
@@ -724,9 +722,7 @@ objectRetentionPolicies:
 				},
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				Visibility: &configapi.VisibilityServerConfiguration{
-					BindPort: ptr.To[int32](configapi.DefaultVisibilityBindPort),
-				},
+				Visibility:                   defaultVisibility,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -786,9 +782,7 @@ objectRetentionPolicies:
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				Visibility: &configapi.VisibilityServerConfiguration{
-					BindPort: ptr.To[int32](configapi.DefaultVisibilityBindPort),
-				},
+				Visibility:                   defaultVisibility,
 				Resources: &configapi.Resources{
 					Transformations: []configapi.ResourceTransformation{
 						{
