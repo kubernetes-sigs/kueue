@@ -290,22 +290,22 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 
 			ginkgo.By("Checking the admission check", func() {
-				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady, []kueue.PodSetUpdate{
-					{
+				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady,
+					kueue.PodSetUpdate{
 						Name: "ps1",
 						Annotations: map[string]string{
 							autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey.Name,
 							autoscaling.ProvisioningClassPodAnnotationKey:   prc.Spec.ProvisioningClassName,
 						},
 					},
-					{
+					kueue.PodSetUpdate{
 						Name: "ps2",
 						Annotations: map[string]string{
 							autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey.Name,
 							autoscaling.ProvisioningClassPodAnnotationKey:   prc.Spec.ProvisioningClassName,
 						},
 					},
-				}...)
+				)
 			})
 		})
 
@@ -652,22 +652,22 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 
 			ginkgo.By("Checking the admission check is ready", func() {
-				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady, []kueue.PodSetUpdate{
-					{
+				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady,
+					kueue.PodSetUpdate{
 						Name: "ps1",
 						Annotations: map[string]string{
 							autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey.Name,
 							autoscaling.ProvisioningClassPodAnnotationKey:   prc.Spec.ProvisioningClassName,
 						},
 					},
-					{
+					kueue.PodSetUpdate{
 						Name: "ps2",
 						Annotations: map[string]string{
 							autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey.Name,
 							autoscaling.ProvisioningClassPodAnnotationKey:   prc.Spec.ProvisioningClassName,
 						},
 					},
-				}...)
+				)
 			})
 
 			ginkgo.By("Check the workload is admitted", func() {
@@ -838,18 +838,26 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking the Workload is Evicted, AdmissionChecks reset to Pending with retry info preserved", func() {
+			ginkgo.By("Checking the Workload is Evicted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the AdmissionCheck reset to Pending", func() {
+				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
+			})
+
+			ginkgo.By("Checking the AdmissionCheck retry count with info preserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
 					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					// Retry info is preserved across eviction
 					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
 					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
 					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
 			})
 
 			ginkgo.By("Simulating job controller clearing quota reservation (Requeued=False, QuotaReserved=False)", func() {
@@ -934,18 +942,26 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking the Workload is Evicted, AdmissionChecks reset to Pending with retry info preserved", func() {
+			ginkgo.By("Checking the Workload is Evicted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the AdmissionCheck reset to Pending", func() {
+				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
+			})
+
+			ginkgo.By("Checking the AdmissionCheck retry count with info preserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
 					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					// Retry info is preserved across eviction
 					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
 					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
 					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
 			})
 
 			ginkgo.By("Simulating job controller clearing quota reservation (Requeued=False, QuotaReserved=False)", func() {
@@ -1064,18 +1080,26 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking the Workload is Evicted, AdmissionChecks reset to Pending with retry info preserved", func() {
+			ginkgo.By("Checking the Workload is Evicted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the AdmissionCheck reset to Pending", func() {
+				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
+			})
+
+			ginkgo.By("Checking the AdmissionCheck retry count with info preserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
 					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					// Retry info is preserved across eviction
 					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
 					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
 					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
 			})
 
 			ginkgo.By("Simulating job controller clearing quota reservation (Requeued=False, QuotaReserved=False)", func() {
@@ -1229,18 +1253,26 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking the Workload is Evicted, AdmissionChecks reset to Pending with retry info preserved", func() {
+			ginkgo.By("Checking the Workload is Evicted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the AdmissionCheck reset to Pending", func() {
+				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
+			})
+
+			ginkgo.By("Checking the AdmissionCheck retry count with info preserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
 					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					// Retry info is preserved across eviction
 					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
 					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
 					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
 			})
 
 			ginkgo.By("Setting the quota reservation to the workload", func() {
@@ -1270,18 +1302,26 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking the Workload is Evicted, AdmissionChecks reset to Pending with retry info preserved", func() {
+			ginkgo.By("Checking the Workload is Evicted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the AdmissionCheck reset to Pending", func() {
+				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
+			})
+
+			ginkgo.By("Checking the AdmissionCheck retry count with info preserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
 					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					// Retry info is preserved across eviction
 					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
 					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
 					g.Expect(*check.RetryCount).To(gomega.Equal(int32(2)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
 			})
 
 			ginkgo.By("Setting the quota reservation to the workload", func() {
@@ -1800,15 +1840,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			})
 
 			ginkgo.By("await for wl1 to have status Ready for AdmissionCheck2", func() {
-				util.ExpectAdmissionCheckState(ctx, k8sClient, wl1Key, ac2Name, kueue.CheckStateReady, []kueue.PodSetUpdate{
-					{
-						Name: "main",
-						Annotations: map[string]string{
-							autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey2.Name,
-							autoscaling.ProvisioningClassPodAnnotationKey:   prc.Spec.ProvisioningClassName,
-						},
-					},
-				}...)
+				util.ExpectAdmissionCheckState(ctx, k8sClient, wl1Key, ac2Name, kueue.CheckStateReady)
 			})
 
 			ginkgo.By("await for wl1 to have status for AdmissionCheck1 cleared", func() {
