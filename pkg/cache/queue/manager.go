@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
@@ -413,7 +414,15 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		}
 
 		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
-		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(&w) {
+		needsDRAReconcile := workload.HasDRA(&w)
+		if !needsDRAReconcile && features.Enabled(features.DRAExtendedResources) {
+			var err error
+			needsDRAReconcile, err = dra.HasExtendedResourcesBackedByDRA(ctx, m.client, &w)
+			if err != nil {
+				log.Error(err, "Failed to check extended resources")
+			}
+		}
+		if features.Enabled(features.DynamicResourceAllocation) && needsDRAReconcile {
 			if m.draReconcileChannel != nil {
 				m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: &w}
 				log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")

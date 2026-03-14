@@ -63,6 +63,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		WebhookPath: util.WebhookPath,
 		APIServerFeatureGates: []string{
 			"DynamicResourceAllocation=true",
+			"DRAExtendedResource=true",
 		},
 		APIServerRuntimeConfig: []string{
 			"resource.k8s.io/v1beta2=true",
