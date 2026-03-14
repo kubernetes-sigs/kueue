@@ -230,6 +230,63 @@ func TestCountInWithLimitingResource(t *testing.T) {
 	}
 }
 
+func TestResourceValue(t *testing.T) {
+	cases := map[string]struct {
+		name corev1.ResourceName
+		q    resource.Quantity
+		want int64
+	}{
+		"cpu 1": {
+			name: corev1.ResourceCPU,
+			q:    resource.MustParse("1"),
+			want: 1000,
+		},
+		"cpu 500m": {
+			name: corev1.ResourceCPU,
+			q:    resource.MustParse("500m"),
+			want: 500,
+		},
+		"cpu 1P": {
+			name: corev1.ResourceCPU,
+			q:    resource.MustParse("1P"),
+			want: 1000000000000000000,
+		},
+		"cpu 1E overflows MilliValue": {
+			name: corev1.ResourceCPU,
+			q:    resource.MustParse("1E"),
+			want: math.MaxInt64,
+		},
+		"cpu 1Ei overflows MilliValue": {
+			name: corev1.ResourceCPU,
+			q:    resource.MustParse("1Ei"),
+			want: math.MaxInt64,
+		},
+		"memory 1E": {
+			name: corev1.ResourceMemory,
+			q:    resource.MustParse("1E"),
+			want: 1000000000000000000,
+		},
+		"memory 1Gi": {
+			name: corev1.ResourceMemory,
+			q:    resource.MustParse("1Gi"),
+			want: 1073741824,
+		},
+		"zero quantity": {
+			name: corev1.ResourceCPU,
+			q:    resource.MustParse("0"),
+			want: 0,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := ResourceValue(tc.name, tc.q)
+			if got != tc.want {
+				t.Errorf("ResourceValue(%q, %q) = %d, want %d", tc.name, tc.q.String(), got, tc.want)
+			}
+		})
+	}
+}
+
 func TestGreaterKeys(t *testing.T) {
 	cases := map[string]struct {
 		a, b Requests

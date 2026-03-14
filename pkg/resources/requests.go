@@ -103,9 +103,19 @@ func (r Requests) ToResourceList() corev1.ResourceList {
 // It's milli-units for CPU and absolute units for everything else.
 func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 	if name == corev1.ResourceCPU {
-		return q.MilliValue()
+		return quantityToInt64(q.MilliValue(), q)
 	}
-	return q.Value()
+	return quantityToInt64(q.Value(), q)
+}
+
+// quantityToInt64 returns the converted value, capping at math.MaxInt64
+// if the conversion overflowed. Overflow is detected when the quantity
+// is positive but the converted value is zero or negative.
+func quantityToInt64(v int64, q resource.Quantity) int64 {
+	if v <= 0 && q.Cmp(resource.Quantity{}) > 0 {
+		return math.MaxInt64
+	}
+	return v
 }
 
 func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
