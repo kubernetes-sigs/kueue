@@ -4352,9 +4352,6 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Job is admissible", g
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("default").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, strconv.Itoa(cpuNominalQuota)).Obj()).
-			Preemption(kueue.ClusterQueuePreemption{
-				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-			}).
 			Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 
@@ -4384,7 +4381,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Job is admissible", g
 			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
 			Namespace: ns.Name,
 		}
-		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, job, wlLookupKey, gateValue)
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
 
 		ginkgo.By("Checking the job remains suspended")
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: ns.Name}
@@ -4411,7 +4408,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Job is admissible", g
 			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
 			Namespace: ns.Name,
 		}
-		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, job, wlLookupKey, gateValue)
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
 
 		util.VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(ctx, k8sClient, job, wlLookupKey)
 

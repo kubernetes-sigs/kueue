@@ -45,17 +45,14 @@ func isAdmissibleOrPastQuotaReservation(wl *kueue.Workload) bool {
 	return (workload.IsAdmissible(wl) || workload.IsFinished(wl) || workload.HasQuotaReservation(wl)) && workload.IsActive(wl)
 }
 
-// Verify that a job with the AdmissionGatedBy annotation is NonAdmissible.
+// Verify that a Workload for a Job with the AdmissionGatedBy annotation is NonAdmissible.
 // This can be used across all job types.
 func VerifyAdmissionGatedByJobIsNonAdmissible(
 	ctx context.Context,
 	k8sClient client.Client,
-	job client.Object,
 	wlLookupKey types.NamespacedName,
 	admissionGateValue string,
 ) {
-	lookupKey := types.NamespacedName{Name: job.GetName(), Namespace: job.GetNamespace()}
-
 	ginkgo.By("Checking the workload is created with the admission gate annotation")
 	createdWorkload := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
@@ -71,10 +68,11 @@ func VerifyAdmissionGatedByJobIsNonAdmissible(
 
 	ginkgo.By("Checking the Workload remains NonAdmissible")
 	gomega.Consistently(func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, lookupKey, job)).Should(gomega.Succeed())
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		admissibleNowOrBefore := isAdmissibleOrPastQuotaReservation(createdWorkload)
 		g.Expect(admissibleNowOrBefore).Should(gomega.BeFalse())
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 	}, ConsistentDuration, ShortInterval).Should(gomega.Succeed())
 
 	ginkgo.By("Checking the workload has QuotaReserved condition with AdmissionGated reason")
@@ -85,12 +83,6 @@ func VerifyAdmissionGatedByJobIsNonAdmissible(
 		g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 		g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadAdmissionGated))
 	}, Timeout, Interval).Should(gomega.Succeed())
-
-	ginkgo.By("Checking the workload remains unadmitted even with available quota")
-	gomega.Consistently(func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-		g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
-	}, ConsistentDuration, ShortInterval).Should(gomega.Succeed())
 }
 
 // Verify that removing the AdmissionGatedBy annotation allows the job to be admitted.
@@ -108,7 +100,6 @@ func VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, jobLookupKey, job)).Should(gomega.Succeed())
 		annotations := job.GetAnnotations()
-		g.Expect(annotations).ShouldNot(gomega.BeNil())
 		g.Expect(annotations[kueueconstants.AdmissionGatedByAnnotation]).ShouldNot(gomega.BeEmpty())
 	}, Timeout, Interval).Should(gomega.Succeed())
 
@@ -146,10 +137,8 @@ func VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-	}, Timeout, Interval).Should(gomega.Succeed())
-
-	ginkgo.By("Checking the QuotaReserved condition is no longer AdmissionGated")
-	gomega.Eventually(func(g gomega.Gomega) {
+		// When the Workload controller detects that the AdmissionGatedBy is cleare,
+		// it emits an Event and resets the QuotaReserved condition.
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		cond := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 		// The condition should either not exist, or exist with a reason other than AdmissionGated
@@ -230,7 +219,6 @@ func VerifyJobAdmittedWhenFeatureGateDisabled(
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, lookupKey, job)).Should(gomega.Succeed())
 		annotations := job.GetAnnotations()
-		g.Expect(annotations).ShouldNot(gomega.BeNil())
 		g.Expect(annotations[kueueconstants.AdmissionGatedByAnnotation]).ShouldNot(gomega.BeEmpty())
 	}, Timeout, Interval).Should(gomega.Succeed())
 

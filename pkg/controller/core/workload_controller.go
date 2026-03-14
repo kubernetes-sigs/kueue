@@ -457,8 +457,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}))
 	}
 
-	if result, err := r.updateConditionForAdmissionGatedBy(ctx, &wl); err != nil || result != nil {
-		return ptr.Deref(result, ctrl.Result{}), err
+	if features.Enabled(features.AdmissionGatedBy) {
+		if result, err := r.updateConditionForAdmissionGatedBy(ctx, &wl); err != nil || result != nil {
+			return ptr.Deref(result, ctrl.Result{}), err
+		}
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
