@@ -17,6 +17,7 @@ limitations under the License.
 package leaderworkerset
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -31,12 +32,18 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
+)
+
+var (
+	admissionGatedByAnnotationsPath = field.NewPath("metadata", "annotations").Key(kueueconstants.AdmissionGatedByAnnotation)
 )
 
 func TestDefault(t *testing.T) {
@@ -170,10 +177,11 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations []string
-		lws          *leaderworkersetv1.LeaderWorkerSet
-		wantErr      error
-		wantWarns    admission.Warnings
+		integrations     []string
+		lws              *leaderworkersetv1.LeaderWorkerSet
+		admissionGatedBy bool
+		wantErr          error
+		wantWarns        admission.Warnings
 	}{
 		"without queue": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -592,6 +600,147 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
 			}.ToAggregate(),
 		},
+		"AdmissionGatedBy Annotation - single gate": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate").
+				Obj(),
+		},
+		"AdmissionGatedBy Annotation - trailing space": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate ").
+				Obj(),
+		},
+		"AdmissionGatedBy Annotation - space before comma": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate ,example.com/other-gate").
+				Obj(),
+		},
+		"AdmissionGatedBy Annotation - space after comma": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate, example.com/other-gate").
+				Obj(),
+		},
+		"AdmissionGatedBy Annotation - leading space": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, " example.com/my-gate").
+				Obj(),
+		},
+		"AdmissionGatedBy Annotation - multiple gates": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate,example.com/other-gate").
+				Obj(),
+		},
+		"invalid AdmissionGatedBy Annotation - invalid format": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "invalid_gate_name").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "invalid_gate_name", ""),
+			}.ToAggregate(),
+		},
+		"invalid AdmissionGatedBy Annotation - duplicate gates": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate,example.com/my-gate").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "example.com/my-gate", ""),
+			}.ToAggregate(),
+		},
+		"invalid AdmissionGatedBy Annotation - gate name too long": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/"+strings.Repeat("a", 300)).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.TooLong(admissionGatedByAnnotationsPath, "", 0),
+			}.ToAggregate(),
+		},
+		"invalid AdmissionGatedBy Annotation - space in path component": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my gate").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "example.com/my gate", ""),
+			}.ToAggregate(),
+		},
+		"invalid AdmissionGatedBy Annotation - space in domain component": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/my-gate").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "example .com/my-gate", ""),
+			}.ToAggregate(),
+		},
+		"invalid AdmissionGatedBy Annotation - multiple gates where one is invalid": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/valid-gate,invalid_gate").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "invalid_gate", ""),
+			}.ToAggregate(),
+		},
+		"AdmissionGatedBy Annotation with feature gate disabled - valid value": {
+			admissionGatedBy: false,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").
+				Obj(),
+			wantErr: nil,
+		},
+		"AdmissionGatedBy Annotation with feature gate disabled - invalid value": {
+			admissionGatedBy: false,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
+				Obj(),
+			wantErr: nil,
+		},
+		"AdmissionGatedBy Annotation with feature gate enabled - empty string": {
+			admissionGatedBy: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "").
+				Obj(),
+			wantErr: nil,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -599,6 +748,9 @@ func TestValidateCreate(t *testing.T) {
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
+			}
+			if tc.admissionGatedBy {
+				features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
 			}
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
@@ -617,10 +769,11 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations []string
-		oldObj       *leaderworkersetv1.LeaderWorkerSet
-		newObj       *leaderworkersetv1.LeaderWorkerSet
-		wantErr      error
+		integrations     []string
+		oldObj           *leaderworkersetv1.LeaderWorkerSet
+		newObj           *leaderworkersetv1.LeaderWorkerSet
+		admissionGatedBy bool
+		wantErr          error
 	}{
 		"no changes": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -1124,12 +1277,96 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"AdmissionGatedBy Annotation - reject adding gates after creation": {
+			admissionGatedBy: true,
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(admissionGatedByAnnotationsPath, "can only remove gates, not add new ones"),
+			}.ToAggregate(),
+		},
+		"AdmissionGatedBy Annotation - allow removing single gate": {
+			admissionGatedBy: true,
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Obj(),
+		},
+		"AdmissionGatedBy Annotation - allow removing all gates": {
+			admissionGatedBy: true,
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate,example.com/other-gate").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Obj(),
+		},
+		"AdmissionGatedBy Annotation - allow removing one gate from multiple": {
+			admissionGatedBy: true,
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate,example.com/other-gate").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate").
+				Obj(),
+		},
+		"AdmissionGatedBy Annotation - reject injecting new gates": {
+			admissionGatedBy: true,
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate,example.com/other-gate").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(admissionGatedByAnnotationsPath, "can only remove gates, not add new ones"),
+			}.ToAggregate(),
+		},
+		"AdmissionGatedBy Annotation - allow reordering gates": {
+			admissionGatedBy: true,
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/my-gate,example.com/other-gate").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/other-gate,example.com/my-gate").
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
+			}
+			if tc.admissionGatedBy {
+				features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
 			}
 			wh := &Webhook{}
 

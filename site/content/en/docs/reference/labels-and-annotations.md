@@ -1,10 +1,25 @@
 ---
 title: "Labels and Annotations"
 linkTitle: "Labels and Annotations"
-date: 2024-10-09
+date: 2026-03-12
 ---
 
 This page serves as a reference for all labels and annotations in Kueue.
+
+### kueue.x-k8s.io/admission-gated-by
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/admission-gated-by: "example.com/mygate,example.com/mygate2"`
+
+Used on: Kueue-managed Jobs.
+
+This annotation requires the `AdmissionGatedBy` feature that is disabled by default.
+
+When it contains a value, the annotation prevents the Job from entering the Quota Reservation
+phase of Kueue's Admission Flow.
+The annotation value is a comma-separated list of 1 or more gate names and can only be added during Job
+creation. After creation, the annotation may only be deleted or modified to remove 1 or more gates.
 
 ### kueue.x-k8s.io/cluster-queue-name
 

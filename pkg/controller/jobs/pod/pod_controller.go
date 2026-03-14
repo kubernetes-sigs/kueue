@@ -1413,6 +1413,10 @@ func NewGroupWorkload(name string, obj client.Object, podSets []kueue.PodSet, la
 	wl := jobframework.NewWorkload(name, obj, podSets, labelKeysToCopy)
 	wl.Annotations[podconstants.IsGroupWorkloadAnnotationKey] = podconstants.IsGroupWorkloadAnnotationValue
 
+	if features.Enabled(features.AdmissionGatedBy) {
+		jobframework.CopyAdmissionGatedByButNoUpdate(obj, wl)
+	}
+
 	return wl
 }
 

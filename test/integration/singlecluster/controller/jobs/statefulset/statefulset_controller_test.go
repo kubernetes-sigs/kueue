@@ -22,12 +22,15 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util"
@@ -36,6 +39,7 @@ import (
 var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(
+			false, // enableScheduler
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 			jobframework.WithEnabledFrameworks([]string{"statefulset"}),
 		))
@@ -154,5 +158,139 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(workloads.Items[0].Name).To(gomega.Equal(legacyName))
 			util.MustHaveOwnerReference(g, workloads.Items[0].OwnerReferences, createdSTS, k8sClient.Scheme())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+})
+
+var _ = ginkgo.Describe("AdmissionGatedBy controls whether StatefulSet is admissible", ginkgo.Label("admissiongatedby"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns             *corev1.Namespace
+		resourceFlavor *kueue.ResourceFlavor
+		clusterQueue   *kueue.ClusterQueue
+		localQueue     *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(
+			true, // enableScheduler - required for AdmissionGatedBy tests
+			jobframework.WithKubeServerVersion(serverVersionFetcher),
+			jobframework.WithEnabledFrameworks([]string{"statefulset"}),
+		))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("default").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+	})
+
+	ginkgo.It("Should not admit StatefulSet while AdmissionGatedBy is present", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
+
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a StatefulSet with admission gate annotation")
+		sts := testingstatefulset.MakeStatefulSet("gated-sts", ns.Name).
+			Queue(localQueue.Name).
+			Annotation(kueueconstants.AdmissionGatedByAnnotation, gateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      statefulset.GetWorkloadName(sts.UID, sts.Name),
+			Namespace: ns.Name,
+		}
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
+	})
+
+	ginkgo.It("Should admit StatefulSet when AdmissionGatedBy is removed", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
+
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a StatefulSet with admission gate annotation")
+		sts := testingstatefulset.MakeStatefulSet("gated-sts-2", ns.Name).
+			Queue(localQueue.Name).
+			Annotation(kueueconstants.AdmissionGatedByAnnotation, gateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      statefulset.GetWorkloadName(sts.UID, sts.Name),
+			Namespace: ns.Name,
+		}
+
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
+
+		util.VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(ctx, k8sClient, sts, wlLookupKey)
+
+		ginkgo.By("Checking the StatefulSet has non-zero replicas")
+		stsLookupKey := types.NamespacedName{Name: sts.Name, Namespace: ns.Name}
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, stsLookupKey, createdSTS)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(createdSTS.Spec.Replicas, 0)).Should(gomega.BeNumerically(">", 0))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should allow removing one gate from a StatefulSet with multiple gates", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
+
+		initialGateValue := "example.com/controller1,example.com/controller2"
+		updatedGateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a StatefulSet with two admission gates")
+		sts := testingstatefulset.MakeStatefulSet("multi-gated-sts", ns.Name).
+			Queue(localQueue.Name).
+			Annotation(kueueconstants.AdmissionGatedByAnnotation, initialGateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      statefulset.GetWorkloadName(sts.UID, sts.Name),
+			Namespace: ns.Name,
+		}
+		ginkgo.By("Removing one gate and verifying the StatefulSet remains inadmissible")
+		util.VerifyAdmissionGatedByJobAllowsRemovingOneGate(ctx, k8sClient, sts, wlLookupKey, initialGateValue, updatedGateValue)
+	})
+
+	ginkgo.It("Should admit StatefulSet when AdmissionGatedBy annotation is present but feature gate is disabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, false)
+
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a StatefulSet with admission gate annotation but feature gate disabled")
+		sts := testingstatefulset.MakeStatefulSet("gated-sts-feature-disabled", ns.Name).
+			Queue(localQueue.Name).
+			Annotation(kueueconstants.AdmissionGatedByAnnotation, gateValue).
+			Request(corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      statefulset.GetWorkloadName(sts.UID, sts.Name),
+			Namespace: ns.Name,
+		}
+
+		util.VerifyJobAdmittedWhenFeatureGateDisabled(ctx, k8sClient, sts, wlLookupKey)
 	})
 })

@@ -66,4 +66,12 @@ const (
 	//
 	// This label requires AssignQueueLabelsForPods feature, enabled by default.
 	LocalQueueLabel = "kueue.x-k8s.io/local-queue-name"
+
+	// AdmissionGatedByAnnotation is the annotation key for gating admission.
+	// When present on a Job, Kueue will not admit the corresponding Workload
+	// until the annotation is removed. The value is a comma-separated list of
+	// controller names (e.g., "example.com/controller1,example.com/controller2").
+	//
+	// This annotation is alpha-level and requires the AdmissionGatedBy feature gate, disabled by default.
+	AdmissionGatedByAnnotation = "kueue.x-k8s.io/admission-gated-by"
 )

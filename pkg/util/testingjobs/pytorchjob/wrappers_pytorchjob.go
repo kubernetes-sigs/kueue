@@ -246,6 +246,12 @@ func (j *PyTorchJobWrapper) SetTypeMeta() *PyTorchJobWrapper {
 	return j
 }
 
+// SetAnnotation sets an annotation on the job.
+func (j *PyTorchJobWrapper) SetAnnotation(key, content string) *PyTorchJobWrapper {
+	j.Annotations[key] = content
+	return j
+}
+
 // ManagedBy adds a managedby.
 func (j *PyTorchJobWrapper) ManagedBy(c string) *PyTorchJobWrapper {
 	j.Spec.RunPolicy.ManagedBy = &c

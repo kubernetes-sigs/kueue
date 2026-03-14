@@ -30,10 +30,12 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -726,5 +728,182 @@ var _ = ginkgo.Describe("PyTorchJob controller with TopologyAwareScheduling", gi
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+	})
+})
+
+var _ = ginkgo.Describe("AdmissionGatedBy controls whether PyTorchJob is admissible", ginkgo.Serial, ginkgo.Label("admissiongatedby"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns             *corev1.Namespace
+		resourceFlavor *kueue.ResourceFlavor
+		clusterQueue   *kueue.ClusterQueue
+		localQueue     *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("default").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+	})
+
+	ginkgo.It("Should not admit PyTorchJob while AdmissionGatedBy is present", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
+
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a PyTorchJob with admission gate annotation")
+		job := testingpytorchjob.MakePyTorchJob("gated-job", ns.Name).
+			Queue(localQueue.Name).
+			SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, gateValue).
+			PyTorchReplicaSpecsDefault().
+			Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadpytorchjob.GetWorkloadNameForPyTorchJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
+
+		ginkgo.By("Checking the job remains suspended")
+		lookupKey := types.NamespacedName{Name: job.Name, Namespace: ns.Name}
+		createdJob := &kftraining.PyTorchJob{}
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(true)))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should admit PyTorchJob when AdmissionGatedBy is removed", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
+
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a PyTorchJob with admission gate annotation")
+		job := testingpytorchjob.MakePyTorchJob("gated-job-2", ns.Name).
+			Queue(localQueue.Name).
+			SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, gateValue).
+			PyTorchReplicaSpecsDefault().
+			Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadpytorchjob.GetWorkloadNameForPyTorchJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
+
+		// Here we're also going to mutate the resource requirement of the job while its gated and then ungate it.
+		// We want to ensure that when the job gets admitted the Workload reflects the updated resource requirements.
+		// Job resources change is a common use case for AdmissionGatedBy see KEP-6915 for AdmissionGatedBy:
+		// https://github.com/kubernetes-sigs/kueue/tree/main/keps/6915-scheduling-gated-by-annotation#story-1
+
+		ginkgo.By("Updating the job to change its resource requirements")
+		jobLookupKey := types.NamespacedName{Name: job.GetName(), Namespace: job.GetNamespace()}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, jobLookupKey, job)).Should(gomega.Succeed())
+			job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("0.2")
+			g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Checking that the Workload is using the updated resource requirements")
+		wl := &kueue.Workload{}
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+			cpuCores := wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			g.Expect(cpuCores.Cmp(resource.MustParse("0.2"))).Should(gomega.Equal(0))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
+
+		util.VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(ctx, k8sClient, job, wlLookupKey)
+
+		ginkgo.By("Checking the job is unsuspended")
+		createdJob := &kftraining.PyTorchJob{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(false)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Checking that the admitted Workload was using the updated resource requirements")
+		gomega.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+		cpuCores := wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+		gomega.Expect(cpuCores.Cmp(resource.MustParse("0.2"))).Should(gomega.Equal(0))
+	})
+
+	ginkgo.It("Should allow removing one gate from a PyTorchJob with multiple gates", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
+
+		initialGateValue := "example.com/controller1,example.com/controller2"
+		updatedGateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a PyTorchJob with two admission gates")
+		job := testingpytorchjob.MakePyTorchJob("multi-gated-job", ns.Name).
+			Queue(localQueue.Name).
+			SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, initialGateValue).
+			PyTorchReplicaSpecsDefault().
+			Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadpytorchjob.GetWorkloadNameForPyTorchJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+		ginkgo.By("Removing one gate and verifying the job remains inadmissible")
+		util.VerifyAdmissionGatedByJobAllowsRemovingOneGate(ctx, k8sClient, job, wlLookupKey, initialGateValue, updatedGateValue)
+	})
+
+	ginkgo.It("Should admit PyTorchJob when AdmissionGatedBy annotation is present but feature gate is disabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, false)
+
+		gateValue := "example.com/controller1"
+
+		ginkgo.By("Creating a PyTorchJob with admission gate annotation but feature gate disabled")
+		job := testingpytorchjob.MakePyTorchJob("gated-job-feature-disabled", ns.Name).
+			Queue(localQueue.Name).
+			SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, gateValue).
+			PyTorchReplicaSpecsDefault().
+			Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "0.1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadpytorchjob.GetWorkloadNameForPyTorchJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+
+		util.VerifyJobAdmittedWhenFeatureGateDisabled(ctx, k8sClient, job, wlLookupKey)
+
+		ginkgo.By("Checking the job is unsuspended")
+		jobLookupKey := types.NamespacedName{Name: job.Name, Namespace: ns.Name}
+		createdJob := &kftraining.PyTorchJob{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(false)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })

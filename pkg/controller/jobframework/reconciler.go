@@ -980,12 +980,67 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	}
 
 	if match != nil {
+		if features.Enabled(features.AdmissionGatedBy) {
+			if err := UpdateAdmissionGatedBy(ctx, r.client, r.record, job.Object(), match); err != nil {
+				return nil, err
+			}
+		}
+
 		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), match, getCustomPriorityClassFuncFromJob(job)); err != nil {
 			return nil, err
 		}
 	}
 
 	return match, nil
+}
+
+func CopyAdmissionGatedByButNoUpdate(obj client.Object, wl *kueue.Workload) bool {
+	if !features.Enabled(features.AdmissionGatedBy) {
+		return false
+	}
+
+	jobGateValue := ""
+	if val, exists := obj.GetAnnotations()[constants.AdmissionGatedByAnnotation]; exists {
+		jobGateValue = val
+	}
+
+	wlGateValue := ""
+	if val, exists := wl.Annotations[constants.AdmissionGatedByAnnotation]; exists {
+		wlGateValue = val
+	}
+
+	if jobGateValue != wlGateValue {
+		if wl.Annotations == nil {
+			wl.Annotations = make(map[string]string)
+		}
+		if jobGateValue == "" {
+			delete(wl.Annotations, constants.AdmissionGatedByAnnotation)
+		} else {
+			wl.Annotations[constants.AdmissionGatedByAnnotation] = jobGateValue
+		}
+		return true
+	}
+
+	return false
+}
+
+func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload) error {
+	if !features.Enabled(features.AdmissionGatedBy) {
+		return nil
+	}
+
+	if err := clientutil.Patch(ctx, c, wl, func() (bool, error) {
+		return CopyAdmissionGatedByButNoUpdate(obj, wl), nil
+	}); err != nil {
+		return fmt.Errorf("updating the AdmissionGatedBy of existing workload: %w", err)
+	}
+
+	r.Eventf(obj,
+		corev1.EventTypeNormal, ReasonUpdatedWorkload,
+		"Updated workload AdmissionGatedBy to %q", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
+	)
+
+	return nil
 }
 
 // UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
@@ -1151,6 +1206,9 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
 	wl.Spec = newWl.Spec
+
+	CopyAdmissionGatedByButNoUpdate(object, wl)
+
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)
 	}
@@ -1303,6 +1361,16 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 			"ValidationErrors", errs,
 			"LabelValue", jobUID,
 		)
+	}
+
+	// Copy admission gate annotation if feature is enabled
+	if features.Enabled(features.AdmissionGatedBy) {
+		if gateValue, exists := object.GetAnnotations()[constants.AdmissionGatedByAnnotation]; exists {
+			if wl.Annotations == nil {
+				wl.Annotations = make(map[string]string)
+			}
+			wl.Annotations[constants.AdmissionGatedByAnnotation] = gateValue
+		}
 	}
 
 	if err := ctrl.SetControllerReference(object, wl, c.Scheme()); err != nil {

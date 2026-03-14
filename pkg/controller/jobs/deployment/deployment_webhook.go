@@ -32,6 +32,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
@@ -109,6 +110,10 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj *appsv1.Deployment) (
 
 	allErrs := jobframework.ValidateQueueName(deployment.Object())
 
+	if features.Enabled(features.AdmissionGatedBy) {
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(deployment.Object())...)
+	}
+
 	return nil, allErrs.ToAggregate()
 }
 
@@ -140,6 +145,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *appsv1.De
 		oldDeployment.Object(),
 		newDeployment.Object(),
 	)...)
+
+	if features.Enabled(features.AdmissionGatedBy) {
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldDeployment.Object(), newDeployment.Object())...)
+	}
+
 	return warnings, allErrs.ToAggregate()
 }
 

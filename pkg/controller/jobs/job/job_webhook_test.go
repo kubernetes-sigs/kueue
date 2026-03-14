@@ -18,6 +18,7 @@ package job
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -36,6 +37,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -43,23 +45,21 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	testutil "sigs.k8s.io/kueue/test/util"
 
 	// without this only the job framework is registered
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 )
 
-const (
-	invalidRFC1123Message  = `a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')`
-	invalidLabelKeyMessage = `name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my.name',  or '123-abc', regex used for validation is '([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]')`
-)
-
 var (
-	labelsPath                    = field.NewPath("metadata", "labels")
-	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
-	prebuiltWlNameLabelPath       = labelsPath.Key(constants.PrebuiltWorkloadLabel)
-	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	labelsPath                      = field.NewPath("metadata", "labels")
+	admissionGatedByAnnotationsPath = field.NewPath("metadata", "annotations").Key(kueueconstants.AdmissionGatedByAnnotation)
+	queueNameLabelPath              = labelsPath.Key(constants.QueueLabel)
+	prebuiltWlNameLabelPath         = labelsPath.Key(constants.PrebuiltWorkloadLabel)
+	maxExecTimeLabelPath            = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
+	workloadPriorityClassNamePath   = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
 func TestValidateCreate(t *testing.T) {
@@ -70,6 +70,7 @@ func TestValidateCreate(t *testing.T) {
 		wantErr                      error
 		topologyAwareScheduling      bool
 		elasticJobsViaWorkloadSlices bool
+		admissionGatedBy             bool
 	}{
 		{
 			name:               "simple",
@@ -79,7 +80,7 @@ func TestValidateCreate(t *testing.T) {
 		{
 			name:               "invalid queue-name label",
 			job:                testingutil.MakeJob("job", "default").Queue("queue name").Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
+			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", testutil.InvalidRFC1123Message)},
 		},
 		{
 			name: "invalid partial admission annotation (format)",
@@ -178,7 +179,7 @@ func TestValidateCreate(t *testing.T) {
 				Indexed(true).
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(prebuiltWlNameLabelPath, "workload name", invalidRFC1123Message),
+				field.Invalid(prebuiltWlNameLabelPath, "workload name", testutil.InvalidRFC1123Message),
 			},
 		},
 		{
@@ -264,7 +265,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-required-topology"), "some required value",
-					invalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
+					testutil.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
 			topologyAwareScheduling: true,
 		},
@@ -275,7 +276,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-preferred-topology"), "some preferred value",
-					invalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
+					testutil.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
 			topologyAwareScheduling: true,
 		},
@@ -416,12 +417,157 @@ func TestValidateCreate(t *testing.T) {
 			topologyAwareScheduling:      true,
 			elasticJobsViaWorkloadSlices: true,
 		},
+		{
+			name: "valid AdmissionGatedBy annotation with single gate",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "AdmissionGatedBy annotation - trailing space",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate ").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "AdmissionGatedBy annotation - space before comma",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate ,example.com/gate2").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "AdmissionGatedBy annotation - space after comma",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate, example.com/gate2").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "AdmissionGatedBy annotation - leading space",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, " example.com/gate").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "valid AdmissionGatedBy annotation with multiple gates",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/a,not.example.com/b").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - not in subdomain/path format",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "this is an invalid value", "must be a domain-prefixed path (such as \"acme.io/foo\")"),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - duplicate gates",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "duplicates.are/invalid,duplicates.are/invalid").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "duplicates.are/invalid,duplicates.are/invalid", "duplicate gate name: duplicates.are/invalid"),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - gate name too long",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "cannot.be.too.long/"+strings.Repeat("but-this-is-too-long", 20)).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.TooLong(admissionGatedByAnnotationsPath, "", webhook.MaxGateNameLengthForAdmissionGatedBy),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - space in path component",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate name").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "gate name", testutil.InvalidPathMessage),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - space in domain component",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/gate").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "example .com", testutil.InvalidRFC1123Message),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - multiple gates with one containing space",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "valid.com/gate,invalid gate.com/controller").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", testutil.InvalidRFC1123Message),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "AdmissionGatedBy annotation with feature gate disabled - valid value",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").
+				Obj(),
+			admissionGatedBy: false,
+		},
+		{
+			name: "AdmissionGatedBy annotation with feature gate disabled - invalid value",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
+				Obj(),
+			admissionGatedBy: false,
+		},
+		{
+			name: "AdmissionGatedBy annotation with feature gate enabled - empty string",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "").
+				Obj(),
+			admissionGatedBy: true,
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlices)
+			features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, tc.admissionGatedBy)
 
 			jw := &JobWebhook{}
 
@@ -447,6 +593,7 @@ func TestValidateUpdate(t *testing.T) {
 		wantValidationErrs      field.ErrorList
 		wantErr                 error
 		topologyAwareScheduling bool
+		admissionGatedBy        bool
 	}{
 		{
 			name:               "normal update",
@@ -486,7 +633,7 @@ func TestValidateUpdate(t *testing.T) {
 			name:               "change queue name with suspend is true, but invalid value",
 			oldJob:             testingutil.MakeJob("job", "default").Obj(),
 			newJob:             testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
+			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", testutil.InvalidRFC1123Message)},
 		},
 		{
 			name: "immutable parallelism while unsuspended with partial admission enabled",
@@ -736,11 +883,91 @@ func TestValidateUpdate(t *testing.T) {
 			},
 			topologyAwareScheduling: true,
 		},
+		{
+			name: "reject adding AdmissionGatedBy annotation after Job creation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(admissionGatedByAnnotationsPath, "cannot add admission gate after creation"),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "allow removing AdmissionGatedBy annotation with single gate",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "allow removing AdmissionGatedBy annotation with multiple gates",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "allow removing one gate from AdmissionGatedBy annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
+		{
+			name: "reject injecting new gate in AdmissionGatedBy annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller3").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(admissionGatedByAnnotationsPath, "can only remove gates, not add new ones"),
+			},
+			admissionGatedBy: true,
+		},
+		{
+			name: "allow reordering gates in AdmissionGatedBy annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2,example.com/controller1").
+				Obj(),
+			wantValidationErrs: nil,
+			admissionGatedBy:   true,
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+			features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, tc.admissionGatedBy)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotValidationErrs, gotErr := new(JobWebhook).validateUpdate(ctx, (*Job)(tc.oldJob), (*Job)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {

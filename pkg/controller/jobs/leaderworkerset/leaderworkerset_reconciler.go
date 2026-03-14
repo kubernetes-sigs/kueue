@@ -144,6 +144,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
+			if features.Enabled(features.AdmissionGatedBy) {
+				if err := jobframework.UpdateAdmissionGatedBy(ctx, r.client, r.record, lws, toUpdate[i]); err != nil {
+					return err
+				}
+			}
+
 			return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, toUpdate[i], nil)
 		})
 	})
@@ -254,6 +260,10 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	createdWorkload.Annotations[constants.JobOwnerGVKAnnotation] = gvk.String()
 	createdWorkload.Annotations[constants.JobOwnerNameAnnotation] = lws.Name
 	createdWorkload.Annotations[constants.ComponentWorkloadIndexAnnotation] = strconv.Itoa(index)
+
+	if features.Enabled(features.AdmissionGatedBy) {
+		jobframework.CopyAdmissionGatedByButNoUpdate(lws, createdWorkload)
+	}
 
 	if err := controllerutil.SetOwnerReference(lws, createdWorkload, r.client.Scheme()); err != nil {
 		return nil, err
