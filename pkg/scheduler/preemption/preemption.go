@@ -490,7 +490,7 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Se
 	return resPerFlavor
 }
 
-func findCandidatesForPolicy(wl *kueue.Workload, workloadsToFilter map[workload.Reference]*workload.Info, policy kueue.PreemptionPolicy, frsNeedPreemption sets.Set[resources.FlavorResource], workloadOrdering workload.Ordering, timeOpts *preemptioncommon.TimeBasedPreemptionOpts) []*workload.Info {
+func findCandidatesForPolicy(wl *kueue.Workload, workloadsToFilter map[workload.Reference]*workload.Info, policy kueue.PreemptionPolicy, frsNeedPreemption sets.Set[resources.FlavorResource], workloadOrdering workload.Ordering, timeOpts *preemptioncommon.GuaranteedRuntimeCtx) []*workload.Info {
 	var candidates []*workload.Info
 	for _, candidateWl := range workloadsToFilter {
 		if !preemptioncommon.SatisfiesPreemptionPolicy(
@@ -517,9 +517,9 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *schdcache.ClusterQueu
 	var candidates []*workload.Info
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
-		var timeOpts *preemptioncommon.TimeBasedPreemptionOpts
+		var timeOpts *preemptioncommon.GuaranteedRuntimeCtx
 		if cq.Preemption.WithinClusterQueueConfig != nil {
-			timeOpts = &preemptioncommon.TimeBasedPreemptionOpts{
+			timeOpts = &preemptioncommon.GuaranteedRuntimeCtx{
 				WithinCQConfig: cq.Preemption.WithinClusterQueueConfig,
 				Now:            p.clock.Now(),
 			}

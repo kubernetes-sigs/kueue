@@ -27,9 +27,9 @@ import (
 
 const timestampPreemptionBuffer = 5 * time.Minute
 
-// TimeBasedPreemptionOpts carries the config needed for time-based
+// GuaranteedRuntimeCtx carries the config needed for time-based
 // preemption protection. Pass nil for cross-CQ preemption calls.
-type TimeBasedPreemptionOpts struct {
+type GuaranteedRuntimeCtx struct {
 	WithinCQConfig *kueue.WithinClusterQueueConfig
 	Now            time.Time
 }
@@ -46,7 +46,7 @@ type TimeBasedPreemptionOpts struct {
 // Opportunistic candidates are checked against OpportunisticMinAdmitDurationSeconds,
 // while incumbent candidates are checked against MinAdmitDurationSeconds. If the
 // applicable duration is not configured, no protection is applied.
-func isTimeProtected(preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, opts *TimeBasedPreemptionOpts) bool {
+func isTimeProtected(preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, opts *GuaranteedRuntimeCtx) bool {
 	if opts == nil || opts.WithinCQConfig == nil || !features.Enabled(features.PreemptionGuaranteedRuntimeWithinCQ) {
 		return false
 	}
@@ -67,7 +67,7 @@ func isTimeProtected(preemptor, candidate *kueue.Workload, workloadOrdering work
 	return false
 }
 
-func SatisfiesPreemptionPolicy(preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy, opts *TimeBasedPreemptionOpts) bool {
+func SatisfiesPreemptionPolicy(preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy, opts *GuaranteedRuntimeCtx) bool {
 	preemptorPriority := priority.Priority(preemptor)
 	candidatePriority := priority.Priority(candidate)
 

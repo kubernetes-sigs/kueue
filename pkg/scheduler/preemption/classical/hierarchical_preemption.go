@@ -87,11 +87,11 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	}
 
 	var preemptionPolicy kueue.PreemptionPolicy
-	var timeOpts *preemptioncommon.TimeBasedPreemptionOpts
+	var timeOpts *preemptioncommon.GuaranteedRuntimeCtx
 	if wl.ClusterQueue == ctx.Cq.Name {
 		preemptionPolicy = ctx.Cq.Preemption.WithinClusterQueue
 		if ctx.Cq.Preemption.WithinClusterQueueConfig != nil {
-			timeOpts = &preemptioncommon.TimeBasedPreemptionOpts{
+			timeOpts = &preemptioncommon.GuaranteedRuntimeCtx{
 				WithinCQConfig: ctx.Cq.Preemption.WithinClusterQueueConfig,
 				Now:            ctx.Now,
 			}
