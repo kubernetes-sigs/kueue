@@ -886,6 +886,15 @@ and are newer than the pending workload.</li>
 </ul>
 </td>
 </tr>
+<tr><td><code>withinClusterQueueConfig</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-WithinClusterQueueConfig"><code>WithinClusterQueueConfig</code></a>
+</td>
+<td>
+   <p>withinClusterQueueConfig provides additional configuration for the
+withinClusterQueue preemption policy. Only valid when withinClusterQueue
+is set to LowerOrNewerEqualPriority.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -3386,6 +3395,58 @@ level.</p>
 </td>
 <td>
    <p>name is the name of the unhealthy node.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `WithinClusterQueueConfig`     {#kueue-x-k8s-io-v1beta2-WithinClusterQueueConfig}
+    
+
+**Appears in:**
+
+- [ClusterQueuePreemption](#kueue-x-k8s-io-v1beta2-ClusterQueuePreemption)
+
+
+<p>WithinClusterQueueConfig provides time-based preemption controls for
+workloads within a ClusterQueue.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>minAdmitDurationSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>minAdmitDurationSeconds specifies the minimum number of seconds an
+incumbent workload (one that was queued before the pending workload)
+must be admitted before it becomes eligible for preemption within the
+ClusterQueue. This protects workloads that legitimately earned their
+admission from being preempted too quickly, including by higher-priority
+workloads.
+If unset, incumbent workloads are never preemptible by same-priority
+workloads (existing behavior), and higher-priority workloads can
+preempt them immediately.
+When set, the minimum allowed value is 60 (1 minute).</p>
+</td>
+</tr>
+<tr><td><code>opportunisticMinAdmitDurationSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>opportunisticMinAdmitDurationSeconds specifies the minimum number of
+seconds a workload that was queued after the pending workload but
+admitted first (because it fit in remaining capacity) must be admitted
+before it becomes eligible for preemption. This gives opportunistically
+admitted workloads a guaranteed minimum runtime to make progress or
+checkpoint.
+If unset, such workloads are preemptible immediately by same-priority
+workloads (existing LowerOrNewerEqualPriority behavior) and by
+higher-priority workloads.
+When set, the minimum allowed value is 60 (1 minute).</p>
 </td>
 </tr>
 </tbody>
