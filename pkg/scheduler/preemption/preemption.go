@@ -243,6 +243,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		FrsNeedPreemption: preemptionCtx.frsNeedPreemption,
 		Requests:          preemptionCtx.workloadUsage.Quota,
 		WorkloadOrdering:  p.workloadOrdering,
+		Now:               preemptionCtx.clock.Now(),
 	}
 	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, p.enabledAfs, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, preemptioncommon.CandidatesOrdering)
 	var attemptPossibleOpts []preemptionAttemptOpts
@@ -489,14 +490,15 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Se
 	return resPerFlavor
 }
 
-func findCandidatesForPolicy(wl *kueue.Workload, workloadsToFilter map[workload.Reference]*workload.Info, policy kueue.PreemptionPolicy, frsNeedPreemption sets.Set[resources.FlavorResource], workloadOrdering workload.Ordering) []*workload.Info {
+func findCandidatesForPolicy(wl *kueue.Workload, workloadsToFilter map[workload.Reference]*workload.Info, policy kueue.PreemptionPolicy, frsNeedPreemption sets.Set[resources.FlavorResource], workloadOrdering workload.Ordering, timeOpts *preemptioncommon.GuaranteedRuntimeCtx) []*workload.Info {
 	var candidates []*workload.Info
 	for _, candidateWl := range workloadsToFilter {
 		if !preemptioncommon.SatisfiesPreemptionPolicy(
 			wl,
 			candidateWl.Obj,
 			workloadOrdering,
-			policy) {
+			policy,
+			timeOpts) {
 			continue
 		}
 
@@ -515,17 +517,23 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *schdcache.ClusterQueu
 	var candidates []*workload.Info
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
-		newCandidates := findCandidatesForPolicy(wl, cq.Workloads, cq.Preemption.WithinClusterQueue, frsNeedPreemption, p.workloadOrdering)
+		var timeOpts *preemptioncommon.GuaranteedRuntimeCtx
+		if cq.Preemption.WithinClusterQueueConfig != nil {
+			timeOpts = &preemptioncommon.GuaranteedRuntimeCtx{
+				WithinCQConfig: cq.Preemption.WithinClusterQueueConfig,
+				Now:            p.clock.Now(),
+			}
+		}
+		newCandidates := findCandidatesForPolicy(wl, cq.Workloads, cq.Preemption.WithinClusterQueue, frsNeedPreemption, p.workloadOrdering, timeOpts)
 		candidates = append(candidates, newCandidates...)
 	}
 
 	if cq.HasParent() && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
 		for _, cohortCQ := range cq.Parent().Root().SubtreeClusterQueues() {
 			if cq == cohortCQ || !cqIsBorrowing(cohortCQ, frsNeedPreemption) {
-				// Can't reclaim quota from itself or ClusterQueues that are not borrowing.
 				continue
 			}
-			newCandidates := findCandidatesForPolicy(wl, cohortCQ.Workloads, cq.Preemption.ReclaimWithinCohort, frsNeedPreemption, p.workloadOrdering)
+			newCandidates := findCandidatesForPolicy(wl, cohortCQ.Workloads, cq.Preemption.ReclaimWithinCohort, frsNeedPreemption, p.workloadOrdering, nil)
 			candidates = append(candidates, newCandidates...)
 		}
 	}

@@ -164,6 +164,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.TopologySpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("UnhealthyNode"):
 		return &kueuev1beta1.UnhealthyNodeApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("WithinClusterQueueConfig"):
+		return &kueuev1beta1.WithinClusterQueueConfigApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta1.WorkloadApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):
@@ -308,6 +310,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.TopologySpecApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("UnhealthyNode"):
 		return &kueuev1beta2.UnhealthyNodeApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("WithinClusterQueueConfig"):
+		return &kueuev1beta2.WithinClusterQueueConfigApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta2.WorkloadApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):

@@ -112,7 +112,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, feature, enabled)
 			}
 			ordering := workload.Ordering{}
-			got := SatisfiesPreemptionPolicy(tc.preemptor, tc.candidate, ordering, tc.policy)
+			got := SatisfiesPreemptionPolicy(tc.preemptor, tc.candidate, ordering, tc.policy, nil)
 			if got != tc.want {
 				t.Errorf("SatisfiesPreemptionPolicy() = %v, want %v", got, tc.want)
 			}

@@ -301,6 +301,10 @@ const (
 	//
 	// Enable custom metadata labels on Kueue metrics
 	CustomMetricLabels featuregate.Feature = "CustomMetricLabels"
+
+	// Enable guaranteed minimum runtime protection for admitted workloads
+	// before they become eligible for preemption within a ClusterQueue.
+	PreemptionGuaranteedRuntimeWithinCQ featuregate.Feature = "PreemptionGuaranteedRuntimeWithinCQ"
 )
 
 func init() {
@@ -468,6 +472,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
 	},
 	CustomMetricLabels: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	PreemptionGuaranteedRuntimeWithinCQ: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
