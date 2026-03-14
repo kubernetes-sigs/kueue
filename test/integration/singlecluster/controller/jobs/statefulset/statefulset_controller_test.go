@@ -217,7 +217,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether StatefulSet is admiss
 			Name:      statefulset.GetWorkloadName(sts.UID, sts.Name),
 			Namespace: ns.Name,
 		}
-		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, sts, wlLookupKey, gateValue)
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
 	})
 
 	ginkgo.It("Should admit StatefulSet when AdmissionGatedBy is removed", func() {
@@ -238,7 +238,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether StatefulSet is admiss
 			Namespace: ns.Name,
 		}
 
-		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, sts, wlLookupKey, gateValue)
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
 
 		util.VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(ctx, k8sClient, sts, wlLookupKey)
 

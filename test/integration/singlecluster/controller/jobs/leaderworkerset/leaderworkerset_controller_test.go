@@ -92,7 +92,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether LeaderWorkerSet is ad
 			Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
 			Namespace: ns.Name,
 		}
-		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, lws, wlLookupKey, gateValue)
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
 	})
 
 	ginkgo.It("Should admit LeaderWorkerSet when AdmissionGatedBy is removed", func() {
@@ -112,7 +112,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether LeaderWorkerSet is ad
 			Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
 			Namespace: ns.Name,
 		}
-		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, lws, wlLookupKey, gateValue)
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
 
 		util.VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(ctx, k8sClient, lws, wlLookupKey)
 

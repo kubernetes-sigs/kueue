@@ -2710,7 +2710,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Pod is admissible", g
 			Name:      podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID),
 			Namespace: ns.Name,
 		}
-		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, pod, wlLookupKey, gateValue)
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
 
 		ginkgo.By("Checking the pod remains gated")
 		lookupKey := types.NamespacedName{Name: pod.Name, Namespace: ns.Name}
@@ -2739,7 +2739,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether Pod is admissible", g
 			Namespace: ns.Name,
 		}
 
-		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, pod, wlLookupKey, gateValue)
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
 
 		util.VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(ctx, k8sClient, pod, wlLookupKey)
 

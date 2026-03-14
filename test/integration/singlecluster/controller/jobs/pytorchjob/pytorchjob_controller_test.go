@@ -784,7 +784,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether PyTorchJob is admissi
 			Name:      workloadpytorchjob.GetWorkloadNameForPyTorchJob(job.Name, job.UID),
 			Namespace: ns.Name,
 		}
-		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, job, wlLookupKey, gateValue)
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
 
 		ginkgo.By("Checking the job remains suspended")
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: ns.Name}
@@ -813,8 +813,12 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether PyTorchJob is admissi
 			Name:      workloadpytorchjob.GetWorkloadNameForPyTorchJob(job.Name, job.UID),
 			Namespace: ns.Name,
 		}
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
 
-		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, job, wlLookupKey, gateValue)
+		// Here we're also going to mutate the resource requirement of the job while its gated and then ungate it.
+		// We want to ensure that when the job gets admitted the Workload reflects the updated resource requirements.
+		// Job resources change is a common use case for AdmissionGatedBy see KEP-6915 for AdmissionGatedBy:
+		// https://github.com/kubernetes-sigs/kueue/tree/main/keps/6915-scheduling-gated-by-annotation#story-1
 
 		ginkgo.By("Updating the job to change its resource requirements")
 		jobLookupKey := types.NamespacedName{Name: job.GetName(), Namespace: job.GetNamespace()}
@@ -833,7 +837,7 @@ var _ = ginkgo.Describe("AdmissionGatedBy controls whether PyTorchJob is admissi
 			g.Expect(cpuCores.Cmp(resource.MustParse("0.2"))).Should(gomega.Equal(0))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, job, wlLookupKey, gateValue)
+		util.VerifyAdmissionGatedByJobIsNonAdmissible(ctx, k8sClient, wlLookupKey, gateValue)
 
 		util.VerifyAdmissionGatedByJobBecomesAdmissibleWhenGateRemoved(ctx, k8sClient, job, wlLookupKey)
 
