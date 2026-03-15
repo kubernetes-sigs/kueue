@@ -301,6 +301,12 @@ const (
 	//
 	// Enable custom metadata labels on Kueue metrics
 	CustomMetricLabels featuregate.Feature = "CustomMetricLabels"
+
+	// owner: @everpeace
+	//
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/7268#issuecomment-3890609376
+	// Enables the Kubeflow's SparkApplication integration
+	SparkApplicationIntegration featuregate.Feature = "SparkApplicationIntegration"
 )
 
 func init() {
@@ -468,6 +474,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
 	},
 	CustomMetricLabels: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	SparkApplicationIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

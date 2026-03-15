@@ -79,7 +79,7 @@ test: gotestsum ## Run tests.
 
 ## Label Taxonomy:
 ##   Controllers: controller:workload, controller:localqueue, controller:clusterqueue, controller:admissioncheck, controller:resourceflavor, controller:provisioning
-##   Job Types: job:batch, job:pod, job:jobset, job:pytorch, job:tensorflow, job:mpi, job:paddle, job:xgboost, job:jax, job:train, job:ray, job:appwrapper
+##   Job Types: job:batch, job:pod, job:jobset, job:pytorch, job:tensorflow, job:mpi, job:paddle, job:xgboost, job:jax, job:train, job:ray, job:appwrapper, job:sparkapplication
 ##   Features: feature:tas, feature:multikueue, feature:provisioning, feature:fairsharing, feature:admissionfairsharing
 ##   Areas: area:core, area:jobs, area:admissionchecks, area:multikueue
 ##
@@ -248,6 +248,7 @@ run-test-e2e-customconfigs-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="customconfigs" \
 		JOBSET_VERSION=$(JOBSET_VERSION) APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		SPARKOPERATOR_VERSION=$(SPARKOPERATOR_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
