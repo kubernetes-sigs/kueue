@@ -28,11 +28,14 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestPodSets(t *testing.T) {
@@ -751,6 +754,123 @@ func Test_RayJobFinished(t *testing.T) {
 				t.Logf("actual finished: %v", finished)
 				t.Logf("expected finished: %v", testcase.expectedFinished)
 				t.Error("unexpected result for 'finished'")
+			}
+		})
+	}
+}
+
+func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
+	headSpec := rayv1.HeadGroupSpec{
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+		},
+	}
+	workerGroup := func(name string, replicas int32) rayv1.WorkerGroupSpec {
+		return rayv1.WorkerGroupSpec{
+			GroupName: name,
+			Replicas:  ptr.To(replicas),
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: name + "_c"}}},
+			},
+		}
+	}
+
+	testCases := map[string]struct {
+		rayJob         *rayv1.RayJob
+		rayCluster     *rayv1.RayCluster
+		wantAnnotation string
+		wantGroupCount int32
+	}{
+		"first call sets annotation with all podset counts": {
+			rayJob: testingrayutil.MakeJob("rayjob", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				WithHeadGroupSpec(headSpec).
+				WithWorkerGroups(workerGroup("group1", 1)).
+				WithEnableAutoscaling(ptr.To(true)).
+				Obj(),
+			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
+				WithWorkerGroups(workerGroup("group1", 5)).
+				Obj(),
+			wantAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+			wantGroupCount: 5,
+		},
+		"skip patch when annotation already matches": {
+			rayJob: testingrayutil.MakeJob("rayjob", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":5}]`).
+				WithHeadGroupSpec(headSpec).
+				WithWorkerGroups(workerGroup("group1", 1)).
+				WithEnableAutoscaling(ptr.To(true)).
+				Obj(),
+			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
+				WithWorkerGroups(workerGroup("group1", 5)).
+				Obj(),
+			wantAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+			wantGroupCount: 5,
+		},
+		"annotation updated after scale-down": {
+			rayJob: testingrayutil.MakeJob("rayjob", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":6}]`).
+				WithHeadGroupSpec(headSpec).
+				WithWorkerGroups(workerGroup("group1", 4)).
+				WithEnableAutoscaling(ptr.To(true)).
+				Obj(),
+			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
+				WithWorkerGroups(workerGroup("group1", 4)).
+				Obj(),
+			wantAnnotation: `[{"name":"head","count":1},{"name":"group1","count":4}]`,
+			wantGroupCount: 4,
+		},
+		"annotation updated when podset count differs from annotation length": {
+			rayJob: testingrayutil.MakeJob("rayjob", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"group1","count":5}]`).
+				WithHeadGroupSpec(headSpec).
+				WithWorkerGroups(workerGroup("group1", 1)).
+				WithEnableAutoscaling(ptr.To(true)).
+				Obj(),
+			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
+				WithWorkerGroups(workerGroup("group1", 5)).
+				Obj(),
+			wantAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+			wantGroupCount: 5,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			tc.rayJob.Status.RayClusterName = tc.rayCluster.Name
+
+			fakeClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).
+				WithObjects(tc.rayJob, tc.rayCluster).
+				Build()
+
+			oldReconciler := reconciler
+			reconciler = rayJobReconciler{client: fakeClient}
+			t.Cleanup(func() { reconciler = oldReconciler })
+
+			podSets, err := (*RayJob)(tc.rayJob).PodSets(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Verify the worker group count was updated
+			for _, ps := range podSets {
+				if ps.Name == "group1" {
+					if ps.Count != tc.wantGroupCount {
+						t.Errorf("group1 count = %d, want %d", ps.Count, tc.wantGroupCount)
+					}
+				}
+			}
+
+			// Verify the in-memory annotation on the RayJob was updated
+			gotAnnotation := tc.rayJob.Annotations[jobframework.PodsetReplicaSizesAnnotation]
+			if gotAnnotation != tc.wantAnnotation {
+				t.Errorf("annotation = %q, want %q", gotAnnotation, tc.wantAnnotation)
 			}
 		})
 	}

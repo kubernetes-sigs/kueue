@@ -20,11 +20,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -69,6 +71,12 @@ import (
 const (
 	FailedToStartFinishedReason = "FailedToStart"
 	managedOwnersChainLimit     = 10
+
+	// PodsetReplicaSizesAnnotation is set on the job when autoscaling causes
+	// PodSet replica sizes to differ from the original spec. The value is a JSON
+	// array compatible with []kueue.PodSet, containing only the changed PodSets.
+	// This annotation is alpha-level enabled by the ElasticJobsViaWorkloadSlices.
+	PodsetReplicaSizesAnnotation = "kueue.x-k8s.io/podset-replica-sizes"
 )
 
 var (
@@ -420,6 +428,23 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	log.V(2).Info("Reconciling Job")
+
+	if workloadslicing.Enabled(object) {
+		if jobWithCustomAnnotations, ok := job.(JobWithCustomAnnotations); ok {
+			// remember old job annotations since workload slicing (autoscaling) may modify job annotation to reflect latest
+			// pod counts, e.g. "kueue.x-k8s.io/podset-replica-sizes" annotation
+			oldAnnotations := make(map[string]string, len(job.Object().GetAnnotations()))
+			maps.Copy(oldAnnotations, job.Object().GetAnnotations())
+			defer func() {
+				if !apiequality.Semantic.DeepEqual(job.Object().GetAnnotations(), oldAnnotations) {
+					err = jobWithCustomAnnotations.UpdateAnnotations(ctx, r.client)
+					if err != nil {
+						log.Error(err, fmt.Sprintf("failed to update annotations on object %s", object.GetName()))
+					}
+				}
+			}()
+		}
+	}
 
 	// 1. Attempt to retrieve an existing workload (if any) for this job.
 	wl, err := r.ensureOneWorkload(ctx, job, object)

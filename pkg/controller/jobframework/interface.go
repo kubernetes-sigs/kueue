@@ -170,6 +170,15 @@ type JobWithManagedBy interface {
 	SetManagedBy(*string)
 }
 
+// JobWithCustomAnnotations interface should be implemented by generic jobs
+// when custom annotations should be updated to API server when there is change.
+// An example is RayJob may have "kueue.x-k8s.io/podset-replica-sizes", which reflects the current replica sizes from
+// underlying RayCluster. Job reconciler will call this method `UpdateAnnotations` to update such annotations to API Server.
+type JobWithCustomAnnotations interface {
+	// UpdateAnnotations update current job's annotations to API Server
+	UpdateAnnotations(ctx context.Context, c client.Client) error
+}
+
 // TopLevelJob interface is an optional interface used to indicate
 // that the Job owns/manages the Workload object, regardless of the Job
 // owner references.

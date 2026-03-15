@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,6 +36,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
@@ -46,6 +48,24 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
+
+// parsePodSetReplicaCount parses the PodsetReplicaSizesAnnotation JSON and
+// returns the count for the given group name.
+func parsePodSetReplicaCount(annotationValue, groupName string) (int32, error) {
+	var podSets []struct {
+		Name  string `json:"name"`
+		Count int32  `json:"count"`
+	}
+	if err := json.Unmarshal([]byte(annotationValue), &podSets); err != nil {
+		return 0, fmt.Errorf("failed to parse annotation: %w", err)
+	}
+	for _, ps := range podSets {
+		if ps.Name == groupName {
+			return ps.Count, nil
+		}
+	}
+	return 0, fmt.Errorf("group %q not found in annotation", groupName)
+}
 
 var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:kuberay"), func() {
 	var (
@@ -345,6 +365,19 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("Checking podset-replica-sizes annotation is set on the RayJob after scaling up", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayJob := &rayv1.RayJob{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
+				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(jobframework.PodsetReplicaSizesAnnotation),
+					"Expected podset-replica-sizes annotation on RayJob after scaling up")
+				count, err := parsePodSetReplicaCount(createdRayJob.Annotations[jobframework.PodsetReplicaSizesAnnotation], "workers-group-0")
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(count).To(gomega.Equal(int32(5)),
+					"Expected workers-group-0 count = 5 after scaling up")
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("Waiting for at least 2 total workloads due to scaling up creating another workload", func() {
 			// Use >= 2 since finished slices from intermediate scaling decisions are retained.
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -366,6 +399,19 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				g.Expect(scaledUpPodNames).To(gomega.ContainElements(currentPodNames),
 					"Previous scaled-up worker pod names should be a superset of current pod names")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking podset-replica-sizes annotation updated after scaling down", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayJob := &rayv1.RayJob{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
+				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(jobframework.PodsetReplicaSizesAnnotation),
+					"Expected podset-replica-sizes annotation on RayJob after scaling down")
+				count, err := parsePodSetReplicaCount(createdRayJob.Annotations[jobframework.PodsetReplicaSizesAnnotation], "workers-group-0")
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(count).To(gomega.Equal(int32(1)),
+					"Expected workers-group-0 count = 1 after scaling down")
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for the RayJob to finish", func() {
