@@ -23,6 +23,7 @@
   - [CQ-level borrowing tracking](#cq-level-borrowing-tracking)
   - [Preemption behavior](#preemption-behavior)
   - [Preemption frequency bounds](#preemption-frequency-bounds)
+    - [Control-theory perspective](#control-theory-perspective)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -218,7 +219,10 @@ them identically based only on their current borrowing.
 
 * **Preemption cycling under sustained contention.** Historical borrowing
   scores evolve over time, causing score reversals that lead to preemption
-  oscillation. A mandatory `minAdmitDuration` field prevents this. See
+  oscillation. Two complementary mechanisms prevent this: a predictive
+  preemption guard that adaptively suppresses preemptions which would cause
+  a near-term score reversal, and a mandatory `minAdmitDuration` that
+  provides a hard minimum runtime floor. See
   [Preemption frequency bounds](#preemption-frequency-bounds) for analysis.
 
 ## Design Details
@@ -273,6 +277,13 @@ type HistoricalBorrowingConfig struct {
     // borrowingSamplingInterval is how often borrowing snapshots are taken.
     // +optional
     BorrowingSamplingInterval metav1.Duration `json:"borrowingSamplingInterval"`
+
+    // preemptionProjectionHorizon is how far ahead to project DRS scores
+    // when evaluating a preemption. If the preempting CQ's projected score
+    // would exceed the target's within this horizon, the preemption is
+    // skipped to avoid oscillation. Defaults to 3 × borrowingSamplingInterval.
+    // +optional
+    PreemptionProjectionHorizon *metav1.Duration `json:"preemptionProjectionHorizon,omitempty"`
 }
 ```
 
@@ -292,6 +303,10 @@ Validation rules:
 * `minAdmitDuration` is **required** when `Strategy = HistoricalBorrowing`
   (see [Preemption frequency bounds](#preemption-frequency-bounds)).
   `minAdmitDuration >= 1m` is enforced as a floor.
+
+* `preemptionProjectionHorizon >= borrowingSamplingInterval` if set. The
+  projection must cover at least one sampling tick to be meaningful. Defaults
+  to `3 × borrowingSamplingInterval` when not specified.
 
 * When `Strategy = Borrowing` (default), `minAdmitDuration` is optional.
   Instantaneous DRS is loop-free and does not require a minimum runtime guard,
@@ -351,13 +366,41 @@ the target CQ's score (inertia). This means the existing preemption strategies
 code changes. Preemption candidates are filtered to CQs that are currently
 borrowing, regardless of DRS strategy.
 
-When `minAdmitDuration` is set, the preemption path adds one additional
-filter: a workload whose `QuotaReserved` condition was set less than
-`minAdmitDuration` ago is skipped as a preemption candidate. This uses the
-same `quotaReservationTime` helper already used for workload ordering in
-`pkg/scheduler/preemption/common/ordering.go`. The filter applies to
-fair-sharing preemption only; reclaim-within-cohort and within-CQ preemption
-are unaffected.
+Two complementary filters prevent destructive preemption oscillation. Both
+apply to fair-sharing preemption only; reclaim-within-cohort and within-CQ
+preemption are unaffected.
+
+1. **`minAdmitDuration` filter (hard floor).** When `minAdmitDuration` is set,
+   a workload whose `QuotaReserved` condition was set less than
+   `minAdmitDuration` ago is skipped as a preemption candidate. This uses
+   the same `quotaReservationTime` helper already used for workload ordering
+   in `pkg/scheduler/preemption/common/ordering.go`. It provides a hard
+   minimum runtime guarantee regardless of score dynamics.
+
+2. **Predictive preemption guard (adaptive).** Before preempting a workload
+   from CQ-B to admit a workload to CQ-A, the scheduler projects historical
+   DRS scores forward by `preemptionProjectionHorizon` (T) under two
+   scenarios:
+
+   ```
+   projected_A = (1 - α_T) × hist_borrowing_A + α_T × new_borrowing_A
+   projected_B = (1 - α_T) × hist_borrowing_B + α_T × borrowing_after_removal_B
+
+   where α_T = 1 - 0.5^(T / halfLifeTime)
+   ```
+
+   If `projected_DRS_A > projected_DRS_B`, the preemption would cause a
+   score reversal within the horizon — CQ-A would become the top borrower
+   and be preempted in turn — so it is skipped. This naturally adapts to
+   workload size and score margins: a small workload that barely moves
+   scores passes the check, while a large workload that would cause
+   immediate oscillation is blocked.
+
+   The guard is always active when `Strategy = HistoricalBorrowing`. It
+   relies on a steady-state assumption (borrowing levels remain constant
+   during the projection window); see
+   [Control-theory perspective](#control-theory-perspective) for analysis
+   of when this holds.
 
 ### Preemption frequency bounds
 
@@ -386,6 +429,47 @@ prevent A→B→A preemption in the same cycle.
 A per-CQ override of `minAdmitDuration` (in `ClusterQueuePreemption`) can be
 added in a future iteration if different CQs need different minimum runtimes.
 
+#### Control-theory perspective
+
+The design maps to a [PID controller](https://en.wikipedia.org/wiki/Proportional%E2%80%93integral%E2%80%93derivative_controller)
+where the error signal is disproportionate borrowing:
+
+* **Proportional (P):** Instantaneous DRS (`Strategy = Borrowing`) reacts to
+  the current borrowing level.
+* **Integral (I):** Historical borrowing reacts to accumulated borrowing over
+  time via EMA decay.
+* **Derivative (D):** The predictive preemption guard reacts to the *trend* —
+  projecting where scores are heading and suppressing preemptions that would
+  cause a near-term reversal.
+
+This KEP implements all three terms. The proportional term is the existing
+DRS strategy; the integral and derivative terms are introduced here for the
+`HistoricalBorrowing` strategy.
+
+The predictive guard's projection (see
+[Preemption behavior](#preemption-behavior)) relies on a **steady-state
+assumption**: borrowing levels remain constant during the projection window.
+The accuracy of this assumption depends on workload characteristics:
+
+* *Training jobs (low churn):* Long-running, stable resource consumption.
+  Borrowing levels are genuinely flat over a 15-minute window, so the
+  projection is accurate. This is also where oscillation is most costly
+  (wasted GPU-hours), so the guard adds the most value.
+* *Inference workloads (high churn):* Short-lived, rapid arrival/departure.
+  Usage fluctuates significantly within the projection horizon, making the
+  prediction unreliable. However, the cost of prediction errors is low —
+  workloads are short-lived and recoverable.
+* *Fortunate asymmetry:* Prediction accuracy correlates with the cost of
+  being wrong. The guard is most accurate for training-heavy clusters where
+  oscillation is expensive, and least accurate for inference-heavy clusters
+  where oscillation is cheap.
+
+Because the steady-state assumption can break under high churn,
+`minAdmitDuration` is retained as a complementary hard floor — defense in
+depth. The predictive guard handles the adaptive case (blocking only
+preemptions that would oscillate), while `minAdmitDuration` guarantees a
+minimum runtime regardless of prediction accuracy.
+
 ### Test Plan
 
 [x] I/we understand the owners of the involved components may require updates to
@@ -404,6 +488,9 @@ In particular:
 * Validation: `minAdmitDuration` required when `Strategy = HistoricalBorrowing`,
   floor of 1 minute enforced.
 * Borrowing filter behavior with historical borrowing strategy.
+* Predictive guard projection computation: verify projected scores and
+  skip/proceed decisions for varying workload sizes and score margins.
+* Predictive guard with `preemptionProjectionHorizon` validation.
 
 #### Integration tests
 
@@ -418,6 +505,8 @@ In particular:
   under sustained contention.
 * Coexistence with Admission Fair Sharing (KEP-4136).
 * Strategy switching from Borrowing to HistoricalBorrowing.
+* Predictive guard skips preemption when projected scores would reverse
+  within the projection horizon.
 
 ### Performance Impact
 
@@ -425,8 +514,10 @@ The historical borrowing score computation is O(R) per CQ (R = number of
 resource types), comparable to the existing DRS computation. Memory overhead
 is one float64 per resource per CQ. The sampling goroutine runs at
 `borrowingSamplingInterval` and is lightweight (one multiply per resource per
-CQ). The entry penalty is O(R) per admission, matching AFS. When
-`Strategy = Borrowing` (default), no historical borrowing code runs.
+CQ). The entry penalty is O(R) per admission, matching AFS. The predictive
+preemption guard adds one O(R) projection per preemption candidate, matching
+the existing DRS computation cost. When `Strategy = Borrowing` (default), no
+historical borrowing code runs.
 
 ### Graduation Criteria
 
@@ -435,6 +526,7 @@ CQ). The entry penalty is O(R) per admission, matching AFS. When
 * Historical borrowing DRS strategy for admission ordering and preemption.
 * CQ-level borrowing tracking with decay and entry penalty.
 * Mandatory `minAdmitDuration` with preemption candidate filtering.
+* Predictive preemption guard with configurable projection horizon.
 * CQ status fields and metrics to track historical borrowing.
 * Unit and integration tests.
 * Feature gate: `HistoricalBorrowingFairSharing`.
@@ -475,4 +567,16 @@ CQ). The entry penalty is O(R) per admission, matching AFS. When
 * **Extend KEP-4136 directly.** Add cohort-level scope to Admission Fair
   Sharing without changing the preemption score. Would only affect admission
   ordering, not preemption targeting.
+
+* **`minAdmitDuration` only (without predictive guard).** Use only a fixed
+  minimum runtime floor to prevent oscillation, without the adaptive
+  predictive projection. Simpler to implement and reason about, but
+  `minAdmitDuration` is a blunt instrument — a small workload that barely
+  changes scores gets the same protection window as a large workload that
+  causes a major score swing. The predictive guard was added to provide
+  adaptive oscillation prevention that naturally scales with workload size
+  and score margins, while `minAdmitDuration` is retained as a complementary
+  hard safety floor. See
+  [Control-theory perspective](#control-theory-perspective) for analysis of
+  the steady-state assumption and workload-type tradeoffs.
 
