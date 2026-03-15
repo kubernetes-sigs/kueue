@@ -132,6 +132,10 @@ test-e2e: E2E_NPROCS := 2
 .PHONY: test-e2e
 test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+# Temporary: focus LeaderWorkerSet e2e and repeat 100x (remove when done)
+run-test-e2e-singlecluster-%: E2E_MODE := dev
+run-test-e2e-singlecluster-%: GINKGO_ARGS := --label-filter=feature:leaderworkerset --repeat=100
+
 .PHONY: test-e2e-helm
 test-e2e-helm: E2E_USE_HELM=true
 test-e2e-helm: test-e2e
