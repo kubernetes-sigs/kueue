@@ -65,6 +65,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
+	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
@@ -81,6 +82,19 @@ import (
 func init() {
 	// Use large MaxLength to make sure the diff contains relevant output
 	format.MaxLength = 500000
+	format.RegisterCustomFormatter(formatK8sObject)
+}
+
+func formatK8sObject(value any) (string, bool) {
+	obj, ok := value.(client.Object)
+	if !ok {
+		return "", false
+	}
+	objYAML, err := yaml.Marshal(obj)
+	if err != nil {
+		return "", false
+	}
+	return string(objYAML), true
 }
 
 var SetupLogger = sync.OnceFunc(func() {
