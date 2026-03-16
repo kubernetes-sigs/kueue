@@ -389,7 +389,6 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 }
 
 func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (float64, error) {
-	var usage float64
 	lqKey := utilqueue.KeyFromWorkload(i.Obj)
 
 	consumed := corev1.ResourceList{}
@@ -405,25 +404,32 @@ func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWe
 		penalty = afsEntryPenalties.Peek(lqKey)
 	}
 
+	var lq kueue.LocalQueue
+	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
+	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
+		return 0, err
+	}
+	var lqWeight float64 = 1
+	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
+		lqWeight = lq.Spec.FairSharing.Weight.AsApproximateFloat64()
+	}
+	return CalcFSUsageFromResources(consumed, penalty, lqWeight, resWeights), nil
+}
+
+// CalcFSUsageFromResources computes fair-sharing usage from consumed resources
+// and penalties. Keys are iterated in sorted order for deterministic results.
+func CalcFSUsageFromResources(consumed, penalty corev1.ResourceList, lqWeight float64, resWeights map[corev1.ResourceName]float64) float64 {
 	allResources := resource.MergeResourceListKeepSum(consumed, penalty)
-	for resName, resVal := range allResources {
+	var usage float64
+	for _, resName := range slices.Sorted(maps.Keys(allResources)) {
+		resVal := allResources[resName]
 		weight, found := resWeights[resName]
 		if !found {
 			weight = 1
 		}
 		usage += weight * resVal.AsApproximateFloat64()
 	}
-
-	var lq kueue.LocalQueue
-	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
-	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
-		return 0, err
-	}
-	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
-		// if no weight for lq was defined, use default weight of 1
-		usage /= lq.Spec.FairSharing.Weight.AsApproximateFloat64()
-	}
-	return usage, nil
+	return usage / lqWeight
 }
 
 // IsUsingTAS returns information if the workload is using TAS
