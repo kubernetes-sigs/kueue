@@ -228,6 +228,7 @@ var _ = ginkgo.Describe("Visibility Server", func() {
 		}
 		gomega.Expect(k8sClient.Update(ctx, patchedService)).To(gomega.Succeed())
 
+		ginkgo.By("Updating the visibility-server deployment's port")
 		patchedDeployment := originalDeployment.DeepCopy()
 		for i, c := range patchedDeployment.Spec.Template.Spec.Containers {
 			if c.Name == "manager" {
