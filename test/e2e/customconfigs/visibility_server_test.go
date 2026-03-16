@@ -218,7 +218,7 @@ var _ = ginkgo.Describe("Visibility Server", func() {
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should use the custom port from the --visibility-secure-port flag", func() {
+	ginkgo.It("Should use the custom port from the --visibility-server-port flag", func() {
 		ginkgo.By("Updating the visibility-server service's targetPort")
 		patchedService := originalService.DeepCopy()
 		for i, p := range patchedService.Spec.Ports {
@@ -233,7 +233,7 @@ var _ = ginkgo.Describe("Visibility Server", func() {
 		for i, c := range patchedDeployment.Spec.Template.Spec.Containers {
 			if c.Name == "manager" {
 				container := &patchedDeployment.Spec.Template.Spec.Containers[i]
-				container.Args = append(c.Args, fmt.Sprintf("--visibility-secure-port=%d", customVisibilityPort))
+				container.Args = append(c.Args, fmt.Sprintf("--visibility-server-port=%d", customVisibilityPort))
 			}
 		}
 		gomega.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
