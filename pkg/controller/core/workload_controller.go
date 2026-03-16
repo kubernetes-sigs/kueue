@@ -839,8 +839,7 @@ func (r *WorkloadReconciler) updateConditionForAdmissionGatedBy(ctx context.Cont
 			// Update the condition to indicate the gate is cleared, rather than removing it
 			return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "AdmissionGatedBy cleared, waiting for quota reservation", r.clock.Now()), nil
 		})
-		result := ctrl.Result{}
-		return &result, err
+		return &ctrl.Result{}, err
 	}
 
 	// This is the first detection of the AdmissionGatedBy annotation
@@ -851,8 +850,7 @@ func (r *WorkloadReconciler) updateConditionForAdmissionGatedBy(ctx context.Cont
 		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), r.clock.Now()), nil
 		})
-		result := ctrl.Result{}
-		return &result, err
+		return &ctrl.Result{}, err
 	}
 
 	return nil, nil
