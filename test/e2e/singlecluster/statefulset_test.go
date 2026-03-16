@@ -384,6 +384,94 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 			})
 		})
 
+		// Regression test for https://github.com/kubernetes-sigs/kueue/issues/9830
+		// When a StatefulSet is created with replicas=0 and an invalid queue,
+		// then scaled up (causing a controller revision mismatch due to webhook
+		// annotation injection), changing the queue label should still propagate
+		// to the pods and allow admission on the new queue.
+		ginkgo.It("should allow to change queue name after scale up from zero (two-phase pattern)", func() {
+			invalidQueueName := fmt.Sprintf("%s-nonexistent", localQueueName)
+			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
+				Replicas(0).
+				Queue(invalidQueueName).
+				Obj()
+
+			ginkgo.By("Create StatefulSet with replicas=0 and invalid queue", func() {
+				util.MustCreate(ctx, k8sClient, statefulSet)
+			})
+
+			ginkgo.By("Scale up to 1 replica", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					createdStatefulSet.Spec.Replicas = ptr.To[int32](1)
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify pod is created and scheduling-gated with invalid queue", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(pods.Items).To(gomega.HaveLen(1))
+					g.Expect(pods.Items[0].Labels[controllerconstants.QueueLabel]).To(gomega.Equal(invalidQueueName))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify replicas are not ready", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.UID, statefulSet.Name), Namespace: ns.Name}
+
+			ginkgo.By("Update queue label to valid queue", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					createdStatefulSet.Labels[controllerconstants.QueueLabel] = localQueueName
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify pod queue label is updated to valid queue", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(pods.Items).ToNot(gomega.BeEmpty())
+					for _, pod := range pods.Items {
+						g.Expect(pod.Labels[controllerconstants.QueueLabel]).To(gomega.Equal(localQueueName))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify workload queue name is updated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName(localQueueName)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas to be ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check workload is admitted", func() {
+				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
+			})
+		})
+
 		ginkgo.It("should delete all Pods if StatefulSet was deleted after being partially ready", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
