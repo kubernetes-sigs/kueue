@@ -24,6 +24,7 @@ import (
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -279,7 +280,7 @@ func parseTaint(str string) (corev1.Taint, error) {
 		return taint, err
 	}
 
-	if errs := validation.IsQualifiedName(key); len(errs) > 0 {
+	if errs := content.IsLabelKey(key); len(errs) > 0 {
 		return taint, fmt.Errorf("invalid taint spec: %v, %s", str, strings.Join(errs, "; "))
 	}
 
@@ -345,7 +346,7 @@ func parseToleration(str string) (corev1.Toleration, error) {
 	}
 
 	if len(key) > 0 {
-		if errs := validation.IsQualifiedName(key); len(errs) > 0 {
+		if errs := content.IsLabelKey(key); len(errs) > 0 {
 			return toleration, fmt.Errorf("invalid toleration spec: %v, %s", str, strings.Join(errs, "; "))
 		}
 	}
