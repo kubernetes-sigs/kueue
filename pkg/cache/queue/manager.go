@@ -482,6 +482,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 	log := ctrl.LoggerFrom(ctx)
+	workload.AdjustResources(ctx, m.client, &w)
 	info.Update(log, &w)
 	q.AddOrUpdate(info)
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
