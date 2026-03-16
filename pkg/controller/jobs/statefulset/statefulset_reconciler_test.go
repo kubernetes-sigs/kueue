@@ -250,6 +250,7 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					JobUID("sts-uid").
 					Queue("lq").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Priority(0).
@@ -280,6 +281,7 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					JobUID("sts-uid").
 					Queue("lq").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Priority(0).

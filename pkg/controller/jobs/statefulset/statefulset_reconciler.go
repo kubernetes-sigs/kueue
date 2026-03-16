@@ -303,6 +303,11 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 
 	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, nil)
 
+	if wl.Labels == nil {
+		wl.Labels = make(map[string]string, 1)
+	}
+	wl.Labels[controllerconstants.JobUIDLabel] = string(sts.UID)
+
 	if err := controllerutil.SetOwnerReference(sts, wl, r.client.Scheme()); err != nil {
 		return nil, err
 	}
