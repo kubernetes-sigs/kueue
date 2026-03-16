@@ -496,6 +496,46 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:validation:Enum=Never;LowerPriority;LowerOrNewerEqualPriority
 	// +optional
 	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"`
+
+	// withinClusterQueueConfig provides additional configuration for the
+	// withinClusterQueue preemption policy. Only valid when withinClusterQueue
+	// is set to LowerOrNewerEqualPriority.
+	// +optional
+	WithinClusterQueueConfig *WithinClusterQueueConfig `json:"withinClusterQueueConfig,omitempty"`
+}
+
+// WithinClusterQueueConfig provides time-based preemption controls for
+// workloads within a ClusterQueue.
+type WithinClusterQueueConfig struct {
+	// minAdmitDurationSeconds specifies the minimum number of seconds an
+	// incumbent workload (one that was queued before the pending workload)
+	// must be admitted before it becomes eligible for preemption within the
+	// ClusterQueue. This protects workloads that legitimately earned their
+	// admission from being preempted too quickly, including by higher-priority
+	// workloads.
+	// If unset, incumbent workloads are never preemptible by same-priority
+	// workloads (existing behavior), and higher-priority workloads can
+	// preempt them immediately.
+	// When set, the minimum allowed value is 60 (1 minute).
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=60
+	MinAdmitDurationSeconds *int32 `json:"minAdmitDurationSeconds,omitempty"`
+
+	// opportunisticMinAdmitDurationSeconds specifies the minimum number of
+	// seconds a workload that was queued after the pending workload but
+	// admitted first (because it fit in remaining capacity) must be admitted
+	// before it becomes eligible for preemption. This gives opportunistically
+	// admitted workloads a guaranteed minimum runtime to make progress or
+	// checkpoint.
+	// If unset, such workloads are preemptible immediately by same-priority
+	// workloads (existing LowerOrNewerEqualPriority behavior) and by
+	// higher-priority workloads.
+	// When set, the minimum allowed value is 60 (1 minute).
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=60
+	OpportunisticMinAdmitDurationSeconds *int32 `json:"opportunisticMinAdmitDurationSeconds,omitempty"`
 }
 
 type BorrowWithinCohortPolicy string

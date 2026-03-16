@@ -77,6 +77,10 @@ type ClusterQueuePreemptionApplyConfiguration struct {
 	// either have a lower priority than the pending workload or equal priority
 	// and are newer than the pending workload.
 	WithinClusterQueue *kueuev1beta1.PreemptionPolicy `json:"withinClusterQueue,omitempty"`
+	// withinClusterQueueConfig provides additional configuration for the
+	// withinClusterQueue preemption policy. Only valid when withinClusterQueue
+	// is set to LowerOrNewerEqualPriority.
+	WithinClusterQueueConfig *WithinClusterQueueConfigApplyConfiguration `json:"withinClusterQueueConfig,omitempty"`
 }
 
 // ClusterQueuePreemptionApplyConfiguration constructs a declarative configuration of the ClusterQueuePreemption type for use with
@@ -106,5 +110,13 @@ func (b *ClusterQueuePreemptionApplyConfiguration) WithBorrowWithinCohort(value 
 // If called multiple times, the WithinClusterQueue field is set to the value of the last call.
 func (b *ClusterQueuePreemptionApplyConfiguration) WithWithinClusterQueue(value kueuev1beta1.PreemptionPolicy) *ClusterQueuePreemptionApplyConfiguration {
 	b.WithinClusterQueue = &value
+	return b
+}
+
+// WithWithinClusterQueueConfig sets the WithinClusterQueueConfig field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the WithinClusterQueueConfig field is set to the value of the last call.
+func (b *ClusterQueuePreemptionApplyConfiguration) WithWithinClusterQueueConfig(value *WithinClusterQueueConfigApplyConfiguration) *ClusterQueuePreemptionApplyConfiguration {
+	b.WithinClusterQueueConfig = value
 	return b
 }

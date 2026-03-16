@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -166,6 +167,38 @@ func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Pa
 		preemption.BorrowWithinCohort != nil &&
 		preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
 		allErrs = append(allErrs, field.Invalid(path, preemption, "reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"))
+	}
+	if preemption.WithinClusterQueueConfig != nil {
+		allErrs = append(allErrs, validateWithinClusterQueueConfig(preemption, path.Child("withinClusterQueueConfig"))...)
+	}
+	return allErrs
+}
+
+func validateWithinClusterQueueConfig(preemption *kueue.ClusterQueuePreemption, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	cfg := preemption.WithinClusterQueueConfig
+
+	if !features.Enabled(features.PreemptionGuaranteedRuntimeWithinCQ) {
+		allErrs = append(allErrs, field.Forbidden(path, "PreemptionGuaranteedRuntimeWithinCQ feature gate is not enabled"))
+		return allErrs
+	}
+
+	if preemption.WithinClusterQueue == kueue.PreemptionPolicyNever {
+		allErrs = append(allErrs, field.Invalid(path, cfg,
+			"withinClusterQueueConfig is not valid when withinClusterQueue is Never"))
+		return allErrs
+	}
+
+	var minSeconds int32 = 60
+	if cfg.MinAdmitDurationSeconds != nil && *cfg.MinAdmitDurationSeconds < minSeconds {
+		allErrs = append(allErrs, field.Invalid(path.Child("minAdmitDurationSeconds"),
+			*cfg.MinAdmitDurationSeconds,
+			"must be at least 60 (1 minute)"))
+	}
+	if cfg.OpportunisticMinAdmitDurationSeconds != nil && *cfg.OpportunisticMinAdmitDurationSeconds < minSeconds {
+		allErrs = append(allErrs, field.Invalid(path.Child("opportunisticMinAdmitDurationSeconds"),
+			*cfg.OpportunisticMinAdmitDurationSeconds,
+			"must be at least 60 (1 minute)"))
 	}
 	return allErrs
 }

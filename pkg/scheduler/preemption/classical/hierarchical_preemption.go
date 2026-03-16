@@ -17,6 +17,8 @@ limitations under the License.
 package classical
 
 import (
+	"time"
+
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -66,6 +68,7 @@ type HierarchicalPreemptionCtx struct {
 	FrsNeedPreemption sets.Set[resources.FlavorResource]
 	Requests          resources.FlavorResourceQuantities
 	WorkloadOrdering  workload.Ordering
+	Now               time.Time
 }
 
 func IsBorrowingWithinCohortForbidden(cq *schdcache.ClusterQueueSnapshot) (bool, *int32) {
@@ -84,13 +87,20 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	}
 
 	var preemptionPolicy kueue.PreemptionPolicy
+	var timeOpts *preemptioncommon.GuaranteedRuntimeCtx
 	if wl.ClusterQueue == ctx.Cq.Name {
 		preemptionPolicy = ctx.Cq.Preemption.WithinClusterQueue
+		if ctx.Cq.Preemption.WithinClusterQueueConfig != nil {
+			timeOpts = &preemptioncommon.GuaranteedRuntimeCtx{
+				WithinCQConfig: ctx.Cq.Preemption.WithinClusterQueueConfig,
+				Now:            ctx.Now,
+			}
+		}
 	} else {
 		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
 	}
 
-	if !preemptioncommon.SatisfiesPreemptionPolicy(ctx.Wl, wl.Obj, ctx.WorkloadOrdering, preemptionPolicy) {
+	if !preemptioncommon.SatisfiesPreemptionPolicy(ctx.Wl, wl.Obj, ctx.WorkloadOrdering, preemptionPolicy, timeOpts) {
 		return Never
 	}
 
