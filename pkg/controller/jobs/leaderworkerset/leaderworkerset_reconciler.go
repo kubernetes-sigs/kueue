@@ -246,6 +246,11 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	}
 	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, podSets, r.labelKeysToCopy)
 
+	if createdWorkload.Labels == nil {
+		createdWorkload.Labels = make(map[string]string, 1)
+	}
+	createdWorkload.Labels[constants.JobUIDLabel] = string(lws.UID)
+
 	// Add job owner annotations for reliable MultiKueue adapter lookup.
 	// These annotations persist even after Kubernetes GC removes owner references.
 	if createdWorkload.Annotations == nil {
