@@ -576,18 +576,14 @@ func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, 
 
 func mustAdmissionCheckState(g gomega.Gomega, updatedWl *kueue.Workload, admissionCheckName string, expectedState kueue.CheckState, expectedMessage string, podSetUpdates ...kueue.PodSetUpdate) {
 	ginkgo.GinkgoHelper()
-	getWLJSON := func() string {
-		wlJSON := toJSON(updatedWl)
-		return wlJSON
-	}
 	check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(admissionCheckName))
-	g.Expect(check).NotTo(gomega.BeNil(), getWLJSON)
-	g.Expect(check.State).To(gomega.Equal(expectedState), getWLJSON)
+	g.Expect(check).NotTo(gomega.BeNil())
+	g.Expect(check.State).To(gomega.Equal(expectedState))
 	if expectedMessage != "" {
-		g.Expect(check.Message).To(gomega.Equal(expectedMessage), getWLJSON)
+		g.Expect(check.Message).To(gomega.Equal(expectedMessage))
 	}
 	if len(podSetUpdates) > 0 {
-		g.Expect(check.PodSetUpdates).To(gomega.BeComparableTo(podSetUpdates), getWLJSON)
+		g.Expect(check.PodSetUpdates).To(gomega.BeComparableTo(podSetUpdates))
 	}
 }
 
@@ -597,7 +593,7 @@ func ExpectAdmissionCheckStateWithMessage(ctx context.Context, c client.Client, 
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 		mustAdmissionCheckState(g, updatedWl, admissionCheckName, expectedState, expectedMessage, podSetUpdates...)
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, MediumTimeout, Interval).Should(gomega.Succeed(), assertMsg("Message or state did not match for the admission check", updatedWl))
 }
 
 func ExpectAdmissionCheckState(ctx context.Context, c client.Client, wlKey client.ObjectKey, admissionCheckName string, expectedState kueue.CheckState, podSetUpdates ...kueue.PodSetUpdate) {
@@ -611,7 +607,7 @@ func ConsistentlyAdmissionCheckStateWithMessage(ctx context.Context, c client.Cl
 	gomega.Consistently(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 		mustAdmissionCheckState(g, updatedWl, admissionCheckName, expectedState, expectedMessage, podSetUpdates...)
-	}, ConsistentDuration, ShortInterval).Should(gomega.Succeed())
+	}, ConsistentDuration, ShortInterval).Should(gomega.Succeed(), assertMsg("Message or state did not match for the admission check", updatedWl))
 }
 
 func ConsistentlyAdmissionCheckState(ctx context.Context, c client.Client, wlKey client.ObjectKey, admissionCheckName string, expectedState kueue.CheckState, podSetUpdates ...kueue.PodSetUpdate) {
