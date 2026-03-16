@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1039,7 +1040,7 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 			return err
 		}
 
-		if errs := validation.IsValidLabelValue(string(object.GetUID())); len(errs) == 0 {
+		if errs := content.IsLabelValue(string(object.GetUID())); len(errs) == 0 {
 			if wl.Labels == nil {
 				wl.Labels = make(map[string]string, 1)
 			}
@@ -1295,7 +1296,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		wl.Labels = make(map[string]string)
 	}
 	jobUID := string(job.Object().GetUID())
-	if errs := validation.IsValidLabelValue(jobUID); len(errs) == 0 {
+	if errs := content.IsLabelValue(jobUID); len(errs) == 0 {
 		wl.Labels[controllerconsts.JobUIDLabel] = jobUID
 	} else {
 		log.V(2).Info(

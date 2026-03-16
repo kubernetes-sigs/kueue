@@ -21,9 +21,9 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metavalidation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -103,7 +103,7 @@ func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorL
 		// validate the taint key
 		allErrors = append(allErrors, metavalidation.ValidateLabelName(currTaint.Key, idxPath.Child("key"))...)
 		// validate the taint value
-		if errs := validation.IsValidLabelValue(currTaint.Value); len(errs) != 0 {
+		if errs := content.IsLabelValue(currTaint.Value); len(errs) != 0 {
 			allErrors = append(allErrors, field.Invalid(idxPath.Child("value"), currTaint.Value, strings.Join(errs, ";")))
 		}
 

@@ -24,6 +24,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap/zapcore"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -151,7 +152,7 @@ func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) 
 		for _, err := range validation.IsQualifiedName(name) {
 			validationErrors = append(validationErrors, fmt.Errorf("name %q: %s", name, err))
 		}
-		for _, err := range validation.IsValidLabelValue(value) {
+		for _, err := range content.IsLabelValue(value) {
 			validationErrors = append(validationErrors, fmt.Errorf("label %q value %q: %s", name, value, err))
 		}
 	}
