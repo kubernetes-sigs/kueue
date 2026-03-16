@@ -155,9 +155,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Obj(),
 			).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
-			Preemption(kueue.ClusterQueuePreemption{
-				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-			}).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
 
@@ -181,9 +178,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Resource(corev1.ResourceEphemeralStorage, "15G").
 					Obj(),
 			).
-			Preemption(kueue.ClusterQueuePreemption{
-				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-			}).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
 
@@ -868,6 +862,15 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.It("Should preempt a running low-priority workload on a worker when a high-priority workload is admitted to it by manager", func() {
+			ginkgo.By("Enabling preemption on worker2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(worker2Cq), worker2Cq)).To(gomega.Succeed())
+					worker2Cq.Spec.Preemption = &kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}
+					g.Expect(k8sWorker2Client.Update(ctx, worker2Cq)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 			lowJob := testingjob.MakeJob("low-job", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerLowWPC.Name).
