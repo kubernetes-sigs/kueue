@@ -117,15 +117,13 @@ func concurrent[T any](set T, count func(T) int, call func(int) error) error {
 		close(done)
 	}()
 	total := count(set)
-	wg.Add(total)
 	for i := range total {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			err := call(i)
 			if err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)

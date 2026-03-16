@@ -1099,7 +1099,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 			setClusterStatusPending := func() {
 				defer ginkgo.GinkgoRecover()
-				defer wg.Done()
 
 				for {
 					var updatedCq kueue.ClusterQueue
@@ -1129,9 +1128,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				}
 			}
 
-			wg.Add(nGoroutines)
 			for range nGoroutines {
-				go setClusterStatusPending()
+				wg.Go(setClusterStatusPending)
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {

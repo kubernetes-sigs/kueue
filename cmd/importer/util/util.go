@@ -257,15 +257,13 @@ func ConcurrentProcessPod(ch <-chan corev1.Pod, jobs uint, f func(p *corev1.Pod)
 	wg := sync.WaitGroup{}
 	resultCh := make(chan Result)
 
-	wg.Add(int(jobs))
 	for range int(jobs) {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for pod := range ch {
 				skip, err := f(&pod)
 				resultCh <- Result{Pod: client.ObjectKeyFromObject(&pod).String(), Err: err, Skip: skip}
 			}
-		}()
+		})
 	}
 	go func() {
 		wg.Wait()
