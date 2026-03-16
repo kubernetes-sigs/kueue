@@ -98,8 +98,12 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 					To(gomega.Succeed())
 				g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+
 			createdWorkload := &kueue.Workload{}
-			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			ginkgo.By("Checking that the workload is created and has JobUID label", func() {
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(createdWorkload.Labels[controllerconstants.JobUIDLabel]).To(gomega.Equal(string(statefulSet.UID)))
+			})
 
 			ginkgo.By("Creating potentially conflicting stateful-set", func() {
 				conflictingStatefulSet := statefulsettesting.MakeStatefulSet("sts-conflict", ns.Name).
