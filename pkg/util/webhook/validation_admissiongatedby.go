@@ -34,11 +34,12 @@ const MaxGateNameLengthForAdmissionGatedBy = 63
 var admissionGatedByAnnotationsPath = field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation)
 
 func ValidateAdmissionGatedByAnnotationOnCreate(obj client.Object) field.ErrorList {
-	var newValue *string
+	var newValue = ""
 	if val, exists := obj.GetAnnotations()[constants.AdmissionGatedByAnnotation]; exists {
-		newValue = &val
+		newValue = val
 	}
-	return ValidateAdmissionGatedByAnnotation(nil, newValue, false)
+
+	return validateAdmissionGatedByAnnotationFormat(newValue)
 }
 
 func ValidateAdmissionGatedByAnnotationOnUpdate(oldObj, newObj client.Object) field.ErrorList {
@@ -49,14 +50,6 @@ func ValidateAdmissionGatedByAnnotationOnUpdate(oldObj, newObj client.Object) fi
 	if val, exists := newObj.GetAnnotations()[constants.AdmissionGatedByAnnotation]; exists {
 		newValue = &val
 	}
-	return ValidateAdmissionGatedByAnnotation(oldValue, newValue, true)
-}
-
-// ValidateAdmissionGatedByAnnotation validates the AdmissionGatedBy annotation.
-// oldValue and newValue are pointers to allow distinguishing between "annotation doesn't exist" (nil)
-// and "annotation exists but is empty" ("").
-// isUpdate indicates whether this is an update operation (true) or create operation (false).
-func ValidateAdmissionGatedByAnnotation(oldValue, newValue *string, isUpdate bool) field.ErrorList {
 	var allErrs field.ErrorList
 
 	// Get actual values, treating nil as empty string for comparison
@@ -69,54 +62,65 @@ func ValidateAdmissionGatedByAnnotation(oldValue, newValue *string, isUpdate boo
 		newVal = *newValue
 	}
 
-	if isUpdate {
-		// Cannot add annotation after creation (oldValue was nil or empty, newValue is non-empty)
-		if (oldValue == nil || oldVal == "") && newVal != "" {
-			allErrs = append(allErrs, field.Forbidden(admissionGatedByAnnotationsPath,
-				"cannot add admission gate after creation"))
-		}
+	// Cannot add annotation after creation (oldValue was nil or empty, newValue is non-empty)
+	if (oldValue == nil || oldVal == "") && newVal != "" {
+		allErrs = append(allErrs, field.Forbidden(admissionGatedByAnnotationsPath,
+			"cannot add admission gate after creation"))
+	}
 
-		// Can only remove gates or remove entire annotation
-		if oldVal != "" && newVal != "" {
-			oldGates := admissiongates.Parse(oldVal)
+	// Can only remove gates or remove entire annotation
+	if oldVal != "" && newVal != "" {
+		oldGates := admissiongates.Parse(oldVal)
 
-			for _, newGate := range admissiongates.Parse(newVal) {
-				if !slices.Contains(oldGates, newGate) {
-					allErrs = append(allErrs, field.Forbidden(admissionGatedByAnnotationsPath,
-						"can only remove gates, not add new ones"))
-					break
-				}
+		for _, newGate := range admissiongates.Parse(newVal) {
+			if !slices.Contains(oldGates, newGate) {
+				allErrs = append(allErrs, field.Forbidden(admissionGatedByAnnotationsPath,
+					"can only remove gates, not add new ones"))
+				break
 			}
 		}
 	}
 
 	// Validate format if annotation is present and non-empty
-	if newVal != "" {
-		gates := admissiongates.Parse(newVal)
+	allErrs = append(allErrs, validateAdmissionGatedByAnnotationFormat(newVal)...)
 
-		seen := make(map[string]bool)
+	return allErrs
+}
 
-		for _, gate := range gates {
-			// Check for empty gates
-			if gate == "" {
-				allErrs = append(allErrs, field.Invalid(admissionGatedByAnnotationsPath, newVal,
-					"cannot contain empty gate names"))
-				continue
-			}
+// validateAdmissionGatedByAnnotationFormat validates the format of the AdmissionGatedBy annotation value.
+// This is common validation logic used by both create and update operations.
+func validateAdmissionGatedByAnnotationFormat(value string) field.ErrorList {
+	var allErrs field.ErrorList
 
-			// Check for duplicates
-			if seen[gate] {
-				allErrs = append(allErrs, field.Invalid(admissionGatedByAnnotationsPath, newVal,
-					fmt.Sprintf("duplicate gate name: %s", gate)))
-				continue
-			}
-			seen[gate] = true
+	// Only validate if value is non-empty
+	if value == "" {
+		return allErrs
+	}
 
-			allErrs = append(allErrs, validation.IsDomainPrefixedPath(admissionGatedByAnnotationsPath, gate)...)
+	gates := admissiongates.Parse(value)
+	seen := make(map[string]bool)
 
-			if len(gate) > MaxGateNameLengthForAdmissionGatedBy {
-				allErrs = append(allErrs, field.TooLong(admissionGatedByAnnotationsPath, "" /*unused*/, MaxGateNameLengthForAdmissionGatedBy))
-			}
+	for _, gate := range gates {
+		// Check for empty gates
+		if gate == "" {
+			allErrs = append(allErrs, field.Invalid(admissionGatedByAnnotationsPath, value,
+				"cannot contain empty gate names"))
+			continue
+		}
+
+		// Check for duplicates
+		if seen[gate] {
+			allErrs = append(allErrs, field.Invalid(admissionGatedByAnnotationsPath, value,
+				fmt.Sprintf("duplicate gate name: %s", gate)))
+			continue
+		}
+		seen[gate] = true
+
+		// This is the same test that kubernetes uses for the spec.ManagedBy field of Jobs
+		allErrs = append(allErrs, validation.IsDomainPrefixedPath(admissionGatedByAnnotationsPath, gate)...)
+
+		if len(gate) > MaxGateNameLengthForAdmissionGatedBy {
+			allErrs = append(allErrs, field.TooLong(admissionGatedByAnnotationsPath, "" /*unused*/, MaxGateNameLengthForAdmissionGatedBy))
 		}
 	}
 

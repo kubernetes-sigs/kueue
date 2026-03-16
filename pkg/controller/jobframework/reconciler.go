@@ -1017,6 +1017,25 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	return match, nil
 }
 
+func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload) error {
+	if !features.Enabled(features.AdmissionGatedBy) {
+		return nil
+	}
+
+	if err := clientutil.Patch(ctx, c, wl, func() (bool, error) {
+		return CopyAdmissionGatedByButNoUpdate(obj, wl), nil
+	}); err != nil {
+		return fmt.Errorf("updating the AdmissionGatedBy of existing workload: %w", err)
+	}
+
+	r.Eventf(obj,
+		corev1.EventTypeNormal, ReasonUpdatedWorkload,
+		"Updated workload AdmissionGatedBy to %q", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
+	)
+
+	return nil
+}
+
 func CopyAdmissionGatedByButNoUpdate(obj client.Object, wl *kueue.Workload) bool {
 	if !features.Enabled(features.AdmissionGatedBy) {
 		return false
@@ -1045,25 +1064,6 @@ func CopyAdmissionGatedByButNoUpdate(obj client.Object, wl *kueue.Workload) bool
 	}
 
 	return false
-}
-
-func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload) error {
-	if !features.Enabled(features.AdmissionGatedBy) {
-		return nil
-	}
-
-	if err := clientutil.Patch(ctx, c, wl, func() (bool, error) {
-		return CopyAdmissionGatedByButNoUpdate(obj, wl), nil
-	}); err != nil {
-		return fmt.Errorf("updating the AdmissionGatedBy of existing workload: %w", err)
-	}
-
-	r.Eventf(obj,
-		corev1.EventTypeNormal, ReasonUpdatedWorkload,
-		"Updated workload AdmissionGatedBy to %q", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
-	)
-
-	return nil
 }
 
 // UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.

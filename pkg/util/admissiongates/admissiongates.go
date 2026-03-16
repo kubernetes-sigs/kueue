@@ -18,6 +18,8 @@ package admissiongates
 
 import "strings"
 
+// Parsers a string containing comma-separated AdmissionGate names and removes
+// leading and trailing spaces around Gate names
 func Parse(s string) []string {
 	if strings.TrimSpace(s) == "" {
 		return []string{}
