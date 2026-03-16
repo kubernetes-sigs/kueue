@@ -1414,7 +1414,7 @@ func NewGroupWorkload(name string, obj client.Object, podSets []kueue.PodSet, la
 	wl.Annotations[podconstants.IsGroupWorkloadAnnotationKey] = podconstants.IsGroupWorkloadAnnotationValue
 
 	if features.Enabled(features.AdmissionGatedBy) {
-		jobframework.CopyAdmissionGatedByButNoUpdate(obj, wl)
+		jobframework.PropagateAdmissionGatedByAnnotation(obj, wl)
 	}
 
 	return wl

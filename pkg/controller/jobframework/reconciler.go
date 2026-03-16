@@ -1023,7 +1023,7 @@ func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r record.Event
 	}
 
 	if err := clientutil.Patch(ctx, c, wl, func() (bool, error) {
-		return CopyAdmissionGatedByButNoUpdate(obj, wl), nil
+		return PropagateAdmissionGatedByAnnotation(obj, wl), nil
 	}); err != nil {
 		return fmt.Errorf("updating the AdmissionGatedBy of existing workload: %w", err)
 	}
@@ -1036,7 +1036,9 @@ func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r record.Event
 	return nil
 }
 
-func CopyAdmissionGatedByButNoUpdate(obj client.Object, wl *kueue.Workload) bool {
+// PropagateAdmissionGatedByAnnotation copies the AdmissionGatedBy annotation from the given object to
+// workload object but only in memory. It does not persist the changes to the API server.
+func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) bool {
 	if !features.Enabled(features.AdmissionGatedBy) {
 		return false
 	}
@@ -1230,7 +1232,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	}
 	wl.Spec = newWl.Spec
 
-	CopyAdmissionGatedByButNoUpdate(object, wl)
+	PropagateAdmissionGatedByAnnotation(object, wl)
 
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)

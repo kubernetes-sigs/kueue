@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
-	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -71,7 +70,7 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(enableScheduler bool, opts ...jobframework.Option) framework.ManagerSetup {
+func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -117,12 +116,6 @@ func managerSetup(enableScheduler bool, opts ...jobframework.Option) framework.M
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		jobframework.EnableIntegration(statefulset.FrameworkName)
-
-		if enableScheduler {
-			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptexpectations.New()))
-			err = sched.Start(ctx)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
 
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

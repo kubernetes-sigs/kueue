@@ -258,7 +258,7 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	}
 
 	if features.Enabled(features.AdmissionGatedBy) {
-		gateUpdated := jobframework.CopyAdmissionGatedByButNoUpdate(sts, wl)
+		gateUpdated := jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
 		shouldUpdate = gateUpdated || shouldUpdate
 	}
 
@@ -324,7 +324,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 	wl.Annotations[controllerconstants.JobOwnerNameAnnotation] = sts.Name
 
 	if features.Enabled(features.AdmissionGatedBy) {
-		jobframework.CopyAdmissionGatedByButNoUpdate(sts, wl)
+		jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
 	}
 
 	if err := controllerutil.SetOwnerReference(sts, wl, r.client.Scheme()); err != nil {
