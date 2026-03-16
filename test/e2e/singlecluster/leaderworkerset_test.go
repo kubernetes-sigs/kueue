@@ -117,6 +117,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 			createdWorkload := &kueue.Workload{}
 			ginkgo.By("Check workload is created", func() {
 				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(createdWorkload.Labels[ctrlconstants.JobUIDLabel]).To(gomega.Equal(string(lws.UID)))
 			})
 
 			ginkgo.By("Delete the LeaderWorkerSet", func() {
