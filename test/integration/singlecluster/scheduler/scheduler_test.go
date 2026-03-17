@@ -3219,26 +3219,45 @@ var _ = ginkgo.Describe("Scheduler with AdmissionGatedBy", ginkgo.Label("admissi
 
 		createdWorkload := &kueue.Workload{}
 
-		ginkgo.By("Verifying the workload remains non-admissible after removing 1 gate")
+		ginkgo.By("Verifying the workload is initially gated with multiple gates")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(
+				constants.AdmissionGatedByAnnotation, initialGateValue))
+			// The Workload controller sets the condition message is when it first detects that the workload is AdmissionGated.
+			// The message should not change when the annotation value is modified.
+			g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElement(
+				gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmissionGated,
+					Message: fmt.Sprintf("Admission is gated by: %s", initialGateValue),
+				}, util.IgnoreConditionTimestampsAndObservedGeneration),
+			))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+		ginkgo.By("Updating the annotation to remove one gate")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWorkload)).Should(gomega.Succeed())
 			createdWorkload.Annotations[constants.AdmissionGatedByAnnotation] = updatedGateValue
 			g.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+		ginkgo.By("Verifying the workload remains non-admissible with the original condition message")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(
 				constants.AdmissionGatedByAnnotation, updatedGateValue))
 			g.Expect(workload.IsAdmitted(createdWorkload)).Should(gomega.BeFalse())
 			g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
+			// The condition message reflects the initial gate value, not the updated one.
+			// This is expected behavior: the controller only sets the message when first detecting the annotation.
 			g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElement(
 				gomega.BeComparableTo(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadAdmissionGated,
-					Message: fmt.Sprintf("Admission is gated by: %s", updatedGateValue),
+					Message: fmt.Sprintf("Admission is gated by: %s", initialGateValue),
 				}, util.IgnoreConditionTimestampsAndObservedGeneration),
 			))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
