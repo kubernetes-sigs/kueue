@@ -78,7 +78,7 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager) {
+func managerSetup(transformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager) {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -93,11 +93,11 @@ func managerSetup(resourceTransformations ...config.ResourceTransformation) func
 		mgr.GetScheme().Default(controllersCfg)
 
 		cacheOptions := []schdcache.Option{
-			schdcache.WithResourceTransformations(resourceTransformations),
+			schdcache.WithResourceTransformations(transformations),
 		}
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		queueOptions := []qcache.Option{
-			qcache.WithResourceTransformations(resourceTransformations),
+			qcache.WithResourceTransformations(transformations),
 		}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 		qManager = queues
