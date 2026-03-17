@@ -19,6 +19,8 @@ package preemptioncommon
 import (
 	"time"
 
+	"github.com/go-logr/logr"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -27,9 +29,9 @@ import (
 
 const timestampPreemptionBuffer = 5 * time.Minute
 
-func SatisfiesPreemptionPolicy(preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy) bool {
-	preemptorPriority := priority.Priority(preemptor)
-	candidatePriority := priority.Priority(candidate)
+func SatisfiesPreemptionPolicy(log logr.Logger, preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy) bool {
+	preemptorPriority := priority.EffectivePriority(log, preemptor)
+	candidatePriority := priority.EffectivePriority(log, candidate)
 
 	lowerPriority := preemptorPriority > candidatePriority
 	if policy == kueue.PreemptionPolicyLowerPriority {

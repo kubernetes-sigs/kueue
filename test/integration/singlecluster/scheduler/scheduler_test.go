@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -642,6 +643,52 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, "", 4)
 				util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 4)
 			})
+		})
+
+		ginkgo.It("when PriorityBoost is enabled, boosting a low-priority pending workload preempts the running workload", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
+			const lowPrio, midPrio = 0, 10
+			// preemptionClusterQ has 3 CPU and allows within-cluster preemption by effective priority
+			wlMid1 := utiltestingapi.MakeWorkload("wl-mid-1", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(midPrio).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlMid1)
+			ginkgo.By("first mid priority workload gets admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlMid1)
+
+			wlMid2 := utiltestingapi.MakeWorkload("wl-mid-2", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(midPrio).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlMid2)
+			ginkgo.By("second mid priority workload is pending")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlMid2)
+
+			wlLow := utiltestingapi.MakeWorkload("wl-low", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(lowPrio).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlLow)
+			ginkgo.By("low priority workload is pending (two pending workloads)")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlMid2, wlLow)
+
+			ginkgo.By("boost the low priority workload to be high")
+			var wl kueue.Workload
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlLow), &wl)).To(gomega.Succeed())
+			original := wl.DeepCopy()
+			if wl.Annotations == nil {
+				wl.Annotations = make(map[string]string)
+			}
+			wl.Annotations[constants.PriorityBoostAnnotationKey] = "100"
+			gomega.Expect(k8sClient.Patch(ctx, &wl, client.MergeFrom(original))).To(gomega.Succeed())
+
+			ginkgo.By("boosted workload is admitted and preempts the running workload")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlLow)
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlMid1)
 		})
 
 		ginkgo.When("Hold LocalQueue at startup", func() {

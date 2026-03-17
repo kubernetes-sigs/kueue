@@ -65,8 +65,8 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 		},
 		func() int {
 			return cmp.Compare(
-				priority.Priority(a.Obj),
-				priority.Priority(b.Obj),
+				priority.EffectivePriority(log, a.Obj),
+				priority.EffectivePriority(log, b.Obj),
 			)
 		},
 		func() int {

@@ -251,7 +251,6 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
 The annotation key is used to indicate the integration name of the Pod owner.
 
-
 ### kueue.x-k8s.io/prebuilt-workload-name
 
 Type: Label
@@ -266,6 +265,22 @@ is created. In other scenarios the behavior is undefined.
 
 Note: When using `kueue.x-k8s.io/pod-group-name`, the prebuilt workload name
 and the pod group name should be the same.
+
+### kueue.x-k8s.io/priority-boost
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/priority-boost: "10"`
+
+Used on: [Workload](/docs/concepts/workload/).
+
+An optional signed integer that adjusts a workload's effective priority:
+`effectivePriority = workloadPriority + priorityBoost`.
+Positive values increase priority; negative values decrease it.
+The effective priority is used for both scheduling order and preemption candidate ordering.
+This annotation is intended to be set directly on Workloads by external controllers (not propagated from Jobs).
+If the value is missing or empty, it is treated as `0`.
+If the value is invalid, Workload create or update is **rejected** by the admission webhook.
 
 ### kueue.x-k8s.io/priority-class
 

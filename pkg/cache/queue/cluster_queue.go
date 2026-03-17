@@ -729,8 +729,9 @@ func baseCompareFunc(log logr.Logger, wo workload.Ordering, sw *stickyWorkload) 
 			return 1
 		}
 
-		p1 := utilpriority.Priority(a.Obj)
-		p2 := utilpriority.Priority(b.Obj)
+		p1 := utilpriority.EffectivePriority(log, a.Obj)
+		p2 := utilpriority.EffectivePriority(log, b.Obj)
+		// Higher priority comes first (reverse order).
 		if cmpResult := cmp.Compare(p2, p1); cmpResult != 0 {
 			return cmpResult
 		}

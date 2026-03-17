@@ -32,13 +32,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
+
+// priorityBoostAnnotationPath is the field path for the priority-boost annotation, used in validation errors.
+var priorityBoostAnnotationPath = field.NewPath("metadata", "annotations").Key(controllerconstants.PriorityBoostAnnotationKey)
 
 type WorkloadWebhook struct{}
 
@@ -118,6 +123,19 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, statusPath.Child("conditions"))...)
 	allErrs = append(allErrs, validateReclaimablePods(obj, statusPath.Child("reclaimablePods"))...)
 	allErrs = append(allErrs, validateAdmissionChecks(obj, statusPath.Child("admissionChecks"))...)
+
+	// KEP-7990: when priority-boost annotation is set, it must be a valid signed integer; invalid values cause rejection.
+	// Missing key is valid (treated as 0). If the key is present, the value must not be empty; use "0" explicitly.
+	if features.Enabled(features.PriorityBoost) {
+		value, hasKey := obj.Annotations[controllerconstants.PriorityBoostAnnotationKey]
+		if hasKey && value == "" {
+			allErrs = append(allErrs, field.Invalid(priorityBoostAnnotationPath, value, "must be a valid signed integer; use \"0\" explicitly, empty string is not allowed"))
+		} else if hasKey {
+			if _, err := priority.ParseEffectivePriority(obj); err != nil {
+				allErrs = append(allErrs, field.Invalid(priorityBoostAnnotationPath, value, "must be a valid signed integer"))
+			}
+		}
+	}
 
 	return allErrs
 }

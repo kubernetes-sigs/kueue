@@ -314,6 +314,13 @@ const (
 	// Enables preemption orchestration in MultiKueue worker clusters, preventing
 	// concurrent preemptions causing disruptions to other workloads.
 	MultiKueueOrchestratedPreemption featuregate.Feature = "MultiKueueOrchestratedPreemption"
+
+	// owner: @vladikkuzn
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7990-preemption-cost
+	//
+	// Enable priority boost via the kueue.x-k8s.io/priority-boost annotation,
+	// allowing external controllers to adjust a workload's effective priority.
+	PriorityBoost featuregate.Feature = "PriorityBoost"
 )
 
 func init() {
@@ -487,6 +494,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	MultiKueueOrchestratedPreemption: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	PriorityBoost: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

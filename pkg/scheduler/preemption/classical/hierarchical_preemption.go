@@ -90,7 +90,7 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
 	}
 
-	if !preemptioncommon.SatisfiesPreemptionPolicy(ctx.Wl, wl.Obj, ctx.WorkloadOrdering, preemptionPolicy) {
+	if !preemptioncommon.SatisfiesPreemptionPolicy(ctx.Log, ctx.Wl, wl.Obj, ctx.WorkloadOrdering, preemptionPolicy) {
 		return Never
 	}
 
@@ -104,22 +104,22 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	if borrowWithinCohortForbidden {
 		return ReclaimWithoutBorrowing
 	}
-	candidatePriority := priority.Priority(wl.Obj)
-	incomingPriority := priority.Priority(ctx.Wl)
+	candidatePriority := priority.EffectivePriority(ctx.Log, wl.Obj)
+	incomingPriority := priority.EffectivePriority(ctx.Log, ctx.Wl)
 	if isAboveBorrowingThreshold(candidatePriority, incomingPriority, borrowWithinCohortThreshold) {
 		return ReclaimWithoutBorrowing
 	}
 	return ReclaimWhileBorrowing
 }
 
-func isAboveBorrowingThreshold(candidatePriority, incomingPriority int32, borrowWithinCohortThreshold *int32) bool {
+func isAboveBorrowingThreshold(candidatePriority, incomingPriority int64, borrowWithinCohortThreshold *int32) bool {
 	if candidatePriority >= incomingPriority {
 		return true
 	}
 	if borrowWithinCohortThreshold == nil {
 		return false
 	}
-	return candidatePriority > *borrowWithinCohortThreshold
+	return candidatePriority > int64(*borrowWithinCohortThreshold)
 }
 
 func collectSameQueueCandidates(ctx *HierarchicalPreemptionCtx) []*candidateElem {

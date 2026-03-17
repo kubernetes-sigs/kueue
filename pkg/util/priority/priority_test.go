@@ -17,6 +17,7 @@ limitations under the License.
 package priority
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -24,10 +25,13 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -208,6 +212,171 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 
 			if value != tt.wantPriorityClassValue {
 				t.Errorf("unexpected value: got: %d, expected: %d", value, tt.wantPriorityClassValue)
+			}
+		})
+	}
+}
+
+func TestPriorityBoost(t *testing.T) {
+	tests := map[string]struct {
+		workload     *kueue.Workload
+		wantBoost    int32
+		wantErr      bool
+		featureGates map[featuregate.Feature]bool
+	}{
+		"annotation not set": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Obj(),
+			wantBoost:    0,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"positive boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").Obj(),
+			wantBoost:    100,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"negative boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "-50").Obj(),
+			wantBoost:    -50,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"zero boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "0").Obj(),
+			wantBoost:    0,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"empty string": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "").Obj(),
+			wantBoost:    0,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"invalid value": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").Obj(),
+			wantBoost:    0,
+			wantErr:      true,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"feature gate disabled": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").Obj(),
+			wantBoost:    0,
+			wantErr:      false,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: false},
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			for fg, enable := range tt.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enable)
+			}
+			got, err := PriorityBoost(tt.workload)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PriorityBoost() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.wantBoost {
+				t.Errorf("PriorityBoost() = %d, want %d", got, tt.wantBoost)
+			}
+		})
+	}
+}
+
+func TestParseEffectivePriority(t *testing.T) {
+	tests := map[string]struct {
+		workload     *kueue.Workload
+		wantPriority int64
+		wantErr      bool
+		featureGates map[featuregate.Feature]bool
+	}{
+		"no boost annotation": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Obj(),
+			wantPriority: 200,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"positive boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "50").Obj(),
+			wantPriority: 250,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"negative boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "-100").Obj(),
+			wantPriority: 100,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"boost crosses priority class boundaries": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(100).Annotation(controllerconstants.PriorityBoostAnnotationKey, "150").Obj(),
+			wantPriority: 250,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"effective priority widens beyond int32 max": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(math.MaxInt32).Annotation(controllerconstants.PriorityBoostAnnotationKey, "1").Obj(),
+			wantPriority: int64(math.MaxInt32) + 1,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"effective priority widens below int32 min": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(math.MinInt32).Annotation(controllerconstants.PriorityBoostAnnotationKey, "-1").Obj(),
+			wantPriority: int64(math.MinInt32) - 1,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"invalid boost defaults to zero": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").Obj(),
+			wantPriority: 200,
+			wantErr:      true,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			for fg, enable := range tt.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enable)
+			}
+			got, err := ParseEffectivePriority(tt.workload)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseEffectivePriority() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.wantPriority {
+				t.Errorf("ParseEffectivePriority() = %d, want %d", got, tt.wantPriority)
+			}
+		})
+	}
+}
+
+func TestEffectivePriority(t *testing.T) {
+	tests := map[string]struct {
+		workload     *kueue.Workload
+		wantPriority int64
+		featureGates map[featuregate.Feature]bool
+	}{
+		"no boost annotation": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Obj(),
+			wantPriority: 200,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"positive boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "50").Obj(),
+			wantPriority: 250,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"negative boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "-100").Obj(),
+			wantPriority: 100,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"invalid boost defaults to zero": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").Obj(),
+			wantPriority: 200,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			for fg, enable := range tt.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enable)
+			}
+			_, log := utiltesting.ContextWithLog(t)
+			got := EffectivePriority(log, tt.workload)
+			if got != tt.wantPriority {
+				t.Errorf("EffectivePriority() = %d, want %d", got, tt.wantPriority)
 			}
 		})
 	}

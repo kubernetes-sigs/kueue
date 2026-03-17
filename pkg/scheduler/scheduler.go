@@ -773,7 +773,7 @@ func makeIterator(ctx context.Context, entries []entry, workloadOrdering workloa
 	if enableFairSharing {
 		return makeFairSharingIterator(ctx, entries, workloadOrdering)
 	}
-	return makeClassicalIterator(entries, workloadOrdering)
+	return makeClassicalIterator(ctrl.LoggerFrom(ctx), entries, workloadOrdering)
 }
 
 // classicalIterator returns entries ordered on:
@@ -795,7 +795,7 @@ func (co *classicalIterator) pop() *entry {
 	return head
 }
 
-func makeClassicalIterator(entries []entry, workloadOrdering workload.Ordering) *classicalIterator {
+func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering workload.Ordering) *classicalIterator {
 	slices.SortFunc(entries, func(a, b entry) int {
 		// First process workloads which already have quota reserved. Such workload
 		// may be considered if this is their second pass.
@@ -817,8 +817,8 @@ func makeClassicalIterator(entries []entry, workloadOrdering workload.Ordering) 
 
 		// 2. Higher priority first if not disabled.
 		if features.Enabled(features.PrioritySortingWithinCohort) {
-			p1 := priority.Priority(a.Obj)
-			p2 := priority.Priority(b.Obj)
+			p1 := priority.EffectivePriority(log, a.Obj)
+			p2 := priority.EffectivePriority(log, b.Obj)
 			if p1 != p2 {
 				return cmp.Compare(p2, p1)
 			}

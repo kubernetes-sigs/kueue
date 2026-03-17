@@ -25,9 +25,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -50,8 +52,9 @@ func TestValidateWorkload(t *testing.T) {
 	podSetUpdatePath := firstAdmissionChecksPath.Child("podSetUpdates")
 	firstPodSetSpecPath := podSetsPath.Index(0).Child("template", "spec")
 	testCases := map[string]struct {
-		workload *kueue.Workload
-		wantErr  field.ErrorList
+		featureGates map[featuregate.Feature]bool
+		workload     *kueue.Workload
+		wantErr      field.ErrorList
 	}{
 		"valid": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
@@ -225,9 +228,61 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath, nil, ""),
 			},
 		},
+		"valid priority-boost": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "10").
+				Obj(),
+			wantErr: nil,
+		},
+		"valid priority-boost zero": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "0").
+				Obj(),
+			wantErr: nil,
+		},
+		"valid priority-boost negative": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "-5").
+				Obj(),
+			wantErr: nil,
+		},
+		"invalid priority-boost": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(priorityBoostAnnotationPath, "invalid", "must be a valid signed integer"),
+			},
+		},
+		"missing priority-boost annotation": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"invalid priority-boost when feature off": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: false},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
+				Obj(),
+			wantErr: nil,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			for f, v := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, f, v)
+			}
 			gotErr := ValidateWorkload(tc.workload)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)

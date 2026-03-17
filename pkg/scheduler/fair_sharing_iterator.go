@@ -42,12 +42,14 @@ type fairSharingIterator struct {
 }
 
 func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering) *fairSharingIterator {
+	log := ctrl.LoggerFrom(ctx)
 	f := fairSharingIterator{
 		cqToEntry: make(map[*schdcache.ClusterQueueSnapshot]*entry, len(entries)),
 		entryComparer: entryComparer{
+			log:              log,
 			workloadOrdering: workloadOrdering,
 		},
-		log: ctrl.LoggerFrom(ctx),
+		log: log,
 	}
 	for i := range entries {
 		f.cqToEntry[entries[i].clusterQueueSnapshot] = &entries[i]
@@ -159,6 +161,7 @@ type drsKey struct {
 }
 
 type entryComparer struct {
+	log              logr.Logger
 	drsValues        map[drsKey]schdcache.DRS
 	workloadOrdering workload.Ordering
 }
@@ -183,10 +186,10 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 		return cmp == -1
 	}
 
-	// 3: Priority
+	// 3: Effective priority
 	if features.Enabled(features.PrioritySortingWithinCohort) {
-		p1 := priority.Priority(a.Obj)
-		p2 := priority.Priority(b.Obj)
+		p1 := priority.EffectivePriority(e.log, a.Obj)
+		p2 := priority.EffectivePriority(e.log, b.Obj)
 		if p1 != p2 {
 			return p1 > p2
 		}
