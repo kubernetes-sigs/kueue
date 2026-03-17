@@ -55,6 +55,7 @@ const (
 var _ = ginkgo.Describe("Visibility Server", func() {
 	var originalDeployment appsv1.Deployment
 	var originalService corev1.Service
+	var cq *kueue.ClusterQueue
 
 	ginkgo.BeforeEach(func() {
 		err := k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, &originalDeployment)
@@ -64,29 +65,29 @@ var _ = ginkgo.Describe("Visibility Server", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating a ClusterQueue")
-		cq := &kueue.ClusterQueue{
+		cq = &kueue.ClusterQueue{
 			ObjectMeta: metav1.ObjectMeta{Name: cqName},
 		}
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+	})
 
-		ginkgo.DeferCleanup(func() {
-			ginkgo.By("Restoring the original deployment")
-			latestDeployment := &appsv1.Deployment{}
-			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, latestDeployment)).To(gomega.Succeed())
-			latestDeployment.Spec = originalDeployment.Spec
-			gomega.Expect(k8sClient.Update(ctx, latestDeployment)).To(gomega.Succeed())
+	ginkgo.AfterEach(func() {
+		ginkgo.By("Restoring the original deployment")
+		latestDeployment := &appsv1.Deployment{}
+		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, latestDeployment)).To(gomega.Succeed())
+		latestDeployment.Spec = originalDeployment.Spec
+		gomega.Expect(k8sClient.Update(ctx, latestDeployment)).To(gomega.Succeed())
 
-			ginkgo.By("Restoring the original service")
-			latestService := &corev1.Service{}
-			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueVisibilityServerName, Namespace: kueueNS}, latestService)).To(gomega.Succeed())
-			latestService.Spec.Ports = originalService.Spec.Ports
-			gomega.Expect(k8sClient.Update(ctx, latestService)).To(gomega.Succeed())
+		ginkgo.By("Restoring the original service")
+		latestService := &corev1.Service{}
+		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueVisibilityServerName, Namespace: kueueNS}, latestService)).To(gomega.Succeed())
+		latestService.Spec.Ports = originalService.Spec.Ports
+		gomega.Expect(k8sClient.Update(ctx, latestService)).To(gomega.Succeed())
 
-			util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
+		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
-			ginkgo.By("Cleaning up cluster queue")
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		})
+		ginkgo.By("Cleaning up cluster queue")
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 	})
 
 	ginkgo.It("Should use the RBAC identity from the provided kubeconfig", func() {
