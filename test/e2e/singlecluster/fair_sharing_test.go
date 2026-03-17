@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feature:fairsharing"), ginkgo.Serial, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feature:fairsharing"), func() {
 	var (
 		ns  *corev1.Namespace
 		rf  *kueue.ResourceFlavor
@@ -45,25 +45,27 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feat
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
-		rf = utiltestingapi.MakeResourceFlavor("rf").Obj()
+		rf = utiltestingapi.MakeResourceFlavor("rf-" + ns.Name).Obj()
 		util.MustCreate(ctx, k8sClient, rf)
 
-		cq1 = utiltestingapi.MakeClusterQueue("cq1").
-			Cohort("cohort").
+		cohort := kueue.CohortReference("cohort-" + ns.Name)
+
+		cq1 = utiltestingapi.MakeClusterQueue("cq1-" + ns.Name).
+			Cohort(cohort).
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "9").
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
-		cq2 = utiltestingapi.MakeClusterQueue("cq2").
-			Cohort("cohort").
+		cq2 = utiltestingapi.MakeClusterQueue("cq2-" + ns.Name).
+			Cohort(cohort).
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "9").
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
-		cq3 = utiltestingapi.MakeClusterQueue("cq3").
-			Cohort("cohort").
+		cq3 = utiltestingapi.MakeClusterQueue("cq3-" + ns.Name).
+			Cohort(cohort).
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "9").
 				Resource(corev1.ResourceMemory, "36G").
