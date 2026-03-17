@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -31,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -138,6 +140,8 @@ func (r *TerminatingPodReconciler) Delete(event.TypedDeleteEvent[*corev1.Pod]) b
 }
 
 func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
 	pod := &corev1.Pod{}
 	if err := r.client.Get(ctx, req.NamespacedName, pod); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -145,6 +149,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Pod was updated in the meantime and should not be forcefully terminated
 	if !podEligibleForTermination(pod) {
+		log.V(4).Info("Terminating pod changed and is not eligible for forceful termination anymore")
 		return ctrl.Result{}, nil
 	}
 
@@ -163,6 +168,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 	// Pod is not scheduled on an unreachable node
 	if !utiltaints.TaintKeyExists(node.Spec.Taints, corev1.TaintNodeUnreachable) {
+		log.V(4).Info("Forceful termination threshold reached, but pod is not scheduled on an unreachable node", "node", klog.KObj(node))
 		return ctrl.Result{}, nil
 	}
 
@@ -184,12 +190,12 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		})
 		return true, nil
 	})
-
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	r.recorder.Event(pod, corev1.EventTypeWarning, KueueForcefulTerminationReason, eventMessage)
+	log.V(4).Info(eventMessage)
 
 	// Forcefully delete the pod object
 	if err = r.client.Delete(ctx, pod, &client.DeleteOptions{GracePeriodSeconds: ptr.To(int64(0))}); err != nil {
