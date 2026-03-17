@@ -828,7 +828,7 @@ func (r *WorkloadReconciler) updateConditionForAdmissionGatedBy(ctx context.Cont
 	}
 
 	hasGatedAnnotation := workload.HasAdmissionGate(wl)
-	hasGatedCondition := r.hasAdmissionGatedCondition(wl)
+	hasGatedCondition := hasAdmissionGatedCondition(wl)
 
 	// This previously gated workload is now transitioning into being admissible
 	if hasGatedCondition && !hasGatedAnnotation {
@@ -858,7 +858,7 @@ func (r *WorkloadReconciler) updateConditionForAdmissionGatedBy(ctx context.Cont
 
 // hasAdmissionGatedCondition returns true if the workload has a QuotaReserved
 // condition with reason AdmissionGated.
-func (r *WorkloadReconciler) hasAdmissionGatedCondition(wl *kueue.Workload) bool {
+func hasAdmissionGatedCondition(wl *kueue.Workload) bool {
 	condition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 	return condition != nil && condition.Reason == kueue.WorkloadAdmissionGated
 }
