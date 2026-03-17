@@ -154,6 +154,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Resource(corev1.ResourceEphemeralStorage, "100G").
 					Obj(),
 			).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
@@ -201,9 +204,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Resource(corev1.ResourceEphemeralStorage, "5G").
 					Obj(),
 			).
-			Preemption(kueue.ClusterQueuePreemption{
-				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-			}).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Cq)
 
