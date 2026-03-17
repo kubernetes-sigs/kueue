@@ -94,6 +94,7 @@ func TestReconcileGenericJob(t *testing.T) {
 		podSets                             []kueue.PodSet
 		objs                                []client.Object
 		wantWorkloads                       []kueue.Workload
+		wantEvents                          []utiltesting.EventRecord
 	}{
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
 			elasticJobsViaWorkloadSlicesEnabled: false,
@@ -264,6 +265,70 @@ func TestReconcileGenericJob(t *testing.T) {
 					Obj(),
 			},
 		},
+		"job with AdmissionGatedBy annotation unchanged should not emit event": {
+			admissionGatedByEnabled: true,
+			req:                     baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+					Obj(),
+			},
+			wantEvents: nil,
+		},
+		"job with AdmissionGatedBy annotation changed should emit event": {
+			admissionGatedByEnabled: true,
+			req:                     baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testJobName, Namespace: metav1.NamespaceDefault},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonUpdatedWorkload,
+					Message:   `Updated workload AdmissionGatedBy to "example.com/controller1,example.com/controller2"`,
+				},
+			},
+		},
+		"job with AdmissionGatedBy annotation changed when feature disabled should not emit event": {
+			admissionGatedByEnabled: false,
+			req:                     baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+					Obj(),
+			},
+			wantEvents: nil,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -303,6 +368,13 @@ func TestReconcileGenericJob(t *testing.T) {
 
 			if diff := cmp.Diff(wls.Items, tc.wantWorkloads, cmpopts.IgnoreFields(corev1.ResourceRequirements{}, "Requests")); diff != "" {
 				t.Errorf("Workloads mismatch (-want +got):\n%s", diff)
+			}
+
+			// Only check events if wantEvents is explicitly set in the test case
+			if tc.wantEvents != nil {
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+					t.Errorf("Unexpected events (-want +got):\n%s", diff)
+				}
 			}
 		})
 	}

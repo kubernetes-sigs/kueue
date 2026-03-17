@@ -1017,21 +1017,29 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	return match, nil
 }
 
+// UpdateAdmissionGatedBy propagates the AdmissionGatedBy annotation from the job object
+// to its associated workload. Emits an event only if the annotation was actually changed
+// and the update succeeded.
+// The function returnes immediately if the AdmissionGatedBy feature is not enabled.
 func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload) error {
 	if !features.Enabled(features.AdmissionGatedBy) {
 		return nil
 	}
 
+	var propagated bool
 	if err := clientutil.Patch(ctx, c, wl, func() (bool, error) {
-		return PropagateAdmissionGatedByAnnotation(obj, wl), nil
+		propagated = PropagateAdmissionGatedByAnnotation(obj, wl)
+		return propagated, nil
 	}); err != nil {
 		return fmt.Errorf("updating the AdmissionGatedBy of existing workload: %w", err)
 	}
 
-	r.Eventf(obj,
-		corev1.EventTypeNormal, ReasonUpdatedWorkload,
-		"Updated workload AdmissionGatedBy to %q", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
-	)
+	if propagated {
+		r.Eventf(obj,
+			corev1.EventTypeNormal, ReasonUpdatedWorkload,
+			"Updated workload AdmissionGatedBy to %q", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
+		)
+	}
 
 	return nil
 }
@@ -1232,8 +1240,6 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	}
 	wl.Spec = newWl.Spec
 
-	PropagateAdmissionGatedByAnnotation(object, wl)
-
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)
 	}
@@ -1388,16 +1394,6 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		)
 	}
 
-	// Copy admission gate annotation if feature is enabled
-	if features.Enabled(features.AdmissionGatedBy) {
-		if gateValue, exists := object.GetAnnotations()[constants.AdmissionGatedByAnnotation]; exists {
-			if wl.Annotations == nil {
-				wl.Annotations = make(map[string]string)
-			}
-			wl.Annotations[constants.AdmissionGatedByAnnotation] = gateValue
-		}
-	}
-
 	if err := ctrl.SetControllerReference(object, wl, c.Scheme()); err != nil {
 		return nil, err
 	}
@@ -1462,10 +1458,15 @@ func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Ob
 	return nil
 }
 
-// prepareWorkload adds the priority information for the constructed workload
+// prepareWorkload adds the priority information for the constructed workload and
+// the AdmissionGatedBy annotation when the feature is on.
 // active is used to set the active field of the workload. If active is nil, the workload will be set to active by default.
 // for the existing workload, the original active status should be retained.
 func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl *kueue.Workload, active *bool) error {
+	if features.Enabled(features.AdmissionGatedBy) {
+		PropagateAdmissionGatedByAnnotation(job.Object(), wl)
+	}
+
 	if err := PrepareWorkloadPriority(ctx, r.client, job.Object(), wl, getCustomPriorityClassFuncFromJob(job)); err != nil {
 		return err
 	}

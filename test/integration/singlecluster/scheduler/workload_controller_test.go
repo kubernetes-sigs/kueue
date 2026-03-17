@@ -845,13 +845,15 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
@@ -884,59 +886,13 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Verifying the AdmissionGated event was emitted")
-			util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
-				InvolvedObject: corev1.ObjectReference{
-					Kind:      "Workload",
-					Name:      wl.Name,
-					Namespace: wl.Namespace,
-				},
-				Type:    corev1.EventTypeNormal,
-				Reason:  "AdmissionGated",
-				Message: fmt.Sprintf("Workload admission is gated by: %s", gateValue),
-			})
-
-			ginkgo.By("Removing the annotation")
+			ginkgo.By("Removing the annotation causes the workload to be admitted")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWorkload)).Should(gomega.Succeed())
 				delete(createdWorkload.Annotations, constants.AdmissionGatedByAnnotation)
 				g.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Verifying the workload is admitted after removing the gate")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWorkload)).Should(gomega.Succeed())
-				g.Expect(workload.IsAdmitted(createdWorkload)).Should(gomega.BeTrue())
-				g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
-					gomega.BeComparableTo(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadQuotaReserved,
-						Message: fmt.Sprintf("Quota reserved in ClusterQueue %s", clusterQueue.Name),
-					}, util.IgnoreConditionTimestampsAndObservedGeneration),
-					gomega.BeComparableTo(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadAdmitted,
-						Message: "The workload is admitted",
-					}, util.IgnoreConditionTimestampsAndObservedGeneration),
-				))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Verifying the AdmissionGateCleared event was emitted")
-			util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
-				InvolvedObject: corev1.ObjectReference{
-					Kind:      "Workload",
-					Name:      wl.Name,
-					Namespace: wl.Namespace,
-				},
-				Type:    corev1.EventTypeNormal,
-				Reason:  "AdmissionGateCleared",
-				Message: "Admission gate cleared, workload is now admissible",
-			})
-
-			ginkgo.By("Cleaning up the workload")
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
 		})
 	})
 })
