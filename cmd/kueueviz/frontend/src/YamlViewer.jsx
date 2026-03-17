@@ -27,26 +27,13 @@ import {
 import {
   Close as CloseIcon,
 } from '@mui/icons-material';
-import AceEditorImport from 'react-ace';
+import AceEditor from 'react-ace';
 import { buildResourceUrl } from './utils/urlHelper';
 import { useAuthFetch } from './AuthContext';
 
 // Import Ace Editor modes and themes
 import 'ace-builds/src-noconflict/mode-yaml';
 import 'ace-builds/src-noconflict/ext-searchbox';
-
-// Resolve react-ace component safely across ESM/CJS wrappers
-const resolveAceEditor = (mod) => {
-  const candidates = [mod, mod?.default, mod?.default?.default];
-  for (const candidate of candidates) {
-    if (typeof candidate === 'function') {
-      return candidate;
-    }
-  }
-  return null;
-};
-
-const AceEditor = resolveAceEditor(AceEditorImport);
 
 const useYamlFetcher = (open, resourceType, resourceName, namespace) => {
   const [yamlContent, setYamlContent] = useState('');
