@@ -458,8 +458,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if features.Enabled(features.AdmissionGatedBy) {
-		if result, err := r.updateConditionForAdmissionGatedBy(ctx, &wl); err != nil || result != nil {
-			return ptr.Deref(result, ctrl.Result{}), err
+		if conditionUpdated, err := r.mayUpdateConditionForAdmissionGatedBy(ctx, &wl); conditionUpdated || err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -818,14 +818,14 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 	return false, nil
 }
 
-// updateConditionForAdmissionGatedBy updates the Condition of a Workload which is either
-// gated by an AdmissionGate or its AdmissionGate just got removed.
-// Returns a non-nil result pointer if the reconciliation should return early,
-// along with any error encountered.
+// mayUpdateConditionForAdmissionGatedBy updates the Condition of a Workload when it first detects that it is
+// gated by an AdmissionGate or it detects that its AdmissionGate just got removed.
+// Returns whether the function updated the condition or not.
+// Returns error if the condition update fails.
 // The function also emits Events after it successfully updates the Condition
-func (r *WorkloadReconciler) updateConditionForAdmissionGatedBy(ctx context.Context, wl *kueue.Workload) (*ctrl.Result, error) {
+func (r *WorkloadReconciler) mayUpdateConditionForAdmissionGatedBy(ctx context.Context, wl *kueue.Workload) (bool, error) {
 	if !features.Enabled(features.AdmissionGatedBy) {
-		return nil, nil
+		return false, nil
 	}
 
 	hasGatedAnnotation := workload.HasAdmissionGate(wl)
@@ -838,26 +838,26 @@ func (r *WorkloadReconciler) updateConditionForAdmissionGatedBy(ctx context.Cont
 			return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "AdmissionGatedBy cleared, waiting for quota reservation", r.clock.Now()), nil
 		})
 		if err != nil {
-			return &ctrl.Result{}, err
+			return false, err
 		}
 		r.recorder.Eventf(wl, corev1.EventTypeNormal, "AdmissionGateCleared",
 			"Admission gate cleared, workload is now admissible")
-		return &ctrl.Result{}, nil
+		return true, nil
 	} else if hasGatedAnnotation && !hasGatedCondition {
 		// This is the first detection we see a non-empty AdmissionGatedBy annotation
 		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), r.clock.Now()), nil
 		})
 		if err != nil {
-			return &ctrl.Result{}, err
+			return false, err
 		}
 		r.recorder.Eventf(wl, corev1.EventTypeNormal, "AdmissionGated",
 			"Workload admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation])
 
-		return &ctrl.Result{}, nil
+		return true, nil
 	}
 
-	return nil, nil
+	return false, nil
 }
 
 // hasAdmissionGatedCondition returns true if the workload has a QuotaReserved
