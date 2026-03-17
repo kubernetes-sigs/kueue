@@ -262,6 +262,16 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(priorityBoostAnnotationPath, "invalid", "must be a valid signed integer"),
 			},
 		},
+		"empty string priority-boost": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(priorityBoostAnnotationPath, "", "must be a valid signed integer; use \"0\" explicitly, empty string is not allowed"),
+			},
+		},
 		"missing priority-boost annotation": {
 			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).

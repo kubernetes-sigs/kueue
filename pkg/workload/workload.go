@@ -1772,7 +1772,7 @@ func ClusterName(wl *kueue.Workload) string {
 	return ptr.Deref(wl.Status.ClusterName, "")
 }
 
-func PriorityChanged(old, new *kueue.Workload) bool {
+func PriorityChanged(log logr.Logger, old, new *kueue.Workload) bool {
 	// Updates to Pod Priority are not supported.
 	if IsPodPriorityClass(old) || !IsWorkloadPriorityClass(new) {
 		return false
@@ -1783,5 +1783,5 @@ func PriorityChanged(old, new *kueue.Workload) bool {
 		return true
 	}
 	// Check if effective priority changed (for WorkloadPriorityClass value updates or priority-boost annotation).
-	return priority.EffectivePriority(logr.Discard(), old) != priority.EffectivePriority(logr.Discard(), new)
+	return priority.EffectivePriority(log, old) != priority.EffectivePriority(log, new)
 }

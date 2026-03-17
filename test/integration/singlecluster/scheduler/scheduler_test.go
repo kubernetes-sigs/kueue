@@ -677,18 +677,24 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlMid2, wlLow)
 
 			ginkgo.By("boost the low priority workload to be high")
-			var wl kueue.Workload
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlLow), &wl)).To(gomega.Succeed())
-			original := wl.DeepCopy()
-			if wl.Annotations == nil {
-				wl.Annotations = make(map[string]string)
-			}
-			wl.Annotations[constants.PriorityBoostAnnotationKey] = "100"
-			gomega.Expect(k8sClient.Patch(ctx, &wl, client.MergeFrom(original))).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				var wl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlLow), &wl)).To(gomega.Succeed())
+				if wl.Annotations == nil {
+					wl.Annotations = make(map[string]string)
+				}
+				wl.Annotations[constants.PriorityBoostAnnotationKey] = "100"
+				g.Expect(k8sClient.Update(ctx, &wl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("boosted workload is admitted and preempts the running workload")
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlLow)
+			ginkgo.By("boosted workload preempts the running workload")
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlMid1)
+			ginkgo.By("finish eviction so the slot is freed and boosted workload can be admitted")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlMid1)
+			ginkgo.By("boosted workload is admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlLow)
+			ginkgo.By("verify the second mid priority workload is still pending")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlMid2)
 		})
 
 		ginkgo.When("Hold LocalQueue at startup", func() {

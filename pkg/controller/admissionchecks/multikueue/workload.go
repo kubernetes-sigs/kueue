@@ -428,7 +428,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 
 			// Update the workload priority class and priority if needed.
-			if workload.PriorityChanged(group.local, remWl) {
+			if workload.PriorityChanged(log, group.local, remWl) {
 				remWl.Spec.PriorityClassRef = group.local.Spec.PriorityClassRef
 				remWl.Spec.Priority = group.local.Spec.Priority
 				updateRemote = true

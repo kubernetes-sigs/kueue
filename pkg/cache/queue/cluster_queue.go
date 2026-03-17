@@ -38,6 +38,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/heap"
@@ -280,6 +282,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		// Update in place if the workload didn't change to potentially become admissible.
 		if !specChangedSinceEval &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
+			!priorityBoostAnnotationChanged(oldInfo, wInfo) &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, wInfo.Obj.Status.ReclaimablePods) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) &&
@@ -303,6 +306,13 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		return
 	}
 	c.heap.PushOrUpdate(wInfo)
+}
+
+func priorityBoostAnnotationChanged(oldInfo, newInfo *workload.Info) bool {
+	if !features.Enabled(features.PriorityBoost) {
+		return false
+	}
+	return oldInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey] != newInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey]
 }
 
 func (c *ClusterQueue) RebuildLocalQueue(lqName string) {

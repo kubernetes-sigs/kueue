@@ -20,13 +20,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -110,8 +110,8 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.PriorityBoost: true,
 			},
-			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Priority(200).Obj(),
-			candidate: utiltestingapi.MakeWorkload("candidate", "ns").Priority(100).
+			preemptor: preemptor.Clone().Priority(200).Obj(),
+			candidate: candidate.Clone().Priority(100).
 				Annotation(controllerconstants.PriorityBoostAnnotationKey, "150").Obj(),
 			policy: kueue.PreemptionPolicyLowerPriority,
 			want:   false,
@@ -120,9 +120,9 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.PriorityBoost: true,
 			},
-			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Priority(100).
+			preemptor: preemptor.Clone().Priority(100).
 				Annotation(controllerconstants.PriorityBoostAnnotationKey, "200").Obj(),
-			candidate: utiltestingapi.MakeWorkload("candidate", "ns").Priority(200).Obj(),
+			candidate: candidate.Clone().Priority(200).Obj(),
 			policy:    kueue.PreemptionPolicyLowerPriority,
 			want:      true,
 		},
@@ -130,10 +130,10 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.PriorityBoost: true,
 			},
-			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Priority(100).
+			preemptor: preemptor.Clone().Priority(100).
 				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
 				Creation(now).Obj(),
-			candidate: utiltestingapi.MakeWorkload("candidate", "ns").Priority(200).
+			candidate: candidate.Clone().Priority(200).
 				Creation(now.Add(time.Second)).Obj(),
 			policy: kueue.PreemptionPolicyLowerOrNewerEqualPriority,
 			want:   true,
@@ -142,10 +142,10 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.PriorityBoost: true,
 			},
-			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Priority(100).
+			preemptor: preemptor.Clone().Priority(100).
 				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
 				Creation(now.Add(time.Second)).Obj(),
-			candidate: utiltestingapi.MakeWorkload("candidate", "ns").Priority(200).
+			candidate: candidate.Clone().Priority(200).
 				Creation(now).Obj(),
 			policy: kueue.PreemptionPolicyLowerOrNewerEqualPriority,
 			want:   false,
@@ -154,8 +154,8 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.PriorityBoost: true,
 			},
-			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Priority(50).Obj(),
-			candidate: utiltestingapi.MakeWorkload("candidate", "ns").Priority(100).
+			preemptor: preemptor.Clone().Priority(50).Obj(),
+			candidate: candidate.Clone().Priority(100).
 				Annotation(controllerconstants.PriorityBoostAnnotationKey, "200").Obj(),
 			policy: kueue.PreemptionPolicyAny,
 			want:   true,
@@ -164,11 +164,12 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			for feature, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, feature, enabled)
 			}
 			ordering := workload.Ordering{}
-			got := SatisfiesPreemptionPolicy(logr.Discard(), tc.preemptor, tc.candidate, ordering, tc.policy)
+			got := SatisfiesPreemptionPolicy(log, tc.preemptor, tc.candidate, ordering, tc.policy)
 			if got != tc.want {
 				t.Errorf("SatisfiesPreemptionPolicy() = %v, want %v", got, tc.want)
 			}

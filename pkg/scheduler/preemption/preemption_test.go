@@ -4680,9 +4680,8 @@ func TestCandidatesOrdering(t *testing.T) {
 		for fg, enable := range tc.featureGates {
 			features.SetFeatureGateDuringTest(t, fg, enable)
 		}
-		admissionFairSharingEnabled := tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing]
 		slices.SortFunc(tc.candidates, func(a, b workload.Info) int {
-			return preemptioncommon.CandidatesOrdering(log, admissionFairSharingEnabled, &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
+			return preemptioncommon.CandidatesOrdering(log, tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing], &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
 		})
 		got := utilslices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)
