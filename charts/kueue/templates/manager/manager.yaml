@@ -43,7 +43,7 @@ spec:
       containers:
       - args:
         - --config=/controller_manager_config.yaml
-        - --zap-log-level=2
+        - --zap-log-level={{ .Values.controllerManager.manager.logLevel }}
         {{- include "kueue.featureGates" . | indent 8 }}
         command:
         - /manager

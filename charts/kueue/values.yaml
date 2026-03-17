@@ -33,6 +33,8 @@ controllerManager:
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
     podAnnotations: {}
+    # -- Zap log level. Higher values increase verbosity.
+    logLevel: 2
     # -- ControllerManager's pod resources
     resources:
       limits:

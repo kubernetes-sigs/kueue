@@ -104,6 +104,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.manager.image.pullPolicy | string | `"Always"` | ControllerManager's image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | controllerManager.manager.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue"` | ControllerManager's image repository |
 | controllerManager.manager.image.tag | string | `"main"` | ControllerManager's image tag |
+| controllerManager.manager.logLevel | int | `2` | Zap log level. Higher values increase verbosity. |
 | controllerManager.manager.podAnnotations | object | `{}` |  |
 | controllerManager.manager.podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | ControllerManager's pod securityContext |
 | controllerManager.manager.priorityClassName | string | `nil` | ControllerManager's pod priorityClassName |
