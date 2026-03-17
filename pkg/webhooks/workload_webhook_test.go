@@ -29,11 +29,8 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-<<<<<<< HEAD
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
-=======
 	"sigs.k8s.io/kueue/pkg/constants"
->>>>>>> 384d7d9e2 (Add Webhook validation tests for AdmissionGatedBy)
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -56,15 +53,9 @@ func TestValidateWorkload(t *testing.T) {
 	podSetUpdatePath := firstAdmissionChecksPath.Child("podSetUpdates")
 	firstPodSetSpecPath := podSetsPath.Index(0).Child("template", "spec")
 	testCases := map[string]struct {
-<<<<<<< HEAD
 		featureGates map[featuregate.Feature]bool
 		workload     *kueue.Workload
 		wantErr      field.ErrorList
-=======
-		workload               *kueue.Workload
-		enableAdmissionGatedBy bool
-		wantErr                field.ErrorList
->>>>>>> 384d7d9e2 (Add Webhook validation tests for AdmissionGatedBy)
 	}{
 		"valid": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
@@ -238,7 +229,6 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath, nil, ""),
 			},
 		},
-<<<<<<< HEAD
 		"valid priority-boost": {
 			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -298,15 +288,8 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			for f, v := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, f, v)
-			}
-=======
 		"valid AdmissionGatedBy annotation with single gate": {
-			enableAdmissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/controller",
@@ -316,7 +299,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"valid AdmissionGatedBy annotation with multiple gates": {
-			enableAdmissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/a,not.example.com/b",
@@ -326,7 +309,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"invalid AdmissionGatedBy annotation - not in subdomain/path format": {
-			enableAdmissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "this is an invalid value",
@@ -338,7 +321,7 @@ func TestValidateWorkload(t *testing.T) {
 			},
 		},
 		"invalid AdmissionGatedBy annotation - duplicate gates": {
-			enableAdmissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "duplicates.are/invalid,duplicates.are/invalid",
@@ -352,8 +335,9 @@ func TestValidateWorkload(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, tc.enableAdmissionGatedBy)
->>>>>>> 384d7d9e2 (Add Webhook validation tests for AdmissionGatedBy)
+			for f, v := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, f, v)
+			}
 			gotErr := ValidateWorkload(tc.workload)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)
