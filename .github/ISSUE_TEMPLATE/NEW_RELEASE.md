@@ -34,7 +34,7 @@ Please do not remove items from the checklist
   - Triggers prow to build and publish a staging container image
       `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`
 - [ ] An OWNER [prepares a draft release](https://github.com/kubernetes-sigs/kueue/releases)
-  - [ ] Create the draft release poiting out to the created tag.
+  - [ ] Create the draft release pointing out to the created tag.
   - [ ] Write the change log into the draft release.
   - [ ] Run
       `make artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG=$VERSION`
