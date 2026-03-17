@@ -33,7 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -684,7 +684,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				if wl.Annotations == nil {
 					wl.Annotations = make(map[string]string)
 				}
-				wl.Annotations[constants.PriorityBoostAnnotationKey] = "100"
+				wl.Annotations[controllerconstants.PriorityBoostAnnotationKey] = "100"
 				g.Expect(k8sClient.Update(ctx, &wl)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

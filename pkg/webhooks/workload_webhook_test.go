@@ -29,8 +29,8 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -309,7 +309,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"AdmissionGatedBy annotation - leading space": {
-			enableAdmissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: " example.com/gate",
@@ -319,7 +319,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"AdmissionGatedBy annotation - space before comma": {
-			enableAdmissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/gate ,example.com/gate2",
@@ -329,7 +329,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"AdmissionGatedBy annotation - space after comma": {
-			enableAdmissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/gate, example.com/gate2",
@@ -339,7 +339,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"AdmissionGatedBy annotation - trailing space": {
-			enableAdmissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/gate ",
@@ -373,7 +373,7 @@ func TestValidateWorkload(t *testing.T) {
 			},
 		},
 		"invalid AdmissionGatedBy annotation - space in path component": {
-			enableAdmissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/gate name",
@@ -385,7 +385,7 @@ func TestValidateWorkload(t *testing.T) {
 			},
 		},
 		"invalid AdmissionGatedBy annotation - space in domain component": {
-			enableAdmissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example .com/gate",
@@ -397,7 +397,7 @@ func TestValidateWorkload(t *testing.T) {
 			},
 		},
 		"invalid AdmissionGatedBy annotation - multiple gates with one containing space": {
-			enableAdmissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "valid.com/gate,invalid gate.com/controller",
