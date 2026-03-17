@@ -938,6 +938,11 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if !active {
 			log.V(2).Info("Workload will not be queued because the workload is not active")
 		}
+
+		if status == workload.StatusFinished && prevStatus != workload.StatusFinished {
+			r.reportFinishedWorkload(wlCopy)
+		}
+
 		// The workload could have been in the queues if we missed an event.
 		r.queues.DeleteWorkload(log, wlKey)
 		r.queues.AddFinishedWorkload(wlCopy)
@@ -1061,6 +1066,16 @@ func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
 	}
 	for _, w := range r.watchers {
 		w.NotifyWorkloadUpdate(oldWl, newWl)
+	}
+}
+
+func (r *WorkloadReconciler) reportFinishedWorkload(wl *kueue.Workload) {
+	priorityClassName := workload.PriorityClassName(wl)
+	cqName := ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue
+	metrics.IncrementFinishedWorkloadTotal(cqName, priorityClassName, r.customLabels.CQGet(cqName), r.roleTracker)
+	if features.Enabled(features.LocalQueueMetrics) {
+		lqRef := metrics.LQRefFromWorkload(wl)
+		metrics.IncrementLocalQueueFinishedWorkloadTotal(lqRef, priorityClassName, r.customLabels.LQGet(qutil.KeyFromWorkload(wl)), r.roleTracker)
 	}
 }
 

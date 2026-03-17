@@ -1531,7 +1531,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	return nil
 }
 
-func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) error {
+func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
 	if IsFinished(wl) {
 		return nil
 	}
@@ -1540,13 +1540,6 @@ func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, ms
 	})
 	if err != nil {
 		return err
-	}
-	priorityClassName := PriorityClassName(wl)
-	cqName := ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue
-	metrics.IncrementFinishedWorkloadTotal(cqName, priorityClassName, cl.CQGet(cqName), tracker)
-	if features.Enabled(features.LocalQueueMetrics) {
-		lqRef := metrics.LQRefFromWorkload(wl)
-		metrics.IncrementLocalQueueFinishedWorkloadTotal(lqRef, priorityClassName, cl.LQGet(utilqueue.KeyFromWorkload(wl)), tracker)
 	}
 	return nil
 }

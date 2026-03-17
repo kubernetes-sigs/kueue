@@ -2524,7 +2524,7 @@ func TestFinish(t *testing.T) {
 
 			fakeClock := testingclock.NewFakeClock(now)
 
-			gotErr := Finish(ctx, cl, tc.args.wl, tc.args.reason, tc.args.message, fakeClock, nil, nil)
+			gotErr := Finish(ctx, cl, tc.args.wl, tc.args.reason, tc.args.message, fakeClock)
 			if diff := cmp.Diff(tc.want.err, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}

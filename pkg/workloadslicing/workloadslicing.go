@@ -39,7 +39,6 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/pod"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -165,7 +164,6 @@ func EnsureWorkloadSlices(
 	jobPodSets []kueue.PodSet,
 	jobObject client.Object,
 	jobObjectGVK schema.GroupVersionKind,
-	tracker *roletracker.RoleTracker,
 ) (*kueue.Workload, bool, error) {
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
 
@@ -234,7 +232,7 @@ func EnsureWorkloadSlices(
 			// Finish the old workload slice as out of sync.
 			reason := kueue.WorkloadFinishedReasonOutOfSync
 			message := "The workload slice is out of sync with its parent job"
-			if err := workload.Finish(ctx, clnt, &oldWorkload, reason, message, clk, tracker, nil); err != nil {
+			if err := workload.Finish(ctx, clnt, &oldWorkload, reason, message, clk); err != nil {
 				return nil, true, err
 			}
 		}
