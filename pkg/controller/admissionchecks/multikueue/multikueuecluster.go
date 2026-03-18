@@ -204,7 +204,10 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 
 func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	newWatcher, err := rc.client.Watch(ctx, w.GetEmptyList(), client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin})
+	newWatcher, err := rc.client.Watch(ctx, w.GetEmptyList(),
+		client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin},
+		&client.ListOptions{Raw: &metav1.ListOptions{AllowWatchBookmarks: true}},
+	)
 	if err != nil {
 		return err
 	}
@@ -213,6 +216,11 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobfram
 		log.V(2).Info("Starting watch")
 		for r := range newWatcher.ResultChan() {
 			switch r.Type {
+			case watch.Bookmark:
+				// Bookmark events are periodic signals from the API server to
+				// keep the connection alive. They carry no meaningful payload
+				// and can be safely ignored.
+				log.V(5).Info("Watch bookmark received")
 			case watch.Error:
 				switch s := r.Object.(type) {
 				case *metav1.Status:
