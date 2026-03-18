@@ -10,6 +10,13 @@ fullnameOverride: ""
 enablePrometheus: false
 # -- Enable x509 automated certificate management using cert-manager (cert-manager.io)
 enableCertManager: false
+certManager:
+  # -- Override the default self-signed cert-manager issuer reference. When set, the chart skips creating its own Issuer and uses this reference for webhook, metrics, and visibility certificates. The referenced issuer must provide the CA data required by Kueue's cert-manager integration.
+  issuerRef: {}
+  # issuerRef:
+  #   name: my-cluster-issuer
+  #   kind: ClusterIssuer
+  #   group: cert-manager.io
 # -- Enable API Priority and Fairness configuration for the visibility API
 enableVisibilityAPF: false
 # -- Enable KueueViz dashboard
