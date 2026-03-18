@@ -76,6 +76,24 @@ kueue-controller-manager       1/1     1            1           7s
 
 Kueue has support for third-party certificates.
 One can enable this by setting `enableCertManager` to true.
+By default the chart creates a self-signed `Issuer`. To reuse an existing
+`Issuer` or `ClusterIssuer`, set `certManager.issuerRef`, for example:
+
+```yaml
+enableCertManager: true
+certManager:
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: my-cluster-issuer
+```
+
+If you reference a namespace-scoped `Issuer`, it must already exist in the
+same namespace as the Helm release.
+The referenced issuer must provide the CA data required by Kueue's cert-manager
+integration, including `ca.crt` in the generated Secrets and the CA bundle used
+for webhook and visibility API injection.
+
 This will use certManager to generate a secret, inject the CABundles and set up the TLS.
 
 Check out the [site](https://kueue.sigs.k8s.io/docs/tasks/manage/productization/cert_manager/)
@@ -93,6 +111,7 @@ The following table lists the configurable parameters of the kueue chart and the
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| certManager.issuerRef | object | `{}` | Override the default self-signed cert-manager issuer reference. When set, the chart skips creating its own Issuer and uses this reference for webhook, metrics, and visibility certificates. The referenced issuer must provide the CA data required by Kueue's cert-manager integration. |
 | controllerManager.featureGates | list | `[]` | ControllerManager's feature gates |
 | controllerManager.imagePullSecrets | list | `[]` | ControllerManager's imagePullSecrets |
 | controllerManager.livenessProbe.failureThreshold | int | `3` | ControllerManager's livenessProbe failureThreshold |

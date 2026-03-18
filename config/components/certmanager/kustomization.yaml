@@ -1,4 +1,5 @@
 resources:
+- issuer.yaml
 - certificate.yaml
 - certificate-metrics.yaml
 - certificate-visibility-server.yaml
