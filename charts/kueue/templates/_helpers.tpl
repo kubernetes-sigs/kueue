@@ -141,3 +141,15 @@ Usage:
 {{- $enabled -}}
 {{- end }}
 {{- end }}
+
+{{/*
+Cert-manager issuerRef for the chart-managed certificates.
+*/}}
+{{- define "kueue.certManager.issuerRef" -}}
+{{- if .Values.certManager.issuerRef }}
+{{- toYaml .Values.certManager.issuerRef }}
+{{- else }}
+kind: Issuer
+name: '{{ include "kueue.fullname" . }}-selfsigned-issuer'
+{{- end }}
+{{- end }}
