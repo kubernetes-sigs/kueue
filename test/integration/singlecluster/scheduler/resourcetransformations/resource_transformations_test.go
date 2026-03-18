@@ -40,7 +40,7 @@ var _ = ginkgo.Describe("Resource Transformations", func() {
 		localQueue    *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		// Configure resource transformations for testing
 		transformations := []config.ResourceTransformation{
 			{
@@ -69,9 +69,6 @@ var _ = ginkgo.Describe("Resource Transformations", func() {
 			},
 		}
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(transformations))
-	})
-
-	ginkgo.BeforeEach(func() {
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 
@@ -97,9 +94,6 @@ var _ = ginkgo.Describe("Resource Transformations", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-	})
-
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 
@@ -199,20 +193,13 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 		lq       *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		// Starts the manager with a single retain transformation: 1 CPU → 1 cpu_credits
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup([]config.ResourceTransformation{{
 			Input:    corev1.ResourceCPU,
 			Strategy: ptr.To(config.Retain),
 			Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
 		}}))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
 
 		onDemand = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
@@ -242,13 +229,13 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 		lq = utiltestingapi.MakeLocalQueue("team-queue", ns.Name).ClusterQueue(cq.Name).Obj()
 		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
-
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemand, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spot, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, credits, true)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("workloads request regular CPU but are transformed to cpu_credits", func() {

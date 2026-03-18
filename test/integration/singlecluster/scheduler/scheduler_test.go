@@ -2867,16 +2867,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			cq2 *kueue.ClusterQueue
 		)
 
-		ginkgo.BeforeAll(func() {
+		ginkgo.BeforeEach(func() {
 			f1 = utiltestingapi.MakeResourceFlavor("f1").Obj()
 			util.MustCreate(ctx, k8sClient, f1)
 			f2 = utiltestingapi.MakeResourceFlavor("f2").Obj()
 			util.MustCreate(ctx, k8sClient, f2)
-		})
-
-		ginkgo.AfterAll(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, f1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, f2, true)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -2886,6 +2881,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			if cq2 != nil {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
 			}
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, f1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, f2, true)
 		})
 
 		ginkgo.When("Multiple flavors can be considered for preemption", func() {

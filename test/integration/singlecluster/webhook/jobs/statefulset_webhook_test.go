@@ -37,7 +37,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.When("with pod integration enabled", func() {
-		ginkgo.BeforeAll(func() {
+		ginkgo.BeforeEach(func() {
 			discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
@@ -49,15 +49,11 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 			))
-		})
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
-		})
-		ginkgo.BeforeEach(func() {
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "statefulset-")
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			fwk.StopManager(ctx)
 		})
 
 		ginkgo.When("The queue-name label is set", func() {

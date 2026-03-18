@@ -39,16 +39,13 @@ import (
 )
 
 var _ = ginkgo.Describe("DRA Integration", func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(nil))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(nil))
 		ctx = context.Background()
+	})
+
+	ginkgo.AfterEach(func() {
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("DRA is configured via ConfigMap", func() {

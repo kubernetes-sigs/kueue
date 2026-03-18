@@ -75,15 +75,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		ac *kueue.AdmissionCheck
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-")
 	})
 
@@ -111,6 +104,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
 		}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should update conditions when clusterQueues that its localQueue references are updated", framework.SlowSpec, func() {

@@ -41,24 +41,13 @@ const (
 )
 
 var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-	var ns *corev1.Namespace
-	defaultFlavorFungibility := &kueue.FlavorFungibility{
-		WhenCanBorrow:  kueue.MayStopSearch,
-		WhenCanPreempt: kueue.TryNextFlavor,
-	}
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
-
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Creating a ClusterQueue", func() {

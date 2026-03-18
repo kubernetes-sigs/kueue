@@ -31,15 +31,11 @@ const queueName = "queue-test"
 
 var _ = ginkgo.Describe("Queue validating webhook", func() {
 	var _ = ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	var _ = ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 	ginkgo.When("Updating a Queue", func() {

@@ -34,16 +34,6 @@ import (
 )
 
 var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset", "area:jobs"), func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(
-			jobframework.WithKubeServerVersion(serverVersionFetcher),
-			jobframework.WithEnabledFrameworks([]string{"statefulset"}),
-		))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	var (
 		ns *corev1.Namespace
 		fl *kueue.ResourceFlavor
@@ -52,6 +42,10 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 	)
 
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(
+			jobframework.WithKubeServerVersion(serverVersionFetcher),
+			jobframework.WithEnabledFrameworks([]string{"statefulset"}),
+		))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
@@ -72,6 +66,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should create distinct workloads for StatefulSets with generateName", func() {

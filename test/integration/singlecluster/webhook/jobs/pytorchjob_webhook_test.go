@@ -31,19 +31,13 @@ import (
 
 var _ = ginkgo.Describe("PyTorchJob Webhook", func() {
 	var ns *corev1.Namespace
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(pytorchjob.SetupPyTorchJobWebhook))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(pytorchjob.SetupPyTorchJobWebhook))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-")
 	})
-
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("with TopologyAwareScheduling", func() {

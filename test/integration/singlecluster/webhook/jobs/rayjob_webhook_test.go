@@ -31,17 +31,13 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
-		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerSetup(rayjob.SetupRayJobWebhook))
-		})
 		ginkgo.BeforeEach(func() {
+			fwk.StartManager(ctx, cfg, managerSetup(rayjob.SetupRayJobWebhook))
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-")
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		})
-		ginkgo.AfterAll(func() {
 			fwk.StopManager(ctx)
 		})
 

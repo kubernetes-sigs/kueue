@@ -34,10 +34,10 @@ import (
 )
 
 var _ = ginkgo.Describe("Cohort Webhook", func() {
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
 	})
-	ginkgo.AfterAll(func() {
+	ginkgo.AfterEach(func() {
 		fwk.StopManager(ctx)
 	})
 	ginkgo.When("Creating a Cohort", func() {
