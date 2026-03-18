@@ -966,9 +966,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
-	// It is intentional for this code to be not guarded behind a feature gate
-	// DRA workloads need to have certain error handling and hence to be handled in Reconcile loop
-	if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.Object) {
+	if workload.NeedsDRAReconcile(e.Object) {
 		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
 		return true
 	}
@@ -1057,8 +1055,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			}
 		})
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
-		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
+		if workload.NeedsDRAReconcile(e.ObjectNew) {
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		} else {
 			err := r.queues.UpdateWorkload(log, wlCopy)

@@ -413,7 +413,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		}
 
 		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
-		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(&w) {
+		if workload.NeedsDRAReconcile(&w) {
 			if m.draReconcileChannel != nil {
 				m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: &w}
 				log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")

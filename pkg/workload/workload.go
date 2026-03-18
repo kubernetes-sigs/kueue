@@ -1332,6 +1332,17 @@ func HasDRA(w *kueue.Workload) bool {
 	return HasResourceClaim(w) || HasResourceClaimTemplates(w)
 }
 
+// NeedsDRAReconcile returns true if the workload has DRA resources that require
+// processing in the Reconcile loop rather than being queued directly from event
+// handlers. DRA workloads need Reconcile-based processing for proper error
+// handling (e.g. setting Inadmissible conditions on the workload).
+func NeedsDRAReconcile(wl *kueue.Workload) bool {
+	if !features.Enabled(features.DynamicResourceAllocation) {
+		return false
+	}
+	return HasDRA(wl)
+}
+
 // HasResourceClaimTemplates returns true if the workload has ResourceClaimTemplates.
 func HasResourceClaimTemplates(w *kueue.Workload) bool {
 	for _, ps := range w.Spec.PodSets {
