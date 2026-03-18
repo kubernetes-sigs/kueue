@@ -1076,7 +1076,6 @@ func TestValidateFeatureGates(t *testing.T) {
 			setupFeatureGates: map[featuregate.Feature]bool{
 				features.DRAExtendedResources:      true,
 				features.DynamicResourceAllocation: false,
-				features.TASProfileMixed:           false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{

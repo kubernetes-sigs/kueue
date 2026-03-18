@@ -281,8 +281,6 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 
 		// Update in place if the workload didn't change to potentially become admissible,
 		// unless Eviction/Requeued status changed which can affect queue order.
-		// Also check TotalRequests since DRA resources may change computed
-		// resource requests without changing the Spec.
 		if !specChangedSinceEval &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
 			!priorityBoostAnnotationChanged(oldInfo, wInfo) &&
@@ -292,7 +290,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadRequeued),
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) &&
 			workload.HasClosedPreemptionGate(oldInfo.Obj) == workload.HasClosedPreemptionGate(wInfo.Obj) &&
-			equality.Semantic.DeepEqual(oldInfo.TotalRequests, wInfo.TotalRequests) {
+			!draRequestsChanged(oldInfo, wInfo) {
 			c.inadmissibleWorkloads.insert(key, wInfo)
 			return
 		}
@@ -317,6 +315,16 @@ func priorityBoostAnnotationChanged(oldInfo, newInfo *workload.Info) bool {
 		return false
 	}
 	return oldInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey] != newInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey]
+}
+
+// draRequestsChanged returns true if DRA preprocessing changed TotalRequests.
+// DRA extended resources are resolved in Reconcile, which can modify TotalRequests
+// without changing the workload Spec.
+func draRequestsChanged(oldInfo, newInfo *workload.Info) bool {
+	if !features.Enabled(features.DynamicResourceAllocation) {
+		return false
+	}
+	return !equality.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)
 }
 
 func (c *ClusterQueue) RebuildLocalQueue(lqName string) {

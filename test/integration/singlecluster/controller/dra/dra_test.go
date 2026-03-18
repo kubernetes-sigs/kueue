@@ -956,4 +956,94 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.When("DRAExtendedResources feature gate disabled", func() {
+		var (
+			ns             *corev1.Namespace
+			resourceFlavor *kueue.ResourceFlavor
+			clusterQueue   *kueue.ClusterQueue
+			localQueue     *kueue.LocalQueue
+		)
+
+		const extendedResourceName = "example.com/gpu"
+
+		ginkgo.BeforeAll(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DRAExtendedResources, false)
+			fwk.StopManager(ctx)
+			fwk.StartManager(ctx, cfg, managerSetup(nil))
+		})
+
+		ginkgo.AfterAll(func() {
+			fwk.StopManager(ctx)
+			fwk.StartManager(ctx, cfg, managerSetup(nil))
+		})
+
+		ginkgo.BeforeEach(func() {
+			ns = &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "dra-gate-off-",
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
+			resourceFlavor.GenerateName = "rf-gate-off-"
+			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
+
+			clusterQueue = &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "gate-off-cq-",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					NamespaceSelector: &metav1.LabelSelector{},
+					ResourceGroups: []kueue.ResourceGroup{
+						{
+							CoveredResources: []corev1.ResourceName{extendedResourceName},
+							Flavors: []kueue.FlavorQuotas{
+								{
+									Name: kueue.ResourceFlavorReference(resourceFlavor.Name),
+									Resources: []kueue.ResourceQuota{
+										{Name: extendedResourceName, NominalQuota: resource.MustParse("4")},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("gate-off-lq", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		})
+
+		ginkgo.It("Should treat extended resources as normal resources when gate is off", func() {
+			wl := utiltestingapi.MakeWorkload("gate-off-wl", ns.Name).
+				Queue("gate-off-lq").
+				Request(corev1.ResourceName(extendedResourceName), "2").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName(extendedResourceName)))
+				g.Expect(assignment.ResourceUsage[corev1.ResourceName(extendedResourceName)]).To(gomega.Equal(resource.MustParse("2")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })

@@ -17,7 +17,6 @@ limitations under the License.
 package dra
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -111,7 +110,7 @@ func TestIsExtendedResourceName(t *testing.T) {
 	}
 }
 
-func TestGetResourceRequestsFromExtendedResources(t *testing.T) {
+func TestResolveExtendedResourceQuota(t *testing.T) {
 	gpuDeviceClass := &resourceapi.DeviceClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "gpu.nvidia.com",
@@ -489,20 +488,20 @@ func TestGetResourceRequestsFromExtendedResources(t *testing.T) {
 
 			cl := newFakeClient(tt.deviceClasses...)
 
-			got, gotReplaced, errs := GetResourceRequestsFromExtendedResources(context.Background(), cl, tt.workload)
+			got, gotReplaced, errs := ResolveExtendedResourceQuota(t.Context(), cl, tt.workload)
 
 			if tt.wantErr {
 				if len(errs) == 0 {
-					t.Errorf("GetResourceRequestsFromExtendedResources() expected error, got none")
+					t.Errorf("ResolveExtendedResourceQuota() expected error, got none")
 				}
 				if tt.wantErrCount > 0 && len(errs) != tt.wantErrCount {
-					t.Errorf("GetResourceRequestsFromExtendedResources() expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
+					t.Errorf("ResolveExtendedResourceQuota() expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
 				}
 				return
 			}
 
 			if len(errs) > 0 {
-				t.Errorf("GetResourceRequestsFromExtendedResources() unexpected errors: %v", errs)
+				t.Errorf("ResolveExtendedResourceQuota() unexpected errors: %v", errs)
 				return
 			}
 
@@ -510,124 +509,10 @@ func TestGetResourceRequestsFromExtendedResources(t *testing.T) {
 				cmpopts.EquateEmpty(),
 			}
 			if diff := cmp.Diff(tt.want, got, opts...); diff != "" {
-				t.Errorf("GetResourceRequestsFromExtendedResources() resources mismatch (-want +got):\n%s", diff)
+				t.Errorf("ResolveExtendedResourceQuota() resources mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.wantReplaced, gotReplaced, opts...); diff != "" {
-				t.Errorf("GetResourceRequestsFromExtendedResources() replacedExtendedResources mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestHasExtendedResourcesBackedByDRA(t *testing.T) {
-	gpuDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "gpu.nvidia.com",
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: ptr.To("example.com/gpu"),
-		},
-	}
-
-	tests := []struct {
-		name          string
-		workload      *kueue.Workload
-		deviceClasses []*resourceapi.DeviceClass
-		want          bool
-	}{
-		{
-			name: "has extended resource backed by DRA",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
-			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
-			want:          true,
-		},
-		{
-			name: "has extended resource NOT backed by DRA",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"other.vendor/resource": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
-			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
-			want:          false,
-		},
-		{
-			name: "no extended resources",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourceCPU: resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
-			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
-			want:          false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cl := newFakeClient(tt.deviceClasses...)
-
-			got, err := HasExtendedResourcesBackedByDRA(context.Background(), cl, tt.workload)
-			if err != nil {
-				t.Fatalf("HasExtendedResourcesBackedByDRA() unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("HasExtendedResourcesBackedByDRA() = %v, want %v", got, tt.want)
+				t.Errorf("ResolveExtendedResourceQuota() replacedExtendedResources mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
