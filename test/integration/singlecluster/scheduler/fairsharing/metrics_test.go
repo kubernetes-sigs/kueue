@@ -78,6 +78,13 @@ var _ = ginkgo.Describe("Cohorts", func() {
 		return wl
 	}
 
+	withLending := func(fName kueue.ResourceFlavorReference, nominal, lending string) kueue.FlavorQuotas {
+		fq := *utiltestingapi.MakeFlavorQuotas(string(fName)).
+			Resource(corev1.ResourceCPU, nominal, "", lending).
+			Obj()
+		return fq
+	}
+
 	ginkgo.When("creating, modifying and removing", func() {
 		ginkgo.BeforeEach(func() {
 			admissionChecks = make(map[string]*kueue.AdmissionCheck)
@@ -118,7 +125,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}
 			for _, cohort := range cohorts {
-				metrics.ClearCohortMetrics(cohort.Name)
+				metrics.ClearCohortMetrics(kueue.CohortReference(cohort.Name))
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 			}
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
@@ -618,6 +625,126 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "low", numWorkloadsForCQ2)
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "high", numWorkloadsForCQ1)
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch2", "low", numWorkloadsForCQ2)
+			})
+		})
+
+		ginkgo.It("reports CohortSubtreeResourceReservations across child-parent topology", func() {
+			var (
+				wlCh1a *kueue.Workload
+				wlCh1b *kueue.Workload
+				wlCh1c *kueue.Workload
+				wlCh2  *kueue.Workload
+			)
+
+			ginkgo.By("Create root and children cohorts with explicit quotas/lending limits", func() {
+				createCohort(utiltestingapi.MakeCohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "30").
+							Obj(),
+					).Obj())
+
+				createCohort(utiltestingapi.MakeCohort("ch1").
+					Parent("root").
+					ResourceGroup(
+						withLending(kueue.ResourceFlavorReference(defaultFlavor.Name), "8", "3"),
+					).Obj())
+
+				createCohort(utiltestingapi.MakeCohort("ch2").
+					Parent("root").
+					ResourceGroup(
+						withLending(kueue.ResourceFlavorReference(defaultFlavor.Name), "6", "2"),
+					).Obj())
+			})
+
+			ginkgo.By("Create one ClusterQueue under each child cohort (also with lending limits)", func() {
+				createQueue(utiltestingapi.MakeClusterQueue("cqa").
+					Cohort("ch1").
+					ResourceGroup(
+						withLending(kueue.ResourceFlavorReference(defaultFlavor.Name), "10", "8"),
+					).Obj())
+
+				createQueue(utiltestingapi.MakeClusterQueue("cqb").
+					Cohort("ch2").
+					ResourceGroup(
+						withLending(kueue.ResourceFlavorReference(defaultFlavor.Name), "8", "6"),
+					).Obj())
+
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned("ch1", defaultFlavor.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned("ch2", defaultFlavor.Name, corev1.ResourceCPU.String())
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned("root", defaultFlavor.Name, corev1.ResourceCPU.String())
+
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 16_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 12_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 35_000)
+			})
+
+			ginkgo.By("Admit workload in ch1: reservations rises in ch1 , which is reflected in root", func() {
+				wlCh1a = createWorkload(utiltestingapi.MakeWorkloadWithGeneratedName("reservations-", ns.Name).
+					Queue(kueue.LocalQueueName("cqa")).
+					Request(corev1.ResourceCPU, "6").
+					Obj())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCh1a)
+
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 6_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 6_000)
+			})
+
+			ginkgo.By("Add more load in ch1", func() {
+				wlCh1b = createWorkload(utiltestingapi.MakeWorkloadWithGeneratedName("reservations-", ns.Name).
+					Queue(kueue.LocalQueueName("cqa")).
+					Request(corev1.ResourceCPU, "8").
+					Obj())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCh1b)
+
+				wlCh1c = createWorkload(utiltestingapi.MakeWorkloadWithGeneratedName("reservations-", ns.Name).
+					Queue(kueue.LocalQueueName("cqa")).
+					Request(corev1.ResourceCPU, "2").
+					Obj())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCh1c)
+
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 16_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 16_000)
+			})
+
+			ginkgo.By("Admit workload in ch2 and verify reservations in root", func() {
+				wlCh2 = createWorkload(utiltestingapi.MakeWorkloadWithGeneratedName("reservations-", ns.Name).
+					Queue(kueue.LocalQueueName("cqb")).
+					Request(corev1.ResourceCPU, "7").
+					Obj())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCh2)
+
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 7_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 23_000)
+			})
+
+			ginkgo.By("Finish one workload and verify reservations", func() {
+				util.FinishWorkloads(ctx, k8sClient, wlCh1c)
+
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 14_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 21_000)
+			})
+
+			ginkgo.By("Release high-overflow workload in ch1 and verify reservations", func() {
+				util.FinishWorkloads(ctx, k8sClient, wlCh1b)
+
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 6_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 7_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 13_000)
+			})
+
+			ginkgo.By("Move cqb from ch2 to ch1 and verify recomputed hierarchical attribution", func() {
+				var cq kueue.ClusterQueue
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "cqb"}, &cq)).To(gomega.Succeed())
+					cq.Spec.CohortName = "ch1"
+					g.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
+
+				// ch1 gains recomputed reservations after the move, ch2 goes to zero
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 13_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 13_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned("ch2", defaultFlavor.Name, corev1.ResourceCPU.String())
 			})
 		})
 	})

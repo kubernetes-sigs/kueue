@@ -17,7 +17,11 @@ limitations under the License.
 package scheduler
 
 import (
+	"maps"
+	"slices"
+
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -28,9 +32,10 @@ import (
 )
 
 type cohortMetricPoint struct {
-	cohortName     kueue.CohortReference
-	flavorResource resources.FlavorResource
-	qty            int64
+	cohortName      kueue.CohortReference
+	flavorResource  resources.FlavorResource
+	quotaQty        int64
+	reservationsQty int64
 }
 
 func (c *Cache) RecordCohortMetrics(log logr.Logger, cohortName kueue.CohortReference) {
@@ -62,6 +67,12 @@ func (c *Cache) ClearCohortMetrics(log logr.Logger, cohortName kueue.CohortRefer
 	}
 }
 
+// collectCohortMetricPoints prepares subtree metric points for the target cohort
+// and all cohorts on the path from the target to the root.
+// When simulateRemoval=true, it computes post-removal subtree values by subtracting
+// the target cohort's subtree contribution from each cohort's current subtree totals.
+// This is used when clearing metrics so ancestor subtree gauges are updated too,
+// rather than left with stale values after the target cohort is removed.
 func (c *Cache) collectCohortMetricPoints(cohortName kueue.CohortReference, simulateRemoval bool) []cohortMetricPoint {
 	c.RLock()
 	defer c.RUnlock()
@@ -74,22 +85,27 @@ func (c *Cache) collectCohortMetricPoints(cohortName kueue.CohortReference, simu
 		return nil
 	}
 
-	removedQuota := ch.resourceNode.SubtreeQuota
+	// Memoize subtree reservation totals across the ancestor walk so each subtree is
+	// aggregated once per call instead of being recomputed from each ancestor.
+	reservationMemo := newSubtreeReservationMemo()
+	chSubtreeReservations := reservationMemo.total(ch)
+
 	var points []cohortMetricPoint
 	for ancestor := range ch.PathSelfToRoot() {
-		quotas := ancestor.resourceNode.SubtreeQuota
+		ancestorSubtreeQuota := ancestor.resourceNode.SubtreeQuota
+		ancestorSubtreeReservations := reservationMemo.total(ancestor)
+
 		if simulateRemoval {
-			quotas = removedQuota
+			ancestorSubtreeQuota = ancestorSubtreeQuota.Sub(ch.resourceNode.SubtreeQuota)
+			ancestorSubtreeReservations = ancestorSubtreeReservations.Sub(chSubtreeReservations)
 		}
 
-		for flr, qty := range quotas {
-			if simulateRemoval {
-				qty = max(ancestor.resourceNode.SubtreeQuota[flr]-qty, 0)
-			}
+		for fr := range flavorResourceKeys(ancestorSubtreeQuota, ancestorSubtreeReservations) {
 			points = append(points, cohortMetricPoint{
-				cohortName:     ancestor.Name,
-				flavorResource: flr,
-				qty:            qty,
+				cohortName:      ancestor.Name,
+				flavorResource:  fr,
+				quotaQty:        ancestorSubtreeQuota[fr],
+				reservationsQty: ancestorSubtreeReservations[fr],
 			})
 		}
 	}
@@ -100,22 +116,64 @@ func (c *Cache) withCohortLogger(log logr.Logger, cohortName kueue.CohortReferen
 	return log.WithValues("cohort", cohortName)
 }
 
+func flavorResourceKeys(quota, reservations resources.FlavorResourceQuantities) sets.Set[resources.FlavorResource] {
+	keys := sets.New[resources.FlavorResource]()
+	keys.Insert(slices.Collect(maps.Keys(quota))...)
+	keys.Insert(slices.Collect(maps.Keys(reservations))...)
+	return keys
+}
+
 func (c *Cache) applyCohortMetricPoint(p cohortMetricPoint) {
-	if p.qty <= 0 {
-		metrics.ClearCohortSubtreeQuota(
-			p.cohortName,
-			string(p.flavorResource.Flavor),
-			string(p.flavorResource.Resource),
-		)
-		return
+	flavor := p.flavorResource.Flavor
+	resource := p.flavorResource.Resource
+
+	if p.quotaQty <= 0 {
+		metrics.ClearCohortSubtreeQuota(p.cohortName, flavor, resource)
+	} else {
+		metrics.ReportCohortSubtreeQuota(p.cohortName, flavor, resource, p.quotaQty, c.roleTracker)
 	}
-	metrics.ReportCohortSubtreeQuota(
-		p.cohortName,
-		string(p.flavorResource.Flavor),
-		string(p.flavorResource.Resource),
-		float64(p.qty),
-		c.roleTracker,
-	)
+
+	if p.reservationsQty <= 0 {
+		metrics.ClearCohortSubtreeResourceReservations(p.cohortName, flavor, resource)
+	} else {
+		metrics.ReportCohortSubtreeResourceReservations(p.cohortName, flavor, resource, p.reservationsQty, c.roleTracker)
+	}
+}
+
+type subtreeReservationMemo struct {
+	cache map[*cohort]resources.FlavorResourceQuantities
+}
+
+func newSubtreeReservationMemo() subtreeReservationMemo {
+	return subtreeReservationMemo{
+		cache: make(map[*cohort]resources.FlavorResourceQuantities),
+	}
+}
+
+// total returns aggregated reservations for all clusterQueues reachable from the
+// cohort subtree (direct child CQs and descendant cohorts).
+func (m subtreeReservationMemo) total(ch *cohort) resources.FlavorResourceQuantities {
+	if cached, found := m.cache[ch]; found {
+		return cached
+	}
+
+	total := make(resources.FlavorResourceQuantities)
+	for _, cq := range ch.ChildCQs() {
+		accumulateReservations(total, cq.getResourceNode().Usage)
+	}
+
+	for _, child := range ch.ChildCohorts() {
+		accumulateReservations(total, m.total(child))
+	}
+
+	m.cache[ch] = total
+	return total
+}
+
+func accumulateReservations(total, usage resources.FlavorResourceQuantities) {
+	for fr, qty := range usage {
+		total[fr] += qty
+	}
 }
 
 func (c *Cache) ReportCohortSubtreeAdmittedWorkload(log logr.Logger, wl *kueue.Workload) {

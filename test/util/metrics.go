@@ -319,3 +319,14 @@ func ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(cohortName kueue.CohortRefe
 	metric := metrics.CohortSubtreeAdmittedWorkloadsTotal.WithLabelValues(lvs...)
 	expectCounterMetric(metric, v)
 }
+
+func ExpectCohortSubtreeResourceReservationsGaugeMetric(cohortName string, flavor, resource string, count float64) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.CohortSubtreeResourceReservations.WithLabelValues(cohortName, flavor, resource, roletracker.RoleStandalone)
+	expectGaugeMetric(metric, gomega.Equal(count))
+}
+
+func ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned(cohortName, flavor, resource string) {
+	ginkgo.GinkgoHelper()
+	ExpectCohortSubtreeResourceReservationsGaugeMetric(cohortName, flavor, resource, 0)
+}

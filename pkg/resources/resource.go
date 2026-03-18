@@ -51,3 +51,11 @@ func (frq FlavorResourceQuantities) FlattenFlavors() Requests {
 	}
 	return result
 }
+
+func (frq FlavorResourceQuantities) Sub(other FlavorResourceQuantities) FlavorResourceQuantities {
+	result := make(FlavorResourceQuantities, len(frq))
+	for fr, qty := range frq {
+		result[fr] = qty - other[fr]
+	}
+	return result
+}
