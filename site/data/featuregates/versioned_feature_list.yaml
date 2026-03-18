@@ -295,6 +295,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: ShortWorkloadNames
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
 - name: SkipFinalizersForPodsSuspendedByParent
   versionedSpecs:
   - default: true

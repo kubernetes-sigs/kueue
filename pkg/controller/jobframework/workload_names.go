@@ -19,19 +19,43 @@ package jobframework
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
-	hashLength = 5
-	// 253 is the maximal length for a CRD name. We need to subtract one for '-', and the hash length.
-	maxPrefixLength = 252 - hashLength
+	hashLength                 = 5
+	longMaxWorkloadNameLength  = 253
+	shortMaxWorkloadNameLength = 63
 )
+
+// maxWorkloadNameLength returns the maximum allowed length for a workload name based on the enabled feature configuration.
+func maxWorkloadNameLength() int {
+	if features.Enabled(features.ShortWorkloadNames) {
+		return shortMaxWorkloadNameLength
+	}
+	return longMaxWorkloadNameLength
+}
+
+// maxPrefixLength calculates the maximum length of the workload name prefix, subtracting the hash length and separator.
+func maxPrefixLength() int {
+	return maxWorkloadNameLength() - 1 - hashLength
+}
+
+// truncate returns the first n characters of a string.
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
 
 func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
 	return generateWorkloadName(ownerName, ownerUID, ownerGVK, nil)
@@ -42,11 +66,11 @@ func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID type
 }
 
 func generateWorkloadName(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation *int64) string {
-	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName
-	if len(prefixedName) > maxPrefixLength {
-		prefixedName = prefixedName[:maxPrefixLength]
-	}
-	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, generation)[:hashLength]
+	return fmt.Sprintf(
+		"%s-%s",
+		truncate(fmt.Sprintf("%s-%s", strings.ToLower(ownerGVK.Kind), ownerName), maxPrefixLength()),
+		getHash(ownerName, ownerUID, ownerGVK, generation)[:hashLength],
+	)
 }
 
 func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, generation *int64) string {
