@@ -9,7 +9,7 @@ description: >
 本指南解释了如何使用 `VisibilityOnDemand` 特性在 Grafana 中监控待处理的工作负载。
 
 本文的受众是[批处理管理员](/zh-CN/docs/tasks#batch-administrator)，
-用于 ClusterQueue 可见性，以及[批处理用户](/zh-cn/docs/tasks#batch-user)用于 LocalQueue 可见性。
+用于 ClusterQueue 可见性，以及[批处理用户](/docs/tasks#batch-user)用于 LocalQueue 可见性。
 
 ## 开始之前
 

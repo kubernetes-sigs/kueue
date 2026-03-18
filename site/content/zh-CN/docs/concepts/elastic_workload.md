@@ -54,7 +54,7 @@ description: >
 
 ## RayJob
 
-参见[运行 RayJob](/zh-cn/docs/tasks/run/rayjobs)
+参见[运行 RayJob](/docs/tasks/run/rayjobs)
 
 ## 特性门控
 

@@ -57,7 +57,7 @@ SparkApplication 时，如何利用 Kueue 的调度和资源管理能力。
 
 ### a. 队列选择
 
-目标[本地队列](/zh-cn/docs/concepts/local_queue)应在 SparkApplication
+目标[本地队列](/docs/concepts/local_queue)应在 SparkApplication
 配置的 `metadata.labels` 部分中指定。
 
 ```yaml

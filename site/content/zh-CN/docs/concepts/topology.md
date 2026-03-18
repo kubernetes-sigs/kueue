@@ -8,9 +8,9 @@ description: >
 
 `Topology` 是一个集群范围的对象，定义了数据中心内节点的层次结构。
 它通过提供一种使用节点标签表示组织单元（如区域、块和机架）层次结构的模型，
-启用了[拓扑感知调度](/zh-cn/docs/concepts/topology_aware_scheduling)。
+启用了[拓扑感知调度](/docs/concepts/topology_aware_scheduling)。
 
-`Topology` 对象通过 [ResourceFlavor](/zh-cn/docs/concepts/resource_flavor)
+`Topology` 对象通过 [ResourceFlavor](/docs/concepts/resource_flavor)
 中的 `.spec.topologyName` 字段引用，以将规约与特定的拓扑结构关联。
 
 `Topology` 定义如下所示：
@@ -74,5 +74,5 @@ spec:
 
 ## 接下来是什么？
 
-- 学习如何使用 [拓扑感知调度](/zh-cn/docs/concepts/topology_aware_scheduling)
-- 阅读 `Topology` 的 [API 参考](/zh-cn/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-Topology)
+- 学习如何使用 [拓扑感知调度](/docs/concepts/topology_aware_scheduling)
+- 阅读 `Topology` 的 [API 参考](/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-Topology)
