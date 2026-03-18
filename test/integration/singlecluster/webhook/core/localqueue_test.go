@@ -29,7 +29,7 @@ import (
 
 const queueName = "queue-test"
 
-var _ = ginkgo.Describe("Queue validating webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Queue validating webhook", func() {
 	var _ = ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})

@@ -60,7 +60,7 @@ const (
 	priorityValue     int32 = 10
 )
 
-var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:jobs"), func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -233,7 +233,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 	})
 })
 
-var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs with queue are managed", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup())
 	})
@@ -302,7 +302,7 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 	})
 })
 
-var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 	type podsReadyTestSpec struct {
 		beforeJobStatus *rayv1.RayClusterStatus
 		beforeCondition *metav1.Condition
@@ -476,7 +476,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	)
 })
 
-var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
 	})
@@ -578,7 +578,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 	})
 })
 
-var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller with preemption enabled", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
 	})
@@ -695,7 +695,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 	})
 })
 
-var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices support", func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor

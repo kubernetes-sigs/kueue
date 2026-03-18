@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeAll(func() {
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
@@ -108,7 +108,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 	})
 })
 
-var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(job.SetupWebhook, jobframework.WithManageJobsWithoutQueueName(false)))

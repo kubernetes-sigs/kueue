@@ -52,7 +52,7 @@ const (
 	jobQueueName = "test-queue"
 )
 
-var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:jax", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:jax", "area:jobs"), func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -93,7 +93,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:jax", "area:jobs"), 
 	})
 })
 
-var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup())
 	})
@@ -306,7 +306,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 	})
 })
 
-var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 	var (
 		ns            *corev1.Namespace
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
@@ -429,7 +429,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	)
 })
 
-var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 	var (
 		ns                  *corev1.Namespace
 		onDemandFlavor      *kueue.ResourceFlavor
@@ -563,7 +563,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	})
 })
 
-var _ = ginkgo.Describe("JAXJob controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("JAXJob controller with TopologyAwareScheduling", func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)

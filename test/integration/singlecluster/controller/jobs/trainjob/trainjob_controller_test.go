@@ -52,7 +52,7 @@ const (
 	instanceKey = "cloud.provider.com/instance"
 )
 
-var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Trainjob controller", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -317,7 +317,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 	})
 })
 
-var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with queue are managed", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup())
 	})
@@ -380,7 +380,7 @@ var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with q
 	})
 })
 
-var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
 	})
@@ -590,7 +590,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 	})
 })
 
-var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)

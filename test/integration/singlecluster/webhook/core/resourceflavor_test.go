@@ -37,7 +37,7 @@ const (
 	taintsMaxItems            = 8
 )
 
-var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
 	})

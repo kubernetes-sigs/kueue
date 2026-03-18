@@ -93,25 +93,19 @@ func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyReques
 	})
 }
 
-var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 	var (
 		ns *corev1.Namespace
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup())
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Delete Topology", func() {
@@ -6124,7 +6118,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 // admission, while original CPU still participates in flavor selection / fitting.
 //
 // See: https://kueue.sigs.k8s.io/docs/tasks/manage/share_quotas_across_flavors/
-var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: Retain CPU → cpu_credits (Share Quotas Across Flavors)", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: Retain CPU → cpu_credits (Share Quotas Across Flavors)", func() {
 	const cpuCredits = "cpu_credits"
 
 	var (

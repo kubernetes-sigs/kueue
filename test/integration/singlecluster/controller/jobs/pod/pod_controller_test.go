@@ -63,7 +63,7 @@ var (
 	}
 )
 
-var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), func() {
 	ginkgo.When("manageJobsWithoutQueueName is disabled", func() {
 		var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(corev1.LabelArchStable, "arm64").Obj()
 		var clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
@@ -1755,7 +1755,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Label("job:pod", "area:jobs"), func() {
 	var (
 		ns                  *corev1.Namespace
 		spotUntaintedFlavor *kueue.ResourceFlavor
@@ -1999,7 +1999,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller interacting with Workload controller when waitForPodsReady enabled", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller interacting with Workload controller when waitForPodsReady enabled", ginkgo.Label("job:pod", "area:jobs"), func() {
 	var (
 		ns *corev1.Namespace
 		fl *kueue.ResourceFlavor
@@ -2199,7 +2199,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.Label("job:pod", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.Label("job:pod", "area:jobs", "feature:tas"), func() {
 	const (
 		nodeGroupLabel = "node-group"
 		tasBlockLabel  = "cloud.com/topology-block"
@@ -2384,7 +2384,7 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", ginkgo.Label("job:pod", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", ginkgo.Label("job:pod", "area:jobs", "feature:tas"), func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)

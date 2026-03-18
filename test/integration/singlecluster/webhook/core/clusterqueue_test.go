@@ -40,7 +40,7 @@ const (
 	flavorsMaxItems   = 64
 )
 
-var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
 	})

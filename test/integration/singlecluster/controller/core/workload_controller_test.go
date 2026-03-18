@@ -42,7 +42,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload", "area:core"), func() {
 	var (
 		ns                           *corev1.Namespace
 		updatedQueueWorkload         kueue.Workload
@@ -652,7 +652,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 	})
 })
 
-var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Workload controller interaction with scheduler", func() {
 	var (
 		ns           *corev1.Namespace
 		clusterQueue *kueue.ClusterQueue
@@ -862,7 +862,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 	})
 })
 
-var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 	ginkgo.When("manager is setup with tiny retention period", func() {
 		var (
 			ns              *corev1.Namespace

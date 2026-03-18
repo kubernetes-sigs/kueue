@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Resource Transformations", func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
@@ -187,7 +187,7 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 // admission, while original CPU still participates in flavor selection / fitting.
 //
 // See: https://kueue.sigs.k8s.io/docs/tasks/manage/share_quotas_across_flavors/
-var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Share Quotas Across Flavors)", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Share Quotas Across Flavors)", func() {
 	const cpuCredits = "cpu_credits"
 
 	var (

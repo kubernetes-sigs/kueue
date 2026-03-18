@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Deployment Webhook", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Deployment Webhook", func() {
 	var (
 		ns         *corev1.Namespace
 		deployment *appsv1.Deployment

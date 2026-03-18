@@ -68,7 +68,7 @@ const (
 	childJobName      = jobName + "-child"
 )
 
-var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs"), func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(
 			jobframework.WithManageJobsWithoutQueueName(true),
@@ -920,7 +920,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 	})
 })
 
-var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("When waitForPodsReady enabled", func() {
 	type podsReadyTestSpec struct {
 		beforeJobStatus *batchv1.JobStatus
 		beforeCondition *metav1.Condition
@@ -1232,7 +1232,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 	)
 })
 
-var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Interacting with scheduler", func() {
 	var (
 		ns                  *corev1.Namespace
 		onDemandFlavor      *kueue.ResourceFlavor
@@ -2841,7 +2841,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	})
 })
 
-var _ = ginkgo.Describe("Job controller interacting with Workload controller when waitForPodsReady is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller interacting with Workload controller when waitForPodsReady is enabled", func() {
 	var (
 		backoffBaseSeconds              int32
 		backoffLimitCount               *int32
@@ -3388,7 +3388,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 	})
 })
 
-var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", func() {
 	const (
 		nodeGroupLabel = "node-group"
 		tasBlockLabel  = "cloud.com/topology-block"
@@ -3558,7 +3558,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 	})
 })
 
-var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlices", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlices", func() {
 	const (
 		nodeGroupLabel = "node-group"
 		tasBlockLabel  = "cloud.com/topology-block"
@@ -3697,7 +3697,7 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 	})
 })
 
-var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", func() {
 	var (
 		enableWaitForPodsReady  bool
 		afterDeactivatedByKueue *metav1.Duration
@@ -4012,7 +4012,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 	})
 })
 
-var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -4328,7 +4328,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 	})
 })
 
-var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Job reconciliation", func() {
 	const (
 		cqName = "cluster-queue"
 		rfName = "default"

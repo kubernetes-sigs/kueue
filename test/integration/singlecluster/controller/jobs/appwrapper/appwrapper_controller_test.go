@@ -59,7 +59,7 @@ const (
 	priorityValue     int32 = 10
 )
 
-var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("AppWrapper controller", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -516,7 +516,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 	})
 })
 
-var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with queue are managed", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup())
 	})
@@ -571,7 +571,7 @@ var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with
 	})
 })
 
-var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", func() {
 	type podsReadyTestSpec struct {
 		beforeAppWrapperStatus *awv1beta2.AppWrapperStatus
 		beforeCondition        *metav1.Condition
@@ -766,7 +766,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 	)
 })
 
-var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
 	})
@@ -840,7 +840,7 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 	})
 })
 
-var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", func() {
 	const (
 		nodeGroupLabel = "node-group"
 		tasBlockLabel  = "cloud.com/topology-block"

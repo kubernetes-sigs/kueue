@@ -36,7 +36,7 @@ import (
 var _ = ginkgo.Describe("Pod Webhook", func() {
 	var ns *corev1.Namespace
 
-	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.When("with manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeAll(func() {
 			discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 		})
 	})
 
-	ginkgo.When("with manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.When("with manageJobsWithoutQueueName enabled", func() {
 		ginkgo.BeforeAll(func() {
 			discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

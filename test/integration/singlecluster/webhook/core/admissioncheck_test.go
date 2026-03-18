@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
 	})

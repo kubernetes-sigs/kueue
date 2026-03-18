@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("PaddleJob Webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("PaddleJob Webhook", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(paddlejob.SetupPaddleJobWebhook))

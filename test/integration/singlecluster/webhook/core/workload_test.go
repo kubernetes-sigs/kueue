@@ -47,7 +47,7 @@ const (
 	podSetsMaxItems = 8
 )
 
-var _ = ginkgo.Describe("Workload defaulting webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 	var _ = ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
@@ -109,7 +109,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", ginkgo.Ordered, func() {
 	})
 })
 
-var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Workload validating webhook", func() {
 	var _ = ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
@@ -1282,7 +1282,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 	})
 })
 
-var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher AllAtOnce", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher AllAtOnce", func() {
 	var _ = ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
@@ -1391,7 +1391,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 	})
 })
 
-var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Incremental", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Incremental", func() {
 	var _ = ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
@@ -1536,7 +1536,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 	})
 })
 
-var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("TopologyAssignment validation", func() {
 	var (
 		wl        *kueue.Workload
 		twoLevels = []string{"block", "rack"}

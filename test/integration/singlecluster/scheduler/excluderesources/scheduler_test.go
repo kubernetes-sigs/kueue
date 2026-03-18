@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
@@ -205,7 +205,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 	})
 })
 
-var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", func() {
 	var (
 		tasFlavor *kueue.ResourceFlavor
 		topology  *kueue.Topology

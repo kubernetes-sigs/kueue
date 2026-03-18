@@ -52,7 +52,7 @@ const (
 	jobQueueName = "test-queue"
 )
 
-var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:pytorch", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:pytorch", "area:jobs"), func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:pytorch", "area:jobs
 	})
 })
 
-var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", ginkgo.Label("job:pytorch", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", ginkgo.Label("job:pytorch", "area:jobs"), func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup())
 	})
@@ -317,7 +317,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 	})
 })
 
-var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Label("job:pytorch", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Label("job:pytorch", "area:jobs"), func() {
 	var (
 		ns            *corev1.Namespace
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
@@ -442,7 +442,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.L
 	)
 })
 
-var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Label("job:pytorch", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Label("job:pytorch", "area:jobs"), func() {
 	var (
 		ns                  *corev1.Namespace
 		onDemandFlavor      *kueue.ResourceFlavor
@@ -582,7 +582,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Labe
 	})
 })
 
-var _ = ginkgo.Describe("PyTorchJob controller with TopologyAwareScheduling", ginkgo.Label("job:pytorch", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("PyTorchJob controller with TopologyAwareScheduling", ginkgo.Label("job:pytorch", "area:jobs", "feature:tas"), func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)

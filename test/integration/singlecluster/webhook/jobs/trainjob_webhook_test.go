@@ -36,7 +36,7 @@ import (
 var _ = ginkgo.Describe("Trainjob Webhook", func() {
 	var ns *corev1.Namespace
 
-	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.When("with manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeAll(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
 				// Necessary to initialize the runtimes

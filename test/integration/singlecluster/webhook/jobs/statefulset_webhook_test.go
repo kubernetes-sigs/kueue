@@ -36,7 +36,7 @@ import (
 var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 	var ns *corev1.Namespace
 
-	ginkgo.When("with pod integration enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.When("with pod integration enabled", func() {
 		ginkgo.BeforeAll(func() {
 			discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

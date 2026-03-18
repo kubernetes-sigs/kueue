@@ -44,7 +44,7 @@ const (
 	jobName = "test-job"
 )
 
-var _ = ginkgo.Describe("SparkApplication controller", ginkgo.Label("job:sparkapplication", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("SparkApplication controller", ginkgo.Label("job:sparkapplication", "area:jobs"), func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -82,7 +82,7 @@ var _ = ginkgo.Describe("SparkApplication controller", ginkgo.Label("job:sparkap
 	})
 })
 
-var _ = ginkgo.Describe("SparkApplication controller when waitForPodsReady enabled", ginkgo.Label("job:sparkapplication", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("SparkApplication controller when waitForPodsReady enabled", ginkgo.Label("job:sparkapplication", "area:jobs"), func() {
 	var (
 		ns            *corev1.Namespace
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("SparkApplication controller when waitForPodsReady enabl
 	)
 })
 
-var _ = ginkgo.Describe("SparkApplication controller interacting with scheduler", ginkgo.Label("job:sparkapplication", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("SparkApplication controller interacting with scheduler", ginkgo.Label("job:sparkapplication", "area:jobs"), func() {
 	var (
 		ns                  *corev1.Namespace
 		onDemandFlavor      *kueue.ResourceFlavor
@@ -241,7 +241,7 @@ var _ = ginkgo.Describe("SparkApplication controller interacting with scheduler"
 	})
 })
 
-var _ = ginkgo.Describe("SparkApplication controller with TopologyAwareScheduling", ginkgo.Label("job:sparkapplication", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("SparkApplication controller with TopologyAwareScheduling", ginkgo.Label("job:sparkapplication", "area:jobs", "feature:tas"), func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)

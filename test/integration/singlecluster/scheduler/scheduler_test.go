@@ -2859,7 +2859,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
 		})
 	})
-	ginkgo.When("Using multiple flavours", ginkgo.Ordered, func() {
+	ginkgo.When("Using multiple flavours", func() {
 		var (
 			f1  *kueue.ResourceFlavor
 			f2  *kueue.ResourceFlavor

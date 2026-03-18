@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Cohort Webhook", func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
 	})

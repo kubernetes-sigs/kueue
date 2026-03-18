@@ -48,7 +48,7 @@ const (
 	instanceKey = "cloud.provider.com/instance"
 )
 
-var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordere
 	})
 })
 
-var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framework.RedundantSpec, func() {
 	var (
 		ns            *corev1.Namespace
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
@@ -227,7 +227,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 	)
 })
 
-var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.RedundantSpec, func() {
 	var (
 		ns                  *corev1.Namespace
 		onDemandFlavor      *kueue.ResourceFlavor
@@ -299,7 +299,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.R
 	})
 })
 
-var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framework.RedundantSpec, func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
