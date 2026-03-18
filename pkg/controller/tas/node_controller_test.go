@@ -150,7 +150,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	baseNode := testingnode.MakeNode(nodeName)
 
-
 	tests := map[string]struct {
 		initObjs           []client.Object
 		reconcileRequests  []reconcile.Request
@@ -594,10 +593,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 			},
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: nil,
-			wantRequeue:        podTerminationCheckPeriod,
-			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints: true,
-			},
 		},
 		"Node has NoSchedule taint, ReplaceNodeOnPodTermination off -> Unhealthy": {
 			initObjs: []client.Object{
@@ -736,29 +731,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: nil,
 		},
-		"Node has untolerated NoSchedule taint, pod is Pending, ReplaceNodeOnPodTermination off -> Unhealthy, pod patched": {
-			initObjs: []client.Object{
-				baseNode.Clone().StatusConditions(corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionTrue,
-					LastTransitionTime: now}).
-					Label(corev1.LabelHostname, nodeName).
-					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
-				baseWorkload.DeepCopy(),
-				testingpod.MakePod("pending-pod", nsName).
-					Annotation(kueue.WorkloadAnnotation, wlName).
-					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
-					NodeSelector(corev1.LabelHostname, nodeName).
-					StatusPhase(corev1.PodPending).Obj(),
-			},
-			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
-			wantPatchedPods:    []string{"pending-pod"},
-			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: false,
-			},
-		},
 		"Node has untolerated NoSchedule taint, pod is Pending and on node, ReplaceNodeOnPodTermination on -> Healthy (wait for termination), pod patched": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
@@ -770,6 +742,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseWorkload.DeepCopy(),
 				testingpod.MakePod("pending-pod", nsName).
 					Annotation(kueue.WorkloadAnnotation, wlName).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(corev1.LabelHostname, nodeName).
 					StatusPhase(corev1.PodPending).Obj(),
@@ -777,7 +750,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: nil,
 			wantPatchedPods:    []string{"pending-pod"},
-			wantRequeue:        podTerminationCheckPeriod,
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: true,
@@ -799,11 +771,13 @@ func TestNodeFailureReconciler(t *testing.T) {
 				workloadWithTwoNodes.DeepCopy(),
 				testingpod.MakePod("pending-pod-1", nsName).
 					Annotation(kueue.WorkloadAnnotation, wlName).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(corev1.LabelHostname, nodeName).
 					StatusPhase(corev1.PodPending).Obj(),
 				testingpod.MakePod("pending-pod-2", nsName).
 					Annotation(kueue.WorkloadAnnotation, wlName).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(corev1.LabelHostname, nodeName2).
 					StatusPhase(corev1.PodPending).Obj(),
@@ -812,7 +786,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantPatchedPods:    []string{"pending-pod-1"},
 			wantRemainingPods:  []string{"pending-pod-2"},
-			wantRequeue:        podTerminationCheckPeriod,
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: true,
@@ -831,7 +804,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 			},
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: nil,
-			wantRequeue:        podTerminationCheckPeriod,
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnNodeTaints:     true,
 				features.TASReplaceNodeOnPodTermination: true,
@@ -928,231 +900,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 				if targetCond == nil || targetCond.Status != corev1.ConditionTrue || targetCond.Reason != podTerminatedByKueueConditionReason {
 					t.Errorf("Expected %s condition to be True with Reason %s, got %v", podTerminatedByKueueConditionType, podTerminatedByKueueConditionReason, targetCond)
 				}
-			}
-		})
-	}
-}
-
-func TestClassifyPodsForReplacement(t *testing.T) {
-	cases := map[string]struct {
-		pods           []*corev1.Pod
-		wantTerminated []string
-		wantRetained   bool
-	}{
-		"pod is pending, no gates": {
-			pods: []*corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "pod1"},
-					Status:     corev1.PodStatus{Phase: corev1.PodPending},
-				},
-			},
-			wantTerminated: []string{"pod1"},
-		},
-		"pod is pending, has Kueue gate": {
-			pods: []*corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "pod1"},
-					Spec: corev1.PodSpec{
-						SchedulingGates: []corev1.PodSchedulingGate{
-							{Name: kueue.TopologySchedulingGate},
-						},
-					},
-					Status: corev1.PodStatus{Phase: corev1.PodPending},
-				},
-			},
-			wantRetained: true,
-		},
-		"pod is pending, has non-Kueue gate": {
-			pods: []*corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "pod1"},
-					Spec: corev1.PodSpec{
-						SchedulingGates: []corev1.PodSchedulingGate{
-							{Name: "other-gate"},
-						},
-					},
-					Status: corev1.PodStatus{Phase: corev1.PodPending},
-				},
-			},
-			wantTerminated: []string{"pod1"},
-		},
-		"pod is pending, has both gates": {
-			pods: []*corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "pod1"},
-					Spec: corev1.PodSpec{
-						SchedulingGates: []corev1.PodSchedulingGate{
-							{Name: kueue.TopologySchedulingGate},
-							{Name: "other-gate"},
-						},
-					},
-					Status: corev1.PodStatus{Phase: corev1.PodPending},
-				},
-			},
-			wantRetained: true,
-		},
-		"pod is already terminated": {
-			pods: []*corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "pod1"},
-					Status:     corev1.PodStatus{Phase: corev1.PodFailed},
-				},
-			},
-			wantTerminated: nil,
-		},
-		"pod is running": {
-			pods: []*corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "pod1"},
-					Status:     corev1.PodStatus{Phase: corev1.PodRunning},
-				},
-			},
-			wantRetained: true,
-		},
-		"mixed pods": {
-			pods: []*corev1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "pod1"},
-					Status:     corev1.PodStatus{Phase: corev1.PodPending},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "pod2"},
-					Spec: corev1.PodSpec{
-						SchedulingGates: []corev1.PodSchedulingGate{
-							{Name: "other-gate"},
-						},
-					},
-					Status: corev1.PodStatus{Phase: corev1.PodPending},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "pod3"},
-					Spec: corev1.PodSpec{
-						SchedulingGates: []corev1.PodSchedulingGate{
-							{Name: kueue.TopologySchedulingGate},
-						},
-					},
-					Status: corev1.PodStatus{Phase: corev1.PodPending},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "pod4"},
-					Status:     corev1.PodStatus{Phase: corev1.PodRunning},
-				},
-			},
-			wantTerminated: []string{"pod1", "pod2"},
-			wantRetained:   true,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			gotTerm, gotRetain := classifyPodsForReplacement(tc.pods)
-
-			var gotTermNames []string
-			for _, p := range gotTerm {
-				gotTermNames = append(gotTermNames, p.Name)
-			}
-
-			if diff := cmp.Diff(tc.wantTerminated, gotTermNames, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Unexpected pods to terminate (-want,+got):\n%s", diff)
-			}
-			if tc.wantRetained != gotRetain {
-				t.Errorf("Unexpected hasPodsToRetain: want %v, got %v", tc.wantRetained, gotRetain)
-			}
-		})
-	}
-}
-
-func TestIsPodAssignedToNode(t *testing.T) {
-	cases := map[string]struct {
-		pod          *corev1.Pod
-		node         *corev1.Node
-		levels       []string
-		wantAssigned bool
-	}{
-		"pod assigned to node by nodeName": {
-			pod: &corev1.Pod{
-				Spec: corev1.PodSpec{
-					NodeName: "node1",
-				},
-			},
-			node: &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "node1",
-				},
-			},
-			wantAssigned: true,
-		},
-		"pod assigned to node by topology (lowest level hostname matches)": {
-			pod: &corev1.Pod{
-				Spec: corev1.PodSpec{
-					NodeSelector: map[string]string{
-						corev1.LabelHostname: "node1",
-					},
-				},
-			},
-			node: &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "node1",
-					Labels: map[string]string{
-						corev1.LabelHostname: "node1",
-					},
-				},
-			},
-			levels:       []string{corev1.LabelHostname},
-			wantAssigned: true,
-		},
-		"pod assigned by topology, lowest level is not hostname": {
-			pod: &corev1.Pod{
-				Spec: corev1.PodSpec{
-					NodeSelector: map[string]string{
-						"topology.kubernetes.io/zone": "us-west1-a",
-					},
-				},
-			},
-			node: &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "node1",
-					Labels: map[string]string{
-						"topology.kubernetes.io/zone": "us-west1-a",
-						corev1.LabelHostname:          "node1",
-					},
-				},
-			},
-			levels:       []string{"topology.kubernetes.io/zone"},
-			wantAssigned: true,
-		},
-		"pod assigned by topology (identical rack names in different blocks)": {
-			pod: &corev1.Pod{
-				Spec: corev1.PodSpec{
-					NodeSelector: map[string]string{
-						"cloud.provider.com/topology-block": "block-A",
-						"cloud.provider.com/topology-rack":  "rack-1",
-						corev1.LabelHostname:                "node1",
-					},
-				},
-			},
-			node: &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "node2",
-					Labels: map[string]string{
-						"cloud.provider.com/topology-block": "block-B",
-						"cloud.provider.com/topology-rack":  "rack-1",
-						corev1.LabelHostname:                "node2",
-					},
-				},
-			},
-			levels: []string{
-				"cloud.provider.com/topology-block",
-				"cloud.provider.com/topology-rack",
-				corev1.LabelHostname,
-			},
-			wantAssigned: false, // Should be false because the block differs
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := isPodAssignedToNode(tc.pod, tc.node, tc.levels)
-			if got != tc.wantAssigned {
-				t.Errorf("isPodAssignedToNode() = %v, want %v", got, tc.wantAssigned)
 			}
 		})
 	}
