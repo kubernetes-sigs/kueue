@@ -66,7 +66,6 @@ if [[ "${need_build}" == "true" ]]; then
   echo -n "${K8S_REPO_REF}" > "${COMPAT_LIFECYCLE_BIN_STAMP}"
 fi
 
-mkdir -p "${REPO_ROOT}/staging"
 pushd "${REPO_ROOT}" >/dev/null
 "${COMPAT_LIFECYCLE_BIN}" feature-gates update
 popd >/dev/null
