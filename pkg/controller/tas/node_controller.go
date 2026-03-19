@@ -319,7 +319,7 @@ func (r *nodeReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string
 			continue
 		}
 		wlKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
-		if utiltas.HasTASAssignmentOnNode(wl.Status.Admission.PodSetAssignments, nodeName) {
+		if wl.Status.Admission != nil && utiltas.HasTASAssignmentOnNode(wl.Status.Admission.PodSetAssignments, nodeName) {
 			tasWorkloadsOnNode.Insert(wlKey)
 			continue
 		}
