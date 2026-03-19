@@ -1,3 +1,35 @@
+## v0.15.7
+
+Changes since `v0.15.6`:
+
+## Changes by Kind
+
+### Feature
+
+- Helm: Allow setting log level (#9944, @gabesaba)
+- TAS: Extend the support for handling NoSchedule taints when the TASReplaceNodeOnNodeTaints feature gate is enabled. (#10002, @j-skiba)
+- VisibilityOnDemand: Introduce a new Kueue deployment argument, --visibility-server-port, which allows passing custom port when starting the visibility server. (#9975, @Nilsachy)
+
+### Bug or Regression
+
+- LWS integration: Fixed a bug that the `kueue.x-k8s.io/job-uid` label was not set on the workloads. (#10011, @mbobrovskyi)
+- MultiKueue: Enable AllowWatchBookmarks for remote client watches to prevent idle watch connections from being terminated by HTTP proxies with idle timeouts (e.g., Cloudflare 524 errors). (#9989, @trilamsr)
+- Scheduling: fix the issue that scheduler could indefinitely try re-queueing a workload which was once 
+  inadmissible, but is admissible after an update. The issue affected workloads which don't specify 
+  resource requests explicitly, but rely on defaulting based on limits. (#9912, @mimowo)
+- Scheduling: fixed SchedulingEquivalenceHashing so equivalent workloads that become inadmissible through
+  the preemption path with no candidates are also covered by the mechanism. 
+  
+  As a safety measure while the broader fix is validated, the beta SchedulingEquivalenceHashing feature gate
+  is temporarily disabled by default. (#10008, @mimowo)
+- StatefulSet integration: Fixed a bug that the `kueue.x-k8s.io/job-uid` label was not set on the workloads. (#9903, @mbobrovskyi)
+- TAS: Fixed a bug where pods could become stuck in a `Pending` state during node replacement.
+  This may occur when a node gets tainted or `NotReady` after the topology assignment phase, but before
+  the pods are ungated. (#9977, @j-skiba)
+- TAS: fix the bug that workloads which only specify resource limits, without requests, are not able to perform 
+  the second-pass scheduling correctly, responsible for NodeHotSwap and ProvisioningRequests. (#9948, @mimowo)
+- VisibilityOnDemand: Fix non-deterministic workload ordering with UsageBasedAdmissionFairSharing enabled. (#9956, @sohankunkerkar)
+
 ## v0.15.6
 
 Changes since `v0.15.5`:
