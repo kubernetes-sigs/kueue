@@ -2593,7 +2593,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
 						g.Expect(wl1.Status.UnhealthyNodes).NotTo(gomega.ContainElement(kueue.UnhealthyNode{Name: nodeName}))
-					}, 2*time.Second, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("deleting the pod", func() {
