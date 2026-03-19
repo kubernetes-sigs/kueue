@@ -17,7 +17,6 @@ limitations under the License.
 package queue
 
 import (
-	"context"
 	"slices"
 	"testing"
 	"time"
@@ -1270,14 +1269,13 @@ func TestFsAdmission(t *testing.T) {
 				builder = builder.WithObjects(&lq)
 			}
 			client := builder.Build()
-			ctx := context.Background()
 
 			afsConsumedResources := queueafs.NewAfsConsumedResources()
 			for lqKey, consumedResources := range tc.initConsumedResources {
 				afsConsumedResources.Set(utilqueue.LocalQueueReference(lqKey), consumedResources, time.Now())
 			}
 
-			cq, _ := newClusterQueue(ctx, client, tc.cq, defaultOrdering, tc.afsConfig, nil, afsConsumedResources)
+			cq, _ := newClusterQueue(t.Context(), client, tc.cq, defaultOrdering, tc.afsConfig, nil, afsConsumedResources)
 			for _, wl := range tc.wls {
 				cq.PushOrUpdate(workload.NewInfo(&wl))
 			}

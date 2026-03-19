@@ -147,7 +147,7 @@ func TestFSWatch(t *testing.T) {
 				}
 			}
 			// Using an empty context here to avoid a race condition with the test context when setting the logger.
-			ctx := ctrl.LoggerInto(context.Background(), utiltesting.NewLogger(t))
+			ctx := ctrl.LoggerInto(t.Context(), utiltesting.NewLogger(t))
 			ctx, cancel := context.WithTimeout(ctx, time.Second)
 			wg := sync.WaitGroup{}
 			defer func() {
@@ -204,7 +204,7 @@ func TestFSWatch(t *testing.T) {
 
 func TestFSWatchAddRm(t *testing.T) {
 	// Using an empty context here to avoid a race condition with the test context when setting the logger.
-	ctx := ctrl.LoggerInto(context.Background(), utiltesting.NewLogger(t))
+	ctx := ctrl.LoggerInto(t.Context(), utiltesting.NewLogger(t))
 	ctx, cancel := context.WithCancel(ctx)
 	wg := sync.WaitGroup{}
 	defer func() {

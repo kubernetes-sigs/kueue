@@ -17,7 +17,6 @@ limitations under the License.
 package controller
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -455,7 +454,7 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 				opts...,
 			)
 
-			ctx := context.Background()
+			ctx := t.Context()
 			_, gotErr := reconciler.Reconcile(ctx, tc.req)
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile() error (-want +got):\n%s", diff)

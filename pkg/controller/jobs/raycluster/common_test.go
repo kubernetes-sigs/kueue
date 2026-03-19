@@ -360,7 +360,6 @@ func TestUpdatePodSets(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-			ctx := context.Background()
 
 			scheme := runtime.NewScheme()
 			_ = rayv1.AddToScheme(scheme)
@@ -375,7 +374,7 @@ func TestUpdatePodSets(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			gotPodSets, err := UpdatePodSets(ctx, tc.podSets, c, tc.object, tc.enableInTreeAutoscaling, tc.rayClusterName)
+			gotPodSets, err := UpdatePodSets(t.Context(), tc.podSets, c, tc.object, tc.enableInTreeAutoscaling, tc.rayClusterName)
 
 			if tc.wantErr {
 				if err == nil {
@@ -889,7 +888,6 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 
 func TestUpdatePodSetsFayCluster_GetError(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-	ctx := context.Background()
 	scheme := runtime.NewScheme()
 	_ = rayv1.AddToScheme(scheme)
 
@@ -916,7 +914,7 @@ func TestUpdatePodSetsFayCluster_GetError(t *testing.T) {
 		WithEnableAutoscaling(ptr.To(true)).
 		Obj()
 
-	_, err := UpdatePodSets(ctx, podSets, c, object, ptr.To(true), "target-raycluster")
+	_, err := UpdatePodSets(t.Context(), podSets, c, object, ptr.To(true), "target-raycluster")
 
 	if err == nil {
 		t.Error("Expected error but got none")

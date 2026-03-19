@@ -17,7 +17,6 @@ limitations under the License.
 package externalframeworks
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -134,7 +133,7 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 			client := fake.NewClientBuilder().WithObjects(tt.object).Build()
 			key := types.NamespacedName{Name: "test-job", Namespace: "default"}
 
-			got, gotReason, err := adapter.IsJobManagedByKueue(context.Background(), client, key)
+			got, gotReason, err := adapter.IsJobManagedByKueue(t.Context(), client, key)
 
 			if diff := cmp.Diff(tt.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Adapter.IsJobManagedByKueue() error (-want,+got):\n%s", diff)

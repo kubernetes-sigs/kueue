@@ -17,7 +17,6 @@ limitations under the License.
 package rayservice
 
 import (
-	"context"
 	"testing"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -29,7 +28,6 @@ import (
 )
 
 func TestValidateCreate(t *testing.T) {
-	ctx := context.Background()
 	testCases := map[string]struct {
 		service   *rayv1.RayService
 		manageAll bool
@@ -135,7 +133,7 @@ func TestValidateCreate(t *testing.T) {
 			webhook := &RayServiceWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
-			_, err := webhook.ValidateCreate(ctx, tc.service)
+			_, err := webhook.ValidateCreate(t.Context(), tc.service)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("ValidateCreate() error = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -144,7 +142,6 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestValidateUpdate(t *testing.T) {
-	ctx := context.Background()
 	testCases := map[string]struct {
 		oldService *rayv1.RayService
 		newService *rayv1.RayService
@@ -200,7 +197,7 @@ func TestValidateUpdate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			webhook := &RayServiceWebhook{}
-			_, err := webhook.ValidateUpdate(ctx, tc.oldService, tc.newService)
+			_, err := webhook.ValidateUpdate(t.Context(), tc.oldService, tc.newService)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("ValidateUpdate() error = %v, wantErr %v", err, tc.wantErr)
 			}

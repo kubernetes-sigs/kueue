@@ -466,7 +466,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 					moveWorkloadsLogCount++
 				}
 			}, funcr.Options{Verbosity: 2})
-			ctx := logr.NewContext(context.Background(), logger)
+			ctx := logr.NewContext(t.Context(), logger)
 
 			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
 			manager, watcher := NewManagerForUnitTestsWithRequeuer(cl, nil)
