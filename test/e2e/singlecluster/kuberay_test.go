@@ -966,6 +966,20 @@ app = HelloWorld.bind()`,
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
 			Obj()
 
+		// Add environment variable to enable GCS fault tolerance redis cleanup
+		envVar := corev1.EnvVar{
+			Name:  "ENABLE_GCS_FT_REDIS_CLEANUP",
+			Value: "true",
+		}
+
+		// Add environment variable to head node container
+		rayCluster.Spec.HeadGroupSpec.Template.Spec.Containers[0].Env = append(
+			rayCluster.Spec.HeadGroupSpec.Template.Spec.Containers[0].Env, envVar)
+
+		// Add environment variable to worker node container
+		rayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = append(
+			rayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env, envVar)
+
 		// Add GCS fault tolerance finalizer to trigger redis-cleanup job creation on deletion
 		rayCluster.Finalizers = append(rayCluster.Finalizers, "ray.io/gcs-ft-redis-cleanup-finalizer")
 
