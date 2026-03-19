@@ -1427,6 +1427,62 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
+			ginkgo.It("should not panic when unadmitted workload exists during node deletion", func() {
+				var wl1, wl2 *kueue.Workload
+				nodeName := nodes[0].Name
+
+				ginkgo.By("creating a workload that gets admitted", func() {
+					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 2).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("verify the first workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("creating a second workload that stays pending (not enough resources)", func() {
+					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 10).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					util.MustCreate(ctx, k8sClient, wl2)
+				})
+
+				ginkgo.By("verify the second workload is pending (unadmitted, nil Admission)", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+				})
+
+				ginkgo.By("deleting the node to trigger node reconciliation", func() {
+					nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
+					gomega.Expect(k8sClient.Delete(ctx, nodeToDelete)).Should(gomega.Succeed())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, false)
+				})
+
+				ginkgo.By("verify the admitted workload is updated without panic", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+						g.Expect(wl1.Status.Admission).NotTo(gomega.BeNil())
+						g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+							utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+								Levels: []string{corev1.LabelHostname},
+								Domains: []utiltas.TopologyDomainAssignment{
+									{Count: 1, Values: []string{"x1"}},
+									{Count: 1, Values: []string{"x4"}},
+								},
+							}),
+						))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("verify the pending workload is still pending", func() {
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+				})
+			})
 			ginkgo.It("should remove node from unhealthyNodes when the node recovers", func() {
 				var wl1 *kueue.Workload
 				nodeName := nodes[0].Name
