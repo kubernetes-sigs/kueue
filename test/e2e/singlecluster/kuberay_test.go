@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -956,6 +957,18 @@ app = HelloWorld.bind()`,
 	ginkgo.It("Should ensure redis-cleanup pods don't have scheduling gates for Ray Cluster with GCS FT", func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
+		// Enable GCS fault tolerance redis cleanup feature on the Ray operator
+		os.Setenv("ENABLE_GCS_FT_REDIS_CLEANUP", "true")
+		defer os.Unsetenv("ENABLE_GCS_FT_REDIS_CLEANUP")
+
+		// Environment variable to enable GCS fault tolerance redis cleanup on pods
+		env := []corev1.EnvVar{
+			{
+				Name:  "ENABLE_GCS_FT_REDIS_CLEANUP",
+				Value: "true",
+			},
+		}
+
 		// Create a RayCluster with GCS fault tolerance enabled (has the finalizer)
 		rayCluster := testingraycluster.MakeCluster("raycluster-gcs-ft", ns.Name).
 			Suspend(true).
@@ -964,21 +977,9 @@ app = HelloWorld.bind()`,
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			Env(rayv1.HeadNode, env).
+			Env(rayv1.WorkerNode, env).
 			Obj()
-
-		// Add environment variable to enable GCS fault tolerance redis cleanup
-		envVar := corev1.EnvVar{
-			Name:  "ENABLE_GCS_FT_REDIS_CLEANUP",
-			Value: "true",
-		}
-
-		// Add environment variable to head node container
-		rayCluster.Spec.HeadGroupSpec.Template.Spec.Containers[0].Env = append(
-			rayCluster.Spec.HeadGroupSpec.Template.Spec.Containers[0].Env, envVar)
-
-		// Add environment variable to worker node container
-		rayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = append(
-			rayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env, envVar)
 
 		// Add GCS fault tolerance finalizer to trigger redis-cleanup job creation on deletion
 		rayCluster.Finalizers = append(rayCluster.Finalizers, "ray.io/gcs-ft-redis-cleanup-finalizer")
