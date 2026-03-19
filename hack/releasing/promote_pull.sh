@@ -122,9 +122,7 @@ if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
-IFS='.' read -r MAJOR MINOR _ <<< "${RELEASE_VERSION#v}"
-
-declare -r MAJOR_MINOR="$MAJOR.$MINOR"
+IFS='.' read -r _ MINOR _ <<< "${RELEASE_VERSION#v}"
 
 LAST_SUPPORT_MINOR=$((MINOR - 1))
 if [ "$LAST_SUPPORT_MINOR" -lt 0 ]; then
@@ -376,11 +374,11 @@ function push_and_create_pr() {
   fi
 }
 
-K8S_IO_BRANCH="kueue-promote-${MAJOR_MINOR}"
+K8S_IO_BRANCH="kueue-promote-${RELEASE_VERSION}"
 declare -r K8S_IO_BRANCH
 K8S_IO_BRANCH_UNIQUE="${K8S_IO_BRANCH}-$(date +%s)"
 declare -r K8S_IO_BRANCH_UNIQUE
-K8S_IO_PR_NAME="Kueue: Promote ${MAJOR_MINOR}"
+K8S_IO_PR_NAME="Kueue: Promote ${RELEASE_VERSION}"
 declare -r K8S_IO_PR_NAME
 
 prepare_local_branch main "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
