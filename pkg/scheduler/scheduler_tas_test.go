@@ -694,11 +694,6 @@ func TestScheduleForTAS(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
-					Message("Workload was evicted as there was no replacement for unhealthy node(s): x0").
-					Obj(),
-			},
 		},
 		"workload with unhealthyNode annotation; second pass; preferred; no fit; FailFast (not found error on patch)": {
 			nodes:           defaultNodes,
@@ -2547,10 +2542,6 @@ func TestScheduleForTAS(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
-					Message("Workload was evicted as there was no replacement for unhealthy node(s): x0").Obj(),
-			},
 		},
 		"does not admit workload when node does not match required affinity": {
 			nodes:           defaultSingleNode,
@@ -3350,9 +3341,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "low-priority-admitted", "EvictedDueToPreempted", "Normal").
-					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main").
-					Obj(),
 				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
 					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
@@ -3476,9 +3464,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "low-priority-admitted", "EvictedDueToPreempted", "Normal").
-					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main").
-					Obj(),
 				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
 					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
@@ -3595,9 +3580,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "low-priority-admitted", "EvictedDueToPreempted", "Normal").
-					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main").
-					Obj(),
 				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
 					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
@@ -3718,9 +3700,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/high-priority-waiting"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "low-priority-admitted", "EvictedDueToPreempted", "Normal").
-					Message("Preempted to accommodate a workload (UID: wl-high-priority-waiting, JobUID: job-high-priority-waiting) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main").
-					Obj(),
 				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
 					Message("Preempted to accommodate a workload (UID: wl-high-priority-waiting, JobUID: job-high-priority-waiting) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
@@ -3877,9 +3856,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "low-priority-admitted", "EvictedDueToPreempted", "Normal").
-					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main").
-					Obj(),
 				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
 					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
@@ -4038,9 +4014,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "low-priority-admitted", "EvictedDueToPreempted", "Normal").
-					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main").
-					Obj(),
 				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
 					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
@@ -4282,7 +4255,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			wantInadmissibleLeft: nil,
 			eventCmpOpts:         cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "low-priority", "EvictedDueToPreempted", "Normal").Obj(),
 				utiltesting.MakeEventRecord("default", "low-priority", "Preempted", "Normal").Obj(),
 				utiltesting.MakeEventRecord("default", "high-priority", "PreemptedWorkload", "Normal").Obj(),
 				utiltesting.MakeEventRecord("default", "high-priority", "Pending", "Warning").Obj(),
@@ -4682,7 +4654,6 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "a1-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "a1-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"reclaim within cohort; single workload is preempted out three candidates": {
@@ -4874,7 +4845,6 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "a1-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
@@ -5035,7 +5005,6 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "a2-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a2-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
@@ -5275,8 +5244,6 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "a2-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "a3-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "c1", "Pending", corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "a2-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
@@ -5968,7 +5935,6 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "a1-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a2", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a2", "Pending", corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "a1-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
@@ -6474,11 +6440,6 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 						Reason: "NodeFailures",
 						Count:  1,
 					}).
-					Obj(),
-			},
-			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "wl", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
-					Message("Workload was evicted as there was no replacement for unhealthy node(s): x0").
 					Obj(),
 			},
 		},

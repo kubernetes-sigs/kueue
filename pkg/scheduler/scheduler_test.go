@@ -7780,7 +7780,6 @@ func TestSchedule(t *testing.T) {
 			},
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("sales", "low-priority", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("sales", "low-priority", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("sales", "preemptor", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("sales", "preemptor", "Pending", corev1.EventTypeWarning).Obj(),
@@ -7896,7 +7895,6 @@ func TestSchedule(t *testing.T) {
 			},
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "low-pob", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "low-pob", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "high-pob", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "high-pob", "Pending", corev1.EventTypeWarning).Obj(),
@@ -8119,7 +8117,6 @@ func TestSchedule(t *testing.T) {
 			},
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "fs-low-pob", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "fs-low-pob", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "fs-high-pob", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "fs-high-pob", "Pending", corev1.EventTypeWarning).Obj(),

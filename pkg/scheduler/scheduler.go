@@ -644,7 +644,7 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled", "unhealthyNodes", unhealthyNodes)
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for unhealthy node(s): %s", unhealthyNodesCsv)
 	if err := workload.Evict(
-		ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock, s.roleTracker, s.customLabels,
+		ctx, s.client, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock,
 		workload.EvictWithLooseOnApply(), workload.EvictWithRetryOnConflictForPatch(),
 	); err != nil {
 		return fmt.Errorf("failed to evict workload after failed try to find a replacement for unhealthy nodes: %s, %w", unhealthyNodesCsv, err)

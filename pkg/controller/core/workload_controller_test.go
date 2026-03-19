@@ -943,14 +943,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: "Normal",
-					Reason:    "EvictedDueToDeactivatedDueToAdmissionCheck",
-					Message:   "The workload is deactivated due to Admission check(s): check-1, were rejected",
-				},
-			},
 		},
 		"workload with retry checks should be evicted and checks should be pending": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -990,14 +982,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: "Normal",
-					Reason:    "EvictedDueToAdmissionCheck",
-					Message:   "At least one admission check is false",
-				},
-			},
 		},
 		"increment re-queue count": {
 			reconcilerOpts: []Option{
@@ -1074,14 +1058,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToPodsReadyTimeout",
-					Message:   "Exceeded the PodsReady timeout ns/wl",
-				},
-			},
 		},
 		"trigger deactivation of workload when reaching backoffLimitCount": {
 			reconcilerOpts: []Option{
@@ -1176,14 +1152,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToPodsReadyTimeout",
-					Message:   "Exceeded the PodsReady timeout ns/wl",
-				},
-			},
 		},
 		"recovery time should be limited to recoveryTimeout": {
 			reconcilerOpts: []Option{
@@ -1252,14 +1220,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToPodsReadyTimeout",
-					Message:   "Exceeded the PodsReady timeout ns/wl",
-				},
-			},
 		},
 		"should set the WorkloadRequeued condition to true on re-activated": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1490,14 +1450,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToDeactivated",
-					Message:   "The workload is deactivated",
-				},
-			},
 		},
 		"should set the Evicted condition with Deactivated reason when the .spec.active is False, Admitted, and the Workload has Evicted=False condition": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1542,14 +1494,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToDeactivated",
-					Message:   "The workload is deactivated",
-				},
-			},
 		},
 		"with reason PodsReady; should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition": {
@@ -1633,14 +1577,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
-					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
-				},
-			},
 		},
 		"with reason WaitForPodsStart; should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition": {
@@ -1724,14 +1660,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
-					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
-				},
-			},
 		},
 		"with reason PodsReady; [backoffLimitCount: 100] should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition, and the requeueState.count equals to backoffLimitCount": {
@@ -1818,14 +1746,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
-					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
-				},
-			},
 		},
 		"with reason WaitForPodsStart; [backoffLimitCount: 100] should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition, and the requeueState.count equals to backoffLimitCount": {
@@ -1912,14 +1832,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
-					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
-				},
-			},
 		},
 		"should keep the previous eviction reason when the Workload is already evicted by other reason even though the Workload is deactivated.": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1972,14 +1884,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToClusterQueueStopped",
-					Message:   "The ClusterQueue is stopped",
-				},
-			},
 		},
 		"should set the Evicted condition with LocalQueueStopped reason when the StopPolicy is HoldAndDrain": {
 			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
@@ -2008,14 +1912,6 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToLocalQueueStopped",
-					Message:   "The LocalQueue is stopped",
-				},
-			},
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was deleted": {
 			cq: utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),

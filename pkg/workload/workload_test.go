@@ -2654,3 +2654,53 @@ func TestSchedulingHash(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitReasonWithCause(t *testing.T) {
+	cases := map[string]struct {
+		reasonWithCause string
+		wantReason      string
+		wantCause       string
+	}{
+		"no ReasonWithCause": {
+			reasonWithCause: "",
+			wantReason:      "",
+			wantCause:       "",
+		},
+		"no DueTo": {
+			reasonWithCause: "Evicted",
+			wantReason:      "Evicted",
+			wantCause:       "",
+		},
+		"no cause": {
+			reasonWithCause: "EvictedDueTo",
+			wantReason:      "Evicted",
+			wantCause:       "",
+		},
+		"no reason": {
+			reasonWithCause: "DueToDeactivated",
+			wantReason:      "",
+			wantCause:       "Deactivated",
+		},
+		"reason with cause": {
+			reasonWithCause: "EvictedDueToDeactivated",
+			wantReason:      "Evicted",
+			wantCause:       "Deactivated",
+		},
+		"reason with cause containing DueTo": {
+			reasonWithCause: "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
+			wantReason:      "Evicted",
+			wantCause:       "DeactivatedDueToRequeuingLimitExceeded",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotReason, gotCause := SplitReasonWithCause(tc.reasonWithCause)
+			if tc.wantReason != gotReason {
+				t.Errorf("expected reason %s, got %s", tc.wantReason, gotReason)
+			}
+			if tc.wantCause != gotCause {
+				t.Errorf("expected cause %s, got %s", tc.wantCause, gotCause)
+			}
+		})
+	}
+}
