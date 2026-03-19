@@ -254,6 +254,10 @@ var (
 	// +metricsdoc:group=cohort
 	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
 	CohortSubtreeQuota *prometheus.GaugeVec
+
+	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortSubtreeAdmittedWorkloadsTotal *prometheus.CounterVec
 )
 
 func trackGaugeVec(g *prometheus.GaugeVec) *prometheus.GaugeVec {
@@ -728,6 +732,14 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 			Help:      `Reports the cohort's nominal quota aggregated within the cohort's subtree. The values are reported per resource and flavor`,
 		}, []string{"cohort", "flavor", "resource", "replica_role"},
 	))
+
+	CohortSubtreeAdmittedWorkloadsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_subtree_admitted_workloads_total",
+			Help:      "The total number of admitted workloads per cohort's subtree",
+		}, append([]string{"cohort", "priority_class", "replica_role"}, extraLabels...),
+	)
 }
 
 func init() {
@@ -916,6 +928,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 func ClearCohortMetrics(cohortName string) {
 	CohortSubtreeQuota.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
 	CohortWeightedShare.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
+	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
 }
 
 func ReportClusterQueueStatus(cqName kueue.ClusterQueueReference, cqStatus ClusterQueueStatus, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -967,6 +980,11 @@ func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resou
 
 func ReportCohortSubtreeQuota(cohort kueue.CohortReference, flavor, resource string, quota float64, tracker *roletracker.RoleTracker) {
 	CohortSubtreeQuota.WithLabelValues(string(cohort), flavor, resource, roletracker.GetRole(tracker)).Set(quota)
+}
+
+func ReportCohortSubtreeAdmittedWorkload(cohort kueue.CohortReference, priorityClass string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cohort), priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	CohortSubtreeAdmittedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
 func ClearCohortSubtreeQuota(cohort kueue.CohortReference, flavor, resource string) {
@@ -1146,6 +1164,7 @@ func Register() {
 		ClusterQueueWeightedShare,
 		CohortWeightedShare,
 		CohortSubtreeQuota,
+		CohortSubtreeAdmittedWorkloadsTotal,
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()

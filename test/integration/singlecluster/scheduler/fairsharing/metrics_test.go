@@ -30,11 +30,14 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var _ = ginkgo.Describe("Cohorts", func() {
 	var (
+		admissionChecks map[string]*kueue.AdmissionCheck
+
 		defaultFlavor *kueue.ResourceFlavor
 		flavor1       *kueue.ResourceFlavor
 		flavor2       *kueue.ResourceFlavor
@@ -43,7 +46,15 @@ var _ = ginkgo.Describe("Cohorts", func() {
 		cohorts map[string]*kueue.Cohort
 		cqs     map[string]*kueue.ClusterQueue
 		lqs     map[string]*kueue.LocalQueue
+
+		wls map[string]*kueue.Workload
 	)
+
+	var createAdmissionCheck = func(ac *kueue.AdmissionCheck) {
+		util.MustCreate(ctx, k8sClient, ac)
+		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+		admissionChecks[ac.Name] = ac
+	}
 
 	var createCohort = func(cohort *kueue.Cohort) *kueue.Cohort {
 		util.MustCreate(ctx, k8sClient, cohort)
@@ -61,11 +72,19 @@ var _ = ginkgo.Describe("Cohorts", func() {
 		return cq
 	}
 
+	var createWorkload = func(wl *kueue.Workload) *kueue.Workload {
+		wls[wl.Name] = wl
+		util.MustCreate(ctx, k8sClient, wl)
+		return wl
+	}
+
 	ginkgo.When("creating, modifying and removing", func() {
 		ginkgo.BeforeEach(func() {
+			admissionChecks = make(map[string]*kueue.AdmissionCheck)
 			cohorts = make(map[string]*kueue.Cohort)
 			cqs = make(map[string]*kueue.ClusterQueue)
 			lqs = make(map[string]*kueue.LocalQueue)
+			wls = make(map[string]*kueue.Workload)
 
 			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 				&config.AdmissionFairSharing{
@@ -88,6 +107,9 @@ var _ = ginkgo.Describe("Cohorts", func() {
 		})
 
 		ginkgo.AfterEach(func() {
+			for _, wl := range wls {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			}
 			for _, lq := range lqs {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			}
@@ -102,6 +124,9 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
+			for _, ac := range admissionChecks {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+			}
 			fwk.StopManager(ctx)
 		})
 
@@ -423,6 +448,176 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				// updated values for ch1 with cq1 removed
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, "nvidia.com/gpu", 1)
+			})
+		})
+
+		ginkgo.It("correctly handles cohort metrics when workload admitted with admission check", func() {
+			const (
+				numWorkloadsForCQ1 = 5
+				numWorkloadsForCQ2 = 2
+			)
+
+			ginkgo.By("Creating AdmissionCheck", func() {
+				createAdmissionCheck(utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ctrl1").Obj())
+			})
+
+			ginkgo.By("Creating Cohorts", func() {
+				createCohort(utiltestingapi.MakeCohort("ch1").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+
+				createCohort(utiltestingapi.MakeCohort("ch2").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "2").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Create ClusterQueues", func() {
+				createQueue(utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("ch1").
+					AdmissionChecks("check1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+
+				createQueue(utiltestingapi.MakeClusterQueue("cq2").
+					Cohort("ch2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "2").
+							Obj(),
+					).Obj())
+			})
+
+			shouldAdmit := make([]*kueue.Workload, 0, numWorkloadsForCQ1)
+
+			ginkgo.By("Creating Workloads", func() {
+				for range numWorkloadsForCQ1 {
+					shouldAdmit = append(shouldAdmit,
+						createWorkload(
+							utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+								Queue("cq1").
+								Request(corev1.ResourceCPU, "1").Obj(),
+						),
+					)
+				}
+
+				for range numWorkloadsForCQ2 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq2").
+							Request(corev1.ResourceCPU, "1").Obj(),
+					)
+				}
+			})
+
+			ginkgo.By("Checking that only cq2 Workloads admitted", func() {
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", numWorkloadsForCQ2)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch2", "", numWorkloadsForCQ2)
+			})
+
+			ginkgo.By("Marking the checks as passed", func() {
+				for _, wl := range shouldAdmit {
+					createdWorkload := &kueue.Workload{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWorkload)).To(gomega.Succeed())
+						workload.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+							Name:    "check1",
+							State:   kueue.CheckStateReady,
+							Message: "Check successfully passed",
+						}, util.RealClock)
+						g.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}
+			})
+
+			ginkgo.By("Checking that all Workloads admitted", func() {
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", numWorkloadsForCQ1+numWorkloadsForCQ2)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", numWorkloadsForCQ1)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch2", "", numWorkloadsForCQ2)
+			})
+		})
+
+		ginkgo.It("correctly handles cohort metrics when workload admitted with workload priority class", func() {
+			const (
+				numWorkloadsForCQ1 = 5
+				numWorkloadsForCQ2 = 2
+			)
+
+			ginkgo.By("Creating Cohorts", func() {
+				createCohort(utiltestingapi.MakeCohort("ch1").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+
+				createCohort(utiltestingapi.MakeCohort("ch2").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "2").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Create ClusterQueues", func() {
+				createQueue(utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("ch1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+
+				createQueue(utiltestingapi.MakeClusterQueue("cq2").
+					Cohort("ch2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "2").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Creating Workloads", func() {
+				for range numWorkloadsForCQ1 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq1").
+							WorkloadPriorityClassRef("high").
+							Priority(100).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					)
+				}
+
+				for range numWorkloadsForCQ2 {
+					createWorkload(utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+						Queue("cq2").
+						WorkloadPriorityClassRef("low").
+						Priority(10).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					)
+				}
+			})
+
+			ginkgo.By("Checking that only cq2 Workloads admitted", func() {
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "high", numWorkloadsForCQ1)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "low", numWorkloadsForCQ2)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "high", numWorkloadsForCQ1)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch2", "low", numWorkloadsForCQ2)
 			})
 		})
 	})

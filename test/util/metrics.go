@@ -312,3 +312,10 @@ func ExpectCohortSubtreeQuotaGaugeMetricCleaned(cohortName, flavor, resource str
 	ginkgo.GinkgoHelper()
 	ExpectCohortSubtreeQuotaGaugeMetric(cohortName, flavor, resource, 0)
 }
+
+func ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(cohortName kueue.CohortReference, priorityClass string, v int, customLabels ...string) {
+	ginkgo.GinkgoHelper()
+	lvs := append([]string{string(cohortName), priorityClass, roletracker.RoleStandalone}, customLabels...)
+	metric := metrics.CohortSubtreeAdmittedWorkloadsTotal.WithLabelValues(lvs...)
+	expectCounterMetric(metric, v)
+}

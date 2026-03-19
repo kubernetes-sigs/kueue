@@ -18,11 +18,13 @@ package scheduler
 
 import (
 	"github.com/go-logr/logr"
+	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type cohortMetricPoint struct {
@@ -114,4 +116,24 @@ func (c *Cache) applyCohortMetricPoint(p cohortMetricPoint) {
 		float64(p.qty),
 		c.roleTracker,
 	)
+}
+
+func (c *Cache) ReportCohortSubtreeAdmittedWorkload(log logr.Logger, wl *kueue.Workload) {
+	c.RLock()
+	defer c.RUnlock()
+
+	ancestors, err := c.workloadAncestors(wl)
+	if err != nil {
+		log.Error(err, "Failed getting ancestors for workload", "workload", klog.KObj(wl))
+		return
+	}
+
+	for _, ancestor := range ancestors {
+		metrics.ReportCohortSubtreeAdmittedWorkload(
+			ancestor,
+			workload.PriorityClassName(wl),
+			c.customLabels.CohortGet(ancestor),
+			c.roleTracker,
+		)
+	}
 }

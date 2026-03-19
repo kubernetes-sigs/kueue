@@ -784,11 +784,44 @@ func (c *Cache) ClusterQueueAncestors(cqObj *kueue.ClusterQueue) ([]kueue.Cohort
 	c.RLock()
 	defer c.RUnlock()
 
-	if cqObj.Spec.CohortName == "" {
+	ancestors, err := c.ancestors(cqObj.Spec.CohortName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Exclude the root cohort
+	if len(ancestors) > 0 {
+		ancestors = ancestors[:len(ancestors)-1]
+	}
+
+	return ancestors, nil
+}
+
+// workloadAncestors retrieves all ancestor Cohorts for a given Workload.
+// The caller MUST hold either c.RLock() or c.Lock() before calling this function.
+// This function does not acquire any locks internally and assumes the cache is already locked.
+func (c *Cache) workloadAncestors(wl *kueue.Workload) ([]kueue.CohortReference, error) {
+	if wl == nil || wl.Status.Admission == nil {
 		return nil, nil
 	}
 
-	cohort := c.hm.Cohort(cqObj.Spec.CohortName)
+	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
+	if cq == nil || !cq.HasParent() {
+		return nil, nil
+	}
+
+	return c.ancestors(cq.Parent().Name)
+}
+
+// ancestors retrieves all ancestor Cohorts for a given Cohort, starting with the Cohort itself and ending at the root.
+// The caller MUST hold either c.RLock() or c.Lock() before calling this function.
+// This function does not acquire any locks internally and assumes the cache is already locked.
+func (c *Cache) ancestors(cohortName kueue.CohortReference) ([]kueue.CohortReference, error) {
+	if cohortName == "" {
+		return nil, nil
+	}
+
+	cohort := c.hm.Cohort(cohortName)
 	if cohort == nil {
 		return nil, nil
 	}
@@ -802,7 +835,7 @@ func (c *Cache) ClusterQueueAncestors(cqObj *kueue.ClusterQueue) ([]kueue.Cohort
 		ancestors = append(ancestors, ancestor.Name)
 	}
 
-	return ancestors[:len(ancestors)-1], nil
+	return ancestors, nil
 }
 
 func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.FlavorUsage {
