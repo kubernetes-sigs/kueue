@@ -1400,7 +1400,7 @@ func (s *TASFlavorSnapshot) fillInCounts(
 				return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 			}, true)
 			if untolerated {
-				s.log.V(3).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
+				s.log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
 				stats.Taints[taint.ToString()]++
 				continue
 			}
@@ -1412,14 +1412,14 @@ func (s *TASFlavorSnapshot) fillInCounts(
 			}
 
 			if !selector.Matches(nodeLabelSet) {
-				s.log.V(3).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
+				s.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
 				stats.NodeSelector++
 				continue
 			}
 
 			// 3. Check Node against Affinity Node Selector
 			if affinityNodeSelector != nil && !affinityNodeSelector.Match(leaf.node.toNode()) {
-				s.log.V(3).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
+				s.log.V(5).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
 				stats.Affinity++
 				continue
 			}
