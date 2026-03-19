@@ -697,12 +697,11 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				})
 
 				ginkgo.By("Check that the topology assignment is updated with the new node in the same block", func() {
-					expectedNodes := []string{}
-					for _, n := range []string{"kind-worker", "kind-worker2", "kind-worker3", "kind-worker4"} {
-						if n != node.Name {
-							expectedNodes = append(expectedNodes, n)
-						}
-					}
+					expectedNodes := slices.DeleteFunc(slices.Clone(initialNodes), func(n string) bool {
+						return n == node.Name
+					})
+					expectedNodes = append(expectedNodes, "kind-worker4")
+					gomega.Expect(expectedNodes).To(gomega.HaveLen(3))
 					expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, expectedNodes)
 					expectPodsOnNodes(ctx, k8sClient, ns.Name, jobName, numPods, expectedNodes)
 				})
@@ -753,6 +752,10 @@ func expectPodsOnNodes(ctx context.Context, k8sClient client.Client, nsName stri
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		pods := &corev1.PodList{}
 		listOpts := &client.ListOptions{
+			FieldSelector: fields.AndSelectors(
+				fields.OneTermNotEqualSelector("spec.nodeName", ""),
+				fields.OneTermEqualSelector("status.phase", string(corev1.PodRunning)),
+			),
 			LabelSelector: labels.SelectorFromSet(map[string]string{
 				"job-name": jobName,
 			}),
@@ -761,7 +764,7 @@ func expectPodsOnNodes(ctx context.Context, k8sClient client.Client, nsName stri
 
 		gotNodes := make([]string, 0, numPods)
 		for _, p := range pods.Items {
-			if p.DeletionTimestamp.IsZero() && p.Status.Phase != corev1.PodFailed && p.Status.Phase != corev1.PodSucceeded {
+			if p.DeletionTimestamp.IsZero() {
 				gotNodes = append(gotNodes, p.Spec.NodeName)
 			}
 		}
