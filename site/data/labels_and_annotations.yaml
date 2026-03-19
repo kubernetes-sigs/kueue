@@ -1,0 +1,187 @@
+- key: kueue.x-k8s.io/is-group-workload
+  type: Annotation
+  example: '`kueue.x-k8s.io/is-group-workload: "true"`'
+  used_on: |
+    [Workload](/docs/concepts/workload/).
+  description: |
+    The annotation key indicates that this workload is used for a group of Pods.
+
+- key: kueue.x-k8s.io/job-completions-equal-parallelism
+  type: Annotation
+  example: '`kueue.x-k8s.io/job-completions-equal-parallelism: "true"`'
+  used_on: |
+    [batch/Job](/docs/tasks/run/jobs/).
+  description: |
+    The annotation key is used to keep `completions` and `parallelism` in sync.
+
+- key: kueue.x-k8s.io/job-min-parallelism
+  type: Annotation
+  example: '`kueue.x-k8s.io/job-min-parallelism: "5"`'
+  used_on: |
+    [batch/Job](/docs/tasks/run/jobs/).
+  description: |
+    The annotation key indicates the minimum `parallelism` acceptable for the job in the case of partial admission.
+
+- key: kueue.x-k8s.io/job-uid
+  type: Label
+  example: '`kueue.x-k8s.io/job-uid: "46ef6b23-a7d9-42b1-b0f8-071bbb29a94d"`'
+  used_on: |
+    [Workload](/docs/concepts/workload/).
+  description: |
+    The label key in the workload resource holds the UID of the owner job.
+
+- key: kueue.x-k8s.io/managed
+  type: Label
+  example: '`kueue.x-k8s.io/managed: "true"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/) and
+    [ProvisioningRequest](/docs/concepts/admission_check/provisioning_request).
+  description: |
+    The label key that indicates which Pods and ProvisioningRequests are managed by Kueue.
+
+- key: kueue.x-k8s.io/max-exec-time-seconds
+  type: Label
+  example: '`kueue.x-k8s.io/max-exec-time-seconds: "120"`'
+  used_on: |
+    Kueue-managed Jobs.
+  description: |
+    The value of this label is passed in the Job's Workload `spec.maximumExecutionTimeSeconds`
+    and used by the [Maximum execution time](/docs/concepts/workload/#maximum-execution-time) feature.
+
+- key: kueue.x-k8s.io/multikueue-origin
+  type: Label
+  example: '`kueue.x-k8s.io/multikueue-origin: "true"`'
+  used_on: |
+    [MultiKueue](/docs/concepts/multikueue/).
+  description: |
+    The label key is used to track the creator of MultiKueue remote objects in Worker Cluster.
+
+- key: kueue.x-k8s.io/pod-group-fast-admission
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-group-fast-admission: "true"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The annotation key is used to allow admitting a PodGroup as soon as the first Pod in the group is created.
+
+- key: kueue.x-k8s.io/pod-group-name
+  type: Label
+  example: '`kueue.x-k8s.io/pod-group-name: "my-pod-group-name"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The label key indicates the name of the group of Pods that should be admitted together.
+
+- key: kueue.x-k8s.io/pod-group-pod-index
+  type: Label
+  example: '`kueue.x-k8s.io/pod-group-pod-index: "0"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The label key indicates the Pod's index within the Pod group it belongs to.
+
+- key: kueue.x-k8s.io/pod-group-pod-index-label
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-group-pod-index-label: "apps.kubernetes.io/pod-index"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The annotation key indicates a label name used to retrieve the Pod's index within the group.
+
+- key: kueue.x-k8s.io/pod-index-offset
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-index-offset: "1"`'
+  used_on: |
+    Kueue-managed Jobs (e.g., [MPIJob](/docs/tasks/run/kubeflow/mpijobs/)).
+  description: |
+    The annotation indicates a starting index offset for Pod replicas within a PodSet.
+    For example, when an MPIJob uses `runLauncherAsWorker` mode, Worker replica indexes
+    start from `1` instead of `0`. This annotation is set by the Kueue webhook and used
+    by the TAS topology ungater to correctly map Pod indexes to topology assignments.
+  note: |
+    This annotation is not added when `kueue.x-k8s.io/podset-group-name` is specified,
+    as offset management is delegated to the PodSet Group mechanism in that case.
+
+- key: kueue.x-k8s.io/pod-group-serving
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-group-serving: "true"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The annotation key is used to indicate whether the Pod group is being used as a serving workload.
+
+- key: kueue.x-k8s.io/pod-group-total-count
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-group-total-count: "2"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The annotation key is used to indicate how many Pods to expect in the group.
+
+- key: kueue.x-k8s.io/podset
+  type: Label
+  example: '`kueue.x-k8s.io/podset: "main"`'
+  used_on: |
+    Kueue-managed Jobs.
+  description: |
+    The label key is used on the Job's PodTemplate to indicate the name
+    of the PodSet of the admitted Workload corresponding to the PodTemplate.
+    The label is set when starting the Job, and removed on stopping the Job.
+
+- key: kueue.x-k8s.io/pod-suspending-parent
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-suspending-parent: "deployment"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The annotation key is used to indicate the integration name of the Pod owner.
+
+- key: kueue.x-k8s.io/prebuilt-workload-name
+  type: Label
+  example: '`kueue.x-k8s.io/prebuilt-workload-name: "my-prebuilt-workload-name"`'
+  used_on: |
+    Kueue-managed Jobs.
+  description: |
+    The label key of the job holds the name of the pre-built workload to be used.
+    The intended use of prebuilt workload is to create the Job once the workload
+    is created. In other scenarios the behavior is undefined.
+  note: |
+    When using `kueue.x-k8s.io/pod-group-name`, the prebuilt workload name
+    and the Pod group name should be the same.
+
+- key: kueue.x-k8s.io/priority-class
+  type: Label
+  example: '`kueue.x-k8s.io/priority-class: "my-priority-class-name"`'
+  used_on: |
+    Kueue-managed Jobs.
+  description: |
+    The label key in the workload holds the `workloadPriorityClass` name.
+    This label is always mutable, as it may be useful for preemption.
+    For more details, see [Workload Priority Class](/docs/concepts/workload_priority_class/).
+
+- key: kueue.x-k8s.io/queue-name
+  type: Label
+  example: '`kueue.x-k8s.io/queue-name: "my-local-queue"`'
+  used_on: |
+    Kueue-managed Jobs.
+  description: |
+    The label key in the workload holds the queue name.
+  note: |
+    Read more about [Setup LocalQueueDefauling](/docs/tasks/manage/enforce_job_management/setup_default_local_queue/)
+    in order to automatically set the `kueue.x-k8s.io/queue-name` label.
+
+- key: kueue.x-k8s.io/retriable-in-group
+  type: Annotation
+  example: '`kueue.x-k8s.io/retriable-in-group: "false"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The annotation key is used to finalize the group if at least one terminated Pod (either Failed or Succeeded)
+    has the `retriable-in-group: false` annotation.
+- key: kueue.x-k8s.io/role-hash
+  type: Annotation
+  example: '`kueue.x-k8s.io/role-hash: "b54683bb"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The annotation key is used as the name for a Workload podSet.
