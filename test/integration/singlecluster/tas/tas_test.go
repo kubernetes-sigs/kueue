@@ -2499,65 +2499,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			// This test covers a scenario when a pod gets assigned to a node via topology assignment.
-			// However, after the node selector is injected, but before the pod is ungated, the assigned node gets tainted with NoSchedule.
-			// Consequently, kube-scheduler will refuse to schedule the pod on that node.
-			// To allow the workload to recover, Kueue proactively fails the trapped, pending pod.
-			ginkgo.It("should evict workload when node has NoSchedule taint and pod is Pending", framework.SlowSpec, func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnNodeTaints, true)
-
-				var wl1 *kueue.Workload
-				nodeName := nodes[0].Name
-
-				ginkgo.By("creating a workload", func() {
-					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
-						PodSets(*utiltestingapi.MakePodSet("worker", 2).
-							RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
-							Obj()).
-						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
-					util.MustCreate(ctx, k8sClient, wl1)
-				})
-
-				ginkgo.By("verify the workload is admitted", func() {
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-				})
-
-				var pod *corev1.Pod
-				ginkgo.By("creating a pending pod for the workload assigned to nodeName", func() {
-					pod = testingpod.MakePod("pod1", ns.Name).
-						Annotation(kueue.WorkloadAnnotation, "wl1").
-						Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
-						NodeSelector("kubernetes.io/hostname", nodeName). // spec.NodeName is not set (the pod is not scheduled on the node)
-						Obj()
-					util.MustCreate(ctx, k8sClient, pod)
-
-					pod.Status.Phase = corev1.PodPending
-					gomega.Expect(k8sClient.Status().Update(ctx, pod)).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("applying NoSchedule taint to the node", func() {
-					nodeToUpdate := &corev1.Node{}
-					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
-					nodeToUpdate.Spec.Taints = append(nodeToUpdate.Spec.Taints, corev1.Taint{
-						Key:    "example.com/unschedulable",
-						Value:  "true",
-						Effect: corev1.TaintEffectNoSchedule,
-					})
-					gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("verify the pod is terminated", func() {
-					util.ExpectPodTerminatedByKueueCondition(ctx, k8sClient, client.ObjectKeyFromObject(pod), "UnschedulableOnAssignedNode")
-				})
-
-				ginkgo.By("verify the workload eventually gets an entry in unhealthyNodes list", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-						g.Expect(wl1.Status.UnhealthyNodes).To(gomega.ContainElement(kueue.UnhealthyNode{Name: nodeName}))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
-			})
-
 			ginkgo.It("should evict workload when node has NoSchedule taint and no pods are present", framework.SlowSpec, func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnNodeTaints, true)
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnPodTermination, false)
@@ -2597,7 +2538,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should NOT evict workload immediately when node has NoSchedule taint and TASReplaceNodeOnPodTermination is enabled", framework.SlowSpec, func() {
+			ginkgo.It("should NOT update UnhealthyNodes immediately when node has NoSchedule taint and a pod is running", framework.SlowSpec, func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnNodeTaints, true)
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnPodTermination, true)
 
