@@ -9,7 +9,11 @@
 
 <p>Used on: {{ $.Page.RenderString .used_on }}</p>
 
-<p>{{ $.Page.RenderString .description }}</p>
+{{ $desc := i18n .description }}
+{{ if hasPrefix $desc "[i18n]" }}
+{{ $desc = .description }}
+{{ end }}
+<p>{{ $.Page.RenderString $desc }}</p>
 
 {{ if .note }}
 <div class="alert alert-primary" role="note">

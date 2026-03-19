@@ -215,14 +215,7 @@
   example: '`kueue.x-k8s.io/priority-boost: "10"`'
   used_on: |
     [Workload](/docs/concepts/workload/).
-  description: |
-    An optional signed integer that adjusts a workload's effective priority:
-    `effectivePriority = workloadPriority + priorityBoost`.
-    Positive values increase priority; negative values decrease it.
-    The effective priority is used for both scheduling order and preemption candidate ordering.
-    This annotation is intended to be set directly on Workloads by external controllers (not propagated from Jobs).
-    If the value is missing or empty, it is treated as `0`.
-    If the value is invalid, Workload create or update is **rejected** by the admission webhook.
+  description: labels_and_annotations_priority_boost_description
 
 - key: kueue.x-k8s.io/priority-class
   type: Label
