@@ -17,7 +17,9 @@ limitations under the License.
 package rayjob
 
 import (
+	"context"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -27,10 +29,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -709,3 +714,95 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 })
+
+// Regression test for https://github.com/kubernetes-sigs/kueue/issues/10040
+var _ = ginkgo.Describe("Job controller startJob conflict retry",
+	ginkgo.Label("job:ray", "area:jobs"), ginkgo.Ordered, func() {
+
+		var conflictsRemaining atomic.Int32
+
+		ginkgo.BeforeAll(func() {
+			fwk.StartManager(ctx, cfg, managerSetup(), framework.WithNewClient(func(cfg *rest.Config, opts client.Options) (client.Client, error) {
+				baseClient, err := client.NewWithWatch(cfg, opts)
+				if err != nil {
+					return nil, err
+				}
+				return interceptor.NewClient(baseClient, interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, patchOpts ...client.PatchOption) error {
+						if _, ok := obj.(*rayv1.RayJob); ok && conflictsRemaining.Add(-1) >= 0 {
+							return errors.NewConflict(
+								schema.GroupResource{Group: "ray.io", Resource: "rayjobs"},
+								obj.GetName(),
+								fmt.Errorf("simulated concurrent modification"),
+							)
+						}
+						return c.Patch(ctx, obj, patch, patchOpts...)
+					},
+				}), nil
+			}))
+		})
+
+		ginkgo.AfterAll(func() {
+			fwk.StopManager(ctx)
+		})
+
+		var ns *corev1.Namespace
+		ginkgo.BeforeEach(func() {
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "conflict-")
+			conflictsRemaining.Store(0)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+
+		ginkgo.It("Should unsuspend RayJob despite Patch conflicts from concurrent controllers", func() {
+			job := testingrayjob.MakeJob(jobName, ns.Name).
+				Suspend(false).
+				Queue("test-queue").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+			setInitStatus(jobName, ns.Name)
+
+			createdJob := &rayv1.RayJob{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).Should(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			createdWorkload := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(job.Name, job.UID), Namespace: ns.Name}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("injecting 12 Patch conflicts then admitting the workload")
+			conflictsRemaining.Store(12)
+
+			onDemandFlavor := utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+			util.MustCreate(ctx, k8sClient, onDemandFlavor)
+			defer func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			}()
+			admission := utiltestingapi.MakeAdmission("cluster-queue").PodSets(
+				kueue.PodSetAssignment{
+					Name: createdWorkload.Spec.PodSets[0].Name,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "on-demand",
+					},
+				}, kueue.PodSetAssignment{
+					Name: createdWorkload.Spec.PodSets[1].Name,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "on-demand",
+					},
+				},
+			).Obj()
+			util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+			ginkgo.By("checking the job gets unsuspended despite conflicts")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).Should(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
