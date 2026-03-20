@@ -3,6 +3,7 @@ module kueueviz
 go 1.25.0
 
 require (
+	github.com/bep/debounce v1.2.1
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.12.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
@@ -10,12 +11,11 @@ require (
 	k8s.io/apimachinery v0.35.2
 	k8s.io/client-go v0.35.2
 	sigs.k8s.io/controller-runtime v0.23.3
-	sigs.k8s.io/kueue v0.16.2
+	sigs.k8s.io/kueue v0.16.4
 )
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bep/debounce v1.2.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
