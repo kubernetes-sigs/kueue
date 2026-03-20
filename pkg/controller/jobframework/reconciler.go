@@ -1274,7 +1274,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	} else {
 		if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 			return true, job.RunWithPodSetsInfo(ctx, info)
-		}); err != nil {
+		}, clientutil.WithRetryOnConflict()); err != nil {
 			return err
 		}
 		r.record.Event(object, corev1.EventTypeNormal, ReasonStarted, msg)
@@ -1322,7 +1322,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 			job.RestorePodSetsInfo(info)
 		}
 		return true, nil
-	}); err != nil {
+	}, clientutil.WithRetryOnConflict()); err != nil {
 		return err
 	}
 
