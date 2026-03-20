@@ -1252,18 +1252,14 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 
 	log := ctrl.LoggerFrom(ctx)
 	if features.Enabled(features.MultiKueue) {
-		_, isComposable := job.(ComposableJob)
-
-		if isComposable {
-			skip, err := admissioncheck.ShouldSkipLocalExecution(ctx, r.client, wl)
-			if err != nil {
-				log.V(3).Info("Failed to check for MultiKueue admission check", "workload", klog.KObj(wl), "error", err)
-				return err
-			}
-			if skip {
-				log.V(3).Info("Workload has MultiKueue admission check, skipping local execution", "workload", klog.KObj(wl))
-				return nil
-			}
+		skip, err := admissioncheck.ShouldSkipLocalExecution(ctx, r.client, wl)
+		if err != nil {
+			log.V(3).Info("Failed to check for MultiKueue admission check", "workload", klog.KObj(wl), "error", err)
+			return err
+		}
+		if skip {
+			log.V(3).Info("Workload has MultiKueue admission check, skipping local execution", "workload", klog.KObj(wl))
+			return nil
 		}
 	}
 

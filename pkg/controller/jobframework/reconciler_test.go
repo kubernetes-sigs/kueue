@@ -1236,3 +1236,80 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 		})
 	}
 }
+
+// Regression test for https://github.com/kubernetes-sigs/kueue/issues/10040.
+// Verifies that ShouldSkipLocalExecution applies to all job types, not just ComposableJob.
+// Without the fix, startJob runs on the manager for non-ComposableJob types (e.g., RayJob),
+// creating a 2-way race between startJob and SyncJob on the local job object.
+func TestStartJobSkippedForMultiKueueNonComposableJob(t *testing.T) {
+	var (
+		testJobName        = "test-job"
+		testLocalQueueName = kueue.LocalQueueName("test-lq")
+		testGVK            = batchv1.SchemeGroupVersion.WithKind("Job")
+		testACName         = "multikueue-check"
+	)
+
+	features.SetFeatureGateDuringTest(t, features.MultiKueue, true)
+
+	testJob := testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
+		UID(testJobName).Queue(testLocalQueueName).Suspend(true).Obj()
+
+	ac := utiltestingapi.MakeAdmissionCheck(testACName).
+		ControllerName(kueue.MultiKueueControllerName).
+		Obj()
+
+	now := time.Now()
+	admission := utiltestingapi.MakeAdmission("test-cq").Obj()
+	wl := utiltestingapi.MakeWorkload("job-test-job", metav1.NamespaceDefault).
+		ResourceVersion("1").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Label(constants.JobUIDLabel, testJobName).
+		ControllerReference(testGVK, testJobName, testJobName).
+		Queue(testLocalQueueName).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+		Priority(0).
+		ReserveQuotaAt(admission, now).
+		AdmittedAt(true, now).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  kueue.AdmissionCheckReference(testACName),
+			State: kueue.CheckStateReady,
+		}).
+		Obj()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	mockctrl := gomock.NewController(t)
+
+	mgj := mocks.NewMockGenericJob(mockctrl)
+	mgj.EXPECT().Object().Return(testJob).AnyTimes()
+	mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
+	mgj.EXPECT().IsSuspended().Return(true).AnyTimes()
+	mgj.EXPECT().IsActive().Return(false).AnyTimes()
+	mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+	mgj.EXPECT().PodSets(gomock.Any()).Return([]kueue.PodSet{
+		*utiltestingapi.MakePodSet("main", 1).Obj(),
+	}, nil).AnyTimes()
+	// RunWithPodSetsInfo should NOT be called — startJob should be skipped.
+	mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any()).Times(0)
+
+	cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+		WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault)).
+		WithObjects(testJob, wl, ac).
+		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
+		Build()
+
+	recorder := &utiltesting.EventRecorder{}
+	_, err := NewReconciler(cl, recorder).ReconcileGenericJob(
+		ctx, controllerruntime.Request{NamespacedName: types.NamespacedName{Name: testJobName, Namespace: metav1.NamespaceDefault}}, mgj)
+	if err != nil {
+		t.Fatalf("ReconcileGenericJob failed: %v", err)
+	}
+
+	// Verify the job is still suspended.
+	var updatedJob batchv1.Job
+	if err := cl.Get(ctx, types.NamespacedName{Name: testJobName, Namespace: metav1.NamespaceDefault}, &updatedJob); err != nil {
+		t.Fatalf("Failed to get job: %v", err)
+	}
+	if !ptr.Deref(updatedJob.Spec.Suspend, false) {
+		t.Error("Job should remain suspended when workload has MultiKueue admission check, but it was unsuspended")
+	}
+}
