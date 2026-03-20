@@ -95,7 +95,7 @@ test: gotestsum ## Run tests.
 
 .PHONY: test-integration
 test-integration: compile-crd-manifests envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	KUBEBUILDER_ASSETS="$(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(BIN_DIR) \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
@@ -113,7 +113,7 @@ test-integration-extended: test-integration ## Run extended integration tests fo
 
 .PHONY: test-multikueue-integration
 test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkgo-top ## Run integration tests for MultiKueue suite.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	KUBEBUILDER_ASSETS="$(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(BIN_DIR) \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
@@ -398,7 +398,7 @@ SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/config
 .PHONY: run-performance-scheduler
 run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 	mkdir -p $(ARTIFACTS)
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	KUBEBUILDER_ASSETS="$(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))" \
 	$(SCALABILITY_RUNNER) \
 		--o $(ARTIFACTS) \
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
@@ -420,7 +420,7 @@ test-performance-scheduler:
 .PHONY: run-performance-scheduler-in-cluster
 run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 	mkdir -p "$(ARTIFACTS)/$@"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	KUBEBUILDER_ASSETS="$(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))" \
 	$(SCALABILITY_RUNNER) \
 		--o "$(ARTIFACTS)/$@" \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
@@ -434,7 +434,7 @@ SCALABILITY_TAS_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/
 .PHONY: run-tas-performance-scheduler
 run-tas-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 	mkdir -p $(ARTIFACTS)
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	KUBEBUILDER_ASSETS="$(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))" \
 	$(SCALABILITY_RUNNER) \
 		--o $(ARTIFACTS) \
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
@@ -456,7 +456,7 @@ test-tas-performance-scheduler:
 .PHONY: run-tas-performance-scheduler-in-cluster
 run-tas-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 	mkdir -p "$(ARTIFACTS)/$@"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	KUBEBUILDER_ASSETS="$(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))" \
 	$(SCALABILITY_RUNNER) \
 		--o "$(ARTIFACTS)/$@" \
 		--generatorConfig=$(SCALABILITY_TAS_GENERATOR_CONFIG) \

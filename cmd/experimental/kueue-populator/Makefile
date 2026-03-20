@@ -107,7 +107,7 @@ compile-crd-manifests:
 
 .PHONY: test-integration
 test-integration: compile-crd-manifests $(ENVTEST) $(GINKGO)
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	KUBEBUILDER_ASSETS="$(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))" \
 	PROJECT_DIR=$(ROOT_DIR)/ \
 	GOWORK=off $(GINKGO) -procs=$(INTEGRATION_NPROCS) -v ./test/integration/...
 
