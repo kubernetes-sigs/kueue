@@ -146,11 +146,6 @@ github.com/go-task/slim-sprig/v3
 github.com/gogo/protobuf/gogoproto
 github.com/gogo/protobuf/proto
 github.com/gogo/protobuf/protoc-gen-gogo/descriptor
-# github.com/golang/glog v1.2.5
-## explicit; go 1.19
-github.com/golang/glog
-github.com/golang/glog/internal/logsink
-github.com/golang/glog/internal/stackdump
 # github.com/golang/protobuf v1.5.4
 ## explicit; go 1.17
 github.com/golang/protobuf/proto
@@ -232,8 +227,8 @@ github.com/json-iterator/go
 # github.com/kubeflow/mpi-operator v0.8.0
 ## explicit; go 1.25.0
 github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
-# github.com/kubeflow/spark-operator/v2 v2.4.0
-## explicit; go 1.24.1
+# github.com/kubeflow/spark-operator/v2 v2.5.0
+## explicit; go 1.24.10
 github.com/kubeflow/spark-operator/v2/api/v1beta2
 github.com/kubeflow/spark-operator/v2/pkg/common
 github.com/kubeflow/spark-operator/v2/pkg/util

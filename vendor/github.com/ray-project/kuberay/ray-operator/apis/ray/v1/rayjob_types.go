@@ -206,8 +206,6 @@ type RayJobStatusInfo struct {
 }
 
 // RayJobSpec defines the desired state of RayJob
-//
-//nolint:govet // Prevent reordering fields and removing comments
 type RayJobSpec struct {
 	// ActiveDeadlineSeconds is the duration in seconds that the RayJob may be active before
 	// KubeRay actively tries to terminate the RayJob; value must be positive integer.
