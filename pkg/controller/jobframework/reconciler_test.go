@@ -33,6 +33,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
@@ -1234,5 +1235,81 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 				t.Errorf("unexpected reconcile error want %s got %s)", tc.wantError, err)
 			}
 		})
+	}
+}
+
+// TestStartJobRetriesOnConflict verifies that startJob retries when a concurrent
+// modification causes a resourceVersion conflict on the job object.
+// Regression test for https://github.com/kubernetes-sigs/kueue/issues/10040.
+func TestStartJobRetriesOnConflict(t *testing.T) {
+	var (
+		testJobName        = "test-job"
+		testLocalQueueName = kueue.LocalQueueName("test-lq")
+		testGVK            = batchv1.SchemeGroupVersion.WithKind("Job")
+	)
+
+	testJob := testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
+		UID(testJobName).Queue(testLocalQueueName).Suspend(true).Obj()
+
+	admission := utiltestingapi.MakeAdmission("test-cq").Obj()
+	now := time.Now()
+	wl := utiltestingapi.MakeWorkload("job-test-job", metav1.NamespaceDefault).
+		ResourceVersion("1").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Label(constants.JobUIDLabel, testJobName).
+		ControllerReference(testGVK, testJobName, testJobName).
+		Queue(testLocalQueueName).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+		Priority(0).
+		ReserveQuotaAt(admission, now).
+		AdmittedAt(true, now).
+		Obj()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	mockctrl := gomock.NewController(t)
+
+	mgj := mocks.NewMockGenericJob(mockctrl)
+	mgj.EXPECT().Object().Return(testJob).AnyTimes()
+	mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
+	mgj.EXPECT().IsSuspended().Return(true).AnyTimes()
+	mgj.EXPECT().IsActive().Return(false).AnyTimes()
+	mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+	mgj.EXPECT().PodSets(gomock.Any()).Return([]kueue.PodSet{
+		*utiltestingapi.MakePodSet("main", 1).Obj(),
+	}, nil).AnyTimes()
+	mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	// Return a conflict error on the first Patch to a Job, simulating a concurrent
+	// modification by an external controller (e.g., KubeRay bumping resourceVersion).
+	patchCalls := 0
+	cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+		WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault)).
+		WithObjects(testJob, wl).
+		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				if _, ok := obj.(*batchv1.Job); ok {
+					patchCalls++
+					if patchCalls == 1 {
+						return apierrors.NewConflict(
+							schema.GroupResource{Group: "batch", Resource: "jobs"},
+							testJobName,
+							errors.New("object was modified"),
+						)
+					}
+				}
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
+
+	recorder := &utiltesting.EventRecorder{}
+	_, err := NewReconciler(cl, recorder).ReconcileGenericJob(
+		ctx, controllerruntime.Request{NamespacedName: types.NamespacedName{Name: testJobName, Namespace: metav1.NamespaceDefault}}, mgj)
+	if err != nil {
+		t.Fatalf("ReconcileGenericJob should retry on conflict but failed: %v", err)
+	}
+	if patchCalls < 2 {
+		t.Errorf("expected at least 2 Patch attempts (1 conflict + 1 retry), got %d", patchCalls)
 	}
 }
