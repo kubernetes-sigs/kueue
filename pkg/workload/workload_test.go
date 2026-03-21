@@ -2979,3 +2979,43 @@ func TestUsedNodes(t *testing.T) {
 		})
 	}
 }
+
+func TestIsExplicitlyRequestingTAS(t *testing.T) {
+	cases := map[string]struct {
+		podSets []kueue.PodSet
+		want    bool
+	}{
+		"podset slice required topology constraints only": {
+			podSets: []kueue.PodSet{
+				{
+					TopologyRequest: &kueue.PodSetTopologyRequest{
+						PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+							{
+								Topology: "cloud.provider.com/topology-rack",
+								Size:     4,
+							},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		"empty topology request": {
+			podSets: []kueue.PodSet{
+				{
+					TopologyRequest: &kueue.PodSetTopologyRequest{},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := IsExplicitlyRequestingTAS(tc.podSets...)
+			if got != tc.want {
+				t.Errorf("IsExplicitlyRequestingTAS() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
