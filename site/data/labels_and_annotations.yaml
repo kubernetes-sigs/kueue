@@ -1,3 +1,16 @@
+- key: kueue.x-k8s.io/admission-gated-by
+  type: Annotation
+  example: '`kueue.x-k8s.io/admission-gated-by: "example.com/mygate,example.com/mygate2"`'
+  used_on: |
+    Kueue-managed Jobs.
+  description: |
+    This annotation requires the `AdmissionGatedBy` feature that is disabled by default.
+    
+    When it contains a value, the annotation prevents the Job from entering the Quota Reservation
+    phase of Kueue's Admission Flow.
+    The annotation value is a comma-separated list of 1 or more gate names and can only be added during Job
+    creation. After creation, the annotation may only be deleted or modified to remove 1 or more gates.
+
 - key: kueue.x-k8s.io/cluster-queue-name
   type: Label
   example: '`kueue.x-k8s.io/cluster-queue-name: "my-cluster-queue"`'
@@ -14,6 +27,30 @@
   warning: |
     This label is added only if cluster queue name is a valid label value.
     For limitations see Kubernetes [documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set).
+
+- key: kueue.x-k8s.io/component-workload-index
+  type: Annotation
+  example: '`kueue.x-k8s.io/component-workload-index: "0"`'
+  used_on: |
+    [Workload](/docs/concepts/workload/).
+  description: |
+    The annotation stores the numeric index for component workloads created by multi-workload jobs
+    (e.g., LeaderWorkerSet creates one workload per replica). Used by MultiKueue to determine
+    primary workload ordering when dispatching component workloads to worker clusters atomically.
+
+- key: kueue.x-k8s.io/elastic-job
+  type: Annotation
+  example: '`kueue.x-k8s.io/elastic-job: "true"`'
+  used_on: |
+    Kueue-managed Jobs and Pods.
+  description: |
+    The annotation key present on Jobs that support workload slicing.
+    To enable workload slicing for a given Job, both the key and the value `"true"` must be set.
+
+    The same key is also used as a **scheduling gate** name applied to Pods
+    to delay their scheduling until the associated workload slice has been admitted.
+
+    This annotation is alpha-level for the `ElasticJobsViaWorkloadSlices` feature gate.
 
 - key: kueue.x-k8s.io/is-group-workload
   type: Annotation
@@ -149,20 +186,6 @@
   description: |
     The annotation key indicates a label name used to retrieve the Pod's index within the group.
 
-- key: kueue.x-k8s.io/pod-index-offset
-  type: Annotation
-  example: '`kueue.x-k8s.io/pod-index-offset: "1"`'
-  used_on: |
-    Kueue-managed Jobs (e.g., [MPIJob](/docs/tasks/run/kubeflow/mpijobs/)).
-  description: |
-    The annotation indicates a starting index offset for Pod replicas within a PodSet.
-    For example, when an MPIJob uses `runLauncherAsWorker` mode, Worker replica indexes
-    start from `1` instead of `0`. This annotation is set by the Kueue webhook and used
-    by the TAS topology ungater to correctly map Pod indexes to topology assignments.
-  note: |
-    This annotation is not added when `kueue.x-k8s.io/podset-group-name` is specified,
-    as offset management is delegated to the PodSet Group mechanism in that case.
-
 - key: kueue.x-k8s.io/pod-group-serving
   type: Annotation
   example: '`kueue.x-k8s.io/pod-group-serving: "true"`'
@@ -179,6 +202,28 @@
   description: |
     The annotation key is used to indicate how many Pods to expect in the group.
 
+- key: kueue.x-k8s.io/pod-index-offset
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-index-offset: "1"`'
+  used_on: |
+    Kueue-managed Jobs (e.g., [MPIJob](/docs/tasks/run/kubeflow/mpijobs/)).
+  description: |
+    The annotation indicates a starting index offset for Pod replicas within a PodSet.
+    For example, when an MPIJob uses `runLauncherAsWorker` mode, Worker replica indexes
+    start from `1` instead of `0`. This annotation is set by the Kueue webhook and used
+    by the TAS topology ungater to correctly map Pod indexes to topology assignments.
+  note: |
+    This annotation is not added when `kueue.x-k8s.io/podset-group-name` is specified,
+    as offset management is delegated to the PodSet Group mechanism in that case.
+
+- key: kueue.x-k8s.io/pod-suspending-parent
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-suspending-parent: "deployment"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The annotation key is used to indicate the integration name of the Pod owner.
+
 - key: kueue.x-k8s.io/podset
   type: Label
   example: '`kueue.x-k8s.io/podset: "main"`'
@@ -189,13 +234,101 @@
     of the PodSet of the admitted Workload corresponding to the PodTemplate.
     The label is set when starting the Job, and removed on stopping the Job.
 
-- key: kueue.x-k8s.io/pod-suspending-parent
+- key: kueue.x-k8s.io/podset-group-name
   type: Annotation
-  example: '`kueue.x-k8s.io/pod-suspending-parent: "deployment"`'
+  example: '`kueue.x-k8s.io/podset-group-name: "workers"`'
   used_on: |
-    [Plain Pods](/docs/tasks/run/plain_pods/).
+    Kueue-managed Jobs (Job PodTemplate).
   description: |
-    The annotation key is used to indicate the integration name of the Pod owner.
+    The annotation indicates the name of the group of PodSets. A PodSet Group
+    is a unit of flavor assignment and topology domain fitting.
+
+    Used with [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling/)
+    to group PodSets that should share the same topology domain and flavor assignment.
+
+- key: kueue.x-k8s.io/podset-preferred-topology
+  type: Annotation
+  example: '`kueue.x-k8s.io/podset-preferred-topology: "cloud.provider.com/topology-rack"`'
+  used_on: |
+    Kueue-managed Jobs (Job PodTemplate).
+  description: |
+    The annotation indicates that a PodSet requires
+    [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling/),
+    but scheduling all pods on nodes within the same topology domain is a preference
+    rather than a requirement.
+
+    The levels are evaluated one-by-one going up from the level indicated by the
+    annotation. If the PodSet cannot fit within a given topology domain then the next
+    topology level up is considered. If the PodSet cannot fit at the highest topology
+    level, then it gets admitted as distributed among multiple topology domains.
+
+- key: kueue.x-k8s.io/podset-required-topology
+  type: Annotation
+  example: '`kueue.x-k8s.io/podset-required-topology: "cloud.provider.com/topology-block"`'
+  used_on: |
+    Kueue-managed Jobs (Job PodTemplate).
+  description: |
+    The annotation indicates that a PodSet requires
+    [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling/),
+    and requires scheduling all pods on nodes within the same topology domain
+    corresponding to the topology level indicated by the annotation value
+    (e.g. within a rack or within a block).
+
+- key: kueue.x-k8s.io/podset-slice-required-topology
+  type: Annotation
+  example: '`kueue.x-k8s.io/podset-slice-required-topology: "cloud.provider.com/topology-rack"`'
+  used_on: |
+    Kueue-managed Jobs (Job PodTemplate).
+  description: |
+    The annotation indicates that a PodSet requires
+    [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling/),
+    and requires scheduling each PodSet slice on nodes within the topology domain
+    corresponding to the topology level indicated by the annotation value
+    (e.g. within a rack or within a block).
+  note: |
+    This annotation requires `kueue.x-k8s.io/podset-slice-size` to also be set.
+    This annotation is mutually exclusive with `kueue.x-k8s.io/podset-slice-required-topology-constraints`.
+
+- key: kueue.x-k8s.io/podset-slice-required-topology-constraints
+  type: Annotation
+  example: '`kueue.x-k8s.io/podset-slice-required-topology-constraints: ''[{"topologyLevel":"cloud.provider.com/topology-rack","sliceSize":4}]''`'
+  used_on: |
+    Kueue-managed Jobs (Job PodTemplate).
+  description: |
+    The annotation contains a JSON-encoded array of topology constraints for
+    multi-level slice subdivision. Each entry specifies a topology level and
+    slice size.
+
+    This annotation is alpha-level for the `TASMultiLayerTopology` feature gate.
+  note: |
+    This annotation is mutually exclusive with `kueue.x-k8s.io/podset-slice-required-topology`
+    and `kueue.x-k8s.io/podset-slice-size`.
+
+- key: kueue.x-k8s.io/podset-slice-size
+  type: Annotation
+  example: '`kueue.x-k8s.io/podset-slice-size: "4"`'
+  used_on: |
+    Kueue-managed Jobs (Job PodTemplate).
+  description: |
+    The annotation describes the requested size of a PodSet slice for which
+    Kueue finds a requested topology domain.
+
+    This annotation is required if `kueue.x-k8s.io/podset-slice-required-topology`
+    is defined.
+
+- key: kueue.x-k8s.io/podset-unconstrained-topology
+  type: Annotation
+  example: '`kueue.x-k8s.io/podset-unconstrained-topology: "true"`'
+  used_on: |
+    Kueue-managed Jobs (Job PodTemplate).
+  description: |
+    The annotation indicates that a PodSet does not have any topology requirements.
+    Kueue admits the PodSet if there is enough free capacity available.
+
+    Recommended for PodSets that don't need low-latency or high-throughput
+    pod-to-pod communication, but want to leverage
+    [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling/)
+    capabilities to improve accuracy of admitting jobs.
 
 - key: kueue.x-k8s.io/prebuilt-workload-name
   type: Label
@@ -246,6 +379,7 @@
   description: |
     The annotation key is used to finalize the group if at least one terminated Pod (either Failed or Succeeded)
     has the `retriable-in-group: false` annotation.
+
 - key: kueue.x-k8s.io/role-hash
   type: Annotation
   example: '`kueue.x-k8s.io/role-hash: "b54683bb"`'
@@ -254,25 +388,67 @@
   description: |
     The annotation key is used as the name for a Workload podSet.
 
-- key: kueue.x-k8s.io/component-workload-index
+- key: kueue.x-k8s.io/safe-to-forcefully-delete
   type: Annotation
-  example: '`kueue.x-k8s.io/component-workload-index: "0"`'
+  example: '`kueue.x-k8s.io/safe-to-forcefully-delete: "true"`'
+  used_on: |
+    Pods.
+  description: |
+    The annotation key controls whether a Pod has opted in to FailureRecoveryPolicy.
+    When the value is `"true"`, Kueue may forcefully delete the Pod as part of the
+    failure recovery process.
+
+- key: kueue.x-k8s.io/stopping
+  type: Annotation
+  example: '`kueue.x-k8s.io/stopping: "true"`'
+  used_on: |
+    [batch/Job](/docs/tasks/run/jobs/).
+  description: |
+    The annotation is used internally during the Job stop process. When Kueue
+    suspends a Job, it sets this annotation to `"true"` to track that the stop
+    operation is in progress. The annotation is removed once all stop operations
+    complete successfully.
+
+- key: kueue.x-k8s.io/workload
+  type: Annotation
+  example: '`kueue.x-k8s.io/workload: "my-workload-name"`'
+  used_on: |
+    Kueue-managed Jobs (Job PodTemplate).
+  description: |
+    The annotation is set on the Job's PodTemplate to indicate the name
+    of the admitted [Workload](/docs/concepts/workload/) corresponding to the Job.
+    The annotation is set when starting the Job, and removed on stopping the Job.
+
+- key: kueue.x-k8s.io/workload-slice-name
+  type: Annotation
+  example: '`kueue.x-k8s.io/workload-slice-name: "my-workload-original"`'
+  used_on: |
+    [Workload](/docs/concepts/workload/) and Pods.
+  description: |
+    The annotation identifies the original workload name in a slice chain.
+    It is set on every Workload created in the chain of workloads, as well as on the
+    Pods associated with that Workload.
+
+    This annotation is alpha-level for the `ElasticJobsViaWorkloadSlices` feature gate.
+
+- key: kueue.x-k8s.io/workload-slice-replacement-for
+  type: Annotation
+  example: '`kueue.x-k8s.io/workload-slice-replacement-for: "default/my-old-workload-slice"`'
   used_on: |
     [Workload](/docs/concepts/workload/).
   description: |
-    The annotation stores the numeric index for component workloads created by multi-workload jobs
-    (e.g., LeaderWorkerSet creates one workload per replica). Used by MultiKueue to determine
-    primary workload ordering when dispatching component workloads to worker clusters atomically.
+    The annotation is set on a new workload slice to indicate the key (namespace/name)
+    of the workload slice it is intended to replace (i.e., the old slice being preempted).
 
-- key: kueue.x-k8s.io/admission-gated-by
-  type: Annotation
-  example: '`kueue.x-k8s.io/admission-gated-by: "example.com/mygate,example.com/mygate2"`'
+    This annotation is alpha-level for the `ElasticJobsViaWorkloadSlices` feature gate.
+
+- key: provreq.kueue.x-k8s.io/
+  type: Annotation prefix
+  example: '`provreq.kueue.x-k8s.io/MyParameter: "my-value"`'
   used_on: |
-    Kueue-managed Jobs.
+    Kueue-managed Jobs, [Workload](/docs/concepts/workload/), and
+    [ProvisioningRequest](/docs/concepts/admission_check/provisioning_request).
   description: |
-    This annotation requires the `AdmissionGatedBy` feature that is disabled by default.
-    
-    When it contains a value, the annotation prevents the Job from entering the Quota Reservation
-    phase of Kueue's Admission Flow.
-    The annotation value is a comma-separated list of 1 or more gate names and can only be added during Job
-    creation. After creation, the annotation may only be deleted or modified to remove 1 or more gates.
+    This is a prefix for annotations that are passed to a ProvisioningRequest as Parameters.
+    Any annotation with this prefix on the Job or Workload will be forwarded to the
+    corresponding ProvisioningRequest.
