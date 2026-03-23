@@ -314,24 +314,6 @@ outer slice size.
 This annotation is mutually exclusive with `kueue.x-k8s.io/podset-slice-required-topology`
 and `kueue.x-k8s.io/podset-slice-size`.
 
-##### Example
-
-{{< include "examples/tas/sample-job-multi-layer.yaml" "yaml" >}}
-
-### Limitations
-
-Currently, there are limitations for the compatibility of TAS with other
-features, including:
-- some scheduling directives (e.g. pod affinities and anti-affinities) are ignored,
-- the "podset-required-topology" annotation may fail if the underlying
-  ClusterAutoscaler cannot provision nodes that satisfy the domain constraint,
-- a ClusterQueue for [MultiKueue](multikueue.md) referencing a ResourceFlavor
-with Topology name (`.spec.topologyName`) is marked as inactive.
-- The taints on the nodes are not respected unless `kubernetes.io/hostname` is on the lowest topology level.
-
-These usage scenarios are considered to be supported in the future releases
-of Kueue.
-
 ## Drawbacks
 
 When enabling the feature Kueue starts to keep track of all Pods and all nodes
