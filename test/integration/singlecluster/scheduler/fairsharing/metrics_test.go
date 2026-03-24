@@ -28,7 +28,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -73,8 +72,8 @@ var _ = ginkgo.Describe("Cohorts", func() {
 	}
 
 	var createWorkload = func(wl *kueue.Workload) *kueue.Workload {
-		wls[wl.Name] = wl
 		util.MustCreate(ctx, k8sClient, wl)
+		wls[wl.Name] = wl
 		return wl
 	}
 
@@ -125,7 +124,6 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}
 			for _, cohort := range cohorts {
-				metrics.ClearCohortMetrics(kueue.CohortReference(cohort.Name))
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 			}
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
@@ -458,7 +456,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			})
 		})
 
-		ginkgo.XIt("correctly handles cohort metrics when workload admitted with admission check", func() {
+		ginkgo.It("correctly handles cohort metrics when workload admitted with admission check", func() {
 			const (
 				numWorkloadsForCQ1 = 5
 				numWorkloadsForCQ2 = 2
@@ -646,6 +644,351 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", numWorkloadsForCQ1+numWorkloadsForCQ2)
 				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", numWorkloadsForCQ1)
 				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch2", numWorkloadsForCQ2)
+			})
+		})
+
+		ginkgo.It("should clear metrics for the implicit root Cohort after deleting Cohort then ClusterQueues", func() {
+			ginkgo.By("Creating Cohorts", func() {
+				createCohort(utiltestingapi.MakeCohort("ch1").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			var cq1 *kueue.ClusterQueue
+
+			ginkgo.By("Create ClusterQueues", func() {
+				cq1 = createQueue(utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("ch1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Creating Workloads", func() {
+				for range 5 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq1").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					)
+				}
+			})
+
+			ginkgo.By("Checking that Workloads are admitted", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 5)
+			})
+
+			ginkgo.By("Deleting Cohorts", func() {
+				for _, cohort := range cohorts {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 0)
+			})
+
+			ginkgo.By("Deleting Workloads", func() {
+				for _, wl := range wls {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+				}
+			})
+
+			ginkgo.By("Deleting LocalQueues", func() {
+				for _, lq := range lqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+				}
+			})
+
+			ginkgo.By("Deleting ClusterQueues", func() {
+				for _, cq := range cqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 0)
+			})
+		})
+
+		ginkgo.It("should clear metrics for the implicit root Cohort after deleting ClusterQueues then Cohort", func() {
+			ginkgo.By("Creating Cohorts", func() {
+				createCohort(utiltestingapi.MakeCohort("ch1").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			var cq1 *kueue.ClusterQueue
+
+			ginkgo.By("Create ClusterQueues", func() {
+				cq1 = createQueue(utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("ch1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Creating Workloads", func() {
+				for range 5 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq1").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					)
+				}
+			})
+
+			ginkgo.By("Checking that Workloads are admitted", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 5)
+			})
+
+			ginkgo.By("Deleting Workloads", func() {
+				for _, wl := range wls {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+				}
+			})
+
+			ginkgo.By("Deleting LocalQueues", func() {
+				for _, lq := range lqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 0)
+			})
+
+			ginkgo.By("Deleting ClusterQueues", func() {
+				for _, cq := range cqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 0)
+			})
+
+			ginkgo.By("Deleting Cohorts", func() {
+				for _, cohort := range cohorts {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 0)
+			})
+		})
+
+		ginkgo.It("should clear metrics for the implicit root Cohort after deleting ClusterQueues", func() {
+			var cq1 *kueue.ClusterQueue
+
+			ginkgo.By("Create ClusterQueues", func() {
+				cq1 = createQueue(utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Creating Workloads", func() {
+				for range 5 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq1").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					)
+				}
+			})
+
+			ginkgo.By("Checking that Workloads are admitted", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 5)
+			})
+
+			ginkgo.By("Deleting Workloads", func() {
+				for _, wl := range wls {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+				}
+			})
+
+			ginkgo.By("Deleting LocalQueues", func() {
+				for _, lq := range lqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+			})
+
+			ginkgo.By("Deleting ClusterQueues", func() {
+				for _, cq := range cqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+			})
+		})
+
+		// cq1 -> ch1 -> root1 (implicit)	=> cq1 -> ch1 -> root2 (explicit)
+		// cq2 -> root2 (explicit)			=> cq2 -> root2 (explicit)
+		ginkgo.It("should clear metrics for the implicit root Cohort after switching to another root Cohort", func() {
+			var (
+				cq1 *kueue.ClusterQueue
+				cq2 *kueue.ClusterQueue
+				ch1 *kueue.Cohort
+			)
+
+			ginkgo.By("Creating Cohorts", func() {
+				ch1 = createCohort(utiltestingapi.MakeCohort("ch1").
+					Parent("root1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+
+				createCohort(utiltestingapi.MakeCohort("root2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Create ClusterQueues", func() {
+				cq1 = createQueue(utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("ch1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+
+				cq2 = createQueue(utiltestingapi.MakeClusterQueue("cq2").
+					Cohort("root2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Creating Workloads", func() {
+				for range 3 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq1").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					)
+				}
+
+				for range 2 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq2").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					)
+				}
+			})
+
+			ginkgo.By("Checking that Workloads are admitted", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 3)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 3)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq2", 2)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 3)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 3)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root1", "", 3)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root1", 3)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root2", "", 2)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root2", 2)
+			})
+
+			ginkgo.By("Switch ch1->root1 to ch1->root2", func() {
+				createdCh1 := &kueue.Cohort{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ch1), createdCh1)).Should(gomega.Succeed())
+					createdCh1.Spec.ParentName = "root2"
+					g.Expect(k8sClient.Update(ctx, createdCh1)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that root1 metrics are cleaned cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 3)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 3)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq2", 2)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 3)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 3)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root1", "", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root2", "", 2)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root2", 2)
 			})
 		})
 
