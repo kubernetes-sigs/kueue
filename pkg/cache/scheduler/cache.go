@@ -484,6 +484,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
 		return err
 	}
+	c.handleParentUpdate(oldParent)
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
@@ -516,9 +517,10 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	c.hm.DeleteClusterQueue(cqName)
 	metrics.ClearCacheMetrics(cq.Name)
 
-	// Update cohort resources after deletion
 	if parent != nil {
+		// Update cohort resources after deletion
 		updateCohortTreeResourcesIfNoCycle(parent)
+		c.handleParentUpdate(parent)
 	}
 }
 
@@ -530,18 +532,27 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	cohort := c.hm.Cohort(cohortName)
 	oldParent := cohort.Parent()
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
-	return cohort.updateCohort(apiCohort, oldParent)
+	err := cohort.updateCohort(apiCohort, oldParent)
+	if err != nil {
+		return err
+	}
+	c.handleParentUpdate(oldParent)
+	return nil
 }
 
 func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	c.Lock()
 	defer c.Unlock()
 
+	var parent *cohort
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		cohort.updateAdmittedWorkloadsCount(-cohort.admittedWorkloadsCount)
+		metrics.ClearCohortAdmittedWorkloadsMetrics(cohort.Name)
+		parent = cohort.Parent()
 	}
 
 	c.hm.DeleteCohort(cohortName)
+	c.handleParentUpdate(parent)
 
 	// If the cohort still exists after deletion, it means
 	// that it has one or more children referencing it.
@@ -549,6 +560,21 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		updateCohortResourceNode(cohort)
 	}
+}
+
+func (c *Cache) handleParentUpdate(cachedParent *cohort) {
+	if cachedParent == nil {
+		return
+	}
+	if updatedParent := c.hm.Cohort(cachedParent.Name); updatedParent != nil {
+		if updatedParent.IsExplicit() {
+			return
+		}
+		if len(updatedParent.ChildCohorts()) > 0 || len(updatedParent.ChildCQs()) > 0 {
+			return
+		}
+	}
+	metrics.ClearCohortAdmittedWorkloadsMetrics(cachedParent.Name)
 }
 
 func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
