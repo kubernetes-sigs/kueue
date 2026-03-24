@@ -155,6 +155,13 @@ test-tas-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-$
 test-tas-e2e-helm: E2E_USE_HELM=true
 test-tas-e2e-helm: test-tas-e2e
 
+## Label Taxonomy:
+##   Features: admissionfairsharing, certs, failurerecoverypolicy, managejobswithoutqueuename, localqueuemetrics, objectretentionpolicies, podintegrationautoenablement, reconcile, spark, visibility, waitforpodsready
+##
+## Examples:
+##   Run only Admission Fair Sharing tests: GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-customconfigs
+##   Run only Certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e-customconfigs
+##   Run only Failure Recovery Policy tests: GINKGO_ARGS="--label-filter=feature:failurerecoverypolicy" make test-e2e-customconfigs
 .PHONY: test-e2e-customconfigs
 test-e2e-customconfigs: setup-e2e-env run-test-e2e-customconfigs-$(E2E_KIND_VERSION:kindest/node:v%=%)
 

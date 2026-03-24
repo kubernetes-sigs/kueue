@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlwaysRespected", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlwaysRespected", ginkgo.Label("feature:managedjobsnamespaceselectoralwaysrespected"), ginkgo.Ordered, func() {
 	const (
 		cqName = "cluster-queue"
 		rfName = "default"

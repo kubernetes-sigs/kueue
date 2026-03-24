@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueuemetrics"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor

@@ -56,7 +56,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:managejobswithoutqueuename"), ginkgo.Ordered, func() {
 	var (
 		ns           *corev1.Namespace
 		defaultRf    *kueue.ResourceFlavor

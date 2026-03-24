@@ -89,12 +89,12 @@ function e2e_crd_exists {
     kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} get crd "${crd}" >/dev/null 2>&1
 }
 
-if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export APPWRAPPER_MANIFEST=${ROOT_DIR}/dep-crds/appwrapper/config/default
     export APPWRAPPER_IMAGE=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION}
 fi
 
-if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml"
     export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
     export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
@@ -129,12 +129,12 @@ if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKG
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
 fi
 
-if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworkerset || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export LEADERWORKERSET_MANIFEST="https://github.com/kubernetes-sigs/lws/releases/download/${LEADERWORKERSET_VERSION}/manifests.yaml"
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
 
-if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
+if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
 fi
 
@@ -374,10 +374,10 @@ function prepare_docker_images {
     docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
     docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
 
-    if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${APPWRAPPER_IMAGE}"
     fi
-    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${JOBSET_IMAGE}"
     fi
     if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -397,13 +397,13 @@ function prepare_docker_images {
             docker pull "${KUBERAY_RAY_IMAGE}"
         fi
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworkerset || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${LEADERWORKERSET_IMAGE}"
     fi
     if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
         docker pull "${KUEUE_OLD_VERSION_IMAGE}"
     fi
-    if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
+    if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${SPARKOPERATOR_IMAGE}"
     fi
 }
@@ -429,10 +429,10 @@ function kind_load {
 
     cluster_kind_load "${e2e_cluster_name}"
 
-    if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:appwrapper || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_appwrapper "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_jobset "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -449,13 +449,13 @@ function kind_load {
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         install_mpi "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworkerset || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_lws "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_kuberay "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
+    if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_sparkoperator "$1" "$2"
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then

@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissionfairsharing"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		rf *kueue.ResourceFlavor

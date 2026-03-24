@@ -41,7 +41,7 @@ const (
 	podTerminationGracePeriodSeconds = 1
 )
 
-var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failurerecoverypolicy"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		job *batchv1.Job
 		ns  *corev1.Namespace
