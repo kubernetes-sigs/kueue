@@ -1,0 +1,24 @@
+[access]
+allow-guest-user = true
+allow-root-owner = true
+
+# Point to resource definition generated with flux-R(1).
+[resource]
+path = "/mnt/flux/config/etc/flux/system/R"
+
+[bootstrap]
+curve_cert = "/mnt/flux/config/etc/curve/curve.cert"
+default_port = 8050
+default_bind = "%s"
+default_connect = "%s"
+hosts = [
+{ host="%s"},
+]
+
+[archive]
+dbpath = "/mnt/flux/config/var/lib/flux/job-archive.sqlite"
+period = "1m"
+busytimeout = "50s"
+
+[sched-fluxion-qmanager]
+queue-policy = "%s"

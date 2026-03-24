@@ -49,6 +49,7 @@ type Info struct {
 type RuntimePolicy struct {
 	MLPolicySource *trainer.MLPolicySource
 	PodGroupPolicy *trainer.PodGroupPolicy
+	//FluxPolicySource *trainer.FluxMLPolicySource
 }
 
 type TemplateSpec struct {
@@ -78,6 +79,8 @@ type PodSet struct {
 
 type Container struct {
 	Name         string
+	Image        string
+	Command      []string
 	Env          []corev1ac.EnvVarApplyConfiguration
 	Ports        []corev1ac.ContainerPortApplyConfiguration
 	VolumeMounts []corev1ac.VolumeMountApplyConfiguration

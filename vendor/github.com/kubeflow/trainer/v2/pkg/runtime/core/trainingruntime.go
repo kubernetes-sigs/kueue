@@ -21,9 +21,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
+	"maps"
 
-	corev1 "k8s.io/api/core/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -35,6 +35,7 @@ import (
 	jobsetv1alpha2 "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	jobsetv1alpha2ac "sigs.k8s.io/jobset/client-go/applyconfiguration/jobset/v1alpha2"
 
+	configapi "github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1"
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/kubeflow/trainer/v2/pkg/apply"
 	"github.com/kubeflow/trainer/v2/pkg/constants"
@@ -62,14 +63,14 @@ var _ runtime.Runtime = (*TrainingRuntime)(nil)
 
 var trainingRuntimeFactory *TrainingRuntime
 
-func NewTrainingRuntime(ctx context.Context, c client.Client, indexer client.FieldIndexer) (runtime.Runtime, error) {
+func NewTrainingRuntime(ctx context.Context, c client.Client, indexer client.FieldIndexer, cfg *configapi.Configuration) (runtime.Runtime, error) {
 	if err := indexer.IndexField(ctx, &trainer.TrainJob{}, idxer.TrainJobRuntimeRefKey, idxer.IndexTrainJobTrainingRuntime); err != nil {
 		return nil, fmt.Errorf("setting index on TrainingRuntime for TrainJob: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &trainer.TrainJob{}, idxer.TrainJobClusterRuntimeRefKey, idxer.IndexTrainJobClusterTrainingRuntime); err != nil {
 		return nil, fmt.Errorf("setting index on ClusterTrainingRuntime for TrainJob: %w", err)
 	}
-	fwk, err := fwkcore.New(ctx, c, fwkplugins.NewRegistry(), indexer)
+	fwk, err := fwkcore.New(ctx, c, fwkplugins.NewRegistry(), indexer, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -123,23 +124,25 @@ func (r *TrainingRuntime) RuntimeInfo(
 func (r *TrainingRuntime) newRuntimeInfo(
 	trainJob *trainer.TrainJob, jobSetTemplateSpec trainer.JobSetTemplateSpec, mlPolicy *trainer.MLPolicy, podGroupPolicy *trainer.PodGroupPolicy,
 ) (*runtime.Info, error) {
-	propagationLabels := jobSetTemplateSpec.Labels
-	if propagationLabels == nil && trainJob.Spec.Labels != nil {
-		propagationLabels = make(map[string]string, len(trainJob.Spec.Labels))
+	propagationLabels := maps.Clone(jobSetTemplateSpec.Labels)
+	propagationAnnotations := maps.Clone(jobSetTemplateSpec.Annotations)
+	for _, patch := range trainJob.Spec.RuntimePatches {
+		if patch.TrainingRuntimeSpec != nil && patch.TrainingRuntimeSpec.Template != nil && patch.TrainingRuntimeSpec.Template.Metadata != nil {
+			if propagationLabels == nil && len(patch.TrainingRuntimeSpec.Template.Metadata.Labels) > 0 {
+				propagationLabels = make(map[string]string)
+			}
+			for k, v := range patch.TrainingRuntimeSpec.Template.Metadata.Labels {
+				propagationLabels[k] = v
+			}
+			if propagationAnnotations == nil && len(patch.TrainingRuntimeSpec.Template.Metadata.Annotations) > 0 {
+				propagationAnnotations = make(map[string]string)
+			}
+			for k, v := range patch.TrainingRuntimeSpec.Template.Metadata.Annotations {
+				propagationAnnotations[k] = v
+			}
+		}
 	}
-	for k, v := range trainJob.Spec.Labels {
-		// The JobSetTemplateSpec labels are overridden by the TrainJob Labels (.spec.labels).
-		propagationLabels[k] = v
-	}
-	propagationAnnotations := jobSetTemplateSpec.Annotations
-	if propagationAnnotations == nil && trainJob.Spec.Annotations != nil {
-		propagationAnnotations = make(map[string]string, len(trainJob.Spec.Annotations))
-	}
-	for k, v := range trainJob.Spec.Annotations {
-		// The JobSetTemplateSpec annotations are overridden by the TrainJob Annotations (.spec.annotations).
-		propagationAnnotations[k] = v
-	}
-	err := r.mergePodTemplateOverrides(trainJob, &jobSetTemplateSpec)
+	err := r.mergeRuntimePatches(trainJob, &jobSetTemplateSpec)
 	if err != nil {
 		return nil, err
 	}
@@ -171,6 +174,16 @@ func (r *TrainingRuntime) newRuntimeInfo(
 			if labelAncestor, ok := metadata.Labels[constants.LabelTrainJobAncestor]; ok {
 				if labelAncestor == constants.AncestorTrainer && mlPolicy != nil {
 					count = ptr.Deref(mlPolicy.NumNodes, 1)
+
+					// Apply resourcesPerNode from TrainJob to the template spec
+					if trainJob.Spec.Trainer != nil && trainJob.Spec.Trainer.ResourcesPerNode != nil {
+						for j := range jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers {
+							if jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[j].Name == constants.Node {
+								jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[j].Resources = *trainJob.Spec.Trainer.ResourcesPerNode.DeepCopy()
+								break
+							}
+						}
+					}
 				}
 				ancestor = &labelAncestor
 			}
@@ -187,51 +200,39 @@ func (r *TrainingRuntime) newRuntimeInfo(
 	return runtime.NewInfo(opts...), nil
 }
 
-func (r *TrainingRuntime) mergePodTemplateOverrides(trainJob *trainer.TrainJob, jobSetTemplateSpec *trainer.JobSetTemplateSpec) error {
-	for _, podTemplateOverride := range trainJob.Spec.PodTemplateOverrides {
-		for i, job := range jobSetTemplateSpec.Spec.ReplicatedJobs {
-			if !slices.ContainsFunc(podTemplateOverride.TargetJobs, func(targetJob trainer.PodTemplateOverrideTargetJob) bool {
-				return targetJob.Name == job.Name
-			}) {
+func (r *TrainingRuntime) mergeRuntimePatches(trainJob *trainer.TrainJob, jobSetTemplateSpec *trainer.JobSetTemplateSpec) error {
+	for _, runtimePatch := range trainJob.Spec.RuntimePatches {
+		if runtimePatch.TrainingRuntimeSpec == nil ||
+			runtimePatch.TrainingRuntimeSpec.Template == nil ||
+			runtimePatch.TrainingRuntimeSpec.Template.Spec == nil {
+			continue
+		}
+		for _, rJobPatch := range runtimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs {
+			if rJobPatch.Template == nil {
 				continue
 			}
-
-			podTemplatePatch := map[string]any{}
-			if podTemplateOverride.Metadata != nil {
-				metadata := map[string]any{}
-				if podTemplateOverride.Metadata.Labels != nil {
-					metadata["labels"] = podTemplateOverride.Metadata.Labels
+			for i, job := range jobSetTemplateSpec.Spec.ReplicatedJobs {
+				if job.Name != rJobPatch.Name {
+					continue
 				}
-				if podTemplateOverride.Metadata.Annotations != nil {
-					metadata["annotations"] = podTemplateOverride.Metadata.Annotations
+				source, err := json.Marshal(job.Template)
+				if err != nil {
+					return err
 				}
-				if len(metadata) > 0 {
-					podTemplatePatch["metadata"] = metadata
+				patch, err := json.Marshal(rJobPatch.Template)
+				if err != nil {
+					return err
 				}
+				merged, err := strategicpatch.StrategicMergePatch(source, patch, batchv1.JobTemplateSpec{})
+				if err != nil {
+					return err
+				}
+				mergedTemplate := batchv1.JobTemplateSpec{}
+				if err := json.Unmarshal(merged, &mergedTemplate); err != nil {
+					return err
+				}
+				jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template = mergedTemplate
 			}
-
-			if podTemplateOverride.Spec != nil {
-				podTemplatePatch["spec"] = podTemplateOverride.Spec
-			}
-
-			// Apply a strategic merge patch against the full PodTemplateSpec
-			source, err := json.Marshal(job.Template.Spec.Template)
-			if err != nil {
-				return err
-			}
-			patch, err := json.Marshal(podTemplatePatch)
-			if err != nil {
-				return err
-			}
-			merged, err := strategicpatch.StrategicMergePatch(source, patch, corev1.PodTemplateSpec{})
-			if err != nil {
-				return err
-			}
-			mergedTemplate := corev1.PodTemplateSpec{}
-			if err := json.Unmarshal(merged, &mergedTemplate); err != nil {
-				return err
-			}
-			jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template.Spec.Template = mergedTemplate
 		}
 	}
 	return nil

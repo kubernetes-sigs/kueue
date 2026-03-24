@@ -48,11 +48,11 @@ import (
 	volcanov1beta1 "volcano.sh/apis/pkg/apis/scheduling/v1beta1"
 	volcanov1beta1ac "volcano.sh/apis/pkg/client/applyconfiguration/scheduling/v1beta1"
 
+	configapi "github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1"
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/kubeflow/trainer/v2/pkg/runtime"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework"
-	index "github.com/kubeflow/trainer/v2/pkg/runtime/indexer"
-	runtimeindexer "github.com/kubeflow/trainer/v2/pkg/runtime/indexer"
+	"github.com/kubeflow/trainer/v2/pkg/runtime/indexer"
 )
 
 type Volcano struct {
@@ -72,7 +72,7 @@ const Name = "Volcano"
 // +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=limitranges,verbs=get;list;watch
 
-func New(_ context.Context, client client.Client, _ client.FieldIndexer) (framework.Plugin, error) {
+func New(_ context.Context, client client.Client, _ client.FieldIndexer, _ *configapi.Configuration) (framework.Plugin, error) {
 	return &Volcano{
 		client:     client,
 		restMapper: client.RESTMapper(),
@@ -246,18 +246,18 @@ func (h *PodGroupRuntimeClassHandler) Generic(context.Context, event.TypedGeneri
 
 func (h *PodGroupRuntimeClassHandler) queueSuspendedTrainJobs(ctx context.Context, runtimeClass *nodev1.RuntimeClass, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	var trainingRuntimes trainer.TrainingRuntimeList
-	if err := h.client.List(ctx, &trainingRuntimes, client.MatchingFields{index.TrainingRuntimeContainerRuntimeClassKey: runtimeClass.Name}); err != nil {
+	if err := h.client.List(ctx, &trainingRuntimes, client.MatchingFields{indexer.TrainingRuntimeContainerRuntimeClassKey: runtimeClass.Name}); err != nil {
 		return err
 	}
 	var clusterTrainingRuntimes trainer.ClusterTrainingRuntimeList
-	if err := h.client.List(ctx, &clusterTrainingRuntimes, client.MatchingFields{index.ClusterTrainingRuntimeContainerRuntimeClassKey: runtimeClass.Name}); err != nil {
+	if err := h.client.List(ctx, &clusterTrainingRuntimes, client.MatchingFields{indexer.ClusterTrainingRuntimeContainerRuntimeClassKey: runtimeClass.Name}); err != nil {
 		return err
 	}
 
 	var trainJobs []trainer.TrainJob
 	for _, trainingRuntime := range trainingRuntimes.Items {
 		var trainJobsWithTrainingRuntime trainer.TrainJobList
-		err := h.client.List(ctx, &trainJobsWithTrainingRuntime, client.MatchingFields{runtimeindexer.TrainJobRuntimeRefKey: trainingRuntime.Name})
+		err := h.client.List(ctx, &trainJobsWithTrainingRuntime, client.MatchingFields{indexer.TrainJobRuntimeRefKey: trainingRuntime.Name})
 		if err != nil {
 			return err
 		}
@@ -265,7 +265,7 @@ func (h *PodGroupRuntimeClassHandler) queueSuspendedTrainJobs(ctx context.Contex
 	}
 	for _, clusterTrainingRuntime := range clusterTrainingRuntimes.Items {
 		var trainJobsWithClTrainingRuntime trainer.TrainJobList
-		err := h.client.List(ctx, &trainJobsWithClTrainingRuntime, client.MatchingFields{runtimeindexer.TrainJobClusterRuntimeRefKey: clusterTrainingRuntime.Name})
+		err := h.client.List(ctx, &trainJobsWithClTrainingRuntime, client.MatchingFields{indexer.TrainJobClusterRuntimeRefKey: clusterTrainingRuntime.Name})
 		if err != nil {
 			return err
 		}

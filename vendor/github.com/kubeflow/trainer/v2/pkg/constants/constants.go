@@ -1,3 +1,19 @@
+/*
+Copyright 2026 The Kubeflow Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package constants
 
 import (
@@ -66,9 +82,48 @@ const (
 	// {"type": "Suspended", "status": "True", "reason": "Resumed"} condition.
 	TrainJobResumedMessage = "TrainJob is resumed"
 
+	// TrainJobDeadlineExceededMessage is the status condition message for the
+	// {"type": "Failed", "reason": "DeadlineExceeded"} condition
+	// when the TrainJob exceeds its ActiveDeadlineSeconds.
+	TrainJobDeadlineExceededMessage = "TrainJob exceeded its active deadline"
+
 	// Node is the name of the Job and container for the MPI launcher.
 	// When RunLauncherAsNode: true, for the launcher Job the container name is node.
 	Launcher string = "launcher"
+
+	// Flux Framework
+	// The Flux View container image for the initContainer with Flux pre-installed
+	FluxInstallerImage = "ghcr.io/converged-computing/flux-view-ubuntu:tag-jammy"
+
+	// Network device used by the tree-based overlay network (TBON)
+	FluxNewtowkDevice = "eth0"
+
+	// Flux queue policy for scheduler in cluster (first come, first serve)
+	FluxQueuePolicy = "fcfs"
+
+	// Flux view container image name
+	FluxInstallerContainerName = "flux-installer"
+
+	// Name for the flux volume (emptyDir Flux is added to)
+	FluxInstallVolumeName = "flux-install"
+
+	// Name for the flux config volume
+	FluxConfigVolumeName = "/etc/flux-config"
+
+	// Path to mount flux volume
+	FluxVolumePath = "/mnt/flux"
+
+	// Volume name for Flux curve volume
+	FluxCurveVolumeName = "flux-curve"
+
+	// Path for Flux curve path
+	FluxCurveVolumePath = "/curve"
+
+	// emptyDir volume using for complete spack view software
+	FluxSpackViewVolumeName = "spack-install"
+
+	// path for spack view volume
+	FluxSpackViewVolumePath = "/opt/software"
 
 	// MPISSHAuthSecretSuffix is the name suffix for Secret with MPI SSH keys.
 	MPISSHAuthSecretSuffix string = "-mpi-ssh-auth"
@@ -193,6 +248,21 @@ const (
 
 	// TorchTuneCheckpointerDir is the config item name for the checkpointer directory.
 	TorchTuneCheckpointDir string = "checkpointer.checkpoint_dir"
+
+	// Distributed envs for XGBoost collective/Rabit.
+	// Ref:TODO[krishna-kg732]: Add the correct link(update XG boost docs)
+
+	// XGBoostEnvTrackerURI is the env name for the tracker URI.
+	XGBoostEnvTrackerURI string = "DMLC_TRACKER_URI"
+
+	// XGBoostEnvTrackerPort is the env name for the tracker port.
+	XGBoostEnvTrackerPort string = "DMLC_TRACKER_PORT"
+
+	// XGBoostEnvTaskID is the env name for the worker task ID (rank).
+	XGBoostEnvTaskID string = "DMLC_TASK_ID"
+
+	// XGBoostEnvNumWorker is the env name for the total number of workers.
+	XGBoostEnvNumWorker string = "DMLC_NUM_WORKER"
 )
 
 const (
@@ -215,6 +285,9 @@ var (
 
 	// TorchRunReservedEnvNames is torchrun reserved env names
 	TorchRunReservedEnvNames = sets.New(TorchEnvNumNodes, TorchEnvNumProcPerNode, TorchEnvNodeRank, TorchEnvMasterAddr, TorchEnvMasterPort)
+
+	// XGBoostReservedEnvNames is XGBoost reserved env names that should not be set by users.
+	XGBoostReservedEnvNames = sets.New(XGBoostEnvTrackerURI, XGBoostEnvTrackerPort, XGBoostEnvTaskID, XGBoostEnvNumWorker)
 
 	// ResourceInUseFinalizer is a finalizer for managed resources which is used by other resources.
 	ResourceInUseFinalizer = fmt.Sprintf("%s/resource-in-use", trainer.GroupVersion.Group)

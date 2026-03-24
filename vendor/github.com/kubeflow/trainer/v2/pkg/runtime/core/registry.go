@@ -21,12 +21,13 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1"
 	"github.com/kubeflow/trainer/v2/pkg/runtime"
 )
 
 type Registry map[string]RuntimeRegistrar
 type RuntimeRegistrar struct {
-	factory      func(ctx context.Context, client client.Client, indexer client.FieldIndexer) (runtime.Runtime, error)
+	factory      func(ctx context.Context, client client.Client, indexer client.FieldIndexer, cfg *configapi.Configuration) (runtime.Runtime, error)
 	dependencies []string
 }
 

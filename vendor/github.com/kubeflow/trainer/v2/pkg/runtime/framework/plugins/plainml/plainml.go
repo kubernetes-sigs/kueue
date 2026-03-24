@@ -21,6 +21,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1"
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/kubeflow/trainer/v2/pkg/apply"
 	"github.com/kubeflow/trainer/v2/pkg/constants"
@@ -34,7 +35,7 @@ type PlainML struct{}
 
 const Name = "PlainML"
 
-func New(context.Context, client.Client, client.FieldIndexer) (framework.Plugin, error) {
+func New(context.Context, client.Client, client.FieldIndexer, *configapi.Configuration) (framework.Plugin, error) {
 	return &PlainML{}, nil
 }
 
@@ -44,7 +45,10 @@ func (p *PlainML) Name() string {
 
 func (p *PlainML) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) error {
 	if info == nil ||
-		(info.RuntimePolicy.MLPolicySource != nil && (info.RuntimePolicy.MLPolicySource.Torch != nil || info.RuntimePolicy.MLPolicySource.MPI != nil)) {
+		(info.RuntimePolicy.MLPolicySource != nil &&
+			(info.RuntimePolicy.MLPolicySource.Torch != nil ||
+				info.RuntimePolicy.MLPolicySource.MPI != nil ||
+				info.RuntimePolicy.MLPolicySource.JAX != nil)) {
 		return nil
 	}
 
