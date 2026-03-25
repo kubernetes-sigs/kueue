@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -135,9 +136,9 @@ func TestRun(t *testing.T) {
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		pod                           *Pod
-		wantPodSets                   func(pod *Pod) []kueue.PodSet
-		enableTopologyAwareScheduling bool
+		pod          *Pod
+		wantPodSets  func(pod *Pod) []kueue.PodSet
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").Obj()),
@@ -148,7 +149,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with required topology annotation": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -164,7 +165,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with required topology preferred": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -180,7 +181,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required topology annotation if TAS is disabled": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -194,7 +195,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"without preferred topology annotation if TAS is disabled": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -208,12 +209,13 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotPodSets, err := tc.pod.PodSets(ctx)
 			if err != nil {
@@ -263,7 +265,7 @@ func TestReconciler(t *testing.T) {
 	podUID := "dc85db45"
 
 	testCases := map[string]struct {
-		enableObjectRetentionPolicies bool
+		featureGates map[featuregate.Feature]bool
 
 		reconcileKey           *types.NamespacedName
 		initObjects            []client.Object
@@ -5489,7 +5491,7 @@ func TestReconciler(t *testing.T) {
 			wantErr:         jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
-			enableObjectRetentionPolicies: true,
+			featureGates: map[featuregate.Feature]bool{features.ObjectRetentionPolicies: true},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -5586,7 +5588,7 @@ func TestReconciler(t *testing.T) {
 	for name, tc := range testCases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 
 				ctx, log := utiltesting.ContextWithLog(t)

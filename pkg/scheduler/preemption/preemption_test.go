@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -280,15 +281,14 @@ func TestPreemption(t *testing.T) {
 		Label(controllerconstants.JobUIDLabel, "job-in")
 
 	cases := map[string]struct {
-		clusterQueues       []*kueue.ClusterQueue
-		cohorts             []*kueue.Cohort
-		admitted            []kueue.Workload
-		incoming            *kueue.Workload
-		targetCQ            kueue.ClusterQueueReference
-		assignment          flavorassigner.Assignment
-		wantPreempted       int
-		wantWorkloads       []kueue.Workload
-		disableLendingLimit bool
+		clusterQueues []*kueue.ClusterQueue
+		cohorts       []*kueue.Cohort
+		admitted      []kueue.Workload
+		incoming      *kueue.Workload
+		targetCQ      kueue.ClusterQueueReference
+		assignment    flavorassigner.Assignment
+		wantPreempted int
+		wantWorkloads []kueue.Workload
 	}{
 		"preempt lowest priority": {
 			clusterQueues: defaultClusterQueues,
@@ -4105,9 +4105,6 @@ func TestPreemption(t *testing.T) {
 			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 
-				if tc.disableLendingLimit {
-					features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-				}
 				ctx, log := utiltesting.ContextWithLog(t)
 				cl := utiltesting.NewClientBuilder().
 					WithLists(&kueue.WorkloadList{Items: tc.admitted}).
@@ -4553,9 +4550,9 @@ func TestCandidatesOrdering(t *testing.T) {
 	wlHighUsageLqDifCQ.LocalQueueFSUsage = ptr.To(1.0)
 
 	cases := map[string]struct {
-		candidates                  []workload.Info
-		wantCandidates              []workload.Reference
-		admissionFairSharingEnabled bool
+		candidates     []workload.Info
+		wantCandidates []workload.Reference
+		featureGates   map[featuregate.Feature]bool
 	}{
 		"workloads sorted by priority": {
 			candidates: []workload.Info{
@@ -4618,23 +4615,23 @@ func TestCandidatesOrdering(t *testing.T) {
 				*wlLowUsageLq,
 				*wlMidUsageLq,
 			},
-			wantCandidates:              []workload.Reference{"mid_lq_usage", "low_lq_usage"},
-			admissionFairSharingEnabled: true,
+			wantCandidates: []workload.Reference{"mid_lq_usage", "low_lq_usage"},
+			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		},
 		"workloads from different CQ are sorted based on priority and timestamp": {
 			candidates: []workload.Info{
 				*wlMidUsageLq,
 				*wlHighUsageLqDifCQ,
 			},
-			wantCandidates:              []workload.Reference{"high_lq_usage_different_cq", "mid_lq_usage"},
-			admissionFairSharingEnabled: true,
+			wantCandidates: []workload.Reference{"high_lq_usage_different_cq", "mid_lq_usage"},
+			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		}}
 
 	_, log := utiltesting.ContextWithLog(t)
 	for _, tc := range cases {
-		features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.admissionFairSharingEnabled)
+		features.SetFeatureGatesDuringTest(t, tc.featureGates)
 		slices.SortFunc(tc.candidates, func(a, b workload.Info) int {
-			return preemptioncommon.CandidatesOrdering(log, tc.admissionFairSharingEnabled, &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
+			return preemptioncommon.CandidatesOrdering(log, tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing], &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
 		})
 		got := utilslices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)

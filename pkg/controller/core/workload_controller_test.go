@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -401,8 +402,7 @@ func TestReconcile(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 
 	cases := map[string]struct {
-		enableObjectRetentionPolicies bool
-		enableDRAFeature              bool
+		featureGates map[featuregate.Feature]bool
 
 		workload                  *kueue.Workload
 		cq                        *kueue.ClusterQueue
@@ -420,7 +420,7 @@ func TestReconcile(t *testing.T) {
 		reconcilerOpts            []Option
 	}{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
-			enableDRAFeature: true,
+			featureGates: map[featuregate.Feature]bool{features.DynamicResourceAllocation: true},
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -459,7 +459,7 @@ func TestReconcile(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate should be pre-processed and queued": {
-			enableDRAFeature:     true,
+			featureGates:         map[featuregate.Feature]bool{features.DynamicResourceAllocation: true},
 			wantDRAResourceTotal: ptr.To(int64(1)),
 			wantWorkloadsInQueue: ptr.To(1),
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
@@ -494,7 +494,7 @@ func TestReconcile(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate multi-pod should be pre-processed and queued": {
-			enableDRAFeature:     true,
+			featureGates:         map[featuregate.Feature]bool{features.DynamicResourceAllocation: true},
 			wantDRAResourceTotal: ptr.To(int64(6)),
 			wantWorkloadsInQueue: ptr.To(1),
 			workload: utiltestingapi.MakeWorkload("wlMultiPodDRA", "ns").
@@ -529,7 +529,7 @@ func TestReconcile(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
-			enableDRAFeature: true,
+			featureGates: map[featuregate.Feature]bool{features.DynamicResourceAllocation: true},
 			workload: utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -578,7 +578,7 @@ func TestReconcile(t *testing.T) {
 			wantEvents:   nil,
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
-			enableDRAFeature: true,
+			featureGates: map[featuregate.Feature]bool{features.DynamicResourceAllocation: true},
 			workload: utiltestingapi.MakeWorkload("wlMissingTemplate", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -2312,7 +2312,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"shouldn't delete the workload because, object retention not configured": {
-			enableObjectRetentionPolicies: true,
+			featureGates: map[featuregate.Feature]bool{features.ObjectRetentionPolicies: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadFinished,
@@ -2331,7 +2331,7 @@ func TestReconcile(t *testing.T) {
 			wantError: nil,
 		},
 		"shouldn't try to delete the workload (no event emitted) because it is already being deleted by kubernetes, object retention configured": {
-			enableObjectRetentionPolicies: true,
+			featureGates: map[featuregate.Feature]bool{features.ObjectRetentionPolicies: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadFinished,
@@ -2354,7 +2354,7 @@ func TestReconcile(t *testing.T) {
 			wantError:    nil,
 		},
 		"shouldn't try to delete the workload because the retention period hasn't elapsed yet, object retention configured": {
-			enableObjectRetentionPolicies: true,
+			featureGates: map[featuregate.Feature]bool{features.ObjectRetentionPolicies: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
@@ -2382,7 +2382,7 @@ func TestReconcile(t *testing.T) {
 			wantError: nil,
 		},
 		"should delete the workload because the retention period has elapsed, object retention configured": {
-			enableObjectRetentionPolicies: true,
+			featureGates: map[featuregate.Feature]bool{features.ObjectRetentionPolicies: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
@@ -2569,8 +2569,7 @@ func TestReconcile(t *testing.T) {
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
-				features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, tc.enableDRAFeature)
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 
 				testWl := tc.workload.DeepCopy()
@@ -2682,7 +2681,7 @@ func TestReconcile(t *testing.T) {
 				}
 
 				// For DRA tests, verify that workloads are properly queued/cached
-				if tc.enableDRAFeature && testWl != nil &&
+				if tc.featureGates[features.DynamicResourceAllocation] && testWl != nil &&
 					len(testWl.Spec.PodSets) > 0 &&
 					len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
 					workloadKey := client.ObjectKeyFromObject(testWl)

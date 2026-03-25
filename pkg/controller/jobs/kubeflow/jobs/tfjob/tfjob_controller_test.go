@@ -23,6 +23,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -244,9 +245,9 @@ func TestOrderedReplicaTypes(t *testing.T) {
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		job                           *kftraining.TFJob
-		wantPodSets                   func(job *kftraining.TFJob) []kueue.PodSet
-		enableTopologyAwareScheduling bool
+		job          *kftraining.TFJob
+		wantPodSets  func(job *kftraining.TFJob) []kueue.PodSet
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			job: testingtfjob.MakeTFJob("tfjob", "ns").TFReplicaSpecsDefault().Obj(),
@@ -263,7 +264,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with required and preferred topology annotation": {
 			job: testingtfjob.MakeTFJob("tfjob", "ns").
@@ -308,7 +309,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			job: testingtfjob.MakeTFJob("tfjob", "ns").
@@ -348,12 +349,12 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotPodSets, err := fromObject(tc.job).PodSets(ctx)
 			if err != nil {
@@ -368,10 +369,10 @@ func TestPodSets(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	testCases := map[string]struct {
-		job                     *kftraining.TFJob
-		wantValidationErrs      field.ErrorList
-		wantErr                 error
-		topologyAwareScheduling bool
+		job                *kftraining.TFJob
+		wantValidationErrs field.ErrorList
+		wantErr            error
+		featureGates       map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			job: testingtfjob.MakeTFJob("tfjob", "ns").TFReplicaSpecsDefault().Obj(),
@@ -399,7 +400,7 @@ func TestValidate(t *testing.T) {
 					},
 				).
 				Obj(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid TAS request": {
 			job: testingtfjob.MakeTFJob("tfjob", "ns").
@@ -445,7 +446,7 @@ func TestValidate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid slice topology request - slice size larger than number of podsets": {
 			job: testingtfjob.MakeTFJob("tfjob", "ns").
@@ -502,13 +503,12 @@ func TestValidate(t *testing.T) {
 					"20", "must not be greater than pod set count 10",
 				),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
-
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate(ctx)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {

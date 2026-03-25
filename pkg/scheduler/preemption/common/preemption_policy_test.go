@@ -38,11 +38,11 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 	candidate := utiltestingapi.MakeWorkload("candidate", metav1.NamespaceDefault)
 
 	testCases := map[string]struct {
-		features  map[featuregate.Feature]bool
-		preemptor *kueue.Workload
-		candidate *kueue.Workload
-		policy    kueue.PreemptionPolicy
-		want      bool
+		featureGates map[featuregate.Feature]bool
+		preemptor    *kueue.Workload
+		candidate    *kueue.Workload
+		policy       kueue.PreemptionPolicy
+		want         bool
 	}{
 		"LowerPriority: preemptor has higher priority": {
 			preemptor: preemptor.Clone().Priority(10).Obj(),
@@ -75,7 +75,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			want:      true, // candidate is newer
 		},
 		"LowerOrNewerEqualPriority with SchedulerTimestampPreemptionBuffer: preemptor has same priority, older timestamp (within 5min buffer)": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerTimestampPreemptionBuffer: true,
 			},
 			preemptor: preemptor.Clone().Priority(10).Creation(now).Obj(),
@@ -84,7 +84,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			want:      false, // candidate is newer but within buffer
 		},
 		"LowerOrNewerEqualPriority with SchedulerTimestampPreemptionBuffer: preemptor has same priority, older timestamp (outside 5min buffer)": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerTimestampPreemptionBuffer: true,
 			},
 			preemptor: preemptor.Clone().Priority(10).Creation(now).Obj(),
@@ -108,9 +108,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			for feature, enabled := range tc.features {
-				features.SetFeatureGateDuringTest(t, feature, enabled)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ordering := workload.Ordering{}
 			got := SatisfiesPreemptionPolicy(tc.preemptor, tc.candidate, ordering, tc.policy)
 			if got != tc.want {

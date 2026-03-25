@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -100,12 +101,12 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		return nil
 	}
 	cases := []struct {
-		name                string
-		operation           func(log logr.Logger, cache *Cache) error
-		clientObjects       []client.Object
-		wantClusterQueues   map[kueue.ClusterQueueReference]*clusterQueue
-		wantCohorts         map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]
-		disableLendingLimit bool
+		name              string
+		operation         func(log logr.Logger, cache *Cache) error
+		clientObjects     []client.Object
+		wantClusterQueues map[kueue.ClusterQueueReference]*clusterQueue
+		wantCohorts       map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]
+		featureGates      map[featuregate.Feature]bool
 	}{
 		{
 			name: "add",
@@ -1010,8 +1011,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 		},
 		{
-			name:                "should not populate the fields with lendingLimit when feature disabled",
-			disableLendingLimit: true,
+			name:         "should not populate the fields with lendingLimit when feature disabled",
+			featureGates: map[featuregate.Feature]bool{features.LendingLimit: false},
 			operation: func(log logr.Logger, cache *Cache) error {
 				cq := utiltestingapi.MakeClusterQueue("foo").
 					ResourceGroup(
@@ -1124,9 +1125,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			if tc.disableLendingLimit {
-				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			cache := New(utiltesting.NewFakeClient(tc.clientObjects...))
 			if err := tc.operation(log, cache); err != nil {
 				t.Errorf("Unexpected error during test operation: %s", err)

@@ -328,9 +328,7 @@ func TestValidateJobOnUpdate(t *testing.T) {
 
 	for tcName, tc := range testCases {
 		t.Run(tcName, func(t *testing.T) {
-			for feature, enabled := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, feature, enabled)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			mockctrl := gomock.NewController(t)
 

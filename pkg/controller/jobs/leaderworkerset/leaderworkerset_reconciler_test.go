@@ -57,7 +57,7 @@ var (
 
 func TestReconciler(t *testing.T) {
 	cases := map[string]struct {
-		features                map[featuregate.Feature]bool
+		featureGates            map[featuregate.Feature]bool
 		labelKeysToCopy         []string
 		leaderWorkerSet         *leaderworkersetv1.LeaderWorkerSet
 		workloads               []kueue.Workload
@@ -68,7 +68,7 @@ func TestReconciler(t *testing.T) {
 		wantErr                 error
 	}{
 		"should create prebuilt workload": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
@@ -101,7 +101,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with leader template": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -159,7 +159,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workloads with leader template": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -338,7 +338,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload without required topology annotation is TAS is disabled": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -430,7 +430,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with workload priority": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -478,7 +478,7 @@ func TestReconciler(t *testing.T) {
 		// maxSurge > 0 alone would cause filterWorkloads to use stale status.Replicas, keeping the
 		// excess workload in toUpdate instead of toDelete.
 		"should delete excess workload on scale down with maxSurge configured but no active rolling update": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: func() *leaderworkersetv1.LeaderWorkerSet {
@@ -541,7 +541,7 @@ func TestReconciler(t *testing.T) {
 		// must be kept. This, paired with the test above, proves that maxSurge > 0 alone is
 		// not sufficient — the UpdatedReplicas check is needed to distinguish the two cases.
 		"should keep surge workloads during active rolling update with maxSurge": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: func() *leaderworkersetv1.LeaderWorkerSet {
@@ -634,7 +634,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should delete LeaderWorkerSet ownerReference from the redundant prebuilt workload": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
@@ -682,9 +682,7 @@ func TestReconciler(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			for feature, enable := range tc.features {
-				features.SetFeatureGateDuringTest(t, feature, enable)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme)
 			indexer := utiltesting.AsIndexer(clientBuilder)

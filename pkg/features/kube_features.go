@@ -464,6 +464,12 @@ func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) 
 	featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, f, value)
 }
 
+func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Feature]bool) {
+	for fg, enable := range featureGates {
+		featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, fg, enable)
+	}
+}
+
 // Enabled is helper for `utilfeature.DefaultFeatureGate.Enabled()`
 func Enabled(f featuregate.Feature) bool {
 	return utilfeature.DefaultFeatureGate.Enabled(f)

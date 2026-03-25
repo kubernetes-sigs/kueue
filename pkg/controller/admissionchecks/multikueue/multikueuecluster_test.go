@@ -37,6 +37,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -186,12 +187,12 @@ func TestUpdateConfig(t *testing.T) {
 		clusterprofiles []inventoryv1alpha1.ClusterProfile
 		cpCreds         clusterProfileCreds
 
-		wantRemoteClients      map[string]*remoteClient
-		wantClusters           []kueue.MultiKueueCluster
-		wantRequeueAfter       time.Duration
-		wantCancelCalled       int
-		wantErr                error
-		skipInsecureKubeconfig bool
+		wantRemoteClients map[string]*remoteClient
+		wantClusters      []kueue.MultiKueueCluster
+		wantRequeueAfter  time.Duration
+		wantCancelCalled  int
+		wantErr           error
+		featureGates      map[featuregate.Feature]bool
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
@@ -521,7 +522,7 @@ func TestUpdateConfig(t *testing.T) {
 					},
 				},
 			},
-			skipInsecureKubeconfig: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueAllowInsecureKubeconfigs: true},
 		},
 		"use cluster profile": {
 			reconcileFor: "worker1",
@@ -672,9 +673,7 @@ func TestUpdateConfig(t *testing.T) {
 			}
 			reconciler.builderOverride = fakeClientBuilder(ctx)
 
-			if tc.skipInsecureKubeconfig {
-				features.SetFeatureGateDuringTest(t, features.MultiKueueAllowInsecureKubeconfigs, true)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			if len(tc.clusterprofiles) > 0 {
 				features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, true)

@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -49,12 +50,12 @@ var snapCmpOpts = cmp.Options{
 func TestSnapshot(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	testCases := map[string]struct {
-		cqs                 []*kueue.ClusterQueue
-		cohorts             []*kueue.Cohort
-		rfs                 []*kueue.ResourceFlavor
-		wls                 []*kueue.Workload
-		wantSnapshot        Snapshot
-		disableLendingLimit bool
+		cqs          []*kueue.ClusterQueue
+		cohorts      []*kueue.Cohort
+		rfs          []*kueue.ResourceFlavor
+		wls          []*kueue.Workload
+		wantSnapshot Snapshot
+		featureGates map[featuregate.Feature]bool
 	}{
 		"empty": {},
 		"independent clusterQueues": {
@@ -598,7 +599,7 @@ func TestSnapshot(t *testing.T) {
 			}(),
 		},
 		"should not populate the snapshot with lendingLimit when feature disabled": {
-			disableLendingLimit: true,
+			featureGates: map[featuregate.Feature]bool{features.LendingLimit: false},
 			cqs: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("a").
 					Cohort("lending").
@@ -947,9 +948,7 @@ func TestSnapshot(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			if tc.disableLendingLimit {
-				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			cache := New(utiltesting.NewFakeClient())
 			for _, cq := range tc.cqs {
 				// Purposely do not make a copy of clusterQueues. Clones of necessary fields are

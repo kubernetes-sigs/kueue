@@ -58,9 +58,9 @@ func TestMultiKueueAdapter(t *testing.T) {
 	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
-		managersJobs        []batchv1.Job
-		workerJobs          []batchv1.Job
-		withoutJobManagedBy bool
+		managersJobs []batchv1.Job
+		workerJobs   []batchv1.Job
+		featureGates map[featuregate.Feature]bool
 
 		operation func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 
@@ -182,7 +182,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Active(2).
 					Obj(),
 			},
-			withoutJobManagedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
@@ -209,7 +209,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
-			withoutJobManagedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
@@ -279,7 +279,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().Obj(),
 			},
-			withoutJobManagedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); !isManged {
 					return errors.New("expecting true")
@@ -293,7 +293,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, !tc.withoutJobManagedBy)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			managerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			managerBuilder = managerBuilder.WithLists(&batchv1.JobList{Items: tc.managersJobs})
@@ -337,7 +337,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 	type fields struct {
-		features map[featuregate.Feature]bool
+		featureGates map[featuregate.Feature]bool
 	}
 	type args struct {
 		localClient  client.Client
@@ -395,7 +395,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobNotFound": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
+				featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -413,7 +413,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobNotFound_ResetManagedBy": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+				featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -430,7 +430,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobInProgress_LocalIsManagedButStillSuspended": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+				featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Obj()).Build(),
@@ -448,7 +448,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobInProgress_LocalIsManagedAndUnsuspended": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+				featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Obj()).Build(),
@@ -485,7 +485,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobFinished_Completed_MultiKueueBatchJobWithManagedBy_Disabled": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
+				featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Obj()).Build(),
@@ -511,7 +511,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobFinished_Completed_MultiKueueBatchJobWithManagedBy_Enabled": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+				featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Obj()).Build(),
@@ -536,7 +536,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobFinished_Failed_MultiKueueBatchJobManagedBy_Disabled": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
+				featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			},
 
 			args: args{
@@ -563,7 +563,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobFinished_Failed_MultiKueueBatchJobManagedBy_Enabled": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+				featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
 			},
 
 			args: args{
@@ -590,7 +590,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_RemoteInSync": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -619,7 +619,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_LocalIsStale": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -650,7 +650,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_WorkloadNameOnlyChange_EdgeCase_MultiKueueBatchJobWithManagedBy_Disabled": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: false},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: false},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -679,7 +679,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_WorkloadNameOnlyChange_EdgeCase_MultiKueueBatchJobWithManagedBy_Enabled": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -707,7 +707,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_RemoteOutOfSync_MultiKueueBatchJobWithManagedBy_Disabled": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: false},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: false},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -740,7 +740,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_RemoteOutOfSync_MultiKueueBatchJobWithManagedBy_Enabled": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -773,7 +773,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_RemoteOutOfSync_PatchFailure_MultiKueueBatchJobManagedBy_Disabled": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: false},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: false},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -810,7 +810,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_RemoteOutOfSync_PatchFailure_MultiKueueBatchJobManagedBy_Enabled": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -848,9 +848,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			// Setup feature gates if any provided.
-			for featureName, enabled := range tt.fields.features {
-				features.SetFeatureGateDuringTest(t, featureName, enabled)
-			}
+			features.SetFeatureGatesDuringTest(t, tt.fields.featureGates)
 
 			adapter := &multiKueueAdapter{}
 			ctx, _ := utiltesting.ContextWithLog(t)

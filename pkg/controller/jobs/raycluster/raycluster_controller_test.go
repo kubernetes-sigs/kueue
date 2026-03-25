@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -60,9 +61,9 @@ var (
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		rayCluster                    *RayCluster
-		wantPodSets                   func(rayJob *RayCluster) []kueue.PodSet
-		enableTopologyAwareScheduling bool
+		rayCluster   *RayCluster
+		wantPodSets  func(rayJob *RayCluster) []kueue.PodSet
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -102,7 +103,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with required topology annotation": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -156,7 +157,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with preferred topology annotation": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -210,7 +211,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -278,12 +279,12 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotPodSets, err := tc.rayCluster.PodSets(ctx)
 			if err != nil {

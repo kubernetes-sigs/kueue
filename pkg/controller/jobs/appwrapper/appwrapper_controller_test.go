@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -89,9 +90,9 @@ func TestPodSets(t *testing.T) {
 		Obj()
 
 	testCases := map[string]struct {
-		job                           *awv1beta2.AppWrapper
-		wantPodSets                   []kueue.PodSet
-		enableTopologyAwareScheduling bool
+		job          *awv1beta2.AppWrapper
+		wantPodSets  []kueue.PodSet
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
@@ -109,7 +110,7 @@ func TestPodSets(t *testing.T) {
 					PodSpec(batchJob.Spec.Template.Spec).
 					Obj(),
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with required and preferred topology annotation": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
@@ -131,7 +132,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			},
 
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
@@ -149,13 +150,13 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			},
 
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotPodSets, err := fromObject(tc.job).PodSets(ctx)
 			if err != nil {

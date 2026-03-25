@@ -376,12 +376,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		enableFeatureGates []featuregate.Feature
-		nodes              []corev1.Node
-		pods               []corev1.Pod
-		levels             []string
-		nodeLabels         map[string]string
-		podSets            []PodSetTestCase
+		featureGates map[featuregate.Feature]bool
+		nodes        []corev1.Node
+		pods         []corev1.Pod
+		levels       []string
+		nodeLabels   map[string]string
+		podSets      []PodSetTestCase
 	}{
 		"minimize the number of used racks before optimizing the number of nodes; BestFit": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x1,x6,x2,x4]
@@ -494,7 +494,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{},
 		},
 		"minimize resource fragmentation; LeastFreeCapacityFit": {
 			//        b1
@@ -562,7 +561,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"choose the node that can accommodate all Pods": {
 			//        b1
@@ -647,7 +646,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"no annotation; implied default to unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; BestFit": {
 			nodes:  scatteredNodes,
@@ -739,7 +738,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"unconstrained; a single pod fits into each host; LeastFreeCapacity; TASProfileMixed": {
 			nodes:  defaultNodes,
@@ -764,7 +763,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileMixed},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true},
 		},
 		"block required; 4 pods fit into one host each; BestFit": {
 			nodes:  binaryTreesNodes,
@@ -831,7 +830,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"host required; single Pod fits in the host; BestFit": {
 			nodes:  defaultNodes,
@@ -880,7 +879,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileMixed},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true},
 		},
 		"host required; single Pod fits in the largest host; LeastFreeCapacityFit": {
 			nodes:  defaultNodes,
@@ -905,7 +904,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"host preferred; single Pod fits in the largest host; LeastFreeCapacityFit": {
 			nodes:  defaultNodes,
@@ -930,7 +929,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"host required; no single host fits all pods, expect notFitMessage; LeastFreeCapacityFit": {
 			nodes:  defaultNodes,
@@ -945,7 +944,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				count:      3,
 				wantReason: `topology "default" allows to fit only 2 out of 3 pod(s)`,
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"host preferred; single Pod fits in the host; BestFit; TASProfileMixed": {
 			nodes:  defaultNodes,
@@ -970,7 +969,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileMixed},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true},
 		},
 		"rack required; single Pod fits in a rack; BestFit": {
 			nodes:  defaultNodes,
@@ -1020,7 +1019,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"rack preferred; multiple Pods fits in multiple racks; LeastFreeCapacityFit": {
 			nodes:  defaultNodes,
@@ -1046,7 +1045,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"rack required; multiple Pods fit in a rack; BestFit": {
 			nodes:  defaultNodes,
@@ -1190,7 +1189,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"block required; two Pods fits in a block; LeastFreeCapacityFit": {
 			nodes:  defaultNodes,
@@ -1221,7 +1220,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"block required; single Pod fits in a block and a single rack; BestFit": {
 			nodes:  defaultNodes,
@@ -2719,7 +2718,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"block preferred for podset; host required for slices; LeastFreeCapacity": {
 			//nolint:dupword // suppress duplicate r1 word
@@ -2816,7 +2815,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"block preferred for podset; host required for slices; 2 blocks with unbalanced subdomains; BestFit": {
 			//nolint:dupword // suppress duplicate r1 word
@@ -2912,7 +2911,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// request: 25
 		// expected outcome: x1:13, x2:12
 		"balanced placement; basic": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -2967,7 +2966,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// request: 23
 		// expected outcome: x1:12, x2:11
 		"balanced placement; select optmial set of domains": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3033,7 +3032,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// sliceSize: 5
 		// expected outcome: x2:15, x3:10
 		"balanced placement; select optmial set of domains; with slices": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3100,7 +3099,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// request: 22
 		// expected outcome: x3:11, x4:11
 		"balanced placement; select correct block": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3176,7 +3175,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// request: 25
 		// expected outcome: x1:14, x2:11
 		"balanced placement; cannot chose domains from different blocks": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3253,7 +3252,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// sizeSize: 5
 		// expected outcome: x3:15, x4:10
 		"balanced placement; select correct block; prefer blocks with single rack; with slices": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3333,7 +3332,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// sliceSize: 2
 		// expected outcome: x3:10, x4:8, x5:2
 		"balanced placement; four level topology; slice two levels below balanced level": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-sb1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3431,7 +3430,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// request: 20
 		// expected outcome: x3:10, x4:3, x5:7
 		"balanced placement; four level topology; slice one level below balanced level": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-sb1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3530,7 +3529,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// sliceSize: 2
 		// expected outcome: x3:10, x4:10
 		"balanced placement; four level topology; balance on rack level; slice not on the lowest level": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-sb1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3612,7 +3611,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// sliceSize: 2
 		// expected outcome: x2:12, x3:10
 		"balanced placement; three level topology; balance on the same level as slice": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3699,7 +3698,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// request: 22
 		// expected outcome: x3:11, x4:11
 		"balanced placement; three level topology; balance on the lowest level": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3786,7 +3785,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// leaders: 1
 		// expected outcome: x2:15, x3:10 + leader
 		"balanced placement; leader worker set": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3878,7 +3877,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// request: 15
 		// expected outcome: x3:5, x4:5, x5:5
 		"balanced placement; prioritize (using entropy) balanced domains; second rack wins": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -3967,7 +3966,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// request: 24
 		// expected outcome: x1:8, x2:8, x3:8
 		"balanced placement; prioritize (using entropy) balanced domains; first rack wins": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -4054,7 +4053,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// request: 23
 		// expected outcome: x1:12, x3:11
 		"balanced placement; two level topology; balance on the highest level": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("r1-x1").
 					Label(tasRackLabel, "r1").
@@ -4134,7 +4133,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// request: 20
 		// expected outcome: x1:5, x2:5, x3:5, x4:5
 		"balanced placement; select correct block taking into account pruning": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -4278,7 +4277,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// leaders: 1
 		// expected outcome: x1:5 + leader, x2:5
 		"balanced placement; should not prune domain": {
-			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
@@ -5319,7 +5318,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		// LeastFreeCapacity: when slice capacity is equal, the tiebreaker is stateWithLeader (ascending).
 		// b1: 5 GPU -> 2 slices, 5 workers; b2: 4 GPU -> 2 slices, 4 workers
@@ -5391,7 +5390,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 		},
 		"find topology assignment for two podsets with the same group - leader does not fit anywhere": {
 			nodes: []corev1.Node{
@@ -5770,11 +5769,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-
 		"multiple podsets: block required for one, unconstrained for another; LeastFreeCapacity": {
-			nodes:              multipodNodeset,
-			levels:             defaultThreeLevels,
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			nodes:        multipodNodeset,
+			levels:       defaultThreeLevels,
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "podset1",
@@ -5810,11 +5808,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-
 		"multiple podsets: rack required for both, different resource requests; LeastFreeCapacity": {
-			nodes:              multipodNodeset,
-			levels:             defaultTwoLevels,
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			nodes:        multipodNodeset,
+			levels:       defaultTwoLevels,
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "podset1",
@@ -5851,11 +5848,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-
 		"multiple podsets: one podset fits, one does not due to insufficient capacity; LeastFreeCapacity": {
-			nodes:              multipodNodeset,
-			levels:             defaultTwoLevels,
-			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			nodes:        multipodNodeset,
+			levels:       defaultTwoLevels,
+			featureGates: map[featuregate.Feature]bool{features.TASProfileLeastFreeCapacity: true},
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "podset1",
@@ -5893,9 +5889,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 
 		"multiple podsets: block required for one, unconstrained for another; TASProfileMixed": {
-			nodes:              multipodNodeset,
-			levels:             defaultThreeLevels,
-			enableFeatureGates: []featuregate.Feature{features.TASProfileMixed},
+			nodes:        multipodNodeset,
+			levels:       defaultThreeLevels,
+			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true},
+
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "podset1",
@@ -5988,9 +5985,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			// TODO: remove after dropping the TAS profiles feature gates
-			for _, gate := range tc.enableFeatureGates {
-				features.SetFeatureGateDuringTest(t, gate, true)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			initialObjects := make([]client.Object, 0)
 			for i := range tc.nodes {

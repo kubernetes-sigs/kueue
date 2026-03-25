@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -31,12 +32,12 @@ import (
 func TestSanitizePodSets(t *testing.T) {
 	testCases := map[string]struct {
 		podSets         []kueue.PodSet
-		featureEnabled  bool
+		featureGates    map[featuregate.Feature]bool
 		expectedPodSets []kueue.PodSet
 	}{
 
 		"disabled feature gate": {
-			featureEnabled: false,
+			featureGates: map[featuregate.Feature]bool{features.SanitizePodSets: false},
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("test", 1).
 					Containers(*utiltesting.MakeContainer().
@@ -57,7 +58,7 @@ func TestSanitizePodSets(t *testing.T) {
 			},
 		},
 		"enabled feature gate, init containers and containers": {
-			featureEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.SanitizePodSets: true},
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("test", 1).
 					Containers(*utiltesting.MakeContainer().
@@ -86,7 +87,7 @@ func TestSanitizePodSets(t *testing.T) {
 			},
 		},
 		"enabled feature gate, containers only": {
-			featureEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.SanitizePodSets: true},
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("test", 1).
 					Containers(*utiltesting.MakeContainer().
@@ -106,7 +107,7 @@ func TestSanitizePodSets(t *testing.T) {
 			},
 		},
 		"empty podsets": {
-			featureEnabled:  true,
+			featureGates:    map[featuregate.Feature]bool{features.SanitizePodSets: true},
 			podSets:         []kueue.PodSet{},
 			expectedPodSets: []kueue.PodSet{},
 		},
@@ -114,7 +115,7 @@ func TestSanitizePodSets(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.SanitizePodSets, tc.featureEnabled)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			SanitizePodSets(tc.podSets)
 

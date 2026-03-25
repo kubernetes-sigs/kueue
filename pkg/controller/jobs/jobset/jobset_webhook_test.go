@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -48,10 +49,10 @@ var (
 
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
-		name                    string
-		job                     *jobset.JobSet
-		wantErr                 error
-		topologyAwareScheduling bool
+		name         string
+		job          *jobset.JobSet
+		wantErr      error
+		featureGates map[featuregate.Feature]bool
 	}{
 		{
 			name:    "simple",
@@ -81,7 +82,7 @@ func TestValidateCreate(t *testing.T) {
 					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request",
@@ -100,7 +101,7 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid slice topology request - slice size larger than number of podsets",
@@ -117,7 +118,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 2"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid PodSet grouping request",
@@ -134,7 +135,7 @@ func TestValidateCreate(t *testing.T) {
 					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid PodSet grouping request - groups of size other than 2",
@@ -176,7 +177,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.replicatedJobs[3].template.spec.template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid PodSet grouping request - no leader in group",
@@ -202,7 +203,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 2 replica(s) and 3 replica(s) in the group"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid PodSet grouping request - required topology does not match",
@@ -226,7 +227,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
 				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid PodSet grouping request - preferred topology does not match",
@@ -250,7 +251,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
 				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid PodSet grouping request - different topology annotations within group",
@@ -274,13 +275,13 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
 				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			jsw := &JobSetWebhook{}
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -295,12 +296,12 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := []struct {
-		name                    string
-		oldJob                  *jobset.JobSet
-		newJob                  *jobset.JobSet
-		wantValidationErrs      field.ErrorList
-		wantErr                 error
-		topologyAwareScheduling bool
+		name               string
+		oldJob             *jobset.JobSet
+		newJob             *jobset.JobSet
+		wantValidationErrs field.ErrorList
+		wantErr            error
+		featureGates       map[featuregate.Feature]bool
 	}{
 		{
 			name: "set valid topology request",
@@ -314,7 +315,7 @@ func TestValidateUpdate(t *testing.T) {
 					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "attempt to set invalid topology request",
@@ -332,13 +333,13 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotValidationErrs, gotErr := new(JobSetWebhook).validateUpdate(ctx, (*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
@@ -353,17 +354,16 @@ func TestValidateUpdate(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	testCases := []struct {
-		name                 string
-		jobSet               *jobset.JobSet
-		queues               []kueue.LocalQueue
-		clusterQueues        []kueue.ClusterQueue
-		admissionCheck       *kueue.AdmissionCheck
-		multiKueueEnabled    bool
-		localQueueDefaulting bool
-		defaultLqExist       bool
-		want                 *jobset.JobSet
-		wantManagedBy        *string
-		wantErr              error
+		name           string
+		jobSet         *jobset.JobSet
+		queues         []kueue.LocalQueue
+		clusterQueues  []kueue.ClusterQueue
+		admissionCheck *kueue.AdmissionCheck
+		featureGates   map[featuregate.Feature]bool
+		defaultLqExist bool
+		want           *jobset.JobSet
+		wantManagedBy  *string
+		wantErr        error
 	}{
 		{
 			name: "TestDefault_JobSetManagedBy_jobsetapi.JobSetControllerName",
@@ -392,8 +392,8 @@ func TestDefault(t *testing.T) {
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
-			multiKueueEnabled: true,
-			wantManagedBy:     ptr.To(kueue.MultiKueueControllerName),
+			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
+			wantManagedBy: ptr.To(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithQueueLabel",
@@ -419,16 +419,16 @@ func TestDefault(t *testing.T) {
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
-			multiKueueEnabled: true,
-			wantManagedBy:     ptr.To(kueue.MultiKueueControllerName),
+			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
+			wantManagedBy: ptr.To(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithoutQueueLabel",
 			jobSet: &jobset.JobSet{
 				ObjectMeta: ctrl.ObjectMeta{Namespace: "default"},
 			},
-			multiKueueEnabled: true,
-			wantManagedBy:     nil,
+			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
+			wantManagedBy: nil,
 		},
 		{
 			name: "TestDefault_InvalidQueueName",
@@ -438,7 +438,7 @@ func TestDefault(t *testing.T) {
 					Namespace: "default",
 				},
 			},
-			multiKueueEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		{
 			name: "TestDefault_QueueNotFound",
@@ -450,7 +450,7 @@ func TestDefault(t *testing.T) {
 					Namespace: "default",
 				},
 			},
-			multiKueueEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		{
 			name: "TestDefault_AdmissionCheckNotFound",
@@ -472,8 +472,8 @@ func TestDefault(t *testing.T) {
 					AdmissionChecks("non-existent-admission-check").
 					Obj(),
 			},
-			multiKueueEnabled: true,
-			wantManagedBy:     nil,
+			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
+			wantManagedBy: nil,
 		},
 		{
 			name: "TestDefault_MultiKueueFeatureDisabled",
@@ -499,8 +499,8 @@ func TestDefault(t *testing.T) {
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
-			multiKueueEnabled: false,
-			wantManagedBy:     nil,
+			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: false},
+			wantManagedBy: nil,
 		},
 		{
 			name: "TestDefault_UserSpecifiedManagedBy",
@@ -529,8 +529,8 @@ func TestDefault(t *testing.T) {
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
-			multiKueueEnabled: true,
-			wantManagedBy:     ptr.To("example.com/foo"),
+			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
+			wantManagedBy: ptr.To("example.com/foo"),
 		},
 		{
 			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",
@@ -551,37 +551,35 @@ func TestDefault(t *testing.T) {
 				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					Obj(),
 			},
-			multiKueueEnabled: true,
-			wantManagedBy:     nil,
+			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
+			wantManagedBy: nil,
 		},
 		{
-			name:                 "LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label",
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			jobSet:               testingutil.MakeJobSet("test-js", "default").Obj(),
-			want:                 testingutil.MakeJobSet("test-js", "default").Queue("default").Obj(),
+			name:           "LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label",
+			featureGates:   map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
+			defaultLqExist: true,
+			jobSet:         testingutil.MakeJobSet("test-js", "default").Obj(),
+			want:           testingutil.MakeJobSet("test-js", "default").Queue("default").Obj(),
 		},
 		{
-			name:                 "LocalQueueDefaulting enabled, default lq is created, job has queue label",
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			jobSet:               testingutil.MakeJobSet("test-js", "default").Queue("queue").Obj(),
-			want:                 testingutil.MakeJobSet("test-js", "default").Queue("queue").Obj(),
+			name:           "LocalQueueDefaulting enabled, default lq is created, job has queue label",
+			featureGates:   map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
+			defaultLqExist: true,
+			jobSet:         testingutil.MakeJobSet("test-js", "default").Queue("queue").Obj(),
+			want:           testingutil.MakeJobSet("test-js", "default").Queue("queue").Obj(),
 		},
 		{
-			name:                 "LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label",
-			localQueueDefaulting: true,
-			defaultLqExist:       false,
-			jobSet:               testingutil.MakeJobSet("test-js", "default").Obj(),
-			want:                 testingutil.MakeJobSet("test-js", "default").Obj(),
+			name:           "LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label",
+			featureGates:   map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
+			defaultLqExist: false,
+			jobSet:         testingutil.MakeJobSet("test-js", "default").Obj(),
+			want:           testingutil.MakeJobSet("test-js", "default").Obj(),
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
-
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("default"))

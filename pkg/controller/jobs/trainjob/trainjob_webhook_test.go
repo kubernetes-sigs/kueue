@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -205,11 +206,10 @@ func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
 		trainJob                     *kftrainerapi.TrainJob
 		defaultQueue                 *kueue.LocalQueue
-		localQueueDefaultingEnabled  bool
 		manageJobsWithoutQueueName   bool
 		withMultiKueueAdmissionCheck bool
 		withDefaultLocalQueue        bool
-		multiKueueEnabled            bool
+		featureGates                 map[featuregate.Feature]bool
 		wantTrainJob                 *kftrainerapi.TrainJob
 		wantErr                      error
 	}{
@@ -238,14 +238,14 @@ func TestDefault(t *testing.T) {
 				Queue(string(controllerconstants.DefaultLocalQueueName)).
 				JobSetLabel(controllerconstants.QueueLabel, string(controllerconstants.DefaultLocalQueueName)).
 				Obj(),
-			localQueueDefaultingEnabled: true,
-			withDefaultLocalQueue:       true,
+			featureGates:          map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
+			withDefaultLocalQueue: true,
 		},
 		"should not set the default local queue if doesn't exists": {
-			trainJob:                    testTrainJob.Clone().Obj(),
-			wantTrainJob:                testTrainJob.Clone().Obj(),
-			localQueueDefaultingEnabled: true,
-			withDefaultLocalQueue:       false,
+			trainJob:              testTrainJob.Clone().Obj(),
+			wantTrainJob:          testTrainJob.Clone().Obj(),
+			featureGates:          map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
+			withDefaultLocalQueue: false,
 		},
 		"should set managedBy to multiKueue if the user didn't specify any": {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
@@ -254,7 +254,7 @@ func TestDefault(t *testing.T) {
 				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
-			multiKueueEnabled:            true,
+			featureGates:                 map[featuregate.Feature]bool{features.MultiKueue: true},
 			withMultiKueueAdmissionCheck: true,
 		},
 		"should not set managedBy to multiKueue if already specified by the user": {
@@ -264,7 +264,7 @@ func TestDefault(t *testing.T) {
 				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				ManagedBy("user").
 				Obj(),
-			multiKueueEnabled:            true,
+			featureGates:                 map[featuregate.Feature]bool{features.MultiKueue: true},
 			withMultiKueueAdmissionCheck: true,
 		},
 		"should not set managedBy to multiKueue if the selected clusterQueue doesn't have the corresponding admissionCheck": {
@@ -273,15 +273,14 @@ func TestDefault(t *testing.T) {
 				Suspend(true).
 				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				Obj(),
-			multiKueueEnabled:            true,
+			featureGates:                 map[featuregate.Feature]bool{features.MultiKueue: true},
 			withMultiKueueAdmissionCheck: false,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaultingEnabled)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 

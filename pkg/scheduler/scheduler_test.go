@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -174,10 +175,8 @@ func TestSchedule(t *testing.T) {
 	}
 	cases := map[string]struct {
 		// Features
-		disableLendingLimit               bool
-		disablePartialAdmission           bool
-		enableFairSharing                 bool
-		enableElasticJobsViaWorkloadSlice bool
+		featureGates      map[featuregate.Feature]bool
+		enableFairSharing bool
 
 		workloads      []kueue.Workload
 		objects        []client.Object
@@ -1169,7 +1168,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"lendingLimit should not affect assignments when feature disabled": {
-			disableLendingLimit: true,
+			featureGates: map[featuregate.Feature]bool{features.LendingLimit: false},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "lend").
 					Request(corev1.ResourceCPU, "2").
@@ -2215,7 +2214,7 @@ func TestSchedule(t *testing.T) {
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"sales": {"sales/new"},
 			},
-			disablePartialAdmission: true,
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: false},
 		},
 		"two workloads can borrow different resources from the same flavor in the same cycle": {
 			additionalClusterQueues: func() []kueue.ClusterQueue {
@@ -6941,7 +6940,7 @@ func TestSchedule(t *testing.T) {
 		},
 		// Workload-slice scheduling test case.
 		"workload-slice fits in single clusterQueue": {
-			enableElasticJobsViaWorkloadSlice: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			// workloads that will be returned by the fake.client.
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
@@ -7943,15 +7942,10 @@ func TestSchedule(t *testing.T) {
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				metrics.AdmissionCyclePreemptionSkips.Reset()
-				if tc.disableLendingLimit {
-					features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-				}
-				if tc.disablePartialAdmission {
-					features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)
-				}
-				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.enableElasticJobsViaWorkloadSlice)
+
 				ctx, log := utiltesting.ContextWithLog(t)
 
 				allQueues := append(queues, tc.additionalLocalQueues...)
@@ -8311,42 +8305,42 @@ func TestEntryOrdering(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
 		input            []entry
-		prioritySorting  bool
+		featureGates     map[featuregate.Feature]bool
 		workloadOrdering workload.Ordering
 		wantOrder        []string
 	}{
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Eviction timestamp (default)",
 			input:            input,
-			prioritySorting:  true,
+			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Creation timestamp",
 			input:            input,
-			prioritySorting:  true,
+			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:             "Priority sorting is disabled using pods-ready Eviction timestamp",
 			input:            input,
-			prioritySorting:  false,
+			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:             "Priority sorting is disabled using pods-ready Creation timestamp",
 			input:            input,
-			prioritySorting:  false,
+			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"recently_evicted", "old", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
-			name:            "Some workloads are preempted; Priority sorting is disabled",
-			input:           inputForOrderingPreemptedWorkloads,
-			prioritySorting: false,
+			name:         "Some workloads are preempted; Priority sorting is disabled",
+			input:        inputForOrderingPreemptedWorkloads,
+			featureGates: map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
 			wantOrder: []string{
 				"old-mid-recently-preempted-in-queue",
 				"old-mid-not-preempted-yet",
@@ -8356,9 +8350,9 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name:            "Some workloads are preempted; Priority sorting is enabled",
-			input:           inputForOrderingPreemptedWorkloads,
-			prioritySorting: true,
+			name:         "Some workloads are preempted; Priority sorting is enabled",
+			input:        inputForOrderingPreemptedWorkloads,
+			featureGates: map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			wantOrder: []string{
 				"preemptor",
 				"old-mid-recently-preempted-in-queue",
@@ -8369,7 +8363,7 @@ func TestEntryOrdering(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			iter := makeIterator(ctx, tc.input, tc.workloadOrdering, false)
 			order := make([]string, len(tc.input))

@@ -40,6 +40,7 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -897,14 +898,14 @@ webhook:
 	testcases := []struct {
 		name              string
 		configFile        string
-		featureGateValue  bool
+		featureGates      map[featuregate.Feature]bool
 		wantConfiguration configapi.Configuration
 		verifyTLSApplied  bool
 	}{
 		{
-			name:             "TLS config applied when feature gate enabled",
-			configFile:       tlsConfigWithCipherSuites,
-			featureGateValue: true,
+			name:         "TLS config applied when feature gate enabled",
+			configFile:   tlsConfigWithCipherSuites,
+			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: configapi.GroupVersion.String(),
@@ -952,9 +953,9 @@ webhook:
 			verifyTLSApplied: true,
 		},
 		{
-			name:             "TLS config NOT applied when feature gate disabled",
-			configFile:       tlsConfigWithCipherSuites,
-			featureGateValue: false,
+			name:         "TLS config NOT applied when feature gate disabled",
+			configFile:   tlsConfigWithCipherSuites,
+			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: configapi.GroupVersion.String(),
@@ -1002,9 +1003,9 @@ webhook:
 			verifyTLSApplied: false,
 		},
 		{
-			name:             "TLS 1.3 config applied when feature gate enabled",
-			configFile:       tlsConfigTLS13,
-			featureGateValue: true,
+			name:         "TLS 1.3 config applied when feature gate enabled",
+			configFile:   tlsConfigTLS13,
+			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: configapi.GroupVersion.String(),
@@ -1048,9 +1049,9 @@ webhook:
 			verifyTLSApplied: true,
 		},
 		{
-			name:             "TLS 1.3 config NOT applied when feature gate disabled",
-			configFile:       tlsConfigTLS13,
-			featureGateValue: false,
+			name:         "TLS 1.3 config NOT applied when feature gate disabled",
+			configFile:   tlsConfigTLS13,
+			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: configapi.GroupVersion.String(),
@@ -1098,7 +1099,7 @@ webhook:
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Set the feature gate for this test
-			features.SetFeatureGateDuringTest(t, features.TLSOptions, tc.featureGateValue)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			options, cfg, err := Load(testScheme, tc.configFile)
 			if err != nil {

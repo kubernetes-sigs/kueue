@@ -2880,9 +2880,7 @@ func TestScheduleForTAS(t *testing.T) {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				for fg, enable := range tc.featureGates {
-					features.SetFeatureGateDuringTest(t, fg, enable)
-				}
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 				ctx, log := utiltesting.ContextWithLog(t)
 				testWls := make([]kueue.Workload, 0, len(tc.workloads))
 				for _, wl := range tc.workloads {
@@ -4122,9 +4120,8 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				for feature, value := range tc.featureGates {
-					features.SetFeatureGateDuringTest(t, feature, value)
-				}
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
 				ctx, log := utiltesting.ContextWithLog(t)
 				testWls := make([]kueue.Workload, 0, len(tc.workloads))
 				for _, wl := range tc.workloads {

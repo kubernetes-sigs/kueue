@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -64,11 +65,11 @@ var (
 
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
-		name                    string
-		job                     *batchv1.Job
-		wantValidationErrs      field.ErrorList
-		wantErr                 error
-		topologyAwareScheduling bool
+		name               string
+		job                *batchv1.Job
+		wantValidationErrs field.ErrorList
+		wantErr            error
+		featureGates       map[featuregate.Feature]bool
 	}{
 		{
 			name:               "simple",
@@ -240,8 +241,8 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			wantValidationErrs:      nil,
-			topologyAwareScheduling: true,
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - both annotations",
@@ -254,7 +255,7 @@ func TestValidateCreate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - invalid required",
@@ -265,7 +266,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-required-topology"), "some required value",
 					invalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - invalid preferred",
@@ -276,7 +277,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-preferred-topology"), "some preferred value",
 					invalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid slice topology request",
@@ -285,8 +286,8 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			wantValidationErrs:      nil,
-			topologyAwareScheduling: true,
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid topology request - slice-only topology - unconstrained with slices defined",
@@ -295,8 +296,8 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			wantValidationErrs:      nil,
-			topologyAwareScheduling: true,
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice requested without slice size",
@@ -307,7 +308,7 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size is not a number",
@@ -319,7 +320,7 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "not a number", "must be a numeric value"),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size is negative",
@@ -331,7 +332,7 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "-1", "must be greater than or equal to 1"),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size is zero",
@@ -343,7 +344,7 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "0", "must be greater than or equal to 1"),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size provided without slice topology",
@@ -354,7 +355,7 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is not specified"),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid topology request - slice-only topology",
@@ -362,8 +363,8 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			wantValidationErrs:      nil,
-			topologyAwareScheduling: true,
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid slice topology request - slice size larger than number of podsets",
@@ -377,13 +378,13 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 4"),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			jw := &JobWebhook{}
 
@@ -403,12 +404,12 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := []struct {
-		name                    string
-		oldJob                  *batchv1.Job
-		newJob                  *batchv1.Job
-		wantValidationErrs      field.ErrorList
-		wantErr                 error
-		topologyAwareScheduling bool
+		name               string
+		oldJob             *batchv1.Job
+		newJob             *batchv1.Job
+		wantValidationErrs field.ErrorList
+		wantErr            error
+		featureGates       map[featuregate.Feature]bool
 	}{
 		{
 			name:               "normal update",
@@ -658,7 +659,7 @@ func TestValidateUpdate(t *testing.T) {
 			newJob: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "attempt to set invalid TAS request",
@@ -672,7 +673,7 @@ func TestValidateUpdate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations"), field.OmitValueType{},
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid slice topology request",
@@ -683,7 +684,7 @@ func TestValidateUpdate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "attempt to set invalid slice topology request",
@@ -696,13 +697,13 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotValidationErrs, gotErr := new(JobWebhook).validateUpdate(ctx, (*Job)(tc.oldJob), (*Job)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
@@ -717,19 +718,17 @@ func TestValidateUpdate(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	testcases := map[string]struct {
-		job                                    *batchv1.Job
-		objs                                   []runtime.Object
-		queues                                 []kueue.LocalQueue
-		clusterQueues                          []kueue.ClusterQueue
-		admissionCheck                         *kueue.AdmissionCheck
-		manageJobsWithoutQueueName             bool
-		multiKueueEnabled                      bool
-		multiKueueBatchJobWithManagedByEnabled bool
-		localQueueDefaulting                   bool
-		defaultLqExist                         bool
-		enableIntegrations                     []string
-		want                                   *batchv1.Job
-		wantErr                                error
+		job                        *batchv1.Job
+		objs                       []runtime.Object
+		queues                     []kueue.LocalQueue
+		clusterQueues              []kueue.ClusterQueue
+		admissionCheck             *kueue.AdmissionCheck
+		manageJobsWithoutQueueName bool
+		featureGates               map[featuregate.Feature]bool
+		defaultLqExist             bool
+		enableIntegrations         []string
+		want                       *batchv1.Job
+		wantErr                    error
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
 			job:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
@@ -741,14 +740,14 @@ func TestDefault(t *testing.T) {
 			want:                       testingutil.MakeJob("job", "default").Obj(),
 		},
 		"no change in managed by: features.MultiKueueBatchJobWithManagedBy disabled": {
-			job:                                    testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
-			multiKueueBatchJobWithManagedByEnabled: false,
-			want:                                   testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+			job:          testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: false},
+			want:         testingutil.MakeJob("job", "default").Queue("queue").Obj(),
 		},
 		"no change in managed by: features.MultiKueue disabled": {
-			job:               testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
-			multiKueueEnabled: false,
-			want:              testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+			job:          testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: false},
+			want:         testingutil.MakeJob("job", "default").Queue("queue").Obj(),
 		},
 		"managed by is defaulted: queue label was set": {
 			job: testingutil.MakeJob("job", "default").
@@ -773,8 +772,10 @@ func TestDefault(t *testing.T) {
 				Queue("local-queue").
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
-			multiKueueEnabled:                      true,
-			multiKueueBatchJobWithManagedByEnabled: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueue:                      true,
+				features.MultiKueueBatchJobWithManagedBy: true,
+			},
 		},
 		"no change in managed by: user specified managed by": {
 			job: testingutil.MakeJob("job", "default").
@@ -800,8 +801,10 @@ func TestDefault(t *testing.T) {
 				Queue("local-queue").
 				ManagedBy("example.com/foo").
 				Obj(),
-			multiKueueEnabled:                      true,
-			multiKueueBatchJobWithManagedByEnabled: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueue:                      true,
+				features.MultiKueueBatchJobWithManagedBy: true,
+			},
 		},
 		"invalid queue name": {
 			job: testingutil.MakeJob("job", "default").
@@ -811,35 +814,36 @@ func TestDefault(t *testing.T) {
 			want: testingutil.MakeJob("job", "default").
 				Queue("invalid-local-queue").
 				Obj(),
-			multiKueueEnabled:                      true,
-			multiKueueBatchJobWithManagedByEnabled: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueue:                      true,
+				features.MultiKueueBatchJobWithManagedBy: true,
+			},
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			job:                  testingutil.MakeJob("test-job", "default").Obj(),
+			defaultLqExist: true,
+			job:            testingutil.MakeJob("test-job", "default").Obj(),
 			want: testingutil.MakeJob("test-job", "default").
 				Queue("default").
 				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			job:                  testingutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
+			defaultLqExist: true,
+			job:            testingutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
 			want: testingutil.MakeJob("test-job", "").
 				Queue("test-queue").
 				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
 		},
 		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       false,
-			job:                  testingutil.MakeJob("test-job", "").Obj(),
+			defaultLqExist: false,
+			job:            testingutil.MakeJob("test-job", "").Obj(),
 			want: testingutil.MakeJob("test-job", "").
 				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
 		},
 		"LocalQueueDefaulting enabled, job is managed by Kueue managed owner, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
+			defaultLqExist: true,
 			// MPIJob callBackFunction is registered as integrations since we initialize MPIJob integration package.
 			enableIntegrations: []string{"kubeflow.org/mpijob"},
 			job: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
@@ -851,10 +855,10 @@ func TestDefault(t *testing.T) {
 			want: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
 				OwnerReference("owner", kfmpi.SchemeGroupVersionKind).
 				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
 		},
 		"LocalQueueDefaulting enabled, job is managed by non Kueue managed owner, job has queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
+			defaultLqExist: true,
 			job: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
 				OwnerReference("owner", jobsetapi.SchemeGroupVersion.WithKind("JobSet")).
 				Obj(),
@@ -862,13 +866,12 @@ func TestDefault(t *testing.T) {
 				OwnerReference("owner", jobsetapi.SchemeGroupVersion.WithKind("JobSet")).
 				Queue("default").
 				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
 		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
-			features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, tc.multiKueueBatchJobWithManagedByEnabled)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 
@@ -928,9 +931,9 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 	//   - WorkloadSlice feature enabled: true or false
 	//   - Job opt-in via annotation: present or absent
 	tests := map[string]struct {
-		featureEnabled bool
-		args           args
-		want           []corev1.PodSchedulingGate
+		featureGates map[featuregate.Feature]bool
+		args         args
+		want         []corev1.PodSchedulingGate
 	}{
 		"FeatureDisabledAndNotOptIn": {
 			args: args{job: &Job{}},
@@ -947,11 +950,11 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledButNotOptIn": {
-			featureEnabled: true,
-			args:           args{job: &Job{}},
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			args:         args{job: &Job{}},
 		},
 		"FeatureEnabledAndOptIn": {
-			featureEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					ObjectMeta: metav1.ObjectMeta{
@@ -977,7 +980,7 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledAndOptIn_SpecAlreadyContainsWorkloadSliceGate": {
-			featureEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1003,7 +1006,7 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tt.featureEnabled)
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 			applyWorkloadSliceSchedulingGate(tt.args.job)
 			if diff := cmp.Diff(tt.args.job.Spec.Template.Spec.SchedulingGates, tt.want); diff != "" {
 				t.Errorf("applyWorkloadSliceSchedulingGate() got(-),want(+): %s", diff)

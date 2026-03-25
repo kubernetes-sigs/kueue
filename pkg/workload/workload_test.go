@@ -503,9 +503,7 @@ func TestNewInfo(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			for fg, enabled := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enabled)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			info := NewInfo(&tc.workload, tc.infoOptions...)
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash")); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
@@ -2589,9 +2587,7 @@ func TestSchedulingHash(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			for fg, enable := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enable)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			info1 := NewInfo(tc.wl1)
 			info1.UpdateSchedulingHash(logr.Discard())
 			info2 := NewInfo(tc.wl2)

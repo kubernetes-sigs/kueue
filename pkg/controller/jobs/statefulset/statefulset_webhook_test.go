@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -53,7 +54,7 @@ func TestDefault(t *testing.T) {
 		initObjs                   []client.Object
 		statefulset                *appsv1.StatefulSet
 		manageJobsWithoutQueueName bool
-		localQueueDefaulting       bool
+		featureGates               map[featuregate.Feature]bool
 		defaultLqExist             bool
 		enableIntegrations         []string
 		want                       *appsv1.StatefulSet
@@ -120,34 +121,34 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			statefulset:          testingstatefulset.MakeStatefulSet("test-pod", "default").Obj(),
+			featureGates:   map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
+			defaultLqExist: true,
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "default").Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "default").
 				Queue("default").
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			statefulset:          testingstatefulset.MakeStatefulSet("test-pod", "").Queue("test-queue").Obj(),
+			featureGates:   map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
+			defaultLqExist: true,
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").Queue("test-queue").Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       false,
-			statefulset:          testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
-			want:                 testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+			featureGates:   map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
+			defaultLqExist: false,
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+			want:           testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			ctx, _ := utiltesting.ContextWithLog(t)
 
