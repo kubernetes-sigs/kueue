@@ -139,45 +139,47 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 		})
 
-		ginkgo.It("Should only admit a complete group", func() {
-			group := podtesting.MakePod("group", ns.Name).
-				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-				Queue(lq.Name).
-				RequestAndLimit(corev1.ResourceCPU, "1").
-				MakeGroup(3)
+		for i := range 200 {
+			ginkgo.FIt(fmt.Sprintf("Should only admit a complete group %d", i), func() {
+				group := podtesting.MakePod("group", ns.Name).
+					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+					Queue(lq.Name).
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					MakeGroup(3)
 
-			ginkgo.By("Incomplete group should not start", func() {
-				// Create incomplete group.
-				for _, p := range group[:2] {
-					util.MustCreate(ctx, k8sClient, p.DeepCopy())
-				}
-				createdPod := &corev1.Pod{}
-				gomega.Consistently(func(g gomega.Gomega) {
-					for _, origPod := range group[:2] {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(gomega.Succeed())
-						g.Expect(createdPod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+				ginkgo.By("Incomplete group should not start", func() {
+					// Create incomplete group.
+					for _, p := range group[:2] {
+						util.MustCreate(ctx, k8sClient, p.DeepCopy())
 					}
-				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
-			})
-			ginkgo.By("Incomplete group can be deleted", func() {
-				for _, p := range group[:2] {
-					gomega.Expect(k8sClient.Delete(ctx, p)).To(gomega.Succeed())
-				}
-				gomega.Eventually(func(g gomega.Gomega) {
-					for _, origPod := range group[:2] {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(utiltesting.BeNotFoundError())
+					createdPod := &corev1.Pod{}
+					gomega.Consistently(func(g gomega.Gomega) {
+						for _, origPod := range group[:2] {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), createdPod)).To(gomega.Succeed())
+							g.Expect(createdPod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+						}
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+				ginkgo.By("Incomplete group can be deleted", func() {
+					for _, p := range group[:2] {
+						gomega.Expect(k8sClient.Delete(ctx, p)).To(gomega.Succeed())
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-			ginkgo.By("Complete group runs successfully", func() {
-				for _, p := range group {
-					util.MustCreate(ctx, k8sClient, p.DeepCopy())
-				}
+					gomega.Eventually(func(g gomega.Gomega) {
+						for _, origPod := range group[:2] {
+							var p corev1.Pod
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(utiltesting.BeNotFoundError())
+						}
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+				ginkgo.By("Complete group runs successfully", func() {
+					for _, p := range group {
+						util.MustCreate(ctx, k8sClient, p.DeepCopy())
+					}
 
-				util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})
+					util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})
+				})
 			})
-		})
+		}
 
 		ginkgo.It("Failed Pod can be replaced in group", func() {
 			eventList := corev1.EventList{}
