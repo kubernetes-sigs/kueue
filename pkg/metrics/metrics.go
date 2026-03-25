@@ -941,8 +941,11 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 func ClearCohortMetrics(cohortName kueue.CohortReference) {
 	CohortSubtreeQuota.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
 	CohortWeightedShare.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
-	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
 	CohortSubtreeResourceReservations.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
+}
+
+func ClearCohortTotalMetrics(cohortName kueue.CohortReference) {
+	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
 }
 
 func ReportClusterQueueStatus(cqName kueue.ClusterQueueReference, cqStatus ClusterQueueStatus, customLabelValues []string, tracker *roletracker.RoleTracker) {
