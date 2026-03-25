@@ -54,15 +54,14 @@ func ExpectLQPendingWorkloadsMetric(lq *kueue.LocalQueue, active, inadmissible i
 	vals := []int{active, inadmissible}
 	for i, status := range pendingStatuses {
 		lvs := append([]string{lq.Name, lq.Namespace, status, roletracker.RoleStandalone}, customLabels...)
-		metric := metrics.LocalQueuePendingWorkloads.WithLabelValues(lvs...)
-		expectGaugeMetric(metric, gomega.Equal(float64(vals[i])), "pending_workloads with status=%s", status)
+		expectGaugeMetric(metrics.LocalQueuePendingWorkloads, lvs, gomega.Equal(float64(vals[i])), "pending_workloads with status=%s", status)
 	}
 }
 
 func ExpectLQReservingActiveWorkloadsMetric(lq *kueue.LocalQueue, value int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(lq.Name, lq.Namespace, roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(float64(value)))
+	lvs := []string{lq.Name, lq.Namespace, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.LocalQueueReservingActiveWorkloads, lvs, gomega.Equal(float64(value)))
 }
 
 func ExpectLQAdmittedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass string, value int, customLabels ...string) {
@@ -99,15 +98,14 @@ func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible i
 	vals := []int{active, inadmissible}
 	for i, status := range pendingStatuses {
 		lvs := append([]string{cq.Name, status, roletracker.RoleStandalone}, customLabels...)
-		metric := metrics.PendingWorkloads.WithLabelValues(lvs...)
-		expectGaugeMetric(metric, gomega.Equal(float64(vals[i])), "pending_workloads with status=%s", status)
+		expectGaugeMetric(metrics.PendingWorkloads, lvs, gomega.Equal(float64(vals[i])), "pending_workloads with status=%s", status)
 	}
 }
 
 func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.ReservingActiveWorkloads.WithLabelValues(cq.Name, roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(float64(value)))
+	lvs := []string{cq.Name, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.ReservingActiveWorkloads, lvs, gomega.Equal(float64(value)))
 }
 
 func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int, customLabels ...string) {
@@ -212,14 +210,14 @@ func ExpectLQFinishedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass st
 
 func ExpectFinishedWorkloadsGaugeMetric(cq *kueue.ClusterQueue, count int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.FinishedWorkloads.WithLabelValues(cq.Name, roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(float64(count)))
+	lvs := []string{cq.Name, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.FinishedWorkloads, lvs, gomega.Equal(float64(count)))
 }
 
 func ExpectLQFinishedWorkloadsGaugeMetric(lq *kueue.LocalQueue, count int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.LocalQueueFinishedWorkloads.WithLabelValues(lq.Name, lq.Namespace, roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(float64(count)))
+	lvs := []string{lq.Name, lq.Namespace, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.LocalQueueFinishedWorkloads, lvs, gomega.Equal(float64(count)))
 }
 
 func expectCounterMetric(metric prometheus.Counter, count int) {
@@ -243,45 +241,45 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 		if metrics.CQStatuses[i] == status {
 			wantV = 1
 		}
-		metric := metrics.ClusterQueueByStatus.WithLabelValues(cq.Name, string(s), roletracker.RoleStandalone)
-		expectGaugeMetric(metric, gomega.Equal(wantV), "cluster_queue_status with status=%s", s)
+		lvs := []string{cq.Name, string(s), roletracker.RoleStandalone}
+		expectGaugeMetric(metrics.ClusterQueueByStatus, lvs, gomega.Equal(wantV), "cluster_queue_status with status=%s", s)
 	}
 }
 
 func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, value float64) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name, string(cq.Spec.CohortName), roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(value))
+	lvs := []string{cq.Name, string(cq.Spec.CohortName), roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.ClusterQueueWeightedShare, lvs, gomega.Equal(value))
 }
 
 func ExpectLocalQueueResourceMetric(queue *kueue.LocalQueue, flavorName, resourceName string, value float64) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.LocalQueueResourceUsage.WithLabelValues(queue.Name, queue.Namespace, flavorName, resourceName, roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(value))
+	lvs := []string{queue.Name, queue.Namespace, flavorName, resourceName, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.LocalQueueResourceUsage, lvs, gomega.Equal(value))
 }
 
 func ExpectLocalQueueResourceReservationsMetric(queue *kueue.LocalQueue, flavorName, resourceName string, value float64) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.LocalQueueResourceReservations.WithLabelValues(queue.Name, queue.Namespace, flavorName, resourceName, roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(value))
+	lvs := []string{queue.Name, queue.Namespace, flavorName, resourceName, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.LocalQueueResourceReservations, lvs, gomega.Equal(value))
 }
 
 func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource, roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(value))
+	lvs := []string{string(cq.Spec.CohortName), cq.Name, flavor, resource, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.ClusterQueueResourceNominalQuota, lvs, gomega.Equal(value))
 }
 
 func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource, roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(value))
+	lvs := []string{string(cq.Spec.CohortName), cq.Name, flavor, resource, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.ClusterQueueResourceBorrowingLimit, lvs, gomega.Equal(value))
 }
 
 func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource, roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(value))
+	lvs := []string{string(cq.Spec.CohortName), cq.Name, flavor, resource, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.ClusterQueueResourceReservations, lvs, gomega.Equal(value))
 }
 
 func expectHistogramMetric(metric *prometheus.HistogramVec, matcher gomegatypes.GomegaMatcher, lvs ...string) {
@@ -293,10 +291,10 @@ func expectHistogramMetric(metric *prometheus.HistogramVec, matcher gomegatypes.
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func expectGaugeMetric(metric prometheus.Gauge, matcher gomegatypes.GomegaMatcher, msgAndArgs ...any) {
+func expectGaugeMetric(metric *prometheus.GaugeVec, lvs []string, matcher gomegatypes.GomegaMatcher, msgAndArgs ...any) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
-		v, err := testutil.GetGaugeMetricValue(metric)
+		v, err := testutil.GetGaugeMetricValue(metric.WithLabelValues(lvs...))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(v).Should(matcher, msgAndArgs...)
 	}, Timeout, Interval).Should(gomega.Succeed())
@@ -304,8 +302,8 @@ func expectGaugeMetric(metric prometheus.Gauge, matcher gomegatypes.GomegaMatche
 
 func ExpectCohortSubtreeQuotaGaugeMetric(cohortName string, flavor, resource string, count float64) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.CohortSubtreeQuota.WithLabelValues(cohortName, flavor, resource, roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(count))
+	lvs := []string{cohortName, flavor, resource, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.CohortSubtreeQuota, lvs, gomega.Equal(count))
 }
 
 func ExpectCohortSubtreeQuotaGaugeMetricCleaned(cohortName, flavor, resource string) {
@@ -322,8 +320,8 @@ func ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(cohortName kueue.CohortRefe
 
 func ExpectCohortSubtreeResourceReservationsGaugeMetric(cohortName string, flavor, resource string, count float64) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.CohortSubtreeResourceReservations.WithLabelValues(cohortName, flavor, resource, roletracker.RoleStandalone)
-	expectGaugeMetric(metric, gomega.Equal(count))
+	lvs := []string{cohortName, flavor, resource, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.CohortSubtreeResourceReservations, lvs, gomega.Equal(count))
 }
 
 func ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned(cohortName, flavor, resource string) {
