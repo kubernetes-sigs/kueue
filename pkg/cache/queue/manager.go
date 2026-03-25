@@ -37,7 +37,6 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/queue"
@@ -479,7 +478,9 @@ func (m *Manager) DeleteLocalQueue(log logr.Logger, q *kueue.LocalQueue) {
 		cq.DeleteFromLocalQueue(log, qImpl, m.roleTracker, m.customLabels)
 		cq.deleteLocalQueue(key)
 	}
-	clearLQMetrics(key)
+	if m.lqMetrics.IsEnabled() {
+		clearLQMetrics(key)
+	}
 	delete(m.localQueues, key)
 }
 
@@ -876,7 +877,7 @@ func (m *Manager) ResyncGaugeMetrics() {
 		reportCQPendingWorkloads(m, cq)
 		reportCQFinishedWorkloads(cq, m.roleTracker, m.customLabels)
 	}
-	if features.Enabled(features.LocalQueueMetrics) {
+	if m.lqMetrics.IsEnabled() {
 		for _, lq := range m.localQueues {
 			reportLQPendingWorkloads(m, lq)
 			reportLQFinishedWorkloads(m, lq)

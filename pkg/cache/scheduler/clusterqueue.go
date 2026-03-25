@@ -629,7 +629,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue, customLabelValues []st
 
 func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
-	if features.Enabled(features.LocalQueueMetrics) {
+	if c.lqMetrics.IsEnabled() {
 		namespace, lqName := queue.MustParseLocalQueueReference(qKey)
 		metrics.ClearLocalQueueCacheMetrics(metrics.LocalQueueReference{
 			Name:      lqName,

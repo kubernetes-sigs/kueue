@@ -63,16 +63,23 @@ func NewLocalQueueMetricsConfig(cfg *configapi.LocalQueueMetrics) *LocalQueueMet
 	return lqMetricsConfig
 }
 
+// IsEnabled reports whether LocalQueue metric reporting is enabled or not,
+// regardless of label configuration.
+func (cfg *LocalQueueMetricsConfig) IsEnabled() bool {
+	return features.Enabled(features.LocalQueueMetrics) && (cfg == nil || cfg.Enabled)
+}
+
 // ShouldExposeLocalQueueMetrics determines if a specific LocalQueue should report metrics
 // based on the global configuration.
 func (cfg *LocalQueueMetricsConfig) ShouldExposeLocalQueueMetrics(lqLabels map[string]string) bool {
-	if cfg == nil {
-		return true
-	}
-	return features.Enabled(features.LocalQueueMetrics) && cfg.Enabled && cfg.QueueSelector.Matches(labels.Set(lqLabels))
+	return cfg.IsEnabled() && (cfg == nil || cfg.QueueSelector.Matches(labels.Set(lqLabels)))
 }
 
+// ShouldExposeLocalQueueMetricsForWorkload detemines if LocalQueue metric reporting should be made for the associated LocalQueue.
 func (cfg *LocalQueueMetricsConfig) ShouldExposeLocalQueueMetricsForWorkload(log logr.Logger, lqLabelStorage LocalQueueLabelStorage, wl *kueue.Workload) bool {
+	if !cfg.IsEnabled() {
+		return false
+	}
 	if wl.Status.Admission == nil {
 		log.V(5).Info("WARNING: cannot expose local queue metrics of workload without status.Admission", "workload", wl)
 		return false

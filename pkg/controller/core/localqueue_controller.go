@@ -266,7 +266,7 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 }
 
 func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue]) bool {
-	if features.Enabled(features.LocalQueueMetrics) {
+	if r.lqMetrics.IsEnabled() {
 		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(e.Object))
 	}
 	if afs.Enabled(r.admissionFSConfig) {

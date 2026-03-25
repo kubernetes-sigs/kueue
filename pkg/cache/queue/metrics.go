@@ -18,7 +18,6 @@ package queue
 
 import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -33,7 +32,7 @@ func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
 	}
 	reportCQPendingWorkloads(m, cq)
 
-	if !features.Enabled(features.LocalQueueMetrics) {
+	if !m.lqMetrics.IsEnabled() {
 		return
 	}
 	for _, lq := range m.localQueues {
@@ -91,9 +90,6 @@ func clearCQMetrics(cqRef kueue.ClusterQueueReference) {
 }
 
 func clearLQMetrics(lqRef queue.LocalQueueReference) {
-	if !features.Enabled(features.LocalQueueMetrics) {
-		return
-	}
 	namespace, lqName := queue.MustParseLocalQueueReference(lqRef)
 	metrics.ClearLocalQueueMetrics(metrics.LocalQueueReference{
 		Name:      lqName,

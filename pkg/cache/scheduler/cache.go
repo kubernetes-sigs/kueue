@@ -501,7 +501,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	if curCq == nil {
 		return
 	}
-	if features.Enabled(features.LocalQueueMetrics) {
+	if c.lqMetrics.IsEnabled() {
 		for _, q := range curCq.localQueues {
 			namespace, lqName := queue.MustParseLocalQueueReference(q.key)
 			metrics.ClearLocalQueueCacheMetrics(metrics.LocalQueueReference{
