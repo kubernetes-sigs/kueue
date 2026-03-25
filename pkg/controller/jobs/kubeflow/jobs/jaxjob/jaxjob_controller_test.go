@@ -111,9 +111,9 @@ func TestOrderedReplicaTypes(t *testing.T) {
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		job                *kftraining.JAXJob
-		wantPodSets        func(job *kftraining.JAXJob) []kueue.PodSet
-		enableFeatureGates []featuregate.Feature
+		job          *kftraining.JAXJob
+		wantPodSets  func(job *kftraining.JAXJob) []kueue.PodSet
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
@@ -155,16 +155,12 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableFeatureGates: []featuregate.Feature{
-				features.TopologyAwareScheduling,
-			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			for _, gate := range tc.enableFeatureGates {
-				features.SetFeatureGateDuringTest(t, gate, true)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotPodSets, err := fromObject(tc.job).PodSets(ctx)
 			if err != nil {
@@ -179,10 +175,10 @@ func TestPodSets(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	testCases := map[string]struct {
-		job                     *kftraining.JAXJob
-		wantValidationErrs      field.ErrorList
-		wantErr                 error
-		topologyAwareScheduling bool
+		job                *kftraining.JAXJob
+		wantValidationErrs field.ErrorList
+		wantErr            error
+		featureGates       map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
@@ -206,7 +202,7 @@ func TestValidate(t *testing.T) {
 					},
 				).
 				Obj(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid TAS request": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
@@ -230,7 +226,7 @@ func TestValidate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid slice topology request - slice size larger than number of podsets": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
@@ -255,13 +251,12 @@ func TestValidate(t *testing.T) {
 					"20", "must not be greater than pod set count 3",
 				),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
-
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate(ctx)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {

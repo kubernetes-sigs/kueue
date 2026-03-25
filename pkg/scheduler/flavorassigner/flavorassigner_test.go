@@ -198,12 +198,10 @@ func TestAssignFlavors(t *testing.T) {
 		secondaryClusterQueueUsage          resources.FlavorResourceQuantities
 		wantRepMode                         FlavorAssignmentMode
 		wantAssignment                      Assignment
-		disableLendingLimit                 bool
 		enableFairSharing                   bool
 		simulationResult                    map[resources.FlavorResource]simulationResultForFlavor
 		elasticJobsViaWorkloadSlicesEnabled bool
 		preemptWorkloadSlice                *workload.Info
-		enableImplicitPreferenceDefault     bool
 		featureGates                        map[featuregate.Feature]bool
 	}{
 		"single flavor, fits": {
@@ -3080,7 +3078,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"workload slice preemption fits in the original workload resource flavor": {
-			elasticJobsViaWorkloadSlicesEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
@@ -3145,7 +3143,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"workload slice preemption does not fit in the original workload resource flavor": {
-			elasticJobsViaWorkloadSlicesEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
@@ -3209,7 +3207,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"preferPreemption; preempt without borrowing is preferred over fit with borrowing; preempt within cohort": {
-			enableImplicitPreferenceDefault: true,
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibilityImplicitPreferenceDefault: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "10").
@@ -3271,7 +3269,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"preferPreemption; preempt without borrowing is preferred over fit with borrowing; preempt in own CQ": {
-			enableImplicitPreferenceDefault: true,
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibilityImplicitPreferenceDefault: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "10").
@@ -3333,7 +3331,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"preferPreemption; fit without borrowing is preferred over fit with borrowing": {
-			enableImplicitPreferenceDefault: true,
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibilityImplicitPreferenceDefault: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "10").
@@ -3390,15 +3388,7 @@ func TestAssignFlavors(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			if tc.disableLendingLimit {
-				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
-			}
-			if tc.enableImplicitPreferenceDefault {
-				features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, true)
-			}
-			for fg, enabled := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enabled)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			wlInfo := workload.NewInfo(&kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: tc.wlPods,
@@ -3444,10 +3434,6 @@ func TestAssignFlavors(t *testing.T) {
 					t.Fatalf("Failed to create secondary CQ snapshot")
 				}
 				secondaryClusterQueue.AddUsage(workload.Usage{Quota: tc.secondaryClusterQueueUsage})
-			}
-
-			if tc.elasticJobsViaWorkloadSlicesEnabled {
-				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			}
 
 			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing, &testOracle{simulationResult: tc.simulationResult}, tc.preemptWorkloadSlice)
@@ -3981,7 +3967,7 @@ func TestIsPreferred(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		enableGate    bool
+		featureGates  map[featuregate.Feature]bool
 		a             granularMode
 		b             granularMode
 		config        kueue.FlavorFungibility
@@ -3997,9 +3983,9 @@ func TestIsPreferred(t *testing.T) {
 			wantPreferred: true,
 		},
 		"both policies try default to borrowing preference": {
-			enableGate: true,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibilityImplicitPreferenceDefault: true},
+			a:            granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b:            granularMode{preemptionMode: fit, borrowingLevel: 2},
 			config: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
@@ -4007,9 +3993,9 @@ func TestIsPreferred(t *testing.T) {
 			wantPreferred: true,
 		},
 		"mismatched policies default to preemption preference": {
-			enableGate: true,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 0},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 1},
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibilityImplicitPreferenceDefault: true},
+			a:            granularMode{preemptionMode: preempt, borrowingLevel: 0},
+			b:            granularMode{preemptionMode: fit, borrowingLevel: 1},
 			config: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.MayStopSearch,
 				WhenCanPreempt: kueue.TryNextFlavor,
@@ -4017,9 +4003,9 @@ func TestIsPreferred(t *testing.T) {
 			wantPreferred: false,
 		},
 		"explicit BorrowingOverPreemption prioritises borrowing distance": {
-			enableGate: false,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibilityImplicitPreferenceDefault: false},
+			a:            granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b:            granularMode{preemptionMode: fit, borrowingLevel: 2},
 			config: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
@@ -4028,9 +4014,9 @@ func TestIsPreferred(t *testing.T) {
 			wantPreferred: true,
 		},
 		"explicit PreemptionOverBorrowing prioritises lower preemption": {
-			enableGate: false,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 2},
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibilityImplicitPreferenceDefault: false},
+			a:            granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b:            granularMode{preemptionMode: fit, borrowingLevel: 2},
 			config: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
@@ -4039,9 +4025,9 @@ func TestIsPreferred(t *testing.T) {
 			wantPreferred: false,
 		},
 		"explicit PreemptionOverBorrowing breaks borrowing ties with preemption": {
-			enableGate: false,
-			a:          granularMode{preemptionMode: preempt, borrowingLevel: 1},
-			b:          granularMode{preemptionMode: fit, borrowingLevel: 1},
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibilityImplicitPreferenceDefault: false},
+			a:            granularMode{preemptionMode: preempt, borrowingLevel: 1},
+			b:            granularMode{preemptionMode: fit, borrowingLevel: 1},
 			config: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
@@ -4053,7 +4039,7 @@ func TestIsPreferred(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, tc.enableGate)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			if got := isPreferred(tc.a, tc.b, tc.config); got != tc.wantPreferred {
 				t.Fatalf("isPreferred(%+v, %+v, %+v)=%t, want %t", tc.a, tc.b, tc.config, got, tc.wantPreferred)

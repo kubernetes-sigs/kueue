@@ -74,7 +74,7 @@ func TestWlReconcile(t *testing.T) {
 	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
-		features map[featuregate.Feature]bool
+		featureGates map[featuregate.Feature]bool
 
 		reconcileFor             string
 		managersWorkloads        []kueue.Workload
@@ -212,7 +212,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"unmanaged wl (job not managed by multikueue) is rejected": {
-			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().Obj(),
@@ -299,7 +299,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"wl without reservation, clears the workload objects (withoutJobManagedBy)": {
-			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
@@ -389,7 +389,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl with reservation, unable to delete the second worker's workload": {
-			features:     map[featuregate.Feature]bool{features.MultiKueueWaitForWorkloadAdmitted: false},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueWaitForWorkloadAdmitted: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -438,7 +438,7 @@ func TestWlReconcile(t *testing.T) {
 			wantError: errFake,
 		},
 		"remote wl with reservation": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueBatchJobWithManagedBy:   true,
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
@@ -506,7 +506,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl with reservation but not admitted, feature gate enabled - other workers not deleted": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueBatchJobWithManagedBy:   true,
 				features.MultiKueueWaitForWorkloadAdmitted: true,
 			},
@@ -557,7 +557,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl admitted, feature gate enabled - other workers deleted": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueBatchJobWithManagedBy:   true,
 				features.MultiKueueWaitForWorkloadAdmitted: true,
 			},
@@ -631,7 +631,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl evicted": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueBatchJobWithManagedBy:   true,
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
@@ -704,7 +704,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"handle workload evicted on manager cluster": {
-			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -784,7 +784,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl with reservation (withoutJobManagedBy)": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueBatchJobWithManagedBy:   false,
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
@@ -852,7 +852,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl with reservation (withoutJobManagedBy, MultiKueueDispatcherModeIncremental)": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueBatchJobWithManagedBy:   false,
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
@@ -921,7 +921,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote job is changing status the local Job is updated ": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueBatchJobWithManagedBy:   true,
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
@@ -996,7 +996,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote job is changing status, the local job is not updated (withoutJobManagedBy)": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueBatchJobWithManagedBy:   false,
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
@@ -1133,7 +1133,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl is finished, the local workload and Job are marked completed (withoutJobManagedBy)": {
-			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -1345,7 +1345,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"worker reconnects after the local workload is requeued and got reservation on a second worker": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueBatchJobWithManagedBy:   true,
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
@@ -1427,7 +1427,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job finished local workload via replacement is ignored": {
-			features:     map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{
@@ -1499,7 +1499,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local workload without quota reservation": {
-			features:     map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{
@@ -1548,7 +1548,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local scaled-up workload slice without quota reservation": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices:    true,
 				features.MultiKueueBatchJobWithManagedBy: true,
 			},
@@ -1613,7 +1613,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local workload out-of-sync other than scaled-down": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices:    true,
 				features.MultiKueueBatchJobWithManagedBy: true,
 			},
@@ -1669,7 +1669,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local workload out-of-sync scaled-down": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices:      true,
 				features.MultiKueueBatchJobWithManagedBy:   true,
 				features.MultiKueueWaitForWorkloadAdmitted: false,
@@ -1749,10 +1749,7 @@ func TestWlReconcile(t *testing.T) {
 		for _, useMergePatch := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
-
-				for feature, enabled := range tc.features {
-					features.SetFeatureGateDuringTest(t, feature, enabled)
-				}
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 				ctx, _ := utiltesting.ContextWithLog(t)
 				managerBuilder := getClientBuilder(ctx)

@@ -112,9 +112,7 @@ func TestGenerateWorkloadNameWithExtra(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			for fg, enabled := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enabled)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			got := GenerateWorkloadNameWithExtra(tc.ownerName, tc.ownerUID, tc.ownerGVK, tc.extra)
 			if tc.want != "" {
 				if diff := cmp.Diff(tc.want, got); len(diff) != 0 {
