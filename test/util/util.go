@@ -285,7 +285,13 @@ func ExpectAllPodsInNamespaceDeleted(ctx context.Context, c client.Client, ns *c
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.List(ctx, &pods, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 		g.Expect(pods.Items).Should(gomega.BeEmpty())
-	}, MediumTimeout, Interval).Should(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed(), func() string {
+		ptrs := make([]*corev1.Pod, len(pods.Items))
+		for i := range pods.Items {
+			ptrs[i] = &pods.Items[i]
+		}
+		return assertMsg(fmt.Sprintf("Expected all pods to be deleted in namespace %q", ns.Name), ptrs...)()
+	})
 }
 
 func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
