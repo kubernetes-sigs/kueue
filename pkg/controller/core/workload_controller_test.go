@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -403,8 +404,7 @@ func TestReconcile(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 
 	cases := map[string]struct {
-		enableDRAFeature                      bool
-		enableMKOrchestratedPreemptionFeature bool
+		featureGates map[featuregate.Feature]bool
 
 		workload                  *kueue.Workload
 		cq                        *kueue.ClusterQueue
@@ -422,7 +422,10 @@ func TestReconcile(t *testing.T) {
 		reconcilerOpts            []Option
 	}{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
-			enableDRAFeature: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -461,7 +464,10 @@ func TestReconcile(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate should be pre-processed and queued": {
-			enableDRAFeature:     true,
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
 			wantDRAResourceTotal: ptr.To(int64(1)),
 			wantWorkloadsInQueue: ptr.To(1),
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
@@ -496,7 +502,10 @@ func TestReconcile(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate multi-pod should be pre-processed and queued": {
-			enableDRAFeature:     true,
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
 			wantDRAResourceTotal: ptr.To(int64(6)),
 			wantWorkloadsInQueue: ptr.To(1),
 			workload: utiltestingapi.MakeWorkload("wlMultiPodDRA", "ns").
@@ -531,7 +540,10 @@ func TestReconcile(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
-			enableDRAFeature: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
 			workload: utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -580,7 +592,10 @@ func TestReconcile(t *testing.T) {
 			wantEvents:   nil,
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
-			enableDRAFeature: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
 			workload: utiltestingapi.MakeWorkload("wlMissingTemplate", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -2564,8 +2579,10 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{},
 		},
 		"should synchronize the status of preemption gates": {
-			enableMKOrchestratedPreemptionFeature: true,
-
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        false,
+				features.MultiKueueOrchestratedPreemption: true,
+			},
 			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2793,8 +2810,7 @@ func TestReconcile(t *testing.T) {
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, tc.enableDRAFeature)
-				features.SetFeatureGateDuringTest(t, features.MultiKueueOrchestratedPreemption, tc.enableMKOrchestratedPreemptionFeature)
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
 
@@ -2907,7 +2923,7 @@ func TestReconcile(t *testing.T) {
 				}
 
 				// For DRA tests, verify that workloads are properly queued/cached
-				if tc.enableDRAFeature && testWl != nil &&
+				if tc.featureGates[features.DynamicResourceAllocation] && testWl != nil &&
 					len(testWl.Spec.PodSets) > 0 &&
 					len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
 					workloadKey := client.ObjectKeyFromObject(testWl)

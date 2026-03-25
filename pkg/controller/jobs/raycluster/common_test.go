@@ -44,10 +44,9 @@ import (
 
 func TestBuildPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		rayClusterSpec                *rayv1.RayClusterSpec
-		wantPodSets                   []kueue.PodSet
-		enableTopologyAwareScheduling bool
-		wantErr                       bool
+		rayClusterSpec *rayv1.RayClusterSpec
+		wantPodSets    []kueue.PodSet
+		wantErr        bool
 	}{
 		"basic spec with head and single worker group": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -203,8 +202,6 @@ func TestBuildPodSets(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-
 			gotPodSets, err := BuildPodSets(tc.rayClusterSpec)
 
 			if tc.wantErr {

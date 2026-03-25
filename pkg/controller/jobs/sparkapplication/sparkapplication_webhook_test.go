@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -40,10 +41,9 @@ import (
 func TestValidateCreate(t *testing.T) {
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "test").Suspend(false)
 	testcases := map[string]struct {
-		sparkApp                                *sparkappv1beta2.SparkApplication
-		elasticJobsViaWorkloadSlicesFeatureGate bool
-		topologyAwareSchedulingFeatureGate      bool
-		wantErr                                 error
+		sparkApp     *sparkappv1beta2.SparkApplication
+		featureGates map[featuregate.Feature]bool
+		wantErr      error
 	}{
 		"base": {
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
@@ -63,7 +63,7 @@ func TestValidateCreate(t *testing.T) {
 			)}.ToAggregate(),
 		},
 		"dynamicAllocation with elastic job feature": {
-			elasticJobsViaWorkloadSlicesFeatureGate: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
 				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
 			).DynamicAllocation(&sparkappv1beta2.DynamicAllocation{
@@ -79,14 +79,14 @@ func TestValidateCreate(t *testing.T) {
 			)}.ToAggregate(),
 		},
 		"base with TAS": {
-			topologyAwareSchedulingFeatureGate: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorAnnotation(
 				kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
 			).Obj(),
 			wantErr: nil,
 		},
 		"invalid TAS configuration": {
-			topologyAwareSchedulingFeatureGate: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorAnnotation(
 				kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
 			).ExecutorAnnotation(
@@ -102,8 +102,7 @@ func TestValidateCreate(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlicesFeatureGate)
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareSchedulingFeatureGate)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			webhook := &SparkApplicationWebhook{}
 			ctx, _ := utiltesting.ContextWithLog(t)

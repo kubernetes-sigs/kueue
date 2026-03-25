@@ -77,7 +77,7 @@ func TestWlReconcile(t *testing.T) {
 	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
-		features map[featuregate.Feature]bool
+		featureGates map[featuregate.Feature]bool
 
 		reconcileFor             string
 		managersWorkloads        []kueue.Workload
@@ -368,7 +368,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl with reservation, unable to delete the second worker's workload": {
-			features:     map[featuregate.Feature]bool{features.MultiKueueWaitForWorkloadAdmitted: false},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueWaitForWorkloadAdmitted: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -417,7 +417,7 @@ func TestWlReconcile(t *testing.T) {
 			wantError: errFake,
 		},
 		"remote wl with reservation": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
 			reconcileFor: "wl1",
@@ -484,7 +484,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl with reservation but not admitted, feature gate enabled - other workers not deleted": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueWaitForWorkloadAdmitted: true,
 			},
 			reconcileFor: "wl1",
@@ -534,7 +534,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl admitted, feature gate enabled - other workers deleted": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueWaitForWorkloadAdmitted: true,
 			},
 			reconcileFor: "wl1",
@@ -607,7 +607,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl evicted due to eviction on manager cluster": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
 			reconcileFor: "wl1",
@@ -845,7 +845,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote job is changing status the local Job is updated ": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
 			reconcileFor: "wl1",
@@ -1130,7 +1130,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"worker reconnects after the local workload is requeued and got reservation on a second worker": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
 			// the worker with the oldest reservation is kept
@@ -1211,7 +1211,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job finished local workload via replacement is ignored": {
-			features:     map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{
@@ -1283,7 +1283,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local workload without quota reservation": {
-			features:     map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{
@@ -1332,7 +1332,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local scaled-up workload slice without quota reservation": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices: true,
 			},
 			reconcileFor: "wl1",
@@ -1396,7 +1396,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local workload out-of-sync other than scaled-down": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices: true,
 			},
 			reconcileFor: "wl1",
@@ -1451,7 +1451,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local workload out-of-sync scaled-down": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices:      true,
 				features.MultiKueueWaitForWorkloadAdmitted: false,
 			},
@@ -1525,7 +1525,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"creating remote workloads with preemption gates": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueOrchestratedPreemption: true,
 			},
 			reconcileFor: "wl1",
@@ -1568,7 +1568,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"opening preemption gate for first workload requiring preemption": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueOrchestratedPreemption: true,
 			},
 			reconcileFor: "wl1",
@@ -1673,7 +1673,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"opening preemption gate for the second workload requiring preemption if timeout elapsed": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueOrchestratedPreemption: true,
 			},
 			reconcileFor: "wl1",
@@ -1762,7 +1762,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"not opening preemption gate for the second workload if timeout did not elapse": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueOrchestratedPreemption: true,
 			},
 			reconcileFor: "wl1",
@@ -1851,7 +1851,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"not opening preemption gate for the second workload if timeout elapsed but it does not require preemption": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueOrchestratedPreemption: true,
 			},
 			reconcileFor: "wl1",
@@ -1931,10 +1931,7 @@ func TestWlReconcile(t *testing.T) {
 		for _, useMergePatch := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
-
-				for feature, enabled := range tc.features {
-					features.SetFeatureGateDuringTest(t, feature, enabled)
-				}
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 				ctx, _ := utiltesting.ContextWithLog(t)
 				managerBuilder := getClientBuilder(ctx)

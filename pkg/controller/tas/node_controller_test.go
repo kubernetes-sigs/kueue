@@ -893,9 +893,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 	for name, tc := range tests {
 		fakeClock.SetTime(testStartTime)
 		t.Run(name, func(t *testing.T) {
-			for fg, enable := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enable)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			fakeClock.SetTime(testStartTime)
 
 			clientBuilder := utiltesting.NewClientBuilder().
@@ -1080,9 +1078,7 @@ func TestGetWorkloadStatus(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			for fg, enable := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enable)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(tc.initObjs...)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {

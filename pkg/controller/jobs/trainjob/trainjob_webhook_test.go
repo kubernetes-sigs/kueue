@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -205,7 +206,7 @@ func TestDefault(t *testing.T) {
 		manageJobsWithoutQueueName   bool
 		withMultiKueueAdmissionCheck bool
 		withDefaultLocalQueue        bool
-		multiKueueEnabled            bool
+		featureGates                 map[featuregate.Feature]bool
 		wantTrainJob                 *kftrainerapi.TrainJob
 		wantErr                      error
 	}{
@@ -248,7 +249,7 @@ func TestDefault(t *testing.T) {
 				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
-			multiKueueEnabled:            true,
+			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			withMultiKueueAdmissionCheck: true,
 		},
 		"should not set managedBy to multiKueue if already specified by the user": {
@@ -258,7 +259,7 @@ func TestDefault(t *testing.T) {
 				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				ManagedBy("user").
 				Obj(),
-			multiKueueEnabled:            true,
+			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			withMultiKueueAdmissionCheck: true,
 		},
 		"should not set managedBy to multiKueue if the selected clusterQueue doesn't have the corresponding admissionCheck": {
@@ -267,14 +268,14 @@ func TestDefault(t *testing.T) {
 				Suspend(true).
 				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				Obj(),
-			multiKueueEnabled:            true,
+			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			withMultiKueueAdmissionCheck: false,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 

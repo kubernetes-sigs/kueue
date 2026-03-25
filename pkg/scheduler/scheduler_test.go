@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -174,10 +175,8 @@ func TestSchedule(t *testing.T) {
 	}
 	cases := map[string]struct {
 		// Features
-		disablePartialAdmission                bool
-		enableFairSharing                      bool
-		enableElasticJobsViaWorkloadSlice      bool
-		enableMultiKueueOrchestratedPreemption bool
+		featureGates      map[featuregate.Feature]bool
+		enableFairSharing bool
 
 		workloads      []kueue.Workload
 		objects        []client.Object
@@ -207,6 +206,7 @@ func TestSchedule(t *testing.T) {
 		wantSkippedPreemptions map[string]int
 	}{
 		"use second flavor when the first has no preemption candidates; WhenCanPreempt: MayStopSearch": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("other-alpha").
 					Preemption(kueue.ClusterQueuePreemption{
@@ -295,6 +295,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"workload fits in single clusterQueue, with check state ready": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "sales").
 					Queue("main").
@@ -363,6 +364,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"skip workload with missing or deleted ClusterQueue (NoFit)": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("missing-cq-workload", "sales").
 					Queue("non-existent-queue").
@@ -387,6 +389,7 @@ func TestSchedule(t *testing.T) {
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 		},
 		"workload fits in single clusterQueue, with check state pending": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "sales").
 					Queue("main").
@@ -443,6 +446,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"error during admission": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "sales").
 					Queue("main").
@@ -465,6 +469,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"single clusterQueue full": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "sales").
 					Queue("main").
@@ -536,6 +541,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"failed to match clusterQueue selector": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "sales").
 					Queue("blocked").
@@ -570,6 +576,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"admit in different cohorts": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "sales").
 					Queue("main").
@@ -663,6 +670,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"admit in same cohort with no borrowing": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-alpha").
 					Queue("main").
@@ -757,6 +765,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"assign multiple resources and flavors": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-beta").
 					Queue("main").
@@ -2398,7 +2407,7 @@ func TestSchedule(t *testing.T) {
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"sales": {"sales/new"},
 			},
-			disablePartialAdmission: true,
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: false},
 		},
 		"two workloads can borrow different resources from the same flavor in the same cycle": {
 			additionalClusterQueues: func() []kueue.ClusterQueue {
@@ -7124,7 +7133,7 @@ func TestSchedule(t *testing.T) {
 		},
 		// Workload-slice scheduling test case.
 		"workload-slice fits in single clusterQueue": {
-			enableElasticJobsViaWorkloadSlice: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			// workloads that will be returned by the fake.client.
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
@@ -8126,7 +8135,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"block preemptions and signal `BlockedOnPreemptionGates` when a preemption gate is present": {
-			enableMultiKueueOrchestratedPreemption: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
 					UID("wl-preemptor").
@@ -8200,7 +8209,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"do not signal `BlockedOnPreemptionGates` when a preemption gate is present, but the workload fits without preemption": {
-			enableMultiKueueOrchestratedPreemption: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
 					UID("wl-preemptor").
@@ -8250,7 +8259,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"do not signal `BlockedOnPreemptionGates` when a preemption gate is present, but the workload had nothing to preempt": {
-			enableMultiKueueOrchestratedPreemption: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
 					UID("wl-preemptor").
@@ -8322,11 +8331,7 @@ func TestSchedule(t *testing.T) {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				metrics.AdmissionCyclePreemptionSkips.Reset()
-				if tc.disablePartialAdmission {
-					features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)
-				}
-				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.enableElasticJobsViaWorkloadSlice)
-				features.SetFeatureGateDuringTest(t, features.MultiKueueOrchestratedPreemption, tc.enableMultiKueueOrchestratedPreemption)
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 				ctx, log := utiltesting.ContextWithLog(t)
 
@@ -8688,42 +8693,42 @@ func TestEntryOrdering(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
 		input            []entry
-		prioritySorting  bool
+		featureGates     map[featuregate.Feature]bool
 		workloadOrdering workload.Ordering
 		wantOrder        []string
 	}{
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Eviction timestamp (default)",
 			input:            input,
-			prioritySorting:  true,
+			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Creation timestamp",
 			input:            input,
-			prioritySorting:  true,
+			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:             "Priority sorting is disabled using pods-ready Eviction timestamp",
 			input:            input,
-			prioritySorting:  false,
+			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:             "Priority sorting is disabled using pods-ready Creation timestamp",
 			input:            input,
-			prioritySorting:  false,
+			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"recently_evicted", "old", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
-			name:            "Some workloads are preempted; Priority sorting is disabled",
-			input:           inputForOrderingPreemptedWorkloads,
-			prioritySorting: false,
+			name:         "Some workloads are preempted; Priority sorting is disabled",
+			input:        inputForOrderingPreemptedWorkloads,
+			featureGates: map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
 			wantOrder: []string{
 				"old-mid-recently-preempted-in-queue",
 				"old-mid-not-preempted-yet",
@@ -8733,9 +8738,9 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name:            "Some workloads are preempted; Priority sorting is enabled",
-			input:           inputForOrderingPreemptedWorkloads,
-			prioritySorting: true,
+			name:         "Some workloads are preempted; Priority sorting is enabled",
+			input:        inputForOrderingPreemptedWorkloads,
+			featureGates: map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			wantOrder: []string{
 				"preemptor",
 				"old-mid-recently-preempted-in-queue",
@@ -8746,7 +8751,7 @@ func TestEntryOrdering(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			iter := makeIterator(ctx, tc.input, tc.workloadOrdering, false)
 			order := make([]string, len(tc.input))

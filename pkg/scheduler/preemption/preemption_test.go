@@ -4677,9 +4677,7 @@ func TestCandidatesOrdering(t *testing.T) {
 
 	_, log := utiltesting.ContextWithLog(t)
 	for _, tc := range cases {
-		for fg, enable := range tc.featureGates {
-			features.SetFeatureGateDuringTest(t, fg, enable)
-		}
+		features.SetFeatureGatesDuringTest(t, tc.featureGates)
 		slices.SortFunc(tc.candidates, func(a, b workload.Info) int {
 			return preemptioncommon.CandidatesOrdering(log, tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing], &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
 		})
@@ -4831,9 +4829,7 @@ func TestPriorityInfo(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			for fg, enable := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enable)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			_, log := utiltesting.ContextWithLog(t)
 			gotEff, gotBase, gotBoost := priorityInfo(log, tc.wl)
 			if gotEff != tc.wantEffective || gotBase != tc.wantBase || gotBoost != tc.wantBoost {

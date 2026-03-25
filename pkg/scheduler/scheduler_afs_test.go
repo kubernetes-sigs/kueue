@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -78,13 +79,13 @@ func TestScheduleForAFS(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		enableFairSharing bool
-		initialUsage      map[string]corev1.ResourceList
-		workloads         []kueue.Workload
-		wantWorkloads     []kueue.Workload
+		featureGates  map[featuregate.Feature]bool
+		initialUsage  map[string]corev1.ResourceList
+		workloads     []kueue.Workload
+		wantWorkloads []kueue.Workload
 	}{
 		"admits workload from less active localqueue": {
-			enableFairSharing: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("8")},
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("2")},
@@ -160,7 +161,7 @@ func TestScheduleForAFS(t *testing.T) {
 			},
 		},
 		"without AFS: classic admission decision ignores queue usage": {
-			enableFairSharing: false,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: false},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("8")},
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("2")},
@@ -236,7 +237,7 @@ func TestScheduleForAFS(t *testing.T) {
 			},
 		},
 		"admits one workload from each localqueue when quota is limited": {
-			enableFairSharing: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("4")},
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("4")},
@@ -377,7 +378,7 @@ func TestScheduleForAFS(t *testing.T) {
 			},
 		},
 		"schedules normally when queues have equal usage": {
-			enableFairSharing: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("2")},
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("2")},
@@ -497,7 +498,7 @@ func TestScheduleForAFS(t *testing.T) {
 			},
 		},
 		"admits workload from lq-b with uninitialized cache": {
-			enableFairSharing: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("8")},
 			},
@@ -577,7 +578,7 @@ func TestScheduleForAFS(t *testing.T) {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.enableFairSharing)
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithLists(
@@ -591,7 +592,7 @@ func TestScheduleForAFS(t *testing.T) {
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 				cl := clientBuilder.Build()
 
-				cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.enableFairSharing), schdcache.WithAdmissionFairSharing(afsConfig))
+				cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.featureGates[features.AdmissionFairSharing]), schdcache.WithAdmissionFairSharing(afsConfig))
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
 
 				ctx, log := utiltesting.ContextWithLog(t)
@@ -617,7 +618,7 @@ func TestScheduleForAFS(t *testing.T) {
 				}
 				recorder := &utiltesting.EventRecorder{}
 				var preemptionFairSharing *config.FairSharing
-				if tc.enableFairSharing {
+				if tc.featureGates[features.AdmissionFairSharing] {
 					preemptionFairSharing = &config.FairSharing{}
 				}
 				scheduler := New(qManager, cqCache, cl, recorder,
