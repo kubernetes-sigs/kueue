@@ -64,6 +64,15 @@ TAS 配置好并可用后，用户可在 PodTemplate 层级设置如下注解来
   则会分布在多个拓扑域。
 - `kueue.x-k8s.io/podset-required-topology` —— 表示 PodSet 需要拓扑感知调度，
   且要求所有 Pod 必须调度到注解值指定的拓扑层级（如同一机架或同一区块）内的节点。
+- `kueue.x-k8s.io/podset-unconstrained-topology` —— 表示一个 PodSet 需要拓扑感知调度，
+  并且需要在不考虑拓扑的情况下将所有 Pod 调度到任意节点上。换句话说，这考虑了是否所有 Pod
+  可以被容纳在任何节点中，有助于通过填充集群中节点上的小空隙来最小化碎片。
+- `kueue.x-k8s.io/podset-group-name` —— 表示 PodSet 组的名称。PodSet 组是风味分配和拓扑域适配的单元。
+  当你希望确保多个 PodSet 被调度到相同的拓扑域时非常有用。
+- `kueue.x-k8s.io/podset-slice-required-topology-constraints` —— 定义多层切片拓扑约束，
+  作为 JSON 编码数组。每个条目指定一个拓扑级别和切片大小，从最外层（最粗略）到最内层（最精细）排序。
+  最多支持 3 层。此注解与 `kueue.x-k8s.io/podset-slice-required-topology` 和
+  `kueue.x-k8s.io/podset-slice-size` 互斥。需要启用 **TASMultiLayerTopology** 特性门控。
 
 #### 示例
 
@@ -102,14 +111,40 @@ TAS 通过 [Provisioning AdmissionCheck](/docs/admission-check-controllers/provi
 [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/) 并配置 `waitForPodsReady.recoveryTimeout`，
 以防止工作负载无限等待替换节点。
 
-### 限制
+#### 多层拓扑
 
-目前，TAS 与其他特性兼容性存在如下限制：
-- 某些调度指令（如 Pod 亲和性和反亲和性）会被忽略，
-- 若底层 ClusterAutoscaler 无法扩容满足域约束的节点，则 "podset-required-topology" 注解可能失效，
-- [MultiKueue](multikueue.md) 的 ClusterQueue 若引用带拓扑名（`.spec.topologyName`）的 ResourceFlavor，则会被标记为非活跃。
+{{< feature-state state="alpha" for_version="v0.17" >}}
+{{% alert title="注意" color="primary" %}}
+**TASMultiLayerTopology** 目前是一个 alpha 特性，默认情况下是禁用的。
 
-这些场景计划在 Kueue 后续版本中支持。
+你可以通过编辑 **TASMultiLayerTopology** 特性门控来启用它。有关配置特性门控的说明，
+请参阅[安装指南](/docs/installation/#change-the-feature-gates-configuration)。
+{{% /alert %}}
+
+多层拓扑允许你定义最多 3 层的切片拓扑约束，从而在深层次拓扑层次结构中实现细粒度放置。
+这对于具有多个拓扑级别的数据中心（例如，数据中心、块、机架）非常有用，
+在每个级别上你需要不同的切片大小。
+
+使用单层方法（`kueue.x-k8s.io/podset-slice-required-topology` +
+`kueue.x-k8s.io/podset-slice-size`），你只能指定一个拓扑级别和一个切片大小。
+多层拓扑通过让你同时在多个级别指定约束来扩展此功能。
+
+例如，如果你有 64 个 Pod，并且希望在同一块中有 32 个 Pod
+的组以及在同一机架中有 16 个 Pod 的组，你可以用一个注解表达这个：
+
+```yaml
+kueue.x-k8s.io/podset-slice-required-topology-constraints: |
+  [
+    {"topology": "cloud.provider.com/topology-block", "size": 32},
+    {"topology": "cloud.provider.com/topology-rack", "size": 16}
+  ]
+```
+
+约束作为 JSON 数组指定，从最外层（最粗糙）到最内层（最精细）排序。
+每个内部切片大小必须能够被外部切片大小整除。
+
+此注解与 `kueue.x-k8s.io/podset-slice-required-topology` 和
+`kueue.x-k8s.io/podset-slice-size` 互斥。
 
 ## 缺点
 
