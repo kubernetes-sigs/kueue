@@ -588,7 +588,7 @@ func (c *Cache) GetLocalQueueLabels(cqName kueue.ClusterQueueReference, lqKey qu
 	if err != nil {
 		return nil, err
 	}
-	return lq.labels, nil
+	return lq.GetLabels(), nil
 }
 
 func (c *Cache) ClusterQueueUsesAdmissionFairSharing(cqName kueue.ClusterQueueReference) bool {
@@ -603,18 +603,7 @@ func (c *Cache) ClusterQueueUsesAdmissionFairSharing(cqName kueue.ClusterQueueRe
 
 func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	if oldQ.Spec.ClusterQueue == newQ.Spec.ClusterQueue {
-		if features.Enabled(features.CustomMetricLabels) {
-			c.RLock()
-			defer c.RUnlock()
-			cq := c.hm.ClusterQueue(newQ.Spec.ClusterQueue)
-			if cq != nil {
-				if lq := cq.localQueues[queue.Key(newQ)]; lq != nil {
-					lq.Lock()
-					lq.customMetricLabelValues = c.customLabels.ExtractValues(newQ.Labels, newQ.Annotations)
-					lq.Unlock()
-				}
-			}
-		}
+		c.updateLqMetricLabels(newQ)
 		return nil
 	}
 	c.Lock()
@@ -632,6 +621,19 @@ func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 		return cq.addLocalQueue(newQ, customLabelValues)
 	}
 	return nil
+}
+
+func (c *Cache) updateLqMetricLabels(newLq *kueue.LocalQueue) {
+	cachedLq, err := c.GetCacheLocalQueue(newLq.Spec.ClusterQueue, queue.Key(newLq))
+	if err != nil {
+		return
+	}
+	cachedLq.Lock()
+	defer cachedLq.Unlock()
+	cachedLq.labels = newLq.GetLabels()
+	if features.Enabled(features.CustomMetricLabels) {
+		cachedLq.customMetricLabelValues = c.customLabels.ExtractValues(newLq.Labels, newLq.Annotations)
+	}
 }
 
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
@@ -1013,7 +1015,7 @@ func (c *Cache) ResyncGaugeMetrics() {
 			cq.reportResourceMetrics(c.fairSharingEnabled)
 		}
 		for _, lq := range cq.localQueues {
-			if c.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
+			if lq.shouldExposeMetrics(c.lqMetrics) {
 				lq.reportActiveWorkloads(c.roleTracker)
 				lq.reportResourceMetrics(cq.resourceNode.Quotas, c.roleTracker)
 			}

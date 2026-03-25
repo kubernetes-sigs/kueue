@@ -558,7 +558,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 			lq.updateAdmittedUsage(frUsage, op)
 			lq.admittedWorkloads += op.asSignedOne()
 		}
-		if c.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
+		if lq.shouldExposeMetrics(c.lqMetrics) {
 			lq.reportActiveWorkloads(c.roleTracker)
 		}
 	}

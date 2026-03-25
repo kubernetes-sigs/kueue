@@ -690,4 +690,47 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 			util.ExpectLQPendingWorkloadsMetric(queueDynamic, 1, 0)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("Should delete local queue metrics after changing labels to not matching", func() {
+		ginkgo.By("Creating a localQueue with matching labels")
+		queueDeleteMetrics := utiltestingapi.MakeLocalQueue("queue-delete-metrics", ns.Name).
+			ClusterQueue(clusterQueue.Name).
+			Label("metrics-test", "true").
+			Obj()
+		util.MustCreate(ctx, k8sClient, queueDeleteMetrics)
+
+		wlDeleteMetrics := utiltestingapi.MakeWorkload("wl-delete-metrics", ns.Name).
+			Queue(kueue.LocalQueueName(queueDeleteMetrics.Name)).
+			Request(resourceGPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, wlDeleteMetrics)
+
+		ginkgo.By("Waiting for workload to be reflected in status (Pending)")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var updated kueue.LocalQueue
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queueDeleteMetrics), &updated)).To(gomega.Succeed())
+			g.Expect(updated.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying metrics are initially available for matching labels")
+		gomega.Eventually(func(g gomega.Gomega) {
+			util.ExpectLQPendingWorkloadsMetric(queueDeleteMetrics, 1, 0)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Updating the localQueue to non-matching labels")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var updated kueue.LocalQueue
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queueDeleteMetrics), &updated)).To(gomega.Succeed())
+			if updated.Labels == nil {
+				updated.Labels = make(map[string]string)
+			}
+			updated.Labels["metrics-test"] = "false"
+			g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying metrics are cleared after labels are updated to non-matching")
+		gomega.Eventually(func(g gomega.Gomega) {
+			util.ExpectLQPendingWorkloadsMetric(queueDeleteMetrics, 0, 0)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
 })
