@@ -380,6 +380,9 @@ objectRetentionPolicies:
 		cmpopts.IgnoreUnexported(net.ListenConfig{}),
 		cmpopts.IgnoreFields(ctrl.Options{}, "Scheme", "Logger"),
 		cmpopts.IgnoreFields(webhook.Options{}, "TLSOpts"),
+		// DefaultTransform is a function and cannot be compared with cmp.Diff;
+		// it is tested separately in TestDefaultTransformStripsManagedFields.
+		cmpopts.IgnoreFields(ctrlcache.Options{}, "DefaultTransform"),
 	}
 
 	// Ignore the controller manager section since it's side effect is checked against
@@ -842,6 +845,9 @@ objectRetentionPolicies:
 				}
 				if diff := cmp.Diff(tc.wantOptions, options, ctrlOptsCmpOpts...); diff != "" {
 					t.Errorf("Unexpected options (-want +got):\n%s", diff)
+				}
+				if options.Cache.DefaultTransform == nil {
+					t.Error("Expected DefaultTransform to be set, got nil")
 				}
 			} else {
 				if diff := cmp.Diff(tc.wantError.Error(), err.Error()); diff != "" {
@@ -1372,6 +1378,101 @@ func TestConfigureClusterProfileCache(t *testing.T) {
 
 			if err == nil {
 				t.Error("Expected error but got none")
+			}
+		})
+	}
+}
+
+func TestDefaultTransformStripsManagedFields(t *testing.T) {
+	testScheme := runtime.NewScheme()
+	if err := configapi.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configFile, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
+	options, _, err := Load(testScheme, configFile)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if options.Cache.DefaultTransform == nil {
+		t.Fatal("DefaultTransform is nil, cannot test transform behavior")
+	}
+
+	testCases := map[string]struct {
+		pod     *corev1.Pod
+		wantPod *corev1.Pod
+	}{
+		"strips managedFields and preserves object data": {
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+					Labels:    map[string]string{"app": "test"},
+					Annotations: map[string]string{
+						"note": "keep-me",
+					},
+					ManagedFields: []metav1.ManagedFieldsEntry{
+						{
+							Manager:   "kubectl",
+							Operation: metav1.ManagedFieldsOperationApply,
+						},
+						{
+							Manager:   "kube-controller-manager",
+							Operation: metav1.ManagedFieldsOperationUpdate,
+						},
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "node-1",
+				},
+			},
+			wantPod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test-pod",
+					Namespace:   "default",
+					Labels:      map[string]string{"app": "test"},
+					Annotations: map[string]string{"note": "keep-me"},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "node-1",
+				},
+			},
+		},
+		"no-op when managedFields already nil": {
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-pod",
+				},
+			},
+			wantPod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-pod",
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			result, err := options.Cache.DefaultTransform(tc.pod)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			got, ok := result.(*corev1.Pod)
+			if !ok {
+				t.Fatal("DefaultTransform returned unexpected type")
+			}
+			if diff := cmp.Diff(tc.wantPod, got); diff != "" {
+				t.Errorf("Unexpected pod after transform (-want +got):\n%s", diff)
 			}
 		})
 	}
