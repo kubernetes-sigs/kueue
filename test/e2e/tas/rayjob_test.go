@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Label("feature:kuberay"), ginkgo.Ordered, func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology

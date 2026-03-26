@@ -237,6 +237,24 @@ CustomConfigs tests are labeled by feature. You can use `GINKGO_ARGS` with `--la
 GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-customconfigs
 ```
 
+### Use label filters for TAS e2e tests
+TAS e2e tests are labeled by feature. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
+
+**Label Taxonomy:**
+- Features: `job,jobset,pytorchjob,mpijob,kuberay,appwrapper,leaderworkerset,statefulset,pod,trainjob,hotswap`
+
+**Examples:**
+```shell
+# Run only PyTorchJob TAS tests
+GINKGO_ARGS="--label-filter=feature:pytorchjob" make test-tas-e2e
+
+# Run only JobSet TAS tests
+GINKGO_ARGS="--label-filter=feature:jobset" make test-tas-e2e
+
+# Run only AppWrapper TAS tests
+GINKGO_ARGS="--label-filter=feature:appwrapper" make test-tas-e2e
+```
+
 ### Use Ginkgo --focus arg
 ```shell
 GINKGO_ARGS="--focus=Scheduler" make test-integration
