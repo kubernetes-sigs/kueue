@@ -31,8 +31,13 @@ import (
 )
 
 const (
-	hashLength                 = 5
-	longMaxWorkloadNameLength  = 253
+	hashLength                = 5
+	longMaxWorkloadNameLength = 253
+	// shortMaxWorkloadNameLength is set to 63 to comply with Kubernetes label value length constraints.
+	// Kubernetes label values must be 63 characters or less per the Kubernetes specification.
+	// Since workload names are used as label values, they must respect this limit.
+	// See https://github.com/kubernetes-sigs/kueue/issues/9872 and
+	// https://github.com/kubernetes-sigs/kueue/issues/10098 for more details.
 	shortMaxWorkloadNameLength = 63
 )
 
