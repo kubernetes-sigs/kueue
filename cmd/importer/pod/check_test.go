@@ -24,7 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/importer/util"
+	"sigs.k8s.io/kueue/cmd/importer/cache"
+	"sigs.k8s.io/kueue/cmd/importer/mapping"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -46,7 +47,7 @@ func TestCheckNamespace(t *testing.T) {
 		pods          []corev1.Pod
 		clusterQueues []kueue.ClusterQueue
 		localQueues   []kueue.LocalQueue
-		mapping       util.MappingRules
+		mapping       mapping.Rules
 		flavors       []kueue.ResourceFlavor
 
 		wantError error
@@ -56,15 +57,15 @@ func TestCheckNamespace(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.Clone().Obj(),
 			},
-			wantError: util.ErrNoMapping,
+			wantError: mapping.ErrNoMapping,
 		},
 		"no local queue": {
 			pods: []corev1.Pod{
 				*basePodWrapper.Clone().Obj(),
 			},
-			mapping: util.MappingRules{
-				util.MappingRule{
-					Match: util.MappingMatch{
+			mapping: mapping.Rules{
+				mapping.Rule{
+					Match: mapping.Match{
 						PriorityClassName: "",
 						Labels: map[string]string{
 							testingQueueLabel: "q1",
@@ -73,15 +74,15 @@ func TestCheckNamespace(t *testing.T) {
 					ToLocalQueue: "lq1",
 				},
 			},
-			wantError: util.ErrLQNotFound,
+			wantError: cache.ErrLQNotFound,
 		},
 		"no cluster queue": {
 			pods: []corev1.Pod{
 				*basePodWrapper.Clone().Obj(),
 			},
-			mapping: util.MappingRules{
-				util.MappingRule{
-					Match: util.MappingMatch{
+			mapping: mapping.Rules{
+				mapping.Rule{
+					Match: mapping.Match{
 						PriorityClassName: "",
 						Labels: map[string]string{
 							testingQueueLabel: "q1",
@@ -93,15 +94,15 @@ func TestCheckNamespace(t *testing.T) {
 			localQueues: []kueue.LocalQueue{
 				*baseLocalQueue.Obj(),
 			},
-			wantError: util.ErrCQNotFound,
+			wantError: cache.ErrCQNotFound,
 		},
 		"invalid cq": {
 			pods: []corev1.Pod{
 				*basePodWrapper.Clone().Obj(),
 			},
-			mapping: util.MappingRules{
-				util.MappingRule{
-					Match: util.MappingMatch{
+			mapping: mapping.Rules{
+				mapping.Rule{
+					Match: mapping.Match{
 						PriorityClassName: "",
 						Labels: map[string]string{
 							testingQueueLabel: "q1",
@@ -116,15 +117,15 @@ func TestCheckNamespace(t *testing.T) {
 			clusterQueues: []kueue.ClusterQueue{
 				*baseClusterQueue.Obj(),
 			},
-			wantError: util.ErrCQInvalid,
+			wantError: cache.ErrCQInvalid,
 		},
 		"all found": {
 			pods: []corev1.Pod{
 				*basePodWrapper.Clone().Obj(),
 			},
-			mapping: util.MappingRules{
-				util.MappingRule{
-					Match: util.MappingMatch{
+			mapping: mapping.Rules{
+				mapping.Rule{
+					Match: mapping.Match{
 						PriorityClassName: "",
 						Labels: map[string]string{
 							testingQueueLabel: "q1",
@@ -158,7 +159,7 @@ func TestCheckNamespace(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			mpc, _ := util.LoadImportCache(ctx, client, []string{testingNamespace}, tc.mapping, nil)
+			mpc, _ := cache.Load(ctx, client, []string{testingNamespace}, tc.mapping, nil)
 			gotErr := Check(ctx, client, mpc, 8)
 
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {

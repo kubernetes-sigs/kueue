@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/importer/util"
+	"sigs.k8s.io/kueue/cmd/importer/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -43,26 +43,26 @@ import (
 
 var realClock = clock.RealClock{}
 
-func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs uint) error {
+func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache, jobs uint) error {
 	ch := make(chan corev1.Pod)
 	go func() {
-		err := util.PushPods(ctx, c, cache.Namespaces, ch)
+		err := ListPods(ctx, c, importCache.Namespaces, ch)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "Listing pods")
 		}
 	}()
-	summary := util.ConcurrentProcessPod(ch, jobs, func(p *corev1.Pod) (bool, error) {
+	summary := ProcessConcurrently(ch, jobs, func(p *corev1.Pod) (bool, error) {
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
 		log.V(3).Info("Importing")
 
-		lq, skip, err := cache.LocalQueue(p)
+		lq, skip, err := importCache.LocalQueue(p)
 		if skip || err != nil {
 			return skip, err
 		}
 
 		oldLq, found := p.Labels[controllerconstants.QueueLabel]
 		if !found {
-			if err := addLabels(ctx, c, p, lq.Name, cache.AddLabels); err != nil {
+			if err := addLabels(ctx, c, p, lq.Name, importCache.AddLabels); err != nil {
 				return false, fmt.Errorf("cannot add queue label: %w", err)
 			}
 		} else if oldLq != lq.Name {
@@ -76,9 +76,9 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			return false, fmt.Errorf("construct workload: %w", err)
 		}
 
-		maps.Copy(wl.Labels, cache.AddLabels)
+		maps.Copy(wl.Labels, importCache.AddLabels)
 
-		if pc, found := cache.PriorityClasses[p.Spec.PriorityClassName]; found {
+		if pc, found := importCache.PriorityClasses[p.Spec.PriorityClassName]; found {
 			wl.Spec.PriorityClassRef = kueue.NewPodPriorityClassRef(pc.Name)
 			wl.Spec.Priority = &pc.Value
 		}
@@ -87,7 +87,7 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		if err := admitWorkload(ctx, c, wl, cache.ClusterQueues[string(lq.Spec.ClusterQueue)]); err != nil {
+		if err := admitWorkload(ctx, c, wl, importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))

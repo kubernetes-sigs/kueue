@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package mapping
 
 import (
 	"os"
@@ -44,9 +44,9 @@ const (
 `
 )
 
-var testMappingRules = MappingRules{
+var testMappingRules = Rules{
 	{
-		Match: MappingMatch{
+		Match: Match{
 			PriorityClassName: "preemptible",
 			Labels: map[string]string{
 				"resource_type": "cpu-only",
@@ -55,7 +55,7 @@ var testMappingRules = MappingRules{
 		ToLocalQueue: "preemptible-cpu",
 	},
 	{
-		Match: MappingMatch{
+		Match: Match{
 			Labels: map[string]string{
 				"project_id":    "alpha",
 				"resource_type": "gpu",
@@ -64,7 +64,7 @@ var testMappingRules = MappingRules{
 		ToLocalQueue: "alpha-gpu",
 	},
 	{
-		Match: MappingMatch{
+		Match: Match{
 			Labels: map[string]string{
 				"project_id":    "alpha",
 				"resource_type": "cpu",
@@ -74,7 +74,7 @@ var testMappingRules = MappingRules{
 	},
 }
 
-func TestMappingFromFile(t *testing.T) {
+func TestRulesFromFile(t *testing.T) {
 	tdir := t.TempDir()
 	fPath := filepath.Join(tdir, "mapping.yaml")
 	err := os.WriteFile(fPath, []byte(testContent), os.FileMode(0600))
@@ -82,21 +82,21 @@ func TestMappingFromFile(t *testing.T) {
 		t.Fatalf("unable to create the test file: %s", err)
 	}
 
-	mapping, err := MappingRulesFromFile(fPath)
+	rules, err := RulesFromFile(fPath)
 	if err != nil {
 		t.Fatalf("unexpected load error: %s", err)
 	}
 
-	if diff := cmp.Diff(testMappingRules, mapping); diff != "" {
+	if diff := cmp.Diff(testMappingRules, rules); diff != "" {
 		t.Errorf("unexpected mapping(want-/ got+):\n%s", diff)
 	}
 }
 
-func TestMappingMatch(t *testing.T) {
+func TestRulesQueueFor(t *testing.T) {
 	cases := map[string]struct {
 		className string
 		labels    map[string]string
-		rules     MappingRules
+		rules     Rules
 
 		wantMatch bool
 		wantSkip  bool

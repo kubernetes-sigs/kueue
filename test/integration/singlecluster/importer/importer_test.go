@@ -24,8 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	importercache "sigs.k8s.io/kueue/cmd/importer/cache"
+	importermapping "sigs.k8s.io/kueue/cmd/importer/mapping"
 	importerpod "sigs.k8s.io/kueue/cmd/importer/pod"
-	importerutil "sigs.k8s.io/kueue/cmd/importer/util"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -83,7 +84,7 @@ var _ = ginkgo.Describe("Importer", func() {
 			})
 
 			ginkgo.By("Running the import", func() {
-				mapping, err := importerutil.LoadImportCache(ctx, k8sClient, []string{ns.Name}, importerutil.MappingRulesForLabel("src.lbl", map[string]string{"src-val": "lq1"}), nil)
+				mapping, err := importercache.Load(ctx, k8sClient, []string{ns.Name}, importermapping.RulesForLabel("src.lbl", map[string]string{"src-val": "lq1"}), nil)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred())
 				gomega.Expect(mapping).ToNot(gomega.BeNil())
 

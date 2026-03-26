@@ -31,8 +31,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/cmd/importer/cache"
+	"sigs.k8s.io/kueue/cmd/importer/mapping"
 	"sigs.k8s.io/kueue/cmd/importer/pod"
-	"sigs.k8s.io/kueue/cmd/importer/util"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 )
 
@@ -110,7 +111,7 @@ func main() {
 	}
 }
 
-func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) (*util.ImportCache, error) {
+func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) (*cache.ImportCache, error) {
 	flags := cmd.Flags()
 	namespaces, err := flags.GetStringSlice(NamespaceFlag)
 	if err != nil {
@@ -127,9 +128,9 @@ func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) 
 		return nil, err
 	}
 
-	var mapping util.MappingRules
+	var rules mapping.Rules
 	if mappingFile != "" {
-		mapping, err = util.MappingRulesFromFile(mappingFile)
+		rules, err = mapping.RulesFromFile(mappingFile)
 		if err != nil {
 			return nil, err
 		}
@@ -138,7 +139,7 @@ func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) 
 		if err != nil {
 			return nil, err
 		}
-		mapping = util.MappingRulesForLabel(queueLabel, queueLabelMapping)
+		rules = mapping.RulesForLabel(queueLabel, queueLabelMapping)
 	}
 
 	addLabels, err := flags.GetStringToString(AddLabelsFlag)
@@ -159,7 +160,7 @@ func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) 
 		return nil, fmt.Errorf("%s: %w", AddLabelsFlag, errors.Join(validationErrors...))
 	}
 
-	return util.LoadImportCache(ctx, c, namespaces, mapping, addLabels)
+	return cache.Load(ctx, c, namespaces, rules, addLabels)
 }
 
 func getKubeClient(cmd *cobra.Command) (client.Client, error) {
