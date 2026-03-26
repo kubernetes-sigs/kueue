@@ -43,29 +43,24 @@ func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq
 	gomega.ExpectWithOffset(1, finished).To(gomega.Equal(n), "Not enough workloads finished")
 }
 
-func finishEvictionsOfAnyWorkloadsInCq(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) sets.Set[types.UID] {
-	finished := sets.New[types.UID]()
-	var wList kueue.WorkloadList
-	gomega.Expect(k8sClient.List(ctx, &wList)).To(gomega.Succeed())
-	for _, wl := range wList.Items {
-		if wl.Status.Admission == nil || string(wl.Status.Admission.ClusterQueue) != cq.Name {
-			continue
-		}
-		if workload.IsEvicted(&wl) && workload.HasQuotaReservation(&wl) {
-			gomega.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &wl, RealClock, func(wl *kueue.Workload) (bool, error) {
-				return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Eviction finished by test", time.Now()), nil
-			}),
-			).To(gomega.Succeed())
-			finished.Insert(wl.UID)
-		}
-	}
-	return finished
-}
-
 func FinishEvictionOfWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, n int) {
+	wList := &kueue.WorkloadList{}
 	finished := sets.New[types.UID]()
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		finished.Insert(finishEvictionsOfAnyWorkloadsInCq(ctx, k8sClient, cq).UnsortedList()...)
+		g.Expect(k8sClient.List(ctx, wList)).To(gomega.Succeed())
+		for _, wl := range wList.Items {
+			if wl.Status.Admission == nil || string(wl.Status.Admission.ClusterQueue) != cq.Name {
+				continue
+			}
+			if workload.IsEvicted(&wl) && workload.HasQuotaReservation(&wl) {
+				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &wl, RealClock, func(wl *kueue.Workload) (bool, error) {
+					return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Eviction finished by test", time.Now()), nil
+				}),
+				).To(gomega.Succeed())
+				finished.Insert(wl.UID)
+			}
+		}
+
 		g.Expect(finished.Len()).Should(gomega.Equal(n), "Not enough workloads evicted")
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed(), assertMsgObjList("Not enough workloads evicted in ClusterQueue", wList))
 }
