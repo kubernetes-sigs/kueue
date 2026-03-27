@@ -620,7 +620,7 @@ The label 'reason' can have the following values:
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admitted_active_workloads",
-			Help:      "The number of admitted Workloads that are active (unsuspended and not finished), per 'cluster_queue'",
+			Help:      "The number of admitted Workloads that are active, per 'cluster_queue'",
 		}, append([]string{"cluster_queue", "replica_role"}, extraLabels...),
 	))
 
@@ -628,7 +628,7 @@ The label 'reason' can have the following values:
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admitted_active_workloads",
-			Help:      "The number of admitted Workloads that are active (unsuspended and not finished), per 'localQueue'",
+			Help:      "The number of admitted Workloads that are active, per 'localQueue'",
 		}, append([]string{"name", "namespace", "replica_role"}, extraLabels...),
 	))
 
