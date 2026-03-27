@@ -44,6 +44,9 @@ type DRS struct {
 	fairWeight       float64
 	unweightedRatio  float64
 	dominantResource corev1.ResourceName
+	// borrowedFRs records which FlavorResources the node is
+	// currently borrowing on.
+	borrowedFRs []resources.FlavorResource
 }
 
 // NegativeDRS is used as a starting point for comparisons.
@@ -56,6 +59,17 @@ func NegativeDRS() DRS {
 // borrowing any resources.
 func (d DRS) IsZero() bool {
 	return d.unweightedRatio == 0
+}
+
+// IsBorrowingOn reports whether the node borrows on any
+// FlavorResource present in requestedFRs.
+func (d DRS) IsBorrowingOn(requestedFRs resources.FlavorResourceQuantities) bool {
+	for _, fr := range d.borrowedFRs {
+		if requestedFRs[fr] > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (d DRS) isWeightZero() bool {
@@ -119,16 +133,19 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 		return drs
 	}
 
+	var borrowedFRs []resources.FlavorResource
 	borrowing := make(map[corev1.ResourceName]int64, len(node.getResourceNode().SubtreeQuota))
 	for fr, quota := range node.getResourceNode().SubtreeQuota {
 		amountBorrowed := wlReq[fr] + node.getResourceNode().Usage[fr] - quota
 		if amountBorrowed > 0 {
 			borrowing[fr.Resource] += amountBorrowed
+			borrowedFRs = append(borrowedFRs, fr)
 		}
 	}
 	if len(borrowing) == 0 {
 		return drs
 	}
+	drs.borrowedFRs = borrowedFRs
 
 	lendable := calculateLendable(node.parentHRN())
 	for rName, b := range borrowing {
