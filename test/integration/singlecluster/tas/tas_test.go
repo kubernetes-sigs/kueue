@@ -3606,6 +3606,120 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
+			ginkgo.It("should admit workload when nodes are provisioned; limits-only requested by Workload; with restart", framework.SlowSpec, func() {
+				var (
+					wl1 *kueue.Workload
+				)
+
+				ginkgo.By("create workload with limits-only", func() {
+					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Limit(corev1.ResourceCPU, "1").
+							PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+							Image("image").
+							Obj(),
+						).Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+				})
+
+				wlKey := client.ObjectKeyFromObject(wl1)
+
+				ginkgo.By("verify the workload reserves the quota", func() {
+					util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl1)
+				})
+
+				provReqKey := apitypes.NamespacedName{
+					Namespace: wlKey.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
+				}
+
+				ginkgo.By("await for the ProvisioningRequest to be created", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("provision the nodes but NotReady to keep the workload inadmissible by TAS", func() {
+					nodes = []corev1.Node{
+						*testingnode.MakeNode("x1").
+							Label("node-group", "tas").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r1").
+							Label(corev1.LabelHostname, "x1").
+							StatusAllocatable(corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("1"),
+								corev1.ResourceMemory: resource.MustParse("1Gi"),
+								corev1.ResourcePods:   resource.MustParse("10"),
+							}).
+							NotReady().
+							Obj(),
+						*testingnode.MakeNode("x2").
+							Label("node-group", "tas").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r1").
+							Label(corev1.LabelHostname, "x2").
+							StatusAllocatable(corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("1"),
+								corev1.ResourceMemory: resource.MustParse("1Gi"),
+								corev1.ResourcePods:   resource.MustParse("10"),
+							}).
+							NotReady().
+							Obj(),
+					}
+					util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				})
+
+				ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Provisioned,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("await for the admission check to be ready", func() {
+					util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+				})
+
+				ginkgo.By("restart Kueue manager", func() {
+					fwk.StopManager(ctx)
+					fwk.StartManager(ctx, cfg, managerSetup())
+				})
+
+				for _, node := range nodes {
+					ginkgo.By(fmt.Sprintf("make the node %s Ready to make the workload admissible", node.Name), func() {
+						createdNode := &corev1.Node{}
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: node.Name}, createdNode)).Should(gomega.Succeed())
+
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdNode), createdNode)).Should(gomega.Succeed())
+							createdNode.Status.Conditions = []corev1.NodeCondition{{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							}}
+							g.Expect(k8sClient.Status().Update(ctx, createdNode)).Should(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdNode), createdNode)).Should(gomega.Succeed())
+							createdNode.Spec.Taints = slices.DeleteFunc(createdNode.Spec.Taints, func(taint corev1.Taint) bool {
+								return taint.Key == corev1.TaintNodeNotReady
+							})
+							g.Expect(k8sClient.Update(ctx, createdNode)).Should(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					})
+				}
+
+				ginkgo.By("verify the workload is admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+				})
+			})
+
 			ginkgo.It("should admit workload when nodes are provisioned; only-limits requested by Workload", framework.SlowSpec, func() {
 				var (
 					wl1 *kueue.Workload
