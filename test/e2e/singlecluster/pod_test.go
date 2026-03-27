@@ -176,7 +176,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 						util.MustCreate(ctx, k8sClient, p.DeepCopy())
 					}
 
-					util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})
+					util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"}, util.LongTimeout)
 				})
 			})
 		}

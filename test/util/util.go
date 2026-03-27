@@ -527,11 +527,17 @@ func expectWorkloadsWithPriority(ctx context.Context, c client.Client, priorityC
 }
 
 func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlKey, MediumTimeout)
+}
+
+func ExpectWorkloadToFinishWithTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, timeout time.Duration) {
+	ginkgo.GinkgoHelper()
 	var wl kueue.Workload
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
 		g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished), "it's finished")
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, timeout, Interval).Should(gomega.Succeed(), assertMsg("Workload did not finish", &wl))
 }
 
 func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
