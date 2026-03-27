@@ -289,22 +289,22 @@ func TestCohortMetrics(t *testing.T) {
 	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
 
-	ReportCohortSubtreeQuota("cohort", "flavor", "res", 5, leaderTracker)
+	ReportCohortSubtreeQuota("cohort", "flavor", "res", 5, nil, leaderTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort", "replica_role", "leader")
 
-	ReportCohortSubtreeQuota("cohort", "flavor", "res", 3, followerTracker)
+	ReportCohortSubtreeQuota("cohort", "flavor", "res", 3, nil, followerTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort", "replica_role", "follower")
 
-	ReportCohortSubtreeQuota("cohort_two", "flavor", "res", 5, leaderTracker)
+	ReportCohortSubtreeQuota("cohort_two", "flavor", "res", 5, nil, leaderTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", "cohort_two", "replica_role", "leader")
 
-	ReportCohortSubtreeResourceReservations("cohort", "flavor", "res", 5, leaderTracker)
+	ReportCohortSubtreeResourceReservations("cohort", "flavor", "res", 5, nil, leaderTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 1, "cohort", "cohort", "replica_role", "leader")
 
-	ReportCohortSubtreeResourceReservations("cohort", "flavor", "res", 3, followerTracker)
+	ReportCohortSubtreeResourceReservations("cohort", "flavor", "res", 3, nil, followerTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 1, "cohort", "cohort", "replica_role", "follower")
 
-	ReportCohortSubtreeResourceReservations("cohort_two", "flavor", "res", 3, leaderTracker)
+	ReportCohortSubtreeResourceReservations("cohort_two", "flavor", "res", 3, nil, leaderTracker)
 	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 1, "cohort", "cohort_two", "replica_role", "leader")
 
 	ClearCohortSubtreeResourceReservations("cohort", "", "")

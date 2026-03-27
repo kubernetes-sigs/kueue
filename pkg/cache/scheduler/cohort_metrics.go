@@ -130,13 +130,13 @@ func (c *Cache) applyCohortMetricPoint(p cohortMetricPoint) {
 	if p.quotaQty <= 0 {
 		metrics.ClearCohortSubtreeQuota(p.cohortName, flavor, resource)
 	} else {
-		metrics.ReportCohortSubtreeQuota(p.cohortName, flavor, resource, p.quotaQty, c.roleTracker)
+		metrics.ReportCohortSubtreeQuota(p.cohortName, flavor, resource, p.quotaQty, c.customLabels.CohortGet(p.cohortName), c.roleTracker)
 	}
 
 	if p.reservationsQty <= 0 {
 		metrics.ClearCohortSubtreeResourceReservations(p.cohortName, flavor, resource)
 	} else {
-		metrics.ReportCohortSubtreeResourceReservations(p.cohortName, flavor, resource, p.reservationsQty, c.roleTracker)
+		metrics.ReportCohortSubtreeResourceReservations(p.cohortName, flavor, resource, p.reservationsQty, c.customLabels.CohortGet(p.cohortName), c.roleTracker)
 	}
 }
 

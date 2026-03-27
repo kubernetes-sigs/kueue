@@ -664,6 +664,12 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				g.Expect(updatedWl.Status.Admission).ToNot(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			ginkgo.By("verifying CohortSubtreeQuota includes custom_team=data-eng")
+			util.ExpectCohortSubtreeQuotaGaugeMetric(cohort.Name, defaultFlavor.Name, corev1.ResourceCPU.String(), 5_000, "data-eng")
+
+			ginkgo.By("verifying CohortSubtreeResourceReservations includes custom_team=data-eng")
+			util.ExpectCohortSubtreeResourceReservationsGaugeMetric(cohort.Name, defaultFlavor.Name, corev1.ResourceCPU.String(), 1_000, "data-eng")
+
 			ginkgo.By("verifying CohortWeightedShare includes custom_team=data-eng")
 			gomega.Eventually(func(g gomega.Gomega) {
 				lvs := []string{"cohort-labeled", roletracker.RoleStandalone, "data-eng"}

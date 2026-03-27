@@ -300,15 +300,15 @@ func expectGaugeMetric(metric *prometheus.GaugeVec, lvs []string, matcher gomega
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectCohortSubtreeQuotaGaugeMetric(cohortName string, flavor, resource string, count float64) {
+func ExpectCohortSubtreeQuotaGaugeMetric(cohortName string, flavor, resource string, count float64, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	lvs := []string{cohortName, flavor, resource, roletracker.RoleStandalone}
+	lvs := append([]string{cohortName, flavor, resource, roletracker.RoleStandalone}, customLabels...)
 	expectGaugeMetric(metrics.CohortSubtreeQuota, lvs, gomega.Equal(count))
 }
 
-func ExpectCohortSubtreeQuotaGaugeMetricCleaned(cohortName, flavor, resource string) {
+func ExpectCohortSubtreeQuotaGaugeMetricCleaned(cohortName, flavor, resource string, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	ExpectCohortSubtreeQuotaGaugeMetric(cohortName, flavor, resource, 0)
+	ExpectCohortSubtreeQuotaGaugeMetric(cohortName, flavor, resource, 0, customLabels...)
 }
 
 func ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(cohortName kueue.CohortReference, priorityClass string, v int, customLabels ...string) {
@@ -318,13 +318,13 @@ func ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(cohortName kueue.CohortRefe
 	expectCounterMetric(metric, v)
 }
 
-func ExpectCohortSubtreeResourceReservationsGaugeMetric(cohortName string, flavor, resource string, count float64) {
+func ExpectCohortSubtreeResourceReservationsGaugeMetric(cohortName string, flavor, resource string, count float64, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	lvs := []string{cohortName, flavor, resource, roletracker.RoleStandalone}
+	lvs := append([]string{cohortName, flavor, resource, roletracker.RoleStandalone}, customLabels...)
 	expectGaugeMetric(metrics.CohortSubtreeResourceReservations, lvs, gomega.Equal(count))
 }
 
-func ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned(cohortName, flavor, resource string) {
+func ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned(cohortName, flavor, resource string, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	ExpectCohortSubtreeResourceReservationsGaugeMetric(cohortName, flavor, resource, 0)
+	ExpectCohortSubtreeResourceReservationsGaugeMetric(cohortName, flavor, resource, 0, customLabels...)
 }
