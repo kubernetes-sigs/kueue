@@ -47,11 +47,19 @@ type DRS struct {
 	// borrowing tracks whether the node's current usage
 	// exceeds its quota for any resource.
 	borrowing bool
+	// borrowedFRs records which FlavorResources the node is
+	// currently borrowing on.
+	borrowedFRs []resources.FlavorResource
 }
 
 // NegativeDRS is used as a starting point for comparisons.
 func NegativeDRS() DRS {
 	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
+}
+
+// BorrowingDRS returns a DRS that is borrowing on the given FlavorResources.
+func BorrowingDRS(frs ...resources.FlavorResource) DRS {
+	return DRS{fairWeight: defaultWeight, borrowing: true, borrowedFRs: frs}
 }
 
 // IsZero returns whether the DRS unweighted ratio is 0.
@@ -66,6 +74,17 @@ func (d DRS) IsZero() bool {
 // its quota for any resource.
 func (d DRS) IsBorrowing() bool {
 	return d.borrowing
+}
+
+// IsBorrowingOn reports whether the node borrows on any
+// FlavorResource present in requestedFRs.
+func (d DRS) IsBorrowingOn(requestedFRs resources.FlavorResourceQuantities) bool {
+	for _, fr := range d.borrowedFRs {
+		if requestedFRs[fr] > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (d DRS) isWeightZero() bool {
@@ -129,17 +148,20 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 		return drs
 	}
 
+	var borrowedFRs []resources.FlavorResource
 	borrowing := make(map[corev1.ResourceName]int64, len(node.getResourceNode().SubtreeQuota))
 	for fr, quota := range node.getResourceNode().SubtreeQuota {
 		amountBorrowed := wlReq[fr] + node.getResourceNode().Usage[fr] - quota
 		if amountBorrowed > 0 {
 			borrowing[fr.Resource] += amountBorrowed
+			borrowedFRs = append(borrowedFRs, fr)
 		}
 	}
 	if len(borrowing) == 0 {
 		return drs
 	}
 	drs.borrowing = true
+	drs.borrowedFRs = borrowedFRs
 
 	lendable := calculateLendable(node.parentHRN())
 	for rName, b := range borrowing {
