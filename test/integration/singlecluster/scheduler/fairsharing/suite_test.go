@@ -46,6 +46,7 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
+	qManager  *qcache.Manager
 )
 
 func TestScheduler(t *testing.T) {
@@ -86,6 +87,7 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing)
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(admissionFairSharing))
 		queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		qManager = queues
 
 		configuration := &config.Configuration{FairSharing: fairSharing, AdmissionFairSharing: admissionFairSharing}
 		configuration.Metrics.EnableClusterQueueResources = true

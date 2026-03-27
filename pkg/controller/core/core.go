@@ -99,6 +99,7 @@ func SetupControllers(
 		WithWorkloadRetention(workloadRetention(cfg.ObjectRetentionPolicies)),
 		WithWorkloadRoleTracker(roleTracker),
 		WithPreemptionExpectations(preemptionExpectations),
+		WithAdmissionFairSharing(cfg.AdmissionFairSharing),
 	)
 	if features.Enabled(features.DynamicResourceAllocation) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())
