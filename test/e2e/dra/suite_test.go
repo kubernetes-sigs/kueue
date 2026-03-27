@@ -65,6 +65,11 @@ var _ = ginkgo.BeforeSuite(func() {
 	)
 })
 
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+
 func waitForDRAExampleDriverAvailability(ctx context.Context, k8sClient client.Client) {
 	dsKey := types.NamespacedName{Namespace: "dra-example-driver", Name: "dra-example-driver-kubeletplugin"}
 	daemonset := &appsv1.DaemonSet{}

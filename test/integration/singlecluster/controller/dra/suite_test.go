@@ -80,6 +80,11 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+
 // Manager setup used by tests to start controllers with DRA ConfigMap configuration
 func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {

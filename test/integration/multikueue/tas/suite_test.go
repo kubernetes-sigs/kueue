@@ -225,3 +225,8 @@ var _ = ginkgo.AfterSuite(func() {
 	worker1TestCluster.fwk.Teardown()
 	worker2TestCluster.fwk.Teardown()
 })
+
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})

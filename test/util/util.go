@@ -36,6 +36,7 @@ import (
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2/reporters"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -107,6 +108,30 @@ var SetupLoggerGetObservedLogs = sync.OnceValue(func() *observer.ObservedLogs {
 	ctrl.SetLogger(logger)
 	return observedLogs
 })
+
+func ConfigureSuiteReporting(report ginkgo.Report) error {
+	junitConfig := reporters.JunitReportConfig{
+		OmitFailureMessageAttr: true,
+	}
+	suiteName := uniqueSuiteName(report.SuitePath)
+	reportPath := "junit-" + suiteName + ".xml"
+	if dir := os.Getenv("ARTIFACTS"); dir != "" {
+		reportPath = filepath.Join(dir, reportPath)
+	}
+	ginkgo.GinkgoLogr.Info(
+		"Generating JUnit report",
+		"path", reportPath,
+	)
+	return reporters.GenerateJUnitReportWithConfig(report, reportPath, junitConfig)
+}
+
+func uniqueSuiteName(suitePath string) string {
+	normalized := filepath.ToSlash(suitePath)
+	if idx := strings.Index(normalized, "test/"); idx != -1 {
+		normalized = normalized[idx:]
+	}
+	return strings.ReplaceAll(normalized, "/", "-")
+}
 
 func assertMsg[T runtime.Object](message string, objs ...T) func() string {
 	return func() string {

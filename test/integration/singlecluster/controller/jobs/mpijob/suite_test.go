@@ -73,6 +73,11 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		controllersSetup(ctx, mgr, setupJobManager, opts...)

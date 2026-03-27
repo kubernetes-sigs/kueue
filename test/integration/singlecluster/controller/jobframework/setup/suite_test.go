@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
@@ -45,6 +46,11 @@ func TestAPIs(t *testing.T) {
 		"Setup Controllers Suite",
 	)
 }
+
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {

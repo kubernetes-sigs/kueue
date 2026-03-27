@@ -68,6 +68,11 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+
 func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		fairSharing := &config.FairSharing{}

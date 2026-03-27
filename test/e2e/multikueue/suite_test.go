@@ -144,3 +144,8 @@ var _ = ginkgo.BeforeSuite(func() {
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
+
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})

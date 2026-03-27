@@ -67,6 +67,11 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+
 func managerAndSchedulerSetup(configuration *config.Configuration) framework.ManagerSetup {
 	if configuration == nil {
 		configuration = &config.Configuration{}

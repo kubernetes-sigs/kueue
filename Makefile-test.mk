@@ -100,8 +100,9 @@ test-integration: compile-crd-manifests envtest ginkgo dep-crds kueuectl ginkgo-
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(BIN_DIR) \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
+	ARTIFACTS=$(ARTIFACTS) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
-	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=integration-junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
 .PHONY: test-integration-baseline
@@ -118,6 +119,7 @@ test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkg
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(BIN_DIR) \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
+	ARTIFACTS=$(ARTIFACTS) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
