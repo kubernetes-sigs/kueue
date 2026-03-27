@@ -27,6 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -161,25 +162,33 @@ type drsKey struct {
 
 type entryComparer struct {
 	drsValues        map[drsKey]schdcache.DRS
+	// requestedFRs stores the FlavorResources each workload's
+	// assignment uses. Bounded by the number of ClusterQueues
+	// (one head-of-line workload per CQ), not total workloads.
+	requestedFRs     map[workload.Reference]resources.FlavorResourceQuantities
 	workloadOrdering workload.Ordering
 }
 
 func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bool {
-	// 1: Nominal first — a workload that fits within its CQ's nominal
-	// quota is always preferred over one that requires borrowing.
-	// This prevents heavy borrowing on one flavor from eroding a
-	// CQ's nominal entitlement on another flavor.
+	aDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(a.Obj)}]
+	bDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(b.Obj)}]
+
 	if features.Enabled(features.FairSharingPrioritizeNonBorrowing) {
-		aRequiresBorrowing := a.assignment.RequiresBorrowing()
-		bRequiresBorrowing := b.assignment.RequiresBorrowing()
-		if aRequiresBorrowing != bRequiresBorrowing {
-			return !aRequiresBorrowing
+		// 1. Per-flavor subtree non-borrowing: prefer workloads whose
+		// subtree at this tournament level is not borrowing from the
+		// parent cohort on the workload's requested flavors. A subtree
+		// borrowing on an unrelated flavor does not penalize workloads
+		// for flavors where the subtree has ample quota. The recursive
+		// tournament applies this check at every hierarchy level,
+		// covering the entire CQ-to-root path.
+		aBorrowing := aDrs.IsBorrowingOn(e.requestedFRs[workload.Key(a.Obj)])
+		bBorrowing := bDrs.IsBorrowingOn(e.requestedFRs[workload.Key(b.Obj)])
+		if aBorrowing != bBorrowing {
+			return !aBorrowing
 		}
 	}
 
 	// 2: DRF
-	aDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(a.Obj)}]
-	bDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(b.Obj)}]
 	if cmp := schdcache.CompareDRS(aDrs, bDrs); cmp != 0 {
 		return cmp == -1
 	}
@@ -206,14 +215,19 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 // DRS after admission of its nominated workload.
 func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEntry map[*schdcache.ClusterQueueSnapshot]*entry) {
 	e.drsValues = make(map[drsKey]schdcache.DRS)
+	e.requestedFRs = make(map[workload.Reference]resources.FlavorResourceQuantities)
 	for _, cq := range rootCohort.SubtreeClusterQueues() {
 		entry, ok := cqToEntry[cq]
 		if !ok {
 			continue
 		}
+		usage := entry.assignmentUsage()
 		// We add workload's usage to CQ, so that all
 		// subsequent DRS include the admission of workload.
-		revert := cq.SimulateUsageAddition(entry.assignmentUsage())
+		revert := cq.SimulateUsageAddition(usage)
+
+		wlKey := workload.Key(entry.Obj)
+		e.requestedFRs[wlKey] = usage.Quota
 
 		// calculate DRS, with workload, for CQ.
 		dominantResourceShare := cq.DominantResourceShare()
@@ -221,7 +235,7 @@ func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEnt
 		// calculate DRS, with workload, for all Cohorts on
 		// path to root.
 		for ancestor := range cq.PathParentToRoot() {
-			e.drsValues[drsKey{parentCohort: ancestor.GetName(), workloadKey: workload.Key(entry.Obj)}] = dominantResourceShare
+			e.drsValues[drsKey{parentCohort: ancestor.GetName(), workloadKey: wlKey}] = dominantResourceShare
 			dominantResourceShare = ancestor.DominantResourceShare()
 		}
 
