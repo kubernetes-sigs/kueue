@@ -132,6 +132,13 @@ func WithPreemptionExpectations(value *expectations.Store) Option {
 	}
 }
 
+// WithAdmissionFairSharing sets the admission fair sharing configuration.
+func WithAdmissionFairSharing(value *config.AdmissionFairSharing) Option {
+	return func(r *WorkloadReconciler) {
+		r.admissionFSConfig = value
+	}
+}
+
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
@@ -1231,6 +1238,7 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 
 	r.queues.AfsConsumedResources.Set(lqKey, newConsumed, now)
 	r.queues.AfsEntryPenalties.Sub(lqKey, penalty)
+	log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "penalty", penalty, "remaining", r.queues.AfsEntryPenalties.Peek(lqKey))
 
 	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", newConsumed)
 }
