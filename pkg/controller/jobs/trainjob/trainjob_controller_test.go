@@ -93,15 +93,11 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 	}{
 		"should add to the TrainJob the config specified in the PodSet info": {
 			trainJob: testTrainJob.Clone().
-				RuntimePatches([]kftrainerapi.RuntimePatch{{
-					Manager: runtimePatchManagerName,
-					TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-						Template: &kftrainerapi.JobSetTemplatePatch{
-							Metadata: &metav1.ObjectMeta{},
-							Spec:     &kftrainerapi.JobSetSpecPatch{},
-						},
-					},
-				}}).Obj(),
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).Obj(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name: "node",
@@ -119,39 +115,19 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					{
-						Manager: runtimePatchManagerName,
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{
-								Metadata: &metav1.ObjectMeta{},
-								Spec: &kftrainerapi.JobSetSpecPatch{
-									ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-										{
-											Name: "node",
-											Template: &kftrainerapi.JobTemplatePatch{Spec: &kftrainerapi.JobSpecPatch{
-												Template: &kftrainerapi.PodTemplatePatch{
-													Metadata: &metav1.ObjectMeta{
-														Annotations: map[string]string{
-															"test-annotation": "test",
-														},
-														Labels: map[string]string{
-															constants.PodSetLabel: "node",
-															"test-label":          "label",
-														},
-													},
-													Spec: &kftrainerapi.PodSpecPatch{
-														NodeSelector:    map[string]string{"disktype": "ssd"},
-														Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
-														SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-1"}},
-													},
-												},
-											}},
-										},
-									},
-								},
-							},
-						},
-					},
+					testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).
+						EmptyMetadata().
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatchWrapper("node").
+								PodAnnotation("test-annotation", "test").
+								PodLabel(constants.PodSetLabel, "node").
+								PodLabel("test-label", "label").
+								NodeSelector("disktype", "ssd").
+								Toleration(*toleration1.DeepCopy()).
+								SchedulingGate("test-scheduling-gate-1").
+								Obj(),
+						).
+						Obj(),
 				}).
 				Suspend(false).
 				Obj(),
@@ -160,36 +136,18 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		"should respect user provided RuntimePatches when adding PodSet info config to the trainjob": {
 			trainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					{
-						Manager: "user-manager",
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{Spec: &kftrainerapi.JobSetSpecPatch{
-								ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-									{
-										Name: "node",
-										Template: &kftrainerapi.JobTemplatePatch{Spec: &kftrainerapi.JobSpecPatch{
-											Template: &kftrainerapi.PodTemplatePatch{
-												Spec: &kftrainerapi.PodSpecPatch{
-													NodeSelector:    map[string]string{"disktype": "sdd"},
-													Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
-													SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-4"}},
-												},
-											},
-										}},
-									},
-								},
-							}},
-						},
-					},
-					{
-						Manager: runtimePatchManagerName,
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{
-								Metadata: &metav1.ObjectMeta{},
-								Spec:     &kftrainerapi.JobSetSpecPatch{},
-							},
-						},
-					},
+					testingtrainjob.MakeRuntimePatchWrapper("user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatchWrapper("node").
+								NodeSelector("disktype", "sdd").
+								Toleration(*toleration1.DeepCopy()).
+								SchedulingGate("test-scheduling-gate-4").
+								Obj(),
+						).
+						Obj(),
+					testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
 				}).Obj(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
@@ -208,60 +166,28 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					{
-						Manager: "user-manager",
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{Spec: &kftrainerapi.JobSetSpecPatch{
-								ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-									{
-										Name: "node",
-										Template: &kftrainerapi.JobTemplatePatch{Spec: &kftrainerapi.JobSpecPatch{
-											Template: &kftrainerapi.PodTemplatePatch{
-												Spec: &kftrainerapi.PodSpecPatch{
-													NodeSelector:    map[string]string{"disktype": "sdd"},
-													Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
-													SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-4"}},
-												},
-											},
-										}},
-									},
-								},
-							}},
-						},
-					},
-					{
-						Manager: runtimePatchManagerName,
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{
-								Metadata: &metav1.ObjectMeta{},
-								Spec: &kftrainerapi.JobSetSpecPatch{
-									ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-										{
-											Name: "node",
-											Template: &kftrainerapi.JobTemplatePatch{Spec: &kftrainerapi.JobSpecPatch{
-												Template: &kftrainerapi.PodTemplatePatch{
-													Metadata: &metav1.ObjectMeta{
-														Annotations: map[string]string{
-															"test-annotation": "test",
-														},
-														Labels: map[string]string{
-															constants.PodSetLabel: "node",
-															"test-label":          "label",
-														},
-													},
-													Spec: &kftrainerapi.PodSpecPatch{
-														NodeSelector:    map[string]string{"gpu": "nvidia"},
-														Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
-														SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
-													},
-												},
-											}},
-										},
-									},
-								},
-							},
-						},
-					},
+					testingtrainjob.MakeRuntimePatchWrapper("user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatchWrapper("node").
+								NodeSelector("disktype", "sdd").
+								Toleration(*toleration1.DeepCopy()).
+								SchedulingGate("test-scheduling-gate-4").
+								Obj(),
+						).
+						Obj(),
+					testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).
+						EmptyMetadata().
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatchWrapper("node").
+								PodAnnotation("test-annotation", "test").
+								PodLabel(constants.PodSetLabel, "node").
+								PodLabel("test-label", "label").
+								NodeSelector("gpu", "nvidia").
+								Toleration(*toleration2.DeepCopy()).
+								SchedulingGate("test-scheduling-gate-2").
+								Obj(),
+						).
+						Obj(),
 				}).
 				Suspend(false).
 				Obj(),
@@ -293,51 +219,23 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		"should replace existing Kueue overrides (idempotency)": {
 			trainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					{
-						Manager: "user-manager",
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{Spec: &kftrainerapi.JobSetSpecPatch{
-								ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-									{
-										Name: "user-provided",
-										Template: &kftrainerapi.JobTemplatePatch{Spec: &kftrainerapi.JobSpecPatch{
-											Template: &kftrainerapi.PodTemplatePatch{
-												Spec: &kftrainerapi.PodSpecPatch{
-													NodeSelector: map[string]string{"disktype": "sdd"},
-												},
-											},
-										}},
-									},
-								},
-							}},
-						},
-					},
-					{
-						Manager: runtimePatchManagerName,
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{
-								Metadata: &metav1.ObjectMeta{},
-								Spec: &kftrainerapi.JobSetSpecPatch{
-									ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-										{
-											Name: "node",
-											Template: &kftrainerapi.JobTemplatePatch{Spec: &kftrainerapi.JobSpecPatch{
-												Template: &kftrainerapi.PodTemplatePatch{
-													Metadata: &metav1.ObjectMeta{
-														Annotations: map[string]string{"test-annotation": "old-value"},
-														Labels:      map[string]string{constants.PodSetLabel: "node"},
-													},
-													Spec: &kftrainerapi.PodSpecPatch{
-														NodeSelector: map[string]string{"old-selector": "value"},
-													},
-												},
-											}},
-										},
-									},
-								},
-							},
-						},
-					},
+					testingtrainjob.MakeRuntimePatchWrapper("user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatchWrapper("user-provided").
+								NodeSelector("disktype", "sdd").
+								Obj(),
+						).
+						Obj(),
+					testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).
+						EmptyMetadata().
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatchWrapper("node").
+								PodAnnotation("test-annotation", "old-value").
+								PodLabel(constants.PodSetLabel, "node").
+								NodeSelector("old-selector", "value").
+								Obj(),
+						).
+						Obj(),
 				}).
 				Obj(),
 			podsetsInfo: []podset.PodSetInfo{
@@ -354,51 +252,23 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					{
-						Manager: "user-manager",
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{Spec: &kftrainerapi.JobSetSpecPatch{
-								ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-									{
-										Name: "user-provided",
-										Template: &kftrainerapi.JobTemplatePatch{Spec: &kftrainerapi.JobSpecPatch{
-											Template: &kftrainerapi.PodTemplatePatch{
-												Spec: &kftrainerapi.PodSpecPatch{
-													NodeSelector: map[string]string{"disktype": "sdd"},
-												},
-											},
-										}},
-									},
-								},
-							}},
-						},
-					},
-					{
-						Manager: runtimePatchManagerName,
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{
-								Metadata: &metav1.ObjectMeta{},
-								Spec: &kftrainerapi.JobSetSpecPatch{
-									ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-										{
-											Name: "node",
-											Template: &kftrainerapi.JobTemplatePatch{Spec: &kftrainerapi.JobSpecPatch{
-												Template: &kftrainerapi.PodTemplatePatch{
-													Metadata: &metav1.ObjectMeta{
-														Annotations: map[string]string{"test-annotation": "new-value"},
-														Labels:      map[string]string{constants.PodSetLabel: "node"},
-													},
-													Spec: &kftrainerapi.PodSpecPatch{
-														NodeSelector: map[string]string{"new-selector": "value"},
-													},
-												},
-											}},
-										},
-									},
-								},
-							},
-						},
-					},
+					testingtrainjob.MakeRuntimePatchWrapper("user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatchWrapper("user-provided").
+								NodeSelector("disktype", "sdd").
+								Obj(),
+						).
+						Obj(),
+					testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).
+						EmptyMetadata().
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatchWrapper("node").
+								PodAnnotation("test-annotation", "new-value").
+								PodLabel(constants.PodSetLabel, "node").
+								NodeSelector("new-selector", "value").
+								Obj(),
+						).
+						Obj(),
 				}).
 				Suspend(false).
 				Obj(),
@@ -452,55 +322,32 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		"should clear replicated job patches from the kueue RuntimePatch": {
 			trainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					{
-						Manager: "user-manager",
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{Spec: &kftrainerapi.JobSetSpecPatch{
-								ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-									{Name: "user-provided-1"},
-									{Name: "user-provided-2"},
-								},
-							}},
-						},
-					},
-					{
-						Manager: runtimePatchManagerName,
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{
-								Metadata: &metav1.ObjectMeta{},
-								Spec: &kftrainerapi.JobSetSpecPatch{
-									ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-										{Name: "kueue-provided-1"},
-										{Name: "kueue-provided-2"},
-									},
-								},
-							},
-						},
-					},
+					testingtrainjob.MakeRuntimePatchWrapper("user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatchWrapper("user-provided-1").Obj(),
+							testingtrainjob.MakeReplicatedJobPatchWrapper("user-provided-2").Obj(),
+						).
+						Obj(),
+					testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).
+						EmptyMetadata().
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatchWrapper("kueue-provided-1").Obj(),
+							testingtrainjob.MakeReplicatedJobPatchWrapper("kueue-provided-2").Obj(),
+						).
+						Obj(),
 				}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					{
-						Manager: "user-manager",
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{Spec: &kftrainerapi.JobSetSpecPatch{
-								ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-									{Name: "user-provided-1"},
-									{Name: "user-provided-2"},
-								},
-							}},
-						},
-					},
-					{
-						Manager: runtimePatchManagerName,
-						TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-							Template: &kftrainerapi.JobSetTemplatePatch{
-								Metadata: &metav1.ObjectMeta{},
-								Spec:     &kftrainerapi.JobSetSpecPatch{},
-							},
-						},
-					},
+					testingtrainjob.MakeRuntimePatchWrapper("user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatchWrapper("user-provided-1").Obj(),
+							testingtrainjob.MakeReplicatedJobPatchWrapper("user-provided-2").Obj(),
+						).
+						Obj(),
+					testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
 				}).
 				Obj(),
 			wantReturn: true,

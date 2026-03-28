@@ -456,14 +456,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}, createdTrainJob)).Should(gomega.Succeed())
 			g.Expect(*createdTrainJob.Spec.Suspend).Should(gomega.BeFalse())
-			// Find the Kueue RuntimePatch and verify replicated job patches
-			var kueuePatch *kftrainerapi.RuntimePatch
-			for i := range createdTrainJob.Spec.RuntimePatches {
-				if createdTrainJob.Spec.RuntimePatches[i].Manager == "kueue.x-k8s.io/manager" {
-					kueuePatch = &createdTrainJob.Spec.RuntimePatches[i]
-					break
-				}
-			}
+			kueuePatch := testingtrainjob.KueueRuntimePatch(createdTrainJob)
 			g.Expect(kueuePatch).ShouldNot(gomega.BeNil())
 			rJobs := kueuePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs
 			g.Expect(rJobs).To(gomega.HaveLen(2))

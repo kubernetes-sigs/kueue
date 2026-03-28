@@ -84,27 +84,13 @@ func TestValidateCreate(t *testing.T) {
 		"valid topology request in RuntimePatch": {
 			clusterTrainingRuntime: testCtr,
 			trainJob: testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-				{
-					Manager: runtimePatchManagerName,
-					TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-						Template: &kftrainerapi.JobSetTemplatePatch{Spec: &kftrainerapi.JobSetSpecPatch{
-							ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-								{
-									Name: "node",
-									Template: &kftrainerapi.JobTemplatePatch{Spec: &kftrainerapi.JobSpecPatch{
-										Template: &kftrainerapi.PodTemplatePatch{
-											Metadata: &metav1.ObjectMeta{
-												Annotations: map[string]string{
-													kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-												},
-											},
-										},
-									}},
-								},
-							},
-						}},
-					},
-				},
+				testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).
+					ReplicatedJobs(
+						testingtrainjob.MakeReplicatedJobPatchWrapper("node").
+							PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+							Obj(),
+					).
+					Obj(),
 			}).Obj(),
 			topologyAwareScheduling: true,
 		},
@@ -123,28 +109,14 @@ func TestValidateCreate(t *testing.T) {
 		"invalid topology request in TrainJob": {
 			clusterTrainingRuntime: testCtr,
 			trainJob: testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-				{
-					Manager: runtimePatchManagerName,
-					TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-						Template: &kftrainerapi.JobSetTemplatePatch{Spec: &kftrainerapi.JobSetSpecPatch{
-							ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-								{
-									Name: "node",
-									Template: &kftrainerapi.JobTemplatePatch{Spec: &kftrainerapi.JobSpecPatch{
-										Template: &kftrainerapi.PodTemplatePatch{
-											Metadata: &metav1.ObjectMeta{
-												Annotations: map[string]string{
-													kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-													kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
-												},
-											},
-										},
-									}},
-								},
-							},
-						}},
-					},
-				},
+				testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).
+					ReplicatedJobs(
+						testingtrainjob.MakeReplicatedJobPatchWrapper("node").
+							PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+							PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+							Obj(),
+					).
+					Obj(),
 			}).Obj(),
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("job[node].annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
@@ -174,29 +146,15 @@ func TestValidateCreate(t *testing.T) {
 		"invalid slice topology request - slice size larger than number of podsets": {
 			clusterTrainingRuntime: testCtr,
 			trainJob: testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-				{
-					Manager: runtimePatchManagerName,
-					TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-						Template: &kftrainerapi.JobSetTemplatePatch{Spec: &kftrainerapi.JobSetSpecPatch{
-							ReplicatedJobs: []kftrainerapi.ReplicatedJobPatch{
-								{
-									Name: "node",
-									Template: &kftrainerapi.JobTemplatePatch{Spec: &kftrainerapi.JobSpecPatch{
-										Template: &kftrainerapi.PodTemplatePatch{
-											Metadata: &metav1.ObjectMeta{
-												Annotations: map[string]string{
-													kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
-													kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-													kueue.PodSetSliceSizeAnnotation:             "20",
-												},
-											},
-										},
-									}},
-								},
-							},
-						}},
-					},
-				},
+				testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).
+					ReplicatedJobs(
+						testingtrainjob.MakeReplicatedJobPatchWrapper("node").
+							PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+							PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+							PodAnnotation(kueue.PodSetSliceSizeAnnotation, "20").
+							Obj(),
+					).
+					Obj(),
 			}).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("job[node].annotations").
@@ -234,14 +192,7 @@ func TestDefault(t *testing.T) {
 	testLocalQueue := utiltestingapi.MakeLocalQueue("local-queue", testNamespace.Name).ClusterQueue(testClusterQueue.Name)
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", testNamespace.Name).Suspend(false)
 	testExpectedTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		{
-			Manager: runtimePatchManagerName,
-			TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-				Template: &kftrainerapi.JobSetTemplatePatch{
-					Spec: &kftrainerapi.JobSetSpecPatch{},
-				},
-			},
-		},
+		testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).Obj(),
 	})
 	testCases := map[string]struct {
 		trainJob                     *kftrainerapi.TrainJob

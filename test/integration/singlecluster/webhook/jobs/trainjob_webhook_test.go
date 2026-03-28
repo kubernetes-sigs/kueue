@@ -89,13 +89,7 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}, &createdTrainJob)).Should(gomega.Succeed())
 					g.Expect(ptr.Deref(createdTrainJob.Spec.Suspend, false)).Should(gomega.BeTrue())
-					var kueueRuntimePatch *kftrainerapi.RuntimePatch
-					for i := range createdTrainJob.Spec.RuntimePatches {
-						if createdTrainJob.Spec.RuntimePatches[i].Manager == "kueue.x-k8s.io/manager" {
-							kueueRuntimePatch = &createdTrainJob.Spec.RuntimePatches[i]
-							break
-						}
-					}
+					kueueRuntimePatch := testingtrainjob.KueueRuntimePatch(&createdTrainJob)
 					g.Expect(kueueRuntimePatch).ShouldNot(gomega.BeNil())
 					g.Expect(kueueRuntimePatch.TrainingRuntimeSpec.Template.Metadata.Labels).To(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "queue"))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

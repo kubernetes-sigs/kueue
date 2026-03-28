@@ -82,14 +82,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobManagedByKueueBuilder.Clone().
 					RuntimePatches([]kftrainerapi.RuntimePatch{
-						{
-							Manager: runtimePatchManagerName,
-							TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-								Template: &kftrainerapi.JobSetTemplatePatch{
-									Spec: &kftrainerapi.JobSetSpecPatch{},
-								},
-							},
-						},
+						testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).Obj(),
 					}).
 					Obj(),
 			},
@@ -100,14 +93,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobManagedByKueueBuilder.Clone().
 					RuntimePatches([]kftrainerapi.RuntimePatch{
-						{
-							Manager: runtimePatchManagerName,
-							TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-								Template: &kftrainerapi.JobSetTemplatePatch{
-									Spec: &kftrainerapi.JobSetSpecPatch{},
-								},
-							},
-						},
+						testingtrainjob.MakeRuntimePatchWrapper(runtimePatchManagerName).Obj(),
 					}).
 					Obj(),
 			},
