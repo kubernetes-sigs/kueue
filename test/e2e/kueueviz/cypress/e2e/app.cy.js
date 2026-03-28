@@ -191,14 +191,18 @@ describe('Kueue Dashboard', () => {
 
     cy.contains('Resource Quotas & Usage').should('exist')
 
-    // Reservation column should not be visible initially
-    cy.get('th').contains('Reservation').should('not.exist')
+    // Reservation column should not be visible in the Resource Quotas table initially
+    cy.contains('Resource Quotas & Usage').parents().find('table').first().within(() => {
+      cy.get('th').contains('Reservation').should('not.exist')
+    })
 
     // Toggle the Show Reservation switch
     cy.contains('Show Reservation').click()
 
-    // Reservation column should now be visible
-    cy.get('th').contains('Reservation').should('exist')
+    // Reservation column should now be visible in the Resource Quotas table
+    cy.contains('Resource Quotas & Usage').parents().find('table').first().within(() => {
+      cy.get('th').contains('Reservation').should('exist')
+    })
   })
 
   it('should display no resource groups message for unused cluster queue', { defaultCommandTimeout: 15000 }, () => {
