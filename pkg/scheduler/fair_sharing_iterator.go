@@ -176,13 +176,13 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 	bDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(b.Obj)}]
 
 	if features.Enabled(features.FairSharingPrioritizeNonBorrowing) {
-		// 1. Per-flavor subtree non-borrowing: prefer workloads whose
-		// subtree at this tournament level is not borrowing from the
-		// parent cohort on the workload's requested flavors. A subtree
-		// borrowing on an unrelated flavor does not penalize workloads
-		// for flavors where the subtree has ample quota. The recursive
-		// tournament applies this check at every hierarchy level,
-		// covering the entire CQ-to-root path.
+		// 1: Nominal first — prefer workloads whose subtree at this
+		// tournament level is not borrowing from the parent cohort on
+		// the workload's requested flavors. A subtree borrowing on an
+		// unrelated flavor does not penalize workloads for flavors
+		// where the subtree has ample quota. The recursive tournament
+		// applies this check at every hierarchy level, covering the
+		// entire CQ-to-root path.
 		aBorrowing := aDrs.IsBorrowingOn(e.requestedFRs[workload.Key(a.Obj)])
 		bBorrowing := bDrs.IsBorrowingOn(e.requestedFRs[workload.Key(b.Obj)])
 		if aBorrowing != bBorrowing {
