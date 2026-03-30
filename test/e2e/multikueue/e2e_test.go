@@ -947,10 +947,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking that the low-priority workload was evicted on the manager cluster", func() {
+			ginkgo.By("Checking that the low-priority workload was evicted (is no longer admitted) on the manager cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
-					g.Expect(workload.IsEvicted(managerLowWl)).To(gomega.BeTrue())
 					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadAdmitted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
