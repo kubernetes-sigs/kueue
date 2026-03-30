@@ -947,7 +947,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking that the low-priority workload was evicted (is no longer admitted) on the manager cluster", func() {
+			ginkgo.By("Checking that the low-priority workload was evicted and backed off (is no longer admitted)", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
 					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadAdmitted))
@@ -962,18 +962,25 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking that the low-priority workload is deleted from the worker clusters", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
-					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("Checking that the high-priority job is active", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					admittedJob := &batchv1.Job{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(highJob), admittedJob)).To(gomega.Succeed())
 					g.Expect(admittedJob.Status.Active).To(gomega.Equal(int32(1)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the low-priority workload is dispatched again after backoff", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
+					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+					g.Expect(workload.IsAdmitted(managerLowWl)).To(gomega.BeFalse())
+
+					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, workerLowWorkload)).To(gomega.Succeed())
+					g.Expect(workload.HasActiveQuotaReservation(workerLowWorkload)).To(gomega.BeFalse())
+
+					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, workerLowWorkload)).To(utiltesting.BeNotFoundError())
+					g.Expect(workload.HasActiveQuotaReservation(workerLowWorkload)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
