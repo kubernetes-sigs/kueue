@@ -27,11 +27,7 @@ import {
 import {
   Close as CloseIcon,
 } from '@mui/icons-material';
-import ReactAce from 'react-ace';
-
-// CJS default interop under Vite: ensure we pass the component, not a module object.
-const AceEditor =
-  typeof ReactAce === 'function' ? ReactAce : ReactAce?.default ?? ReactAce;
+import AceEditor from 'react-ace';
 import { buildResourceUrl } from './utils/urlHelper';
 import { useAuthFetch } from './AuthContext';
 

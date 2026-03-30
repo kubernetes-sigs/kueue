@@ -27,9 +27,9 @@
     "react-toastify": "^11.0.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^6.0.1",
+    "@vitejs/plugin-react": "^5.1.4",
     "depcheck": "^1.4.7",
-    "vite": "^8.0.3",
+    "vite": "^7.3.1",
     "vitest": "^4.0.18",
     "serve": "^14.2.6"
   },
