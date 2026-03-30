@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -143,8 +144,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		mapperMappings []configapi.DeviceClassMapping
 		want           map[kueue.PodSetReference]corev1.ResourceList
 		wantReplaced   map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
-		wantErr        bool
-		wantErrCount   int
+		wantErr        field.ErrorList
 	}{
 		{
 			name: "workload with extended resource backed by DRA",
@@ -434,8 +434,15 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				},
 			},
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
-			wantErr:       true,
-			wantErrCount:  1,
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).
+						Child("template", "spec", "containers").Index(0).
+						Child("resources", "requests", "example.com/gpu"),
+					"",
+					"",
+				),
+			},
 		},
 		{
 			name: "extended resource uses deviceClassMappings logical name when DeviceClass is mapped",
@@ -490,29 +497,20 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 
 			got, gotReplaced, errs := ResolveExtendedResourceQuota(t.Context(), cl, tt.workload)
 
-			if tt.wantErr {
-				if len(errs) == 0 {
-					t.Errorf("ResolveExtendedResourceQuota() expected error, got none")
-				}
-				if tt.wantErrCount > 0 && len(errs) != tt.wantErrCount {
-					t.Errorf("ResolveExtendedResourceQuota() expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
-				}
-				return
+			if diff := cmp.Diff(tt.wantErr, errs, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+				t.Errorf("ResolveExtendedResourceQuota() error mismatch (-want +got):\n%s", diff)
 			}
 
-			if len(errs) > 0 {
-				t.Errorf("ResolveExtendedResourceQuota() unexpected errors: %v", errs)
-				return
-			}
-
-			opts := []cmp.Option{
-				cmpopts.EquateEmpty(),
-			}
-			if diff := cmp.Diff(tt.want, got, opts...); diff != "" {
-				t.Errorf("ResolveExtendedResourceQuota() resources mismatch (-want +got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tt.wantReplaced, gotReplaced, opts...); diff != "" {
-				t.Errorf("ResolveExtendedResourceQuota() replacedExtendedResources mismatch (-want +got):\n%s", diff)
+			if errs == nil {
+				opts := []cmp.Option{
+					cmpopts.EquateEmpty(),
+				}
+				if diff := cmp.Diff(tt.want, got, opts...); diff != "" {
+					t.Errorf("ResolveExtendedResourceQuota() resources mismatch (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(tt.wantReplaced, gotReplaced, opts...); diff != "" {
+					t.Errorf("ResolveExtendedResourceQuota() replacedExtendedResources mismatch (-want +got):\n%s", diff)
+				}
 			}
 		})
 	}
