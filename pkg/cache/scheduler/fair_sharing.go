@@ -57,11 +57,6 @@ func NegativeDRS() DRS {
 	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
 }
 
-// BorrowingDRS returns a DRS that is borrowing on the given FlavorResources.
-func BorrowingDRS(frs ...resources.FlavorResource) DRS {
-	return DRS{fairWeight: defaultWeight, borrowing: true, borrowedFRs: frs}
-}
-
 // IsZero returns whether the DRS unweighted ratio is 0.
 // In the current implementation, DRS unweighted ratio is zero
 // if and only if it is not borrowing any resources.
