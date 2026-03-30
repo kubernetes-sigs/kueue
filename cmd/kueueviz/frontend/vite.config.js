@@ -10,6 +10,8 @@ export default defineConfig({
   build: {
     outDir: 'build', // Same output directory as react-scripts
     sourcemap: true,
+    // Avoid lightningcss minify: no prebuilt binaries for ppc64le/s390x (VIZ_PLATFORMS).
+    cssMinify: 'esbuild',
   },
   resolve: {
     extensions: ['.js', '.jsx', '.json'],
