@@ -120,7 +120,7 @@ func (t *TrainJobWrapper) JobSetLabel(key, value string) *TrainJobWrapper {
 		kueueRuntimePatch.TrainingRuntimeSpec.Template.Metadata = metadata
 		return t
 	}
-	return t.RuntimePatches(append(t.Spec.RuntimePatches, MakeRuntimePatchWrapper(KueueRuntimePatchManager).
+	return t.RuntimePatches(append(t.Spec.RuntimePatches, MakeRuntimePatch(KueueRuntimePatchManager).
 		Label(key, value).
 		Obj()))
 }
@@ -165,8 +165,8 @@ func (t *TrainJobWrapper) JobsStatus(statuses ...kftrainerapi.JobStatus) *TrainJ
 
 type RuntimePatchWrapper struct{ kftrainerapi.RuntimePatch }
 
-// MakeRuntimePatchWrapper creates a wrapper for a TrainJob RuntimePatch.
-func MakeRuntimePatchWrapper(manager string) *RuntimePatchWrapper {
+// MakeRuntimePatch creates a wrapper for a TrainJob RuntimePatch.
+func MakeRuntimePatch(manager string) *RuntimePatchWrapper {
 	return &RuntimePatchWrapper{RuntimePatch: kftrainerapi.RuntimePatch{
 		Manager: manager,
 		TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
@@ -245,8 +245,8 @@ type ReplicatedJobPatchWrapper struct {
 	kftrainerapi.ReplicatedJobPatch
 }
 
-// MakeReplicatedJobPatchWrapper creates a wrapper for a TrainJob ReplicatedJobPatch.
-func MakeReplicatedJobPatchWrapper(name string) *ReplicatedJobPatchWrapper {
+// MakeReplicatedJobPatch creates a wrapper for a TrainJob ReplicatedJobPatch.
+func MakeReplicatedJobPatch(name string) *ReplicatedJobPatchWrapper {
 	return &ReplicatedJobPatchWrapper{ReplicatedJobPatch: kftrainerapi.ReplicatedJobPatch{
 		Name: name,
 	}}
@@ -376,7 +376,7 @@ func MakeTrainingRuntime(name, ns string, jobsetSpec jobsetapi.JobSetSpec) *kftr
 
 type JobStatusWrapper struct{ kftrainerapi.JobStatus }
 
-func MakeJobStatusWrapper(name string) *JobStatusWrapper {
+func MakeJobStatus(name string) *JobStatusWrapper {
 	return &JobStatusWrapper{kftrainerapi.JobStatus{
 		Name:      name,
 		Ready:     ptr.To(int32(0)),

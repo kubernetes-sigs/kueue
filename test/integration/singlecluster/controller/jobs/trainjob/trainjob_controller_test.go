@@ -274,7 +274,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
 					trainJob.Status.JobsStatus = []kftrainerapi.JobStatus{
-						testingtrainjob.MakeJobStatusWrapper("node").Active(1).Obj(),
+						testingtrainjob.MakeJobStatus("node").Active(1).Obj(),
 					}
 					g.Expect(k8sClient.Status().Update(ctx, trainJob)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -557,8 +557,8 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 			createdTrainJob1 := &kftrainerapi.TrainJob{}
 			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob1.Name, Namespace: ns.Name}, createdTrainJob1)).Should(gomega.Succeed())
 			createdTrainJob1.Status.JobsStatus = []kftrainerapi.JobStatus{
-				testingtrainjob.MakeJobStatusWrapper("node-1").Succeeded(2).Obj(),
-				testingtrainjob.MakeJobStatusWrapper("node-2").Succeeded(1).Obj(),
+				testingtrainjob.MakeJobStatus("node-1").Succeeded(2).Obj(),
+				testingtrainjob.MakeJobStatus("node-2").Succeeded(1).Obj(),
 			}
 			gomega.Expect(k8sClient.Status().Update(ctx, createdTrainJob1)).Should(gomega.Succeed())
 

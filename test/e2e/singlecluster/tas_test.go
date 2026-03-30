@@ -493,9 +493,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				TrainerRequest(corev1.ResourceCPU, "500m").
 				TrainerRequest(corev1.ResourceMemory, "200Mi").
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatchWrapper("test-e2e/tas").
+					testingtrainjob.MakeRuntimePatch("test-e2e/tas").
 						ReplicatedJobs(
-							testingtrainjob.MakeReplicatedJobPatchWrapper("node").
+							testingtrainjob.MakeReplicatedJobPatch("node").
 								PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 								Obj(),
 						).

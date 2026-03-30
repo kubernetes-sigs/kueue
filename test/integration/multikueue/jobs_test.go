@@ -1566,7 +1566,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				createdTrainJob := kftrainer.TrainJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(trainJob), &createdTrainJob)).To(gomega.Succeed())
 				createdTrainJob.Status.JobsStatus = []kftrainer.JobStatus{
-					testingtrainjob.MakeJobStatusWrapper("foo").Obj(),
+					testingtrainjob.MakeJobStatus("foo").Obj(),
 				}
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdTrainJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
