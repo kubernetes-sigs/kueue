@@ -20,5 +20,5 @@ import "sigs.k8s.io/kueue/pkg/resources"
 
 // BorrowingDRS returns a DRS that is borrowing on the given FlavorResources.
 func BorrowingDRS(frs ...resources.FlavorResource) DRS {
-	return DRS{fairWeight: defaultWeight, borrowing: true, borrowedFRs: frs}
+	return DRS{fairWeight: defaultWeight, borrowedFRs: frs}
 }
