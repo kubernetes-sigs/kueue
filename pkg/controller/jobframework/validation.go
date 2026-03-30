@@ -207,7 +207,11 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 // ValidateImmutablePodGroupPodSpec function is used for serving workloads to ensure no changes are allowed
 // to the PodSpec except fields that required for role-hash generation.
 func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
-	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
+	return validateImmutablePodGroupPodSpecPath(
+		ignoreNodeSelector(utilpod.SpecShape(newPodSpec)),
+		ignoreNodeSelector(utilpod.SpecShape(oldPodSpec)),
+		fieldPath,
+	)
 }
 
 func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fieldPath *field.Path) field.ErrorList {
@@ -241,6 +245,11 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fie
 	}
 
 	return allErrs
+}
+
+func ignoreNodeSelector(shape map[string]any) map[string]any {
+	shape["nodeSelector"] = nil
+	return shape
 }
 
 func IsWorkloadPriorityClassNameEmpty(obj client.Object) bool {

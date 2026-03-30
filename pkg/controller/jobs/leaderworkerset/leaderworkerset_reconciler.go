@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -141,30 +142,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {
-			return r.createPrebuiltWorkload(ctx, lws, toCreate[i].name, toCreate[i].index)
+			return r.createWorkload(ctx, lws, toCreate[i].name, toCreate[i].index)
 		})
 	})
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
-			if features.Enabled(features.AdmissionGatedBy) {
-				if err := jobframework.UpdateAdmissionGatedBy(ctx, r.client, r.record, lws, toUpdate[i]); err != nil {
-					return err
-				}
-			}
-
-			return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, toUpdate[i], nil)
+			return r.updateWorkload(ctx, lws, toUpdate[i])
 		})
 	})
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toDelete), func(i int) error {
-			// Remove the finalizer before deleting to ensure prompt cleanup,
-			// consistent with how the job framework reconciler deletes workloads.
-			if err := workload.RemoveFinalizer(ctx, r.client, toDelete[i]); err != nil && !apierrors.IsNotFound(err) {
-				return err
-			}
-			return r.client.Delete(ctx, toDelete[i])
+			return r.deleteWorkload(ctx, toDelete[i])
 		})
 	})
 
@@ -226,7 +216,7 @@ func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) bool {
 	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, 1)
 }
 
-func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) error {
+func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) error {
 	createdWorkload, err := r.constructWorkload(lws, workloadName, index)
 	if err != nil {
 		return err
@@ -341,6 +331,31 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 	podSets = append(podSets, *workerPodSet)
 
 	return podSets, nil
+}
+
+func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {
+	podSets, err := podSets(lws)
+	if err != nil {
+		return err
+	}
+	if !equality.ComparePodSetSlices(podSets, wl.Spec.PodSets) {
+		return r.deleteWorkload(ctx, wl)
+	}
+	if features.Enabled(features.AdmissionGatedBy) {
+		if err := jobframework.UpdateAdmissionGatedBy(ctx, r.client, r.record, lws, wl); err != nil {
+			return err
+		}
+	}
+	return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, wl, nil)
+}
+
+func (r *Reconciler) deleteWorkload(ctx context.Context, wl *kueue.Workload) error {
+	// Remove the finalizer before deleting to ensure prompt cleanup,
+	// consistent with how the job framework reconciler deletes workloads.
+	if err := workload.RemoveFinalizer(ctx, r.client, wl); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return r.client.Delete(ctx, wl)
 }
 
 var _ predicate.Predicate = (*Reconciler)(nil)
