@@ -786,6 +786,8 @@ func TestIsBorrowingOn(t *testing.T) {
 	cpuDefault := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
 	gpuDefault := resources.FlavorResource{Flavor: "default", Resource: "example.com/gpu"}
 
+	// CQ "cq" quota: cpu=2, gpu=5. Lending CQ adds: cpu=8, gpu=5.
+	// Cohort subtreeQuota: cpu=10, gpu=10.
 	cases := map[string]struct {
 		usage                    resources.FlavorResourceQuantities
 		requestedFRs             resources.FlavorResourceQuantities

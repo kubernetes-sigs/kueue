@@ -3213,11 +3213,11 @@ func TestSchedule(t *testing.T) {
 				"cq-b": {"eng-alpha/wl-b"},
 			},
 		},
-		//            ROOT
-		//       /            \
-		// COHORT-A (6/18)    COHORT-B (20/18)
-		//   /         \        /         \
-		// cq-a1 (0/5) cq-a2 (6/3)  cq-b (0/5) cq-c (20/3)
+		//                  ROOT
+		//            /            \
+		//   COHORT-A (6/18)      COHORT-B (20/18)
+		//     /       \             /        \
+		// cq-a1 (0/5) cq-a2 (6/3) cq-b (0/5) cq-c (20/3)
 		//
 		// Shown as (usage/subtreeQuota). SubtreeQuota: 10+5+3=18 each.
 		// After pending workloads:
@@ -3404,11 +3404,12 @@ func TestSchedule(t *testing.T) {
 		// Shown as (usage/subtreeQuota). Both cohorts borrow from
 		// ROOT, but on different flavors.
 		// After pending workloads (both request on-demand):
-		// wl-a (cq-a, 3 on-demand) -> COHORT-A on-demand (3/10), not borrowing
-		// wl-b (cq-b, 3 on-demand) -> COHORT-B on-demand (11/5), borrowing
+		// wl-a (cq-a, 4 on-demand) -> COHORT-A on-demand (4/10), not borrowing
+		// wl-b (cq-b, 4 on-demand) -> COHORT-B on-demand (12/5), borrowing
 		//
 		// Per-flavor gate prefers wl-a: COHORT-A is not borrowing
-		// on-demand despite borrowing spot.
+		// on-demand despite borrowing spot. Only 7 on-demand remain,
+		// so after wl-a is admitted wl-b cannot fit.
 		"with fair sharing: hierarchical nominal-first per-flavor ignores cross-flavor borrowing": {
 			enableFairSharing: true,
 			cohorts: []kueue.Cohort{
@@ -3472,13 +3473,13 @@ func TestSchedule(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl-a", "eng-alpha").
 					Queue("lq-a").
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
-						Request(corev1.ResourceCPU, "3").
+						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-b", "eng-alpha").
 					Queue("lq-b").
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
-						Request(corev1.ResourceCPU, "3").
+						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Obj(),
 			},
@@ -3508,7 +3509,7 @@ func TestSchedule(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl-a", "eng-alpha").
 					Queue("lq-a").
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
-						Request(corev1.ResourceCPU, "3").
+						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
@@ -3528,7 +3529,7 @@ func TestSchedule(t *testing.T) {
 						utiltestingapi.MakeAdmission("cq-a").
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("one").
-									Assignment(corev1.ResourceCPU, "on-demand", "3").
+									Assignment(corev1.ResourceCPU, "on-demand", "4").
 									Count(1).
 									Obj(),
 							).
@@ -3538,39 +3539,30 @@ func TestSchedule(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl-b", "eng-alpha").
 					Queue("lq-b").
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
-						Request(corev1.ResourceCPU, "3").
+						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionTrue,
-						Reason:             "QuotaReserved",
-						Message:            "Quota reserved in ClusterQueue cq-b",
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "Workload no longer fits after processing another workload",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionTrue,
-						Reason:             "Admitted",
-						Message:            "The workload is admitted",
-						LastTransitionTime: metav1.NewTime(now),
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("4"),
+						},
 					}).
-					Admission(
-						utiltestingapi.MakeAdmission("cq-b").
-							PodSets(
-								utiltestingapi.MakePodSetAssignment("one").
-									Assignment(corev1.ResourceCPU, "on-demand", "3").
-									Count(1).
-									Obj(),
-							).
-							Obj(),
-					).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/spot-admitted": *utiltestingapi.MakeAdmission("cq-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "spot", "5").Obj()).Obj(),
 				"eng-alpha/od-admitted":   *utiltestingapi.MakeAdmission("cq-b").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "8").Obj()).Obj(),
-				"eng-alpha/wl-a":          *utiltestingapi.MakeAdmission("cq-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "3").Count(1).Obj()).Obj(),
-				"eng-alpha/wl-b":          *utiltestingapi.MakeAdmission("cq-b").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "3").Count(1).Obj()).Obj(),
+				"eng-alpha/wl-a":          *utiltestingapi.MakeAdmission("cq-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "4").Count(1).Obj()).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-b": {"eng-alpha/wl-b"},
 			},
 		},
 		// Cohort A provides 200 capacity, with 70 remaining.
