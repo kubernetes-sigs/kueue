@@ -214,7 +214,9 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 // DRS after admission of its nominated workload.
 func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEntry map[*schdcache.ClusterQueueSnapshot]*entry) {
 	e.drsValues = make(map[drsKey]schdcache.DRS)
-	e.requestedFRs = make(map[workload.Reference]resources.FlavorResourceQuantities)
+	if features.Enabled(features.FairSharingPrioritizeNonBorrowing) {
+		e.requestedFRs = make(map[workload.Reference]resources.FlavorResourceQuantities)
+	}
 	for _, cq := range rootCohort.SubtreeClusterQueues() {
 		entry, ok := cqToEntry[cq]
 		if !ok {
@@ -226,7 +228,9 @@ func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEnt
 		revert := cq.SimulateUsageAddition(usage)
 
 		wlKey := workload.Key(entry.Obj)
-		e.requestedFRs[wlKey] = usage.Quota
+		if e.requestedFRs != nil {
+			e.requestedFRs[wlKey] = usage.Quota
+		}
 
 		// calculate DRS, with workload, for CQ.
 		dominantResourceShare := cq.DominantResourceShare()
