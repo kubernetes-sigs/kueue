@@ -160,7 +160,7 @@ type drsKey struct {
 }
 
 type entryComparer struct {
-	drsValues        map[drsKey]schdcache.DRS
+	drsValues map[drsKey]schdcache.DRS
 	// requestedFRs stores the FlavorResources each workload's
 	// assignment uses. Bounded by the number of ClusterQueues
 	// (one head-of-line workload per CQ), not total workloads.

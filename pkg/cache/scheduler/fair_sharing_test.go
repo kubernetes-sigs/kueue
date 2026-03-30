@@ -794,37 +794,31 @@ func TestIsBorrowingOn(t *testing.T) {
 		usage                    resources.FlavorResourceQuantities
 		requestedFRs             resources.FlavorResourceQuantities
 		wantBorrowingOnRequested bool
-		wantBorrowing            bool
 	}{
 		"borrows on requested flavor": {
 			usage:                    resources.FlavorResourceQuantities{cpuDefault: 3_000},
 			requestedFRs:             resources.FlavorResourceQuantities{cpuDefault: 1_000},
 			wantBorrowingOnRequested: true,
-			wantBorrowing:            true,
 		},
 		"borrows on unrequested flavor only": {
 			usage:                    resources.FlavorResourceQuantities{cpuDefault: 1_000, gpuDefault: 7},
 			requestedFRs:             resources.FlavorResourceQuantities{cpuDefault: 1_000},
 			wantBorrowingOnRequested: false,
-			wantBorrowing:            true,
 		},
 		"borrows on both, requests one": {
 			usage:                    resources.FlavorResourceQuantities{cpuDefault: 3_000, gpuDefault: 7},
 			requestedFRs:             resources.FlavorResourceQuantities{gpuDefault: 1},
 			wantBorrowingOnRequested: true,
-			wantBorrowing:            true,
 		},
 		"no borrowing": {
 			usage:                    resources.FlavorResourceQuantities{cpuDefault: 1_000, gpuDefault: 2},
 			requestedFRs:             resources.FlavorResourceQuantities{cpuDefault: 1_000},
 			wantBorrowingOnRequested: false,
-			wantBorrowing:            false,
 		},
 		"nil requestedFRs": {
 			usage:                    resources.FlavorResourceQuantities{cpuDefault: 3_000},
 			requestedFRs:             nil,
 			wantBorrowingOnRequested: false,
-			wantBorrowing:            true,
 		},
 	}
 	for name, tc := range cases {
@@ -873,9 +867,6 @@ func TestIsBorrowingOn(t *testing.T) {
 
 			snapshotCQ := snapshot.ClusterQueues()["cq"]
 			drs := dominantResourceShare(snapshotCQ, nil)
-			if got := drs.IsBorrowing(); got != tc.wantBorrowing {
-				t.Errorf("IsBorrowing() = %v, want %v", got, tc.wantBorrowing)
-			}
 			if got := drs.IsBorrowingOn(tc.requestedFRs); got != tc.wantBorrowingOnRequested {
 				t.Errorf("IsBorrowingOn() = %v, want %v", got, tc.wantBorrowingOnRequested)
 			}
