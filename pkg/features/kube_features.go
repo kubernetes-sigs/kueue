@@ -62,8 +62,9 @@ const (
 	// owner: @mukund-wayve
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/9406
 	//
-	// In fair sharing admission ordering, prefer workloads that fit
-	// within their CQ's nominal quota over workloads that require borrowing.
+	// In fair sharing admission ordering, prefer workloads whose subtree
+	// is not borrowing on the workload's requested flavors, checked at
+	// every level of the cohort hierarchy.
 	FairSharingPrioritizeNonBorrowing featuregate.Feature = "FairSharingPrioritizeNonBorrowing"
 
 	// owner: @trasc
