@@ -153,7 +153,13 @@ type testOracle struct {
 	simulationResult map[resources.FlavorResource]simulationResultForFlavor
 }
 
-func (f *testOracle) SimulatePreemption(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) (preemptioncommon.PreemptionPossibility, int) {
+func (f *testOracle) SimulatePreemption(
+	log logr.Logger,
+	cq *schdcache.ClusterQueueSnapshot,
+	wl workload.Info,
+	fr resources.FlavorResource,
+	quantity int64,
+) (preemptioncommon.PreemptionPossibility, int) {
 	if f.simulationResult != nil {
 		if result, ok := f.simulationResult[fr]; ok {
 			return result.preemptionPossiblity, result.borrowingAfterSimulation
@@ -601,9 +607,11 @@ func TestAssignFlavors(t *testing.T) {
 								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (5) > maximum capacity (4)"},
 							},
 							{
-								Flavor:  "two",
-								Mode:    NoFit,
-								Reasons: []string{"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)"},
+								Flavor: "two",
+								Mode:   NoFit,
+								Reasons: []string{
+									"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)",
+								},
 							},
 						},
 						Count: 4,
@@ -624,9 +632,11 @@ func TestAssignFlavors(t *testing.T) {
 								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (5) > maximum capacity (4)"},
 							},
 							{
-								Flavor:  "two",
-								Mode:    NoFit,
-								Reasons: []string{"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)"},
+								Flavor: "two",
+								Mode:   NoFit,
+								Reasons: []string{
+									"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)",
+								},
 							},
 						},
 						Count: 1,

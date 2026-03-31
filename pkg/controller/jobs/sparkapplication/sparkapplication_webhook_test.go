@@ -92,11 +92,13 @@ func TestValidateCreate(t *testing.T) {
 			).ExecutorAnnotation(
 				kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block",
 			).Obj(),
-			wantErr: field.ErrorList{field.Invalid(
-				executorSpecPath.Child("annotations"),
-				field.OmitValueType{},
-				`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", "kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`,
-			)}.ToAggregate(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					executorSpecPath.Child("annotations"),
+					field.OmitValueType{},
+					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", "kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`,
+				),
+			}.ToAggregate(),
 		},
 	}
 

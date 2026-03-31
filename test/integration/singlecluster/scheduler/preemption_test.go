@@ -465,7 +465,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Status:             metav1.ConditionFalse,
 						ObservedGeneration: alphaLowWl.Generation,
 						Reason:             "QuotaReserved",
-						Message:            fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s; preemptor path: %s; preemptee path: %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InClusterQueueReason], alphaCqPath, alphaCqPath),
+						Message: fmt.Sprintf(
+							"Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s; preemptor path: %s; preemptee path: %s",
+							alphaMidWl.UID,
+							preemption.HumanReadablePreemptionReasons[kueue.InClusterQueueReason],
+							alphaCqPath,
+							alphaCqPath,
+						),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -476,7 +482,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Status:             metav1.ConditionFalse,
 						ObservedGeneration: betaMidWl.Generation,
 						Reason:             "QuotaReserved",
-						Message:            fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s; preemptor path: %s; preemptee path: %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InCohortReclamationReason], alphaCqPath, betaCqPath),
+						Message: fmt.Sprintf(
+							"Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s; preemptor path: %s; preemptee path: %s",
+							alphaMidWl.UID,
+							preemption.HumanReadablePreemptionReasons[kueue.InCohortReclamationReason],
+							alphaCqPath,
+							betaCqPath,
+						),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -863,7 +875,18 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			aStandardCQPath := "/" + string(aStandardCQ.Spec.CohortName) + "/" + aStandardCQ.Name
 			aBestEffortCQPath := "/" + string(aBestEffortCQ.Spec.CohortName) + "/" + aBestEffortCQ.Name
-			util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InCohortReclaimWhileBorrowingReason, metav1.ConditionTrue, aBestEffortLowWl, aStandardVeryHighWl, string(aStandardVeryHighWl.UID), "UNKNOWN", aStandardCQPath, aBestEffortCQPath)
+			util.ExpectPreemptedCondition(
+				ctx,
+				k8sClient,
+				kueue.InCohortReclaimWhileBorrowingReason,
+				metav1.ConditionTrue,
+				aBestEffortLowWl,
+				aStandardVeryHighWl,
+				string(aStandardVeryHighWl.UID),
+				"UNKNOWN",
+				aStandardCQPath,
+				aBestEffortCQPath,
+			)
 			util.ExpectPreemptedWorkloadsTotalMetric(aStandardCQ.Name, kueue.InCohortReclaimWhileBorrowingReason, 1)
 			util.ExpectPreemptedWorkloadsTotalMetric(aBestEffortCQ.Name, kueue.InCohortReclaimWhileBorrowingReason, 0)
 

@@ -513,7 +513,15 @@ func ExpectWorkloadsWithPodPriority(ctx context.Context, c client.Client, name s
 	expectWorkloadsWithPriority(ctx, c, kueue.PodPriorityClassGroup, kueue.PodPriorityClassKind, name, value, wlKeys...)
 }
 
-func expectWorkloadsWithPriority(ctx context.Context, c client.Client, priorityClassGroup kueue.PriorityClassGroup, priorityClassKind kueue.PriorityClassKind, name string, value int32, wlKeys ...client.ObjectKey) {
+func expectWorkloadsWithPriority(
+	ctx context.Context,
+	c client.Client,
+	priorityClassGroup kueue.PriorityClassGroup,
+	priorityClassKind kueue.PriorityClassKind,
+	name string,
+	value int32,
+	wlKeys ...client.ObjectKey,
+) {
 	ginkgo.GinkgoHelper()
 	createdWl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
@@ -670,7 +678,15 @@ func mustAdmissionCheckState(g gomega.Gomega, updatedWl *kueue.Workload, admissi
 	}
 }
 
-func ExpectAdmissionCheckStateWithMessage(ctx context.Context, c client.Client, wlKey client.ObjectKey, admissionCheckName string, expectedState kueue.CheckState, expectedMessage string, podSetUpdates ...kueue.PodSetUpdate) {
+func ExpectAdmissionCheckStateWithMessage(
+	ctx context.Context,
+	c client.Client,
+	wlKey client.ObjectKey,
+	admissionCheckName string,
+	expectedState kueue.CheckState,
+	expectedMessage string,
+	podSetUpdates ...kueue.PodSetUpdate,
+) {
 	ginkgo.GinkgoHelper()
 	updatedWl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
@@ -684,7 +700,15 @@ func ExpectAdmissionCheckState(ctx context.Context, c client.Client, wlKey clien
 	ExpectAdmissionCheckStateWithMessage(ctx, c, wlKey, admissionCheckName, expectedState, "", podSetUpdates...)
 }
 
-func ConsistentlyAdmissionCheckStateWithMessage(ctx context.Context, c client.Client, wlKey client.ObjectKey, admissionCheckName string, expectedState kueue.CheckState, expectedMessage string, podSetUpdates ...kueue.PodSetUpdate) {
+func ConsistentlyAdmissionCheckStateWithMessage(
+	ctx context.Context,
+	c client.Client,
+	wlKey client.ObjectKey,
+	admissionCheckName string,
+	expectedState kueue.CheckState,
+	expectedMessage string,
+	podSetUpdates ...kueue.PodSetUpdate,
+) {
 	ginkgo.GinkgoHelper()
 	updatedWl := &kueue.Workload{}
 	gomega.Consistently(func(g gomega.Gomega) {
@@ -912,16 +936,30 @@ func ExpectWorkloadsFinalizedOrGone(ctx context.Context, k8sClient client.Client
 	}
 }
 
-func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reason string, status metav1.ConditionStatus, preemptedWl, preempteeWl *kueue.Workload, preemteeWorkloadUID, preempteeJobUID, preemptorPath, preempteePath string) {
+func ExpectPreemptedCondition(
+	ctx context.Context,
+	k8sClient client.Client,
+	reason string,
+	status metav1.ConditionStatus,
+	preemptedWl, preempteeWl *kueue.Workload,
+	preemteeWorkloadUID, preempteeJobUID, preemptorPath, preempteePath string,
+) {
 	conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
 	preemptedWlCopy := &kueue.Workload{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(preemptedWl), preemptedWlCopy)).To(gomega.Succeed())
 		g.Expect(preemptedWlCopy.Status.Conditions).To(gomega.ContainElements(gomega.BeComparableTo(metav1.Condition{
-			Type:    kueue.WorkloadPreempted,
-			Status:  status,
-			Reason:  reason,
-			Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s; preemptor path: %s; preemptee path: %s", preemteeWorkloadUID, preempteeJobUID, preemption.HumanReadablePreemptionReasons[reason], preemptorPath, preempteePath),
+			Type:   kueue.WorkloadPreempted,
+			Status: status,
+			Reason: reason,
+			Message: fmt.Sprintf(
+				"Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s; preemptor path: %s; preemptee path: %s",
+				preemteeWorkloadUID,
+				preempteeJobUID,
+				preemption.HumanReadablePreemptionReasons[reason],
+				preemptorPath,
+				preempteePath,
+			),
 		}, conditionCmpOpts)))
 	}, Timeout, Interval).Should(gomega.Succeed(), assertMsg("Preemption condition not set correctly", preemptedWlCopy, preempteeWl))
 }

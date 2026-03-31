@@ -395,7 +395,13 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (float64, error) {
+func (i *Info) CalcLocalQueueFSUsage(
+	ctx context.Context,
+	c client.Client,
+	resWeights map[corev1.ResourceName]float64,
+	afsEntryPenalties *queueafs.AfsEntryPenalties,
+	afsConsumedResources *queueafs.AfsConsumedResources,
+) (float64, error) {
 	lqKey := queue.KeyFromWorkload(i.Obj)
 
 	consumed := corev1.ResourceList{}
@@ -452,7 +458,8 @@ func IsExplicitlyRequestingTAS(podSets ...kueue.PodSet) bool {
 	return slices.ContainsFunc(podSets,
 		func(ps kueue.PodSet) bool {
 			tr := ps.TopologyRequest
-			return tr != nil && (tr.Unconstrained != nil || tr.Required != nil || tr.Preferred != nil || tr.PodSetSliceRequiredTopology != nil || tr.PodSetSliceSize != nil || len(tr.PodsetSliceRequiredTopologyConstraints) > 0)
+			return tr != nil &&
+				(tr.Unconstrained != nil || tr.Required != nil || tr.Preferred != nil || tr.PodSetSliceRequiredTopology != nil || tr.PodSetSliceSize != nil || len(tr.PodsetSliceRequiredTopologyConstraints) > 0)
 		})
 }
 
@@ -1604,7 +1611,19 @@ func EvictWithRetryOnConflictForPatch() EvictOption {
 	}
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, exposeLqMetrics bool, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels, options ...EvictOption) error {
+func Evict(
+	ctx context.Context,
+	c client.Client,
+	recorder record.EventRecorder,
+	wl *kueue.Workload,
+	reason, msg string,
+	underlyingCause kueue.EvictionUnderlyingCause,
+	clock clock.Clock,
+	exposeLqMetrics bool,
+	tracker *roletracker.RoleTracker,
+	cl *metrics.CustomLabels,
+	options ...EvictOption,
+) error {
 	opts := DefaultEvictOptions()
 	for _, opt := range options {
 		opt(opts)

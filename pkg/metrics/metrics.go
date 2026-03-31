@@ -1008,7 +1008,14 @@ func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resou
 	ClusterQueueResourceLendingLimit.WithLabelValues(labels...).Set(lending)
 }
 
-func ReportCohortSubtreeQuota(cohort kueue.CohortReference, flavor kueue.ResourceFlavorReference, resource corev1.ResourceName, quota int64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+func ReportCohortSubtreeQuota(
+	cohort kueue.CohortReference,
+	flavor kueue.ResourceFlavorReference,
+	resource corev1.ResourceName,
+	quota int64,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
 	labels := append([]string{string(cohort), string(flavor), string(resource), roletracker.GetRole(tracker)}, customLabelValues...)
 	CohortSubtreeQuota.WithLabelValues(labels...).Set(float64(quota))
 }
@@ -1034,7 +1041,14 @@ func ClearCohortSubtreeQuota(cohort kueue.CohortReference, flavor kueue.Resource
 	CohortSubtreeQuota.DeletePartialMatch(lbls)
 }
 
-func ReportCohortSubtreeResourceReservations(cohort kueue.CohortReference, flavor kueue.ResourceFlavorReference, resource corev1.ResourceName, usage int64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+func ReportCohortSubtreeResourceReservations(
+	cohort kueue.CohortReference,
+	flavor kueue.ResourceFlavorReference,
+	resource corev1.ResourceName,
+	usage int64,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
 	labels := append([]string{string(cohort), string(flavor), string(resource), roletracker.GetRole(tracker)}, customLabelValues...)
 	CohortSubtreeResourceReservations.WithLabelValues(labels...).Set(float64(usage))
 }

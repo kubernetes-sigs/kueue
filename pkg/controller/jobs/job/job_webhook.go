@@ -171,7 +171,14 @@ func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
 				allErrs = append(allErrs, field.Invalid(syncCompletionAnnotationsPath, job.Annotations[JobCompletionsEqualParallelismAnnotation], "should not be enabled for NonIndexed jobs"))
 			}
 			if ptr.Deref(job.Spec.Parallelism, 1) != ptr.Deref(job.Spec.Completions, 1) {
-				allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "completions"), job.Spec.Completions, fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation)))
+				allErrs = append(
+					allErrs,
+					field.Invalid(
+						field.NewPath("spec", "completions"),
+						job.Spec.Completions,
+						fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation),
+					),
+				)
 			}
 		}
 	}

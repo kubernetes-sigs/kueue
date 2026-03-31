@@ -439,7 +439,8 @@ func readRanksIfAvailable(log logr.Logger,
 		podDomainID := utiltas.DomainID(podLevelValues)
 
 		if expectedDomainID != podDomainID {
-			log.V(3).Info("There is a mismatch for a running pod between the domain expected based on the rank-based ordering, and the actual node selectors", "pod", klog.KObj(pod), "rank", rank, "expectedDomainID", expectedDomainID, "actualDomainID", podDomainID)
+			log.V(3).
+				Info("There is a mismatch for a running pod between the domain expected based on the rank-based ordering, and the actual node selectors", "pod", klog.KObj(pod), "rank", rank, "expectedDomainID", expectedDomainID, "actualDomainID", podDomainID)
 			return nil, false
 		}
 	}

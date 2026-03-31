@@ -119,6 +119,7 @@ issues:
 formatters:
   enable:
     - gci
+    - golines
   settings:
     gci:
       sections:
@@ -127,6 +128,9 @@ formatters:
         - prefix(sigs.k8s.io/kueue) # Custom section: groups all imports with the specified Prefix.
         - blank # Blank section: contains all blank imports. This section is not present unless explicitly enabled.
         - dot # Dot section: contains all dot imports.
+    golines:
+      max-len: 200
+      reformat-tags: false
   exclusions:
     generated: lax
     paths:

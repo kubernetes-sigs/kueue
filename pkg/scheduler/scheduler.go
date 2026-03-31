@@ -165,12 +165,22 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 	}
 	s := &Scheduler{
-		fairSharing:             options.fairSharing,
-		queues:                  queues,
-		cache:                   cache,
-		client:                  cl,
-		recorder:                recorder,
-		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, afs.Enabled(options.admissionFairSharing), options.clock, options.roleTracker, options.preemptionExpectations, options.customLabels),
+		fairSharing: options.fairSharing,
+		queues:      queues,
+		cache:       cache,
+		client:      cl,
+		recorder:    recorder,
+		preemptor: preemption.New(
+			cl,
+			wo,
+			recorder,
+			options.fairSharing,
+			afs.Enabled(options.admissionFairSharing),
+			options.clock,
+			options.roleTracker,
+			options.preemptionExpectations,
+			options.customLabels,
+		),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 		clock:                   options.clock,
@@ -843,13 +853,15 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	}
 
 	if s.queues.QueueSecondPassIfNeeded(ctx, e.Obj, e.SecondPassIteration) {
-		log.V(2).Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
+		log.V(2).
+			Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
 		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "SecondPassFailed", api.TruncateEventMessage(e.inadmissibleMsg))
 		return
 	}
 
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
-	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
+	log.V(2).
+		Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
 		wl := e.Obj.DeepCopy()
 		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {

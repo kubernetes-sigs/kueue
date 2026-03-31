@@ -1711,7 +1711,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
-					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: default(NoFit;Flavor "default" does not support TopologyAwareScheduling)`).Obj(),
+					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: default(NoFit;Flavor "default" does not support TopologyAwareScheduling)`).
+					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
 					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
@@ -1746,7 +1747,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
-					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: tas-default(NoFit;Flavor "tas-default" supports only TopologyAwareScheduling)`).Obj(),
+					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: tas-default(NoFit;Flavor "tas-default" supports only TopologyAwareScheduling)`).
+					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
 					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
@@ -1794,7 +1796,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
-					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: launcher: tas-default(NoFit;Flavor "tas-default" supports only TopologyAwareScheduling)`).Obj(),
+					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: launcher: tas-default(NoFit;Flavor "tas-default" supports only TopologyAwareScheduling)`).
+					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
 					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
@@ -1905,7 +1908,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
-					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: tas-default(NoFit;Flavor "tas-default" does not contain the requested level)`).Obj(),
+					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: tas-default(NoFit;Flavor "tas-default" does not contain the requested level)`).
+					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
 					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
@@ -2872,7 +2876,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "Pending", corev1.EventTypeWarning).
-					Message("couldn't assign flavors to pod set one: insufficient quota for cpu_credits in flavor credits, previously considered podsets requests (0) + current podset request (2) > maximum capacity (1)").Obj(),
+					Message("couldn't assign flavors to pod set one: insufficient quota for cpu_credits in flavor credits, previously considered podsets requests (0) + current podset request (2) > maximum capacity (1)").
+					Obj(),
 			},
 		},
 		"multi-layer topology: block required with rack and host slices; workload fits": {

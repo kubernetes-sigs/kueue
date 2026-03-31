@@ -472,7 +472,15 @@ func waitForKueueControllerReadyWithWebhookEndpoints(ctx context.Context, k8sCli
 	ginkgo.GinkgoLogr.Info("Ready pods and webhook endpoints verified", "deployment", key, "waitingTime", time.Since(waitStart))
 }
 
-func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int, opts ...client.ListOption) {
+func WaitForActivePodsAndTerminate(
+	ctx context.Context,
+	k8sClient client.Client,
+	restClient *rest.RESTClient,
+	cfg *rest.Config,
+	namespace string,
+	activePodsCount, exitCode int,
+	opts ...client.ListOption,
+) {
 	var activePods []corev1.Pod
 	pods := corev1.PodList{}
 	podListOpts := &client.ListOptions{}

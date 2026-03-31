@@ -205,7 +205,11 @@ func (c *Controller) activeOrLastPRForChecks(
 	return activeOrLastPRForChecks
 }
 
-func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, ownedPRs []autoscaling.ProvisioningRequest, activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest) error {
+func (c *Controller) deleteUnusedProvisioningRequests(
+	ctx context.Context,
+	ownedPRs []autoscaling.ProvisioningRequest,
+	activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest,
+) error {
 	log := ctrl.LoggerFrom(ctx)
 	prNames := sets.New[string]()
 	for _, pr := range activeOrLastPRForChecks {
@@ -748,7 +752,8 @@ func (p *prcHandler) Update(ctx context.Context, event event.UpdateEvent, q work
 		return
 	}
 
-	if oldPRC.Spec.ProvisioningClassName != newPRC.Spec.ProvisioningClassName || !maps.Equal(oldPRC.Spec.Parameters, newPRC.Spec.Parameters) || !slices.CmpNoOrder(oldPRC.Spec.ManagedResources, newPRC.Spec.ManagedResources) {
+	if oldPRC.Spec.ProvisioningClassName != newPRC.Spec.ProvisioningClassName || !maps.Equal(oldPRC.Spec.Parameters, newPRC.Spec.Parameters) ||
+		!slices.CmpNoOrder(oldPRC.Spec.ManagedResources, newPRC.Spec.ManagedResources) {
 		err := p.reconcileWorkloadsUsing(ctx, oldPRC.Name, q)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "provisioningRequestConfig", klog.KObj(oldPRC))

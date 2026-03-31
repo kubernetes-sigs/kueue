@@ -518,7 +518,14 @@ type FlavorAssigner struct {
 	replaceWorkloadSlice *workload.Info
 }
 
-func New(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle, preemptWorkloadSlice *workload.Info) *FlavorAssigner {
+func New(
+	wl *workload.Info,
+	cq *schdcache.ClusterQueueSnapshot,
+	resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor,
+	enableFairSharing bool,
+	oracle preemptionOracle,
+	preemptWorkloadSlice *workload.Info,
+) *FlavorAssigner {
 	return &FlavorAssigner{
 		wl:                   wl,
 		cq:                   cq,
@@ -1035,8 +1042,14 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 
 	// No Fit
 	if val > maxCapacity {
-		status.appendf("insufficient quota for %s in flavor %s, previously considered podsets requests (%s) + current podset request (%s) > maximum capacity (%s)",
-			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, assumedUsage), resources.ResourceQuantityString(fr.Resource, requestUsage), resources.ResourceQuantityString(fr.Resource, maxCapacity))
+		status.appendf(
+			"insufficient quota for %s in flavor %s, previously considered podsets requests (%s) + current podset request (%s) > maximum capacity (%s)",
+			fr.Resource,
+			fr.Flavor,
+			resources.ResourceQuantityString(fr.Resource, assumedUsage),
+			resources.ResourceQuantityString(fr.Resource, requestUsage),
+			resources.ResourceQuantityString(fr.Resource, maxCapacity),
+		)
 		return noFit, 0, &status
 	}
 

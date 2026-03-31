@@ -339,7 +339,14 @@ func (r *nodeReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string
 	return tasWorkloadsOnNode, nil
 }
 
-func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string, node *corev1.Node, wlKey types.NamespacedName, wl *kueue.Workload, nodeSelectorAssignedPods []*corev1.Pod) (workloadHealthCheck, error) {
+func (r *nodeReconciler) getWorkloadStatus(
+	ctx context.Context,
+	nodeName string,
+	node *corev1.Node,
+	wlKey types.NamespacedName,
+	wl *kueue.Workload,
+	nodeSelectorAssignedPods []*corev1.Pod,
+) (workloadHealthCheck, error) {
 	if err := r.client.Get(ctx, wlKey, wl); err != nil {
 		if apierrors.IsNotFound(err) {
 			return workloadHealthCheck{status: workloadHealthy}, nil
@@ -379,7 +386,14 @@ func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string,
 	}
 }
 
-func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, wl *kueue.Workload, hasUntoleratedTaints bool, hasTASAssignment bool, nodeSelectorAssignedPods []*corev1.Pod) (workloadHealthCheck, error) {
+func (r *nodeReconciler) checkPodsOnNode(
+	ctx context.Context,
+	nodeName string,
+	wl *kueue.Workload,
+	hasUntoleratedTaints bool,
+	hasTASAssignment bool,
+	nodeSelectorAssignedPods []*corev1.Pod,
+) (workloadHealthCheck, error) {
 	podsToTerminate, hasProgressingPods, err := r.getPodsToTerminate(ctx, wl, nodeName, nodeSelectorAssignedPods)
 	if err != nil {
 		return workloadHealthCheck{status: workloadHealthUnknown}, fmt.Errorf("failed to get pods to terminate for node %s: %w", nodeName, err)
@@ -460,7 +474,13 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 	return evictedWorkloads, nil
 }
 
-func (r *nodeReconciler) reconcileWorkloadsOnNode(ctx context.Context, nodeName string, node *corev1.Node, allTASWorkloads sets.Set[types.NamespacedName], nodeSelectorPodsByWorkload map[types.NamespacedName][]*corev1.Pod) (ctrl.Result, error) {
+func (r *nodeReconciler) reconcileWorkloadsOnNode(
+	ctx context.Context,
+	nodeName string,
+	node *corev1.Node,
+	allTASWorkloads sets.Set[types.NamespacedName],
+	nodeSelectorPodsByWorkload map[types.NamespacedName][]*corev1.Pod,
+) (ctrl.Result, error) {
 	if allTASWorkloads.Len() == 0 {
 		return ctrl.Result{}, nil
 	}

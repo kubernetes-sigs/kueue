@@ -465,7 +465,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if updated {
 			if evicted {
 				exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, &wl)
-				if err := workload.Evict(ctx, r.client, r.recorder, &wl, reason, message, underlyingCause, r.clock, exposeLqMetrics, r.roleTracker, r.customLabels, workload.WithCustomPrepare(prepare)); err != nil {
+				if err := workload.Evict(
+					ctx,
+					r.client,
+					r.recorder,
+					&wl,
+					reason,
+					message,
+					underlyingCause,
+					r.clock,
+					exposeLqMetrics,
+					r.roleTracker,
+					r.customLabels,
+					workload.WithCustomPrepare(prepare),
+				); err != nil {
 					if !apierrors.IsNotFound(err) {
 						return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 					}
@@ -536,7 +549,14 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
 			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
-			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
+			r.recorder.Eventf(
+				&wl,
+				corev1.EventTypeNormal,
+				"Admitted",
+				"Admitted by ClusterQueue %v, wait time since reservation was %.0fs",
+				wl.Status.Admission.ClusterQueue,
+				quotaReservedWaitTime.Seconds(),
+			)
 			priorityClassName := workload.PriorityClassName(&wl)
 			r.cache.ReportCohortSubtreeAdmittedWorkload(log, &wl)
 			metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
@@ -682,7 +702,11 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 		return 0, nil
 	}
 
-	remainingTime := time.Duration(*wl.Spec.MaximumExecutionTimeSeconds-ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0))*time.Second - r.clock.Since(admittedCondition.LastTransitionTime.Time)
+	remainingTime := time.Duration(
+		*wl.Spec.MaximumExecutionTimeSeconds-ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0),
+	)*time.Second - r.clock.Since(
+		admittedCondition.LastTransitionTime.Time,
+	)
 	if remainingTime > 0 {
 		return remainingTime, nil
 	}
@@ -891,7 +915,12 @@ func (r *WorkloadReconciler) mayUpdateConditionForAdmissionGatedBy(ctx context.C
 	} else if hasGatedAnnotation && !hasGatedCondition {
 		// This is the first detection we see a non-empty AdmissionGatedBy annotation
 		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), r.clock.Now()), nil
+			return workload.UnsetQuotaReservationWithCondition(
+				wl,
+				kueue.WorkloadAdmissionGated,
+				fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]),
+				r.clock.Now(),
+			), nil
 		})
 		if err != nil {
 			return false, err
@@ -973,9 +1002,22 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
 	exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
-	err = workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByPodsReadyTimeout, message, underlyingCause, r.clock, exposeLqMetrics, r.roleTracker, r.customLabels, workload.WithCustomPrepare(func(wl *kueue.Workload) {
-		workload.UpdateRequeueState(wl, r.waitForPodsReady.requeuingBackoffBaseSeconds, int32(r.waitForPodsReady.requeuingBackoffMaxDuration.Seconds()), r.clock)
-	}))
+	err = workload.Evict(
+		ctx,
+		r.client,
+		r.recorder,
+		wl,
+		kueue.WorkloadEvictedByPodsReadyTimeout,
+		message,
+		underlyingCause,
+		r.clock,
+		exposeLqMetrics,
+		r.roleTracker,
+		r.customLabels,
+		workload.WithCustomPrepare(func(wl *kueue.Workload) {
+			workload.UpdateRequeueState(wl, r.waitForPodsReady.requeuingBackoffBaseSeconds, int32(r.waitForPodsReady.requeuingBackoffMaxDuration.Seconds()), r.clock)
+		}),
+	)
 
 	return 0, err
 }

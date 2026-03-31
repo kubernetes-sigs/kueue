@@ -383,7 +383,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
 					g.Expect(createdDeployment.Status.Replicas).To(gomega.Equal(int32(3)))
 					g.Expect(createdDeployment.Status.UpdatedReplicas).To(gomega.Equal(int32(3)))
-					g.Expect(createdDeployment.Status.Conditions).To(gomega.BeComparableTo(deploymentConditions, cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "LastTransitionTime", "LastUpdateTime", "Message"))) // Ignoring message as it is required to gather the pod replica set
+					g.Expect(createdDeployment.Status.Conditions).
+						To(gomega.BeComparableTo(deploymentConditions, cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "LastTransitionTime", "LastUpdateTime", "Message")))
+					// Ignoring message as it is required to gather the pod replica set
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1023,7 +1025,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Triggering eviction in worker1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
-					g.Expect(workload.SetConditionAndUpdate(ctx, k8sWorker1Client, workerWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock)).To(gomega.Succeed())
+					g.Expect(workload.SetConditionAndUpdate(ctx, k8sWorker1Client, workerWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock)).
+						To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1478,7 +1481,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						&kftraining.ReplicaStatus{
 							Active:    0,
 							Succeeded: 1,
-							Selector:  fmt.Sprintf("training.kubeflow.org/job-name=%s,training.kubeflow.org/operator-name=pytorchjob-controller,training.kubeflow.org/replica-type=master", createdPyTorchJob.Name),
+							Selector: fmt.Sprintf(
+								"training.kubeflow.org/job-name=%s,training.kubeflow.org/operator-name=pytorchjob-controller,training.kubeflow.org/replica-type=master",
+								createdPyTorchJob.Name,
+							),
 						},
 					))
 

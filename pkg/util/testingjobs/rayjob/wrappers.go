@@ -285,7 +285,10 @@ func (j *JobWrapper) Env(rayType rayv1.RayNodeType, name, value string) *JobWrap
 		if j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env == nil {
 			j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = make([]corev1.EnvVar, 0)
 		}
-		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = append(j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env, corev1.EnvVar{Name: name, Value: value})
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = append(
+			j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env,
+			corev1.EnvVar{Name: name, Value: value},
+		)
 	}
 	return j
 }

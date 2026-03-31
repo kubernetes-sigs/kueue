@@ -1043,14 +1043,18 @@ func TestGetWorkloadStatus(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnNodeTaints: false},
 		},
 		"Node NotReady, ReplaceNodeOnPodTermination disabled -> Unhealthy immediately": {
-			node:         testingnode.MakeNode(nodeName).StatusConditions(corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse, LastTransitionTime: metav1.NewTime(testStartTime)}).Obj(),
+			node: testingnode.MakeNode(nodeName).
+				StatusConditions(corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse, LastTransitionTime: metav1.NewTime(testStartTime)}).
+				Obj(),
 			nodeName:     nodeName,
 			initObjs:     []client.Object{baseWorkload, basePod},
 			wantStatus:   workloadUnhealthy,
 			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 		},
 		"Node NotReady, ReplaceNodeOnPodTermination enabled -> Healthy (Waiting for pod termination)": {
-			node:     testingnode.MakeNode(nodeName).StatusConditions(corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse, LastTransitionTime: metav1.NewTime(testStartTime)}).Obj(),
+			node: testingnode.MakeNode(nodeName).
+				StatusConditions(corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse, LastTransitionTime: metav1.NewTime(testStartTime)}).
+				Obj(),
 			nodeName: nodeName,
 			initObjs: []client.Object{
 				baseWorkload.DeepCopy(),

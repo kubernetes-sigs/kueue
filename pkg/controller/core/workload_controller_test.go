@@ -2825,7 +2825,10 @@ func TestReconcile(t *testing.T) {
 					objs = append(objs, rct)
 				}
 
-				clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithObjects(objs...).
+					WithStatusSubresource(objs...).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 

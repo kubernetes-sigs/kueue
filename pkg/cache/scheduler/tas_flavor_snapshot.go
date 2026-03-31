@@ -577,7 +577,12 @@ func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetR
 // findReplacementAssignment finds the topology assignment for the replacement node
 // it return new corrected topologyAssignment, a replacement topologyAssignment used to patched the old, faulty one, and
 // reason if finding fails
-func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, existingAssignment *utiltas.TopologyAssignment, wl *kueue.Workload, assumedUsage map[utiltas.TopologyDomainID]resources.Requests) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
+func (s *TASFlavorSnapshot) findReplacementAssignment(
+	tr *TASPodSetRequests,
+	existingAssignment *utiltas.TopologyAssignment,
+	wl *kueue.Workload,
+	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
 	tr.Count = deleteDomain(existingAssignment, wl.Status.UnhealthyNodes[0].Name)
 	if isStale, staleDomain := s.IsTopologyAssignmentStale(existingAssignment); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
@@ -1197,7 +1202,16 @@ func findBestFitDomainBy(domains []*domain, needed int32, state domainState) *do
 	return bestDomain
 }
 
-func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, podSetSize int32, leaderPodSetSize int32, sliceSize int32, unconstrained bool, stats *ExclusionStats, multiLayerConstraints []kueue.PodsetSliceRequiredTopologyConstraint) (int, []*domain, string) {
+func (s *TASFlavorSnapshot) findLevelWithFitDomains(
+	levelIdx int,
+	required bool,
+	podSetSize int32,
+	leaderPodSetSize int32,
+	sliceSize int32,
+	unconstrained bool,
+	stats *ExclusionStats,
+	multiLayerConstraints []kueue.PodsetSliceRequiredTopologyConstraint,
+) (int, []*domain, string) {
 	domains := s.domainsPerLevel[levelIdx]
 	if len(domains) == 0 {
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
@@ -1306,7 +1320,17 @@ func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 //   - sliceSize: factor to set domain.state when finalizing or partially consuming
 //     (use 1 for pods, the actual sliceSize for slices)
 //   - slices: whether we're distributing slices (true) or pods (false)
-func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(domain *domain, remainingDomains []*domain, remainingPrimary *int32, remainingLeaderCount *int32, unconstrained bool, withLeader *int32, primary *int32, sliceSize int32, slices bool) (*domain, bool) {
+func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(
+	domain *domain,
+	remainingDomains []*domain,
+	remainingPrimary *int32,
+	remainingLeaderCount *int32,
+	unconstrained bool,
+	withLeader *int32,
+	primary *int32,
+	sliceSize int32,
+	slices bool,
+) (*domain, bool) {
 	if useBestFitAlgorithm(unconstrained) && *withLeader >= *remainingPrimary && domain.leaderState >= *remainingLeaderCount {
 		// optimize the last domain
 		if slices {
