@@ -1,27 +1,27 @@
-title: Preempt within cohort while borrowing
-kep-number: 1337
+title: borrowWithinCohort LowerPriorityBorrowersOnly policy
+kep-number: 10171
 authors:
-  - "@mimowo"
-status: implementable
-creation-date: 2023-12-05
+  - "@isumitsolanki"
+  - "@tskillian"
+status: provisional
+creation-date: 2026-03-30
 reviewers:
-  - "@yaroslava-serdiuk"
-  - "@mwielgus"
+  - TBD
 approvers:
-  - "@tenzen-y"
-  - "@alculquicondor"
+  - TBD
 
 see-also:
-  - "/keps/10171-borrow-within-cohort-lower-priority-borrowers-only"
+  - "/keps/1337-preempt-within-cohort-while-borrowing"
+  - "https://github.com/kubernetes-sigs/kueue/issues/10171"
 
 # The target maturity stage in the current dev cycle for this KEP.
-stage: beta
+stage: alpha
 
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.6"
+latest-milestone: TBD
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
-  beta: "v0.6"
+  alpha: TBD

@@ -51,6 +51,11 @@ tags, and then generate with `hack/update-toc.sh`.
 This KEP introduces ClusterQueue-level API to support workload preemption
 to reclaim quota within cohort for a workload that requires borrowing.
 
+**See also:** [KEP-10171](../10171-borrow-within-cohort-lower-priority-borrowers-only/README.md)
+adds an optional `borrowWithinCohort.policy` value `LowerPriorityBorrowersOnly`
+that limits targets so a victim ClusterQueue stays at or above nominal quota
+for contested resources when reclaiming capacity while borrowing.
+
 <!--
 This section is incredibly important for producing high-quality, user-focused
 documentation such as release notes or a development roadmap. It should be

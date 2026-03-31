@@ -78,7 +78,7 @@ func IsBorrowingWithinCohortForbidden(cq *schdcache.ClusterQueueSnapshot) (bool,
 
 // classifyPreemptionVariant evaluates, based on config and priorities, the
 // preemption type for a given candidate
-func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info, haveHierarchicalAdvantage bool) preemptionVariant {
+func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info, candidateCQ *schdcache.ClusterQueueSnapshot, haveHierarchicalAdvantage bool) preemptionVariant {
 	if !WorkloadUsesResources(wl, ctx.FrsNeedPreemption) {
 		return Never
 	}
@@ -109,6 +109,11 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	if isAboveBorrowingThreshold(candidatePriority, incomingPriority, borrowWithinCohortThreshold) {
 		return ReclaimWithoutBorrowing
 	}
+	if ctx.Cq.Preemption.BorrowWithinCohort != nil &&
+		ctx.Cq.Preemption.BorrowWithinCohort.Policy == kueue.BorrowWithinCohortPolicyLowerPriorityBorrowersOnly &&
+		!candidateCQ.UsageRemainsAtOrAboveNominalForFlavorResources(wl.FlavorResourceUsage(), ctx.FrsNeedPreemption) {
+		return Never
+	}
 	return ReclaimWhileBorrowing
 }
 
@@ -132,7 +137,7 @@ func collectSameQueueCandidates(ctx *HierarchicalPreemptionCtx) []*candidateElem
 func getCandidatesFromCQ(cq *schdcache.ClusterQueueSnapshot, lca *schdcache.CohortSnapshot, ctx *HierarchicalPreemptionCtx, hasHiearchicalAdvantage bool) []*candidateElem {
 	candidates := []*candidateElem{}
 	for _, candidateWl := range cq.Workloads {
-		preemptionVariant := classifyPreemptionVariant(ctx, candidateWl, hasHiearchicalAdvantage)
+		preemptionVariant := classifyPreemptionVariant(ctx, candidateWl, cq, hasHiearchicalAdvantage)
 		if preemptionVariant == Never {
 			continue
 		}

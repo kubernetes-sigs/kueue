@@ -501,8 +501,9 @@ type ClusterQueuePreemption struct {
 type BorrowWithinCohortPolicy string
 
 const (
-	BorrowWithinCohortPolicyNever         BorrowWithinCohortPolicy = "Never"
-	BorrowWithinCohortPolicyLowerPriority BorrowWithinCohortPolicy = "LowerPriority"
+	BorrowWithinCohortPolicyNever                      BorrowWithinCohortPolicy = "Never"
+	BorrowWithinCohortPolicyLowerPriority              BorrowWithinCohortPolicy = "LowerPriority"
+	BorrowWithinCohortPolicyLowerPriorityBorrowersOnly BorrowWithinCohortPolicy = "LowerPriorityBorrowersOnly"
 )
 
 // BorrowWithinCohort contains configuration which allows to preempt workloads
@@ -516,9 +517,14 @@ type BorrowWithinCohort struct {
 	// - `LowerPriority`: allow preemption, in other ClusterQueues
 	//    within the cohort, for a borrowing workload, but only if
 	//    the preempted workloads are of lower priority.
+	// - `LowerPriorityBorrowersOnly`: like `LowerPriority`, but a workload in
+	//    another ClusterQueue is a valid target only if that ClusterQueue is
+	//    borrowing for the contested resources and removing the target workload
+	//    would not reduce that ClusterQueue's usage below its nominal quota
+	//    for those resources.
 	//
 	// +kubebuilder:default=Never
-	// +kubebuilder:validation:Enum=Never;LowerPriority
+	// +kubebuilder:validation:Enum=Never;LowerPriority;LowerPriorityBorrowersOnly
 	// +optional
 	Policy BorrowWithinCohortPolicy `json:"policy,omitempty"`
 	// maxPriorityThreshold allows to restrict the set of workloads which

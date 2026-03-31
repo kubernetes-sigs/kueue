@@ -543,6 +543,21 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 					},
 				},
 				gomega.Succeed()),
+			ginkgo.Entry("Should allow to create clusterQueue with borrowWithinCohort LowerPriorityBorrowersOnly",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						Preemption: &kueue.ClusterQueuePreemption{
+							ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+							BorrowWithinCohort: &kueue.BorrowWithinCohort{
+								Policy: kueue.BorrowWithinCohortPolicyLowerPriorityBorrowersOnly,
+							},
+						},
+					},
+				},
+				gomega.Succeed()),
 			ginkgo.Entry("Should allow to create clusterQueue with existing cluster queue created with older Kueue version that has a nil borrowWithinCohort field",
 				&kueue.ClusterQueue{
 					ObjectMeta: metav1.ObjectMeta{
