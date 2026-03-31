@@ -101,6 +101,9 @@ func managerSetup(
 		err = pod.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		cCache := schdcache.New(mgr.GetClient())
+		opts = append(opts, jobframework.WithCache(cCache))
+
 		podReconciler, err := pod.NewReconciler(
 			ctx,
 			mgr.GetClient(),
@@ -125,7 +128,6 @@ func managerSetup(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		jobframework.EnableIntegration(job.FrameworkName)
 
-		cCache := schdcache.New(mgr.GetClient())
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
 
