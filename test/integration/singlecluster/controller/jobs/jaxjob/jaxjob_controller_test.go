@@ -30,6 +30,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjaxjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/jaxjob"
@@ -43,7 +44,6 @@ import (
 	"sigs.k8s.io/kueue/test/integration/framework"
 	kftesting "sigs.k8s.io/kueue/test/integration/singlecluster/controller/jobs/kubeflow"
 	"sigs.k8s.io/kueue/test/util"
-	jobstestutil "sigs.k8s.io/kueue/test/util/jobs"
 )
 
 const (
@@ -313,7 +313,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, jobstestutil.ManagerSetupWithCache(managerSetup, jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{})))
+		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
 
 		ginkgo.By("Create a resource flavor")
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
