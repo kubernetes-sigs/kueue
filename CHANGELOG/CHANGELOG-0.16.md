@@ -1,3 +1,34 @@
+## v0.16.5
+
+Changes since `v0.16.4`:
+
+## Changes by Kind
+
+### Feature
+
+- Helm: Add kueueViz.backend.ingress.enabled and kueueViz.frontend.ingress.enabled Helm values to allow disabling KueueViz ingress resources. (#10065, @david-gang)
+- Helm: Add support to pass in custom issuerRef to allow for configuration of Issuers. (#10212, @MatteoFari)
+- Introduced the `WorkloadNameShorten` feature gate to ensure generated Workload names do not exceed 63 characters. This prevents issues where Workload labels were invalid due to length. When enabled, the owner-based prefix is truncated to fit within the limit while maintaining uniqueness via a hash suffix. (#10129, @mbobrovskyi)
+
+### Bug or Regression
+
+- FairSharing: Fix `FairSharingPrioritizeNonBorrowing` to check per-flavor borrowing at every hierarchy level in hierarchical cohorts, not just at the ClusterQueue level. (#10203, @mukund-wayve)
+- RayJob integration: fix the autosaling scenarios when using ElasticJobsViaWorkloadSlices. In particular when
+  two consecutive scale ups happen. (#10160, @hiboyang)
+- Scheduling: fix the bug that scheduler could get stuck trying to preempt a workload due to the corruption of the
+  in-memory state tracking the pending preemptions (called preemptionExpectations). (#10206, @mimowo)
+- Strip managedFields from informer cache via DefaultTransform to reduce memory footprint on large clusters. (#10125, @jzhaojieh)
+- TAS: Fix a bug where preemption with multiple resources sometimes fails (#10204, @mimowo)
+- TAS: Fix nil pointer panic in TAS node reconciler when unadmitted workloads exist in the cluster. (#10039, @kannon92)
+- TAS: Improved the performance of the node_controller Reconcile loop by introducing a new field indexer for Workloads. (#10051, @j-skiba)
+- TAS: Workloads that require TAS but have a PodSet with a failed TAS request (e.g., more than one flavor assigned) are correctly rejected at admission with a clear Pending reason and message, rather than being admitted without TopologyAssignment. (#10228, @j-skiba)
+- TAS: fix the bug that workloads which only specify resource limits, without requests, are not able to perform 
+  the second-pass scheduling correctly, after Kueue restart, responsible for NodeHotSwap and ProvisioningRequests. (#10177, @mimowo)
+
+### Other (Cleanup or Flake)
+
+- Observability: Increased log level from 3 to 5 for TAS node filtering-related log events. (#10021, @mwysokin)
+
 ## v0.16.4
 
 Changes since `v0.16.3`:
