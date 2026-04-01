@@ -18,6 +18,7 @@ package util
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -103,10 +104,11 @@ func ConfigureSuiteReporting(report ginkgo.Report) error {
 		OmitFailureMessageAttr: true,
 	}
 	suiteName := uniqueSuiteName(report.SuitePath)
-	reportPath := "junit-" + suiteName + ".xml"
-	if dir := os.Getenv("ARTIFACTS"); dir != "" {
-		reportPath = filepath.Join(dir, reportPath)
+	reportDir := cmp.Or(os.Getenv("ARTIFACTS"), BinDir)
+	if err := os.MkdirAll(reportDir, 0o755); err != nil {
+		return fmt.Errorf("cannot create suite report directory %q: %w", reportDir, err)
 	}
+	reportPath := filepath.Join(reportDir, "junit-"+suiteName+".xml")
 	ginkgo.GinkgoLogr.Info(
 		"Generating JUnit report",
 		"path", reportPath,
