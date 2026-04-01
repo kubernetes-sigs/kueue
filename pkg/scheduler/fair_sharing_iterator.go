@@ -18,6 +18,8 @@ package scheduler
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"k8s.io/klog/v2"
@@ -265,6 +267,12 @@ func (e *entryComparer) logDrsValuesWhenVerbose(log logr.Logger) {
 				DRS:          v.PreciseWeightedShare(),
 			})
 		}
+		slices.SortFunc(entries, func(a, b drsLogEntry) int {
+			if c := strings.Compare(a.ParentCohort, b.ParentCohort); c != 0 {
+				return c
+			}
+			return strings.Compare(a.Workload, b.Workload)
+		})
 		logV.Info(
 			"DominantResourceShare values used during tournament",
 			"drsValues", entries,
