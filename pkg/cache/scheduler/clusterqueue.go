@@ -248,14 +248,14 @@ func (c *clusterQueue) ensureTASIsSynced(log logr.Logger) {
 	if c.isTASSynced {
 		return
 	}
-	log.V(2).Info("Syncing TAS usage initilized TAS cache", "workloads", len(c.Workloads))
+	log.V(2).Info("Syncing TAS usage for initialized TAS cache", "workloads", len(c.Workloads))
 	for _, w := range c.Workloads {
 		c.addOrUpdateWorkload(log, w.Obj)
 	}
 	c.isTASSynced = true
 }
 
-// isTASInitialized determines if the TAS cache for a specific flavor is initiatilzed, ie.
+// isTASInitialized determines if the TAS cache for a specific flavor is initialized, ie.
 // the ResourceFlavor and the referenced Topology exist.
 func (c *clusterQueue) isTASInitialized() bool {
 	for tasFlavor := range c.tasFlavors {
