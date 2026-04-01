@@ -847,18 +847,11 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 
 		const extendedResourceName = "example.com/gpu"
 
-		ginkgo.BeforeAll(func() {
+		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DRAExtendedResources, true)
 			fwk.StopManager(ctx)
 			fwk.StartManager(ctx, cfg, managerSetup(nil))
-		})
 
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
-			fwk.StartManager(ctx, cfg, managerSetup(nil))
-		})
-
-		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "dra-ext-",
@@ -953,7 +946,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			logicalName          = "gpu-claims"
 		)
 
-		ginkgo.BeforeAll(func() {
+		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DRAExtendedResources, true)
 
@@ -972,15 +965,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 					DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
 				})
 			}))
-		})
 
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			fwk.StartManager(ctx, cfg, managerSetup(nil))
-		})
-
-		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{GenerateName: "dra-unified-"},
 			}
@@ -1018,6 +1003,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
 		})
 
 		ginkgo.It("Should use deviceClassMappings logical name as quota key", func() {
@@ -1050,19 +1036,12 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 
 		const extendedResourceName = "example.com/gpu"
 
-		ginkgo.BeforeAll(func() {
+		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DRAExtendedResources, false)
 			fwk.StopManager(ctx)
 			fwk.StartManager(ctx, cfg, managerSetup(nil))
-		})
 
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
-			fwk.StartManager(ctx, cfg, managerSetup(nil))
-		})
-
-		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "dra-gate-off-",

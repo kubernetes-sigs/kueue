@@ -40,6 +40,12 @@ const (
 	flavorsMaxItems   = 64
 )
 
+// defaultFlavorFungibility matches ClusterQueue defaulting (see apis defaulting).
+var defaultFlavorFungibility = &kueue.FlavorFungibility{
+	WhenCanBorrow:  kueue.TryNextFlavor,
+	WhenCanPreempt: kueue.TryNextFlavor,
+}
+
 var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)

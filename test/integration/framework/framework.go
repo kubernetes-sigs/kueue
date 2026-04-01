@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -80,6 +81,7 @@ type Framework struct {
 
 	managerCancel context.CancelFunc
 	managerDone   <-chan struct{}
+	managerMu     sync.Mutex
 
 	ObservedLogs *observer.ObservedLogs
 }
@@ -184,6 +186,13 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 }
 
 func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup, opts ...ManagerOption) {
+	f.managerMu.Lock()
+	started := false
+	defer func() {
+		if !started {
+			f.managerMu.Unlock()
+		}
+	}()
 	ginkgo.By("starting the manager", func() {
 		webhookInstallOptions := &f.testEnv.WebhookInstallOptions
 		mgrOptions := manager.Options{
@@ -231,6 +240,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			conn.Close()
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
+	started = true
 }
 
 func (f *Framework) StopManager(ctx context.Context) {
@@ -246,6 +256,8 @@ func (f *Framework) StopManager(ctx context.Context) {
 		case <-ctx.Done():
 			ginkgo.GinkgoLogr.Info("manager stop canceled")
 		}
+		f.managerCancel = nil
+		f.managerMu.Unlock()
 	})
 }
 

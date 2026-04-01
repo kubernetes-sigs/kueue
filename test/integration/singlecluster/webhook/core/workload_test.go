@@ -48,12 +48,12 @@ const (
 )
 
 var _ = ginkgo.Describe("Workload defaulting webhook", func() {
-	var _ = ginkgo.BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
-	var _ = ginkgo.AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
@@ -105,12 +105,12 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 })
 
 var _ = ginkgo.Describe("Workload validating webhook", func() {
-	var _ = ginkgo.BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
-	var _ = ginkgo.AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
@@ -1274,15 +1274,21 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 })
 
 var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher AllAtOnce", func() {
-	var _ = ginkgo.BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
-	var _ = ginkgo.AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
+	ginkgo.Context("When updating a Workload", func() {
+		var (
+			workloadPriorityClass *kueue.WorkloadPriorityClass
+			priorityClass         *schedulingv1.PriorityClass
+		)
 		ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
 			workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
 			priorityClass = utiltesting.MakePriorityClass("priority-class").PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, workloadPriorityClass)
@@ -1292,7 +1298,6 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 		})
 
 		ginkgo.DescribeTable("Validate Workload status on update",
@@ -1374,14 +1379,20 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 })
 
 var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Incremental", func() {
-	var _ = ginkgo.BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
-	var _ = ginkgo.AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
+	ginkgo.Context("When updating a Workload", func() {
+		var (
+			workloadPriorityClass *kueue.WorkloadPriorityClass
+			priorityClass         *schedulingv1.PriorityClass
+		)
 		ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
 			workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
 			priorityClass = utiltesting.MakePriorityClass("priority-class").PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, workloadPriorityClass)
@@ -1391,7 +1402,6 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 		})
 
 		ginkgo.DescribeTable("Validate Workload status on update",
@@ -1668,19 +1678,14 @@ var _ = ginkgo.Describe("TopologyAssignment validation", func() {
 	)
 })
 
-var _ = ginkgo.Describe("Workload v1beta1 CEL validation", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Workload v1beta1 CEL validation", func() {
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-v1beta1-cel-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 

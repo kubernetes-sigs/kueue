@@ -65,11 +65,8 @@ var (
 
 var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), func() {
 	ginkgo.When("manageJobsWithoutQueueName is disabled", func() {
-		var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(corev1.LabelArchStable, "arm64").Obj()
-		var clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
-			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "1").Obj(),
-			).Obj()
+		var defaultFlavor *kueue.ResourceFlavor
+		var clusterQueue *kueue.ClusterQueue
 		nsSelector := &metav1.LabelSelector{
 			MatchExpressions: []metav1.LabelSelectorRequirement{
 				{
@@ -81,6 +78,15 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 		}
 		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		var (
+			ns        *corev1.Namespace
+			fl        *kueue.ResourceFlavor
+			cq        *kueue.ClusterQueue
+			lq        *kueue.LocalQueue
+			lookupKey types.NamespacedName
+		)
+
 		ginkgo.BeforeEach(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(
 				false,
@@ -92,6 +98,11 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
 				jobframework.WithEnabledFrameworks([]string{"pod"}),
 			))
+			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(corev1.LabelArchStable, "arm64").Obj()
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj()
 			util.MustCreate(ctx, k8sClient, defaultFlavor)
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")

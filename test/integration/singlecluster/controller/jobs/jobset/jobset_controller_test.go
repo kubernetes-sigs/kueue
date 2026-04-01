@@ -57,6 +57,8 @@ const (
 )
 
 var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jobs"), func() {
+	var ns *corev1.Namespace
+
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -678,6 +680,8 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 })
 
 var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with queue are managed", ginkgo.Label("job:jobset", "area:jobs"), func() {
+	var ns *corev1.Namespace
+
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup())
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
@@ -729,6 +733,11 @@ var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with que
 })
 
 var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkgo.Label("job:jobset", "area:jobs"), func() {
+	var (
+		ns            *corev1.Namespace
+		defaultFlavor *kueue.ResourceFlavor
+	)
+
 	type podsReadyTestSpec struct {
 		beforeJobSetStatus *jobsetapi.JobSetStatus
 		beforeCondition    *metav1.Condition
@@ -737,12 +746,11 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 		wantCondition      *metav1.Condition
 	}
 
-	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
-
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
 
 		ginkgo.By("Create a resource flavor")
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
@@ -931,6 +939,14 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 })
 
 var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.Label("job:jobset", "area:jobs"), func() {
+	var (
+		ns                  *corev1.Namespace
+		onDemandFlavor      *kueue.ResourceFlavor
+		spotUntaintedFlavor *kueue.ResourceFlavor
+		clusterQueue        *kueue.ClusterQueue
+		localQueue          *kueue.LocalQueue
+	)
+
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")

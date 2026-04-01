@@ -53,6 +53,8 @@ const (
 )
 
 var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:pytorch", "area:jobs"), func() {
+	var ns *corev1.Namespace
+
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -89,6 +91,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:pytorch", "area:jobs
 })
 
 var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", ginkgo.Label("job:pytorch", "area:jobs"), func() {
+	var ns *corev1.Namespace
+
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup())
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
@@ -302,13 +306,14 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Label("job:pytorch", "area:jobs"), func() {
 	var (
 		ns            *corev1.Namespace
-		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
+		defaultFlavor *kueue.ResourceFlavor
 	)
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
 
 		ginkgo.By("Create a resource flavor")
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})

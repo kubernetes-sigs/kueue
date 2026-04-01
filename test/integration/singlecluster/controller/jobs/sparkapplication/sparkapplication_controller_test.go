@@ -45,6 +45,8 @@ const (
 )
 
 var _ = ginkgo.Describe("SparkApplication controller", ginkgo.Label("job:sparkapplication", "area:jobs"), func() {
+	var ns *corev1.Namespace
+
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -76,13 +78,14 @@ var _ = ginkgo.Describe("SparkApplication controller", ginkgo.Label("job:sparkap
 var _ = ginkgo.Describe("SparkApplication controller when waitForPodsReady enabled", ginkgo.Label("job:sparkapplication", "area:jobs"), func() {
 	var (
 		ns            *corev1.Namespace
-		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
+		defaultFlavor *kueue.ResourceFlavor
 	)
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
 
 		ginkgo.By("Create a resource flavor")
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})

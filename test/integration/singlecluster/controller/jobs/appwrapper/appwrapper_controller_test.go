@@ -60,6 +60,8 @@ const (
 )
 
 var _ = ginkgo.Describe("AppWrapper controller", func() {
+	var ns *corev1.Namespace
+
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -509,6 +511,8 @@ var _ = ginkgo.Describe("AppWrapper controller", func() {
 })
 
 var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with queue are managed", func() {
+	var ns *corev1.Namespace
+
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup())
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
@@ -556,6 +560,11 @@ var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with
 })
 
 var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", func() {
+	var (
+		ns            *corev1.Namespace
+		defaultFlavor *kueue.ResourceFlavor
+	)
+
 	type podsReadyTestSpec struct {
 		beforeAppWrapperStatus *awv1beta2.AppWrapperStatus
 		beforeCondition        *metav1.Condition
@@ -564,12 +573,11 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", f
 		wantCondition          *metav1.Condition
 	}
 
-	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
-
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
 
 		ginkgo.By("Create a resource flavor")
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
 	})
@@ -742,6 +750,14 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", f
 })
 
 var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", func() {
+	var (
+		ns                  *corev1.Namespace
+		onDemandFlavor      *kueue.ResourceFlavor
+		spotUntaintedFlavor *kueue.ResourceFlavor
+		clusterQueue        *kueue.ClusterQueue
+		localQueue          *kueue.LocalQueue
+	)
+
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
