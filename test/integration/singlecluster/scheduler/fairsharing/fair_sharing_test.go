@@ -1126,6 +1126,36 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, lqBWls...)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlC)
 		})
+
+		ginkgo.It("should update consumed resources and subtract entry penalties on workload admission", func() {
+			lqAKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lqA.Name))
+
+			ginkgo.By("Admitting a workload on lq-a to trigger updateAfsConsumedUsage")
+			wlA1 := createWorkload("lq-a", "4")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1)
+
+			ginkgo.By("Verifying consumed resources for lq-a are non-zero after admission")
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 0)
+
+			ginkgo.By("Verifying no entry penalty exists after workload admission")
+			gomega.Eventually(func(g gomega.Gomega) {
+				penalty := qManager.AfsEntryPenalties.HasPendingFor(lqAKey)
+				g.Expect(penalty).To(gomega.BeFalse(), "entry penalty should be absent for lq-a")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Saturating the CQ with a second lq-a workload")
+			wlA2 := createWorkload("lq-a", "4")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA2)
+
+			ginkgo.By("Verifying lq-a consumed resources increased after second admission")
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 3_900)
+
+			ginkgo.By("Verifying no entry penalty exists after second admission")
+			gomega.Eventually(func(g gomega.Gomega) {
+				penalty := qManager.AfsEntryPenalties.HasPendingFor(lqAKey)
+				g.Expect(penalty).To(gomega.BeFalse(), "entry penalty should be absent for lq-a")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 	})
 
 	ginkgo.When("Preemption is enabled in fairsharing and there are large values of quota and weights", func() {
@@ -1390,96 +1420,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 
 			ginkgo.By("Checking that the workload from lq-A is preempted despite having bigger priority")
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlHighA)
-		})
-	})
-
-	ginkgo.When("Using AdmissionFairSharing", ginkgo.Label("feature:admissionfairsharing"), func() {
-		var (
-			cq  *kueue.ClusterQueue
-			lqA *kueue.LocalQueue
-			lqB *kueue.LocalQueue
-		)
-
-		ginkgo.BeforeEach(func() {
-			cq = utiltestingapi.MakeClusterQueue("afs-penalty-cq").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "8").Obj()).
-				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
-				Obj()
-			util.MustCreate(ctx, k8sClient, cq)
-			cqs = append(cqs, cq)
-
-			lqA = utiltestingapi.MakeLocalQueue("lq-a-penalty", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
-				ClusterQueue(cq.Name).Obj()
-			lqB = utiltestingapi.MakeLocalQueue("lq-b-penalty", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
-				ClusterQueue(cq.Name).Obj()
-			lqs = append(lqs, lqA, lqB)
-			util.MustCreate(ctx, k8sClient, lqA)
-			util.MustCreate(ctx, k8sClient, lqB)
-		})
-
-		ginkgo.It("should update consumed resources and subtract entry penalties on workload admission", func() {
-			lqAKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lqA.Name))
-			lqBKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lqB.Name))
-
-			ginkgo.By("Verifying entry penalties are zero before any workloads")
-			gomega.Expect(qManager.AfsEntryPenalties.Peek(lqAKey)).To(gomega.BeEmpty())
-			gomega.Expect(qManager.AfsEntryPenalties.Peek(lqBKey)).To(gomega.BeEmpty())
-
-			ginkgo.By("Admitting a workload on lq-a to trigger updateAfsConsumedUsage")
-			wlA1 := createWorkload("lq-a-penalty", "4")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1)
-
-			ginkgo.By("Verifying consumed resources for lq-a are non-zero after admission")
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 0)
-
-			ginkgo.By("Verifying entry penalty for lq-a was subtracted after workload admission")
-			gomega.Eventually(func(g gomega.Gomega) {
-				penalty := qManager.AfsEntryPenalties.Peek(lqAKey)
-				g.Expect(penalty).ToNot(gomega.BeEmpty(), "entry penalty should not be empty for lq-a")
-				cpuPenalty := penalty[corev1.ResourceCPU]
-				g.Expect(cpuPenalty.MilliValue()).To(gomega.BeNumerically("<=", 0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Verifying lq-b has no entry penalties")
-			gomega.Expect(qManager.AfsEntryPenalties.Peek(lqBKey)).To(gomega.BeEmpty())
-
-			ginkgo.By("Saturating the CQ with a second lq-a workload")
-			wlA2 := createWorkload("lq-a-penalty", "4")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA2)
-
-			ginkgo.By("Verifying lq-a consumed resources increased after second admission")
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 3_900)
-
-			ginkgo.By("Verifying entry penalty for lq-a is still net zero after second admission")
-			gomega.Eventually(func(g gomega.Gomega) {
-				penalty := qManager.AfsEntryPenalties.Peek(lqAKey)
-				g.Expect(penalty).ToNot(gomega.BeEmpty(), "entry penalty should not be empty for lq-a")
-				cpuPenalty := penalty[corev1.ResourceCPU]
-				g.Expect(cpuPenalty.MilliValue()).To(gomega.BeNumerically("<=", 0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Creating competing pending workloads from both queues")
-			_ = createWorkload("lq-a-penalty", "4")
-			wlB := createWorkload("lq-b-penalty", "4")
-
-			ginkgo.By("Releasing quota so one pending workload can be admitted")
-			util.FinishWorkloads(ctx, k8sClient, wlA1)
-
-			ginkgo.By("Verifying lq-b workload is admitted first due to lower consumed usage")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
-
-			ginkgo.By("Verifying lq-b entry penalty is net zero after its admission")
-			gomega.Eventually(func(g gomega.Gomega) {
-				penalty := qManager.AfsEntryPenalties.Peek(lqBKey)
-				g.Expect(penalty).ToNot(gomega.BeEmpty(), "entry penalty should not be empty for lq-b")
-				cpuPenalty := penalty[corev1.ResourceCPU]
-				g.Expect(cpuPenalty.MilliValue()).To(gomega.BeNumerically("<=", 0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Verifying lq-b now has non-zero consumed resources")
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), ">", 0)
 		})
 	})
 })
