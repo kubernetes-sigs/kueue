@@ -797,6 +797,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "2").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
 
@@ -827,6 +828,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "2").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
@@ -943,6 +945,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "2").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
 
@@ -973,6 +976,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				RequestAndLimit(corev1.ResourceMemory, "2G").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
