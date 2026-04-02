@@ -27,7 +27,7 @@ jobs:
           check-latest: true
           cache: true
       - name: Install bom
-        uses: kubernetes-sigs/release-actions/setup-bom@ab33480f30919958240822cfc29af8d9903f313b # v0.4.1
+        uses: kubernetes-sigs/release-actions/setup-bom@cbe0488670ad0c0ff422fbef963da3bfe451a891 # v0.4.2
       - name: Generate SBOM
         shell: bash
         run: |
