@@ -379,6 +379,31 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			}
 
 			if workload.Status(&wl) == workload.StatusPending {
+				// If the workload is already being garbage-collected, let the
+				// job controller's dropFinalizers path handle cleanup.
+				if !wl.DeletionTimestamp.IsZero() {
+					log.V(3).Info("Pending workload is being garbage collected, skipping requeue")
+					return ctrl.Result{}, nil
+				}
+
+				// Before re-enqueuing, check if the workload's controller owner
+				// still exists. If the owner (e.g., a pod deleted by eviction)
+				// is gone, the workload is stale and should be finished rather
+				// than re-enqueued. This prevents unbounded stale workload
+				// accumulation when Deployment-owned pods are evicted and replaced.
+				if ownerGone, err := r.isControllerOwnerGone(ctx, &wl); err != nil {
+					return ctrl.Result{}, err
+				} else if ownerGone {
+					log.V(2).Info("Controller owner of workload no longer exists, finishing stale workload")
+					if err := workload.Finish(ctx, r.client, &wl, "OwnerNotFound", "The workload's owner no longer exists", r.clock); err != nil {
+						return ctrl.Result{}, client.IgnoreNotFound(err)
+					}
+					if err := workload.RemoveFinalizer(ctx, r.client, &wl); err != nil {
+						return ctrl.Result{}, client.IgnoreNotFound(err)
+					}
+					return ctrl.Result{}, nil
+				}
+
 				log.V(3).Info("Pending workload requeued after backoff")
 
 				// Clear RequeueAt since backoff has elapsed
@@ -1280,16 +1305,36 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
-// admittedNotReadyWorkload checks if a workload counts toward the PodsReady timeout
-// and calculates the remaining timeout duration.
-//
-// It returns two values:
-//  1. A underlyingCause that complements information carried by kueue.WorkloadEvictedByPodsReadyTimeout
-//
-// (e.g., WaitForStart, WaitForRecovery, or empty if not applicable).
-//
-//  2. The remaining time (in seconds) until the timeout is exceeded, based on
-//     the maximum of the LastTransitionTime for the Admitted and PodsReady conditions.
+// isControllerOwnerGone checks whether the controller owner of the workload
+// still exists. Returns true if the controller owner reference points to an
+// object that no longer exists (NotFound) or whose UID no longer matches.
+// This is used to detect stale workloads whose owning pod was deleted
+// (e.g., by eviction) and replaced by a new pod from a Deployment.
+func (r *WorkloadReconciler) isControllerOwnerGone(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	ref := metav1.GetControllerOf(wl)
+	if ref == nil {
+		return false, nil
+	}
+	obj := &metav1.PartialObjectMetadata{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: ref.APIVersion,
+			Kind:       ref.Kind,
+		},
+	}
+	key := client.ObjectKey{Namespace: wl.Namespace, Name: ref.Name}
+	if err := r.client.Get(ctx, key, obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	// A different UID means the original owner was deleted and a new object
+	// with the same name was created.
+	return obj.UID != ref.UID, nil
+}
+
+// admittedNotReadyWorkload returns the underlying cause and remaining time for
+// a workload that is admitted but not yet in PodsReady condition.
 //
 // If the workload is not admitted, PodsReady is true, or no timeout is configured,
 // it returns an empty underlyingCause and zero duration.
