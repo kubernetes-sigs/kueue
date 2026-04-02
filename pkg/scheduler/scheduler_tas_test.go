@@ -4460,7 +4460,10 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "high-priority", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "high-priority", "Pending", corev1.EventTypeWarning).Obj(),
 			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			eventCmpOpts: cmp.Options{
+				eventIgnoreMessage,
+				cmpopts.SortSlices(utiltesting.SortEvents),
+			},
 		},
 	}
 	for name, tc := range cases {
