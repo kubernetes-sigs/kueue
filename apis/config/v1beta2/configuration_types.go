@@ -26,6 +26,8 @@ import (
 )
 
 // +k8s:defaulter-gen=true
+// The deepcopy-gen marker is required to generate API reference documentation by genref.
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 
 // Configuration is the Schema for the kueueconfigurations API
