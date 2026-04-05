@@ -68,9 +68,15 @@ func (f *fairSharingIterator) pop() *entry {
 	// CQ has no Cohort. We simply return its workload.
 	if !cq.HasParent() {
 		entry := f.cqToEntry[cq]
-		f.log.V(3).Info("Returning workload from ClusterQueue without Cohort",
-			"clusterQueue", klog.KRef("", string(cq.GetName())),
-			"workload", klog.KObj(entry.Obj))
+
+		f.log.
+			WithValues(
+				"clusterQueue", klog.KRef("", string(cq.GetName())),
+				"workload", klog.KObj(entry.Obj),
+			).
+			V(3).
+			Info("Returning workload from ClusterQueue without Cohort")
+
 		delete(f.cqToEntry, cq)
 		return entry
 	}
