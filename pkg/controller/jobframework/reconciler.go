@@ -70,8 +70,9 @@ import (
 )
 
 const (
-	FailedToStartFinishedReason = "FailedToStart"
-	managedOwnersChainLimit     = 10
+	FailedToStartFinishedReason         = "FailedToStart"
+	managedOwnersChainLimit             = 10
+	schedulingGateDetectionRequeueDelay = 2 * time.Second
 )
 
 var (
@@ -430,6 +431,17 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	wl, err := r.ensureOneWorkload(ctx, job, object)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// 1.1 Catchall detection for missing scheduling gates (for elastic jobs like Ray Clusters)
+	if jobWithGateDetection, implements := job.(JobWithSchedulingGateDetection); implements {
+		gatesMissing, err := jobWithGateDetection.DetectMissingSchedulingGates(ctx, r.client)
+		// Log the error but continue with the rest of the reconcile loop
+		if err != nil {
+			log.Error(err, "Failed to detect if scheduling gates are missing")
+		} else if gatesMissing {
+			log.Error(nil, "Missing scheduling gates detected, but not injecting them")
+		}
 	}
 
 	// Update workload conditions if implemented JobWithCustomWorkloadConditions interface.

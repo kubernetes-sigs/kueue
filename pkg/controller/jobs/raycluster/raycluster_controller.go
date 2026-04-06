@@ -19,14 +19,17 @@ package raycluster
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -77,6 +80,7 @@ type RayCluster rayv1.RayCluster
 
 var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
+var _ jobframework.JobWithSchedulingGateDetection = (*RayCluster)(nil)
 
 func (j *RayCluster) Object() client.Object {
 	return (*rayv1.RayCluster)(j)
@@ -206,4 +210,60 @@ func (j *RayCluster) ManagedBy() *string {
 
 func (j *RayCluster) SetManagedBy(managedBy *string) {
 	j.Spec.ManagedBy = managedBy
+}
+
+// DetectMissingSchedulingGates detects missing ElasticJobSchedulingGate
+// This is called in the generic reconcile loop after ensureOneWorkload()
+func (j *RayCluster) DetectMissingSchedulingGates(ctx context.Context, c client.Client) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Check if this is an elastic job and has a finalizer (indicating it's managed by Kueue)
+	if !j.isElasticJobWithFinalizer() {
+		// Not an elastic job or not managed by Kueue, skip
+		return false, nil
+	}
+
+	// Check if scheduling gates are missing
+	missingGatesInHead := j.isMissingElasticJobSchedulingGate(&j.Spec.HeadGroupSpec.Template)
+	missingGatesInWorkers := []int{}
+
+	for i, wgs := range j.Spec.WorkerGroupSpecs {
+		if j.isMissingElasticJobSchedulingGate(&wgs.Template) {
+			missingGatesInWorkers = append(missingGatesInWorkers, i)
+		}
+	}
+
+	// If no gates are missing, nothing to do
+	if !missingGatesInHead && len(missingGatesInWorkers) == 0 {
+		return false, nil
+	}
+
+	// Log the detection of missing gates
+	log.Error(nil, "Detected missing ElasticJobSchedulingGate in Ray Cluster",
+		"rayCluster", client.ObjectKeyFromObject(j.Object()),
+		"missingInHead", missingGatesInHead,
+		"missingInWorkers", missingGatesInWorkers)
+
+	// Return true to indicate gates are missing
+	return true, nil
+}
+
+// isElasticJobWithFinalizer checks if the RayCluster is an elastic job and has a finalizer
+func (j *RayCluster) isElasticJobWithFinalizer() bool {
+	// Check if it's an elastic job (using the same logic as webhook)
+	if !isAnElasticJob((*rayv1.RayCluster)(j)) {
+		return false
+	}
+
+	// Check if it has finalizers (indicating it's managed by Kueue)
+	return len(j.Object().GetFinalizers()) > 0
+}
+
+// isMissingElasticJobSchedulingGate checks if a pod template is missing the ElasticJobSchedulingGate
+func (j *RayCluster) isMissingElasticJobSchedulingGate(template *corev1.PodTemplateSpec) bool {
+	elasticGate := corev1.PodSchedulingGate{
+		Name: kueue.ElasticJobSchedulingGate,
+	}
+
+	return !slices.Contains(template.Spec.SchedulingGates, elasticGate)
 }
