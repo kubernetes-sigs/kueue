@@ -50,9 +50,13 @@ import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 )
 
+type nodeSelectorAssertMode string
+
 const (
-	tasBlockLabel = "cloud.com/topology-block"
-	tasRackLabel  = "cloud.com/topology-rack"
+	tasBlockLabel                                       = "cloud.com/topology-block"
+	tasRackLabel                                        = "cloud.com/topology-rack"
+	nodeSelectorAssertExact      nodeSelectorAssertMode = "Exact"      // Use for rank-based ordering tests where pod assignments are deterministic
+	nodeSelectorAssertCountsOnly nodeSelectorAssertMode = "CountsOnly" // Use for greedy assignment or error cases where assignments may vary
 )
 
 var (
@@ -69,10 +73,6 @@ var (
 )
 
 func TestReconcile(t *testing.T) {
-	// this code is meant to deal with the fact that the pod assignment to
-	// topology domains is non-deterministic (i.e. sometimes pod1 gets the
-	// assigned to domain1, but sometimes to domain2). We only care about the
-	// number of pods ungated to a given domain.
 	type counts struct {
 		NodeSelector map[string]string
 		Count        int32
@@ -112,13 +112,13 @@ func TestReconcile(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		expectUIDs []types.UID
-		workloads  []kueue.Workload
-		pods       []corev1.Pod
-		cmpNS      bool
-		wantPods   []corev1.Pod
-		wantCounts []counts
-		wantErr    error
+		expectUIDs             []types.UID
+		workloads              []kueue.Workload
+		pods                   []corev1.Pod
+		nodeSelectorAssertMode nodeSelectorAssertMode
+		wantPods               []corev1.Pod
+		wantCounts             []counts
+		wantErr                error
 	}{
 		"ungate single pod": {
 			workloads: []kueue.Workload{
@@ -144,6 +144,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -190,6 +191,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -243,6 +245,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -283,6 +286,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -313,6 +317,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -346,6 +351,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -377,6 +383,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
 					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -407,6 +414,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -440,6 +448,7 @@ func TestReconcile(t *testing.T) {
 					Gate("example.com/gate").
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -484,6 +493,7 @@ func TestReconcile(t *testing.T) {
 					Gate("example.com/gate").
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -534,6 +544,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod-already-running", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -589,6 +600,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod-already-running", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -645,6 +657,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").UID("x").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -700,6 +713,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod-already-succeeded", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -773,6 +787,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0-replacement", "ns").UID("y").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -842,6 +857,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").UID("x").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -925,7 +941,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -1060,7 +1076,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -1179,7 +1195,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -1317,7 +1333,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -1431,7 +1447,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: false,
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -1513,7 +1529,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -1602,7 +1618,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -1728,7 +1744,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -1855,7 +1871,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p1", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -1968,7 +1984,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("l0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -2105,7 +2121,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("l0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -2195,7 +2211,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("l0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -2309,7 +2325,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r2").
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("l0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -2418,7 +2434,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("w0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -2526,7 +2542,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 			},
-			cmpNS: true,
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("w0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "unit-test").
@@ -2627,7 +2643,10 @@ func TestReconcile(t *testing.T) {
 			}
 
 			extPodCmpOpts := slices.Clone(podCmpOpts)
-			if !tc.cmpNS {
+			if tc.nodeSelectorAssertMode == "" {
+				t.Fatalf("nodeSelectorAssertMode must be specified for test case %q", name)
+			}
+			if tc.nodeSelectorAssertMode == nodeSelectorAssertCountsOnly {
 				// don't assert on the node selector directly, because the Pod
 				// assignments to domains may differ, depending on the order of
 				// listing the pods by the client.
