@@ -6223,3 +6223,101 @@ func TestPod_IsActive(t *testing.T) {
 		})
 	}
 }
+
+func TestStop(t *testing.T) {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	testCases := map[string]struct {
+		pod               *corev1.Pod
+		stopReason        jobframework.StopReason
+		eventMsg          string
+		deleteBeforePatch bool
+		wantPatched       bool
+		wantDeleted       bool
+		wantStopped       []client.Object
+		wantErr           error
+	}{
+		"the pod isn’t being deleted": {
+			pod: testingpod.MakePod("pod", metav1.NamespaceDefault).
+				ResourceVersion("1").
+				Obj(),
+			stopReason:        jobframework.StopReasonWorkloadEvicted,
+			eventMsg:          "Test message",
+			deleteBeforePatch: false,
+			wantPatched:       true,
+			wantDeleted:       true,
+			wantStopped: []client.Object{
+				testingpod.MakePod("pod", metav1.NamespaceDefault).
+					ResourceVersion("1").
+					Obj(),
+			},
+			wantErr: nil,
+		},
+		"the pod has already been deleted": {
+			pod: testingpod.MakePod("pod", metav1.NamespaceDefault).
+				ResourceVersion("1").
+				Obj(),
+			stopReason:        jobframework.StopReasonWorkloadEvicted,
+			eventMsg:          "Test message",
+			deleteBeforePatch: true,
+			wantPatched:       true,
+			wantDeleted:       false,
+			wantStopped: []client.Object{
+				testingpod.MakePod("pod", metav1.NamespaceDefault).
+					ResourceVersion("1").
+					Obj(),
+			},
+			wantErr: nil,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			var patched, deleted bool
+
+			kcBuilder := utiltesting.NewClientBuilder().
+				WithObjects(tc.pod).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if tc.deleteBeforePatch {
+							if err := c.Delete(ctx, obj); err != nil {
+								t.Fatalf("Could not delete pod: %v", err)
+							}
+						}
+						patched = true
+						return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+					},
+					Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+						deleted = true
+						return c.Delete(ctx, obj, opts...)
+					},
+				})
+			kClient := kcBuilder.Build()
+
+			p := Pod{
+				pod:   *tc.pod,
+				clock: fakeClock,
+			}
+
+			stopped, err := p.Stop(ctx, kClient, nil, tc.stopReason, tc.eventMsg)
+
+			if diff := cmp.Diff(tc.wantPatched, patched); diff != "" {
+				t.Errorf("patched mismatch (-want +got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantDeleted, deleted); diff != "" {
+				t.Errorf("deleted mismatch (-want +got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantStopped, stopped); diff != "" {
+				t.Errorf("stopped mismatch (-want +got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("error mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
