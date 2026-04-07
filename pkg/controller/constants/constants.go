@@ -26,8 +26,17 @@ const (
 	// if QueueLabel is not specified.
 	DefaultLocalQueueName kueue.LocalQueueName = "default"
 
-	// PrebuiltWorkloadLabel is the label key of the job holding the name of the pre-built workload to use.
+	// PrebuiltWorkloadLabel is the label key on jobs that stores the name of the pre-built workload.
+	// This label is always allowed, including when the WorkloadIdentifierAnnotations feature is enabled.
+	// When the feature is enabled, we use the annotation value by default;
+	// if the annotation is absent, we fall back to this label.
 	PrebuiltWorkloadLabel = "kueue.x-k8s.io/prebuilt-workload-name"
+
+	// PrebuiltWorkloadAnnotation is the annotation key on jobs that stores the name of the pre-built workload.
+	// This annotation is allowed only when the WorkloadIdentifierAnnotations feature is enabled.
+	// When enabled, we use the value of pre-built workload from the annotation by default;
+	// if it is not present, we fall back to the label.
+	PrebuiltWorkloadAnnotation = "kueue.x-k8s.io/prebuilt-workload-name"
 
 	// JobUIDLabel is the label key in the workload resource, that holds the UID of
 	// the owner job.

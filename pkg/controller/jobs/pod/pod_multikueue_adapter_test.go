@@ -26,10 +26,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -59,6 +61,16 @@ func TestMultiKueueAdapter(t *testing.T) {
 		Label(kueue.MultiKueueOriginLabel, "origin1").
 		MakePodGroupWrappers(groupSize)
 
+	podGroupWithWlAnnotations := basePodBuilder.
+		Clone().
+		MakePodGroupWrappersWithWorkloadAnnotations(groupSize)
+
+	workerPodGroupWithAnnotations := basePodBuilder.
+		Clone().
+		PrebuiltWorkloadAnnotation("wl1").
+		Label(kueue.MultiKueueOriginLabel, "origin1").
+		MakePodGroupWrappersWithWorkloadAnnotations(groupSize)
+
 	cases := map[string]struct {
 		managersPods []corev1.Pod
 		workerPods   []corev1.Pod
@@ -68,8 +80,10 @@ func TestMultiKueueAdapter(t *testing.T) {
 		wantError        error
 		wantManagersPods []corev1.Pod
 		wantWorkerPods   []corev1.Pod
+		featureGates     map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote pod": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
 				*basePodBuilder.DeepCopy(),
 			},
@@ -88,6 +102,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote pod": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
 				*basePodBuilder.DeepCopy(),
 			},
@@ -119,6 +134,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"remote pod is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerPods: []corev1.Pod{
 				*basePodBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
@@ -130,6 +146,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"pod managedBy multikueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
 				*basePodBuilder.DeepCopy(),
 			},
@@ -144,6 +161,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync creates missing remote pods of the group": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
 				*podGroup[0].DeepCopy(),
 				*podGroup[1].DeepCopy(),
@@ -164,6 +182,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote pod group": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
 				*podGroup[0].DeepCopy(),
 				*podGroup[1].DeepCopy(),
@@ -198,15 +217,16 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"remote pod group is deleted": {
-			workerPods: []corev1.Pod{
-				*podGroupWithWl[0].DeepCopy(),
-				*podGroupWithWl[1].DeepCopy(),
-				*podGroupWithWl[2].DeepCopy(),
-			},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
 				*podGroup[0].DeepCopy(),
 				*podGroup[1].DeepCopy(),
 				*podGroup[2].DeepCopy(),
+			},
+			workerPods: []corev1.Pod{
+				*podGroupWithWl[0].DeepCopy(),
+				*podGroupWithWl[1].DeepCopy(),
+				*podGroupWithWl[2].DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace})
@@ -217,9 +237,49 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*podGroup[2].DeepCopy(),
 			},
 		},
+		"sync creates missing remote pod, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersPods: []corev1.Pod{
+				*basePodBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.DeepCopy(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					PrebuiltWorkloadAnnotation("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
+		"sync creates missing remote pods of the group, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersPods: []corev1.Pod{
+				*podGroupWithWlAnnotations[0].DeepCopy(),
+				*podGroupWithWlAnnotations[1].DeepCopy(),
+				*podGroupWithWlAnnotations[2].DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersPods: []corev1.Pod{
+				*podGroupWithWlAnnotations[0].DeepCopy(),
+				*podGroupWithWlAnnotations[1].DeepCopy(),
+				*podGroupWithWlAnnotations[2].DeepCopy(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*workerPodGroupWithAnnotations[0].DeepCopy(),
+				*workerPodGroupWithAnnotations[1].DeepCopy(),
+				*workerPodGroupWithAnnotations[2].DeepCopy(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder().
 				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName)

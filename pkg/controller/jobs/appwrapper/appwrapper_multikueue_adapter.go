@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -112,10 +111,10 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		return nil, errors.New("not an appwrapper")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := aw.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(aw)
+	if prebuiltWorkload == "" {
 		return nil, fmt.Errorf("no prebuilt workload found for appwrapper: %s", klog.KObj(aw))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWl, Namespace: aw.Namespace}}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: aw.Namespace}}, nil
 }

@@ -27,10 +27,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -57,8 +59,10 @@ func TestMultiKueueAdapter(t *testing.T) {
 		wantError           error
 		wantManagersMpiJobs []kfmpi.MPIJob
 		wantWorkerMpiJobs   []kfmpi.MPIJob
+		featureGates        map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote mpijob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.DeepCopy(),
 			},
@@ -77,6 +81,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote mpijob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.DeepCopy(),
 			},
@@ -105,6 +110,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote while local mpijob is suspended": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Suspend(true).
@@ -137,6 +143,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"remote mpijob is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
@@ -148,6 +155,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"job with wrong managedBy is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					ManagedBy("some-other-controller").
@@ -167,6 +175,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 
 		"job managedBy multikueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					ManagedBy(kueue.MultiKueueControllerName).
@@ -185,6 +194,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"missing job is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
@@ -192,9 +202,28 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 		},
+		"sync creates missing remote mpijob, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersMpiJobs: []kfmpi.MPIJob{
+				*mpiJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersMpiJobs: []kfmpi.MPIJob{
+				*mpiJobBuilder.DeepCopy(),
+			},
+			wantWorkerMpiJobs: []kfmpi.MPIJob{
+				*mpiJobBuilder.Clone().
+					PrebuiltWorkloadAnnotation("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder(kfmpi.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			managerBuilder = managerBuilder.WithLists(&kfmpi.MPIJobList{Items: tc.managersMpiJobs})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersMpiJobs, func(w *kfmpi.MPIJob) client.Object { return w })...)
