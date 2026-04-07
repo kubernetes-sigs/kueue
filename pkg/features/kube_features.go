@@ -367,6 +367,14 @@ const (
 	// stale workload accumulation (e.g., after PodsReady timeout eviction
 	// deletes a Deployment-owned pod).
 	FinishOrphanedWorkloads featuregate.Feature = "FinishOrphanedWorkloads"
+
+	// owner: @ivnovakov
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10032
+	//
+	// WorkloadIdentifierAnnotations makes Kueue read and write the workload identifiers
+	// (pod-group-name and prebuilt-workload-name) via annotations. When the gate is
+	// disabled, the label-based identifiers are used instead.
+	WorkloadIdentifierAnnotations featuregate.Feature = "WorkloadIdentifierAnnotations"
 )
 
 func init() {
@@ -563,6 +571,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FinishOrphanedWorkloads: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	WorkloadIdentifierAnnotations: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

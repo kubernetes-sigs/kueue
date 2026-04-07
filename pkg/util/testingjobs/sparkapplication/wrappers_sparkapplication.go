@@ -87,7 +87,7 @@ func (w *SparkApplicationWrapper) Label(key, value string) *SparkApplicationWrap
 // Annotation sets the annotation of the SparkApplication.
 func (w *SparkApplicationWrapper) Annotation(key, value string) *SparkApplicationWrapper {
 	if w.Annotations == nil {
-		w.Annotations = make(map[string]string)
+		w.Annotations = make(map[string]string, 1)
 	}
 	w.Annotations[key] = value
 	return w

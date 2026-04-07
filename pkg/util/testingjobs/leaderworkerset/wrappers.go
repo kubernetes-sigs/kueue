@@ -84,7 +84,7 @@ func (w *LeaderWorkerSetWrapper) Label(k, v string) *LeaderWorkerSetWrapper {
 // Annotation sets an annotation on the LeaderWorkerSet
 func (w *LeaderWorkerSetWrapper) Annotation(k, v string) *LeaderWorkerSetWrapper {
 	if w.Annotations == nil {
-		w.Annotations = make(map[string]string)
+		w.Annotations = make(map[string]string, 1)
 	}
 	w.Annotations[k] = v
 	return w
@@ -98,6 +98,11 @@ func (w *LeaderWorkerSetWrapper) Queue(q string) *LeaderWorkerSetWrapper {
 // PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *LeaderWorkerSetWrapper {
 	return w.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *LeaderWorkerSetWrapper {
+	return w.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Name updated the name of the LeaderWorkerSet

@@ -409,6 +409,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.9"
+- name: WorkloadIdentifierAnnotations
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: WorkloadRequestUseMergePatch
   versionedSpecs:
   - default: false

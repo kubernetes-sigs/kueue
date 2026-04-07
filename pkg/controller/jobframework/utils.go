@@ -24,6 +24,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 )
 
@@ -77,13 +78,41 @@ func sanitizeContainer(container *corev1.Container) {
 	}
 }
 
+func PrebuiltWorkloadNameFor(obj client.Object) string {
+	if features.Enabled(features.WorkloadIdentifierAnnotations) {
+		if name := obj.GetAnnotations()[controllerconstants.PrebuiltWorkloadAnnotation]; name != "" {
+			return name
+		}
+	}
+	return obj.GetLabels()[controllerconstants.PrebuiltWorkloadLabel]
+}
+
+func SetPrebuiltWorkloadName(obj client.Object, workloadName string) {
+	if features.Enabled(features.WorkloadIdentifierAnnotations) {
+		annotations := obj.GetAnnotations()
+		if annotations == nil {
+			annotations = make(map[string]string, 1)
+		}
+		annotations[controllerconstants.PrebuiltWorkloadAnnotation] = workloadName
+		obj.SetAnnotations(annotations)
+	} else {
+		objLabels := obj.GetLabels()
+		if objLabels == nil {
+			objLabels = make(map[string]string, 1)
+		}
+		objLabels[controllerconstants.PrebuiltWorkloadLabel] = workloadName
+		obj.SetLabels(objLabels)
+	}
+}
+
 // SetMultiKueueMeta sets the MultiKueue origin label and the prebuilt workload label on the given object.
 func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 	objLabels := obj.GetLabels()
 	if objLabels == nil {
-		objLabels = make(map[string]string, 2)
+		objLabels = make(map[string]string, 1)
 	}
 	objLabels[kueue.MultiKueueOriginLabel] = origin
-	objLabels[controllerconstants.PrebuiltWorkloadLabel] = workloadName
 	obj.SetLabels(objLabels)
+
+	SetPrebuiltWorkloadName(obj, workloadName)
 }

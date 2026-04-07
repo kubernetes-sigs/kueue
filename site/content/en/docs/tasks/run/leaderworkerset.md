@@ -115,3 +115,22 @@ When `replicas` is greater than 1 (as in the example above where `replicas: 2`),
 
 ## Multikueue
 Check [MultiKueue](/docs/tasks/run/multikueue/leaderworkerset) for details on running LeaderWorkerSets in MultiKueue environment.
+
+## Troubleshooting
+
+For general troubleshooting guidance, see the [Kueue troubleshooting guide](/docs/tasks/troubleshooting).
+
+### Long LeaderWorkerSet names
+
+By default, Kueue stores the pod-group identifier in the
+`kueue.x-k8s.io/pod-group-name` label, which inherits Kubernetes'
+63-character label value limit. Because Kueue derives this value by appending
+a group suffix to the LeaderWorkerSet name, the effective LWS name limit is
+**39 characters**.
+
+Enable the alpha
+[`WorkloadIdentifierAnnotations`](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features)
+feature gate to store the identifier in an annotation instead, removing
+Kueue's label-length constraint. With the feature gate enabled, the effective
+limit shifts to the upstream LWS constraint of **51 characters**
+(see [Unable to Create LWS Object with a Name Exceeding 51 Characters](https://lws.sigs.k8s.io/docs/troubleshooting/#3-unable-to-create-lws-object-with-a-name-exceeding-51-characters) in the LWS troubleshooting guide).

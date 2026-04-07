@@ -115,6 +115,15 @@ func (j *JAXJobWrapper) Label(key, value string) *JAXJobWrapper {
 	return j
 }
 
+// Annotation sets the annotation key and value
+func (j *JAXJobWrapper) Annotation(k, v string) *JAXJobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string, 1)
+	}
+	j.Annotations[k] = v
+	return j
+}
+
 // PriorityClass updates job priorityclass.
 func (j *JAXJobWrapper) PriorityClass(pc string) *JAXJobWrapper {
 	if j.Spec.RunPolicy.SchedulingPolicy == nil {
@@ -150,6 +159,11 @@ func (j *JAXJobWrapper) Queue(queue string) *JAXJobWrapper {
 // PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
 func (j *JAXJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JAXJobWrapper {
 	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *JAXJobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *JAXJobWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Request adds a resource request to the default container.

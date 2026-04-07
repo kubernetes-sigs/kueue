@@ -506,9 +506,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Verifying pods on management cluster remain gated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					pods := &corev1.PodList{}
-					g.Expect(k8sManagerClient.List(ctx, pods, client.InNamespace(managerNs.Name), client.MatchingLabels{
-						podconstants.GroupNameLabel: workloadstatefulset.GetWorkloadName(statefulset.UID, statefulset.Name),
-					})).To(gomega.Succeed())
+					g.Expect(k8sManagerClient.List(ctx, pods, client.InNamespace(managerNs.Name),
+						client.MatchingLabels(statefulset.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).ToNot(gomega.BeEmpty())
 					for _, pod := range pods.Items {
 						g.Expect(utilpod.HasGate(&pod, podconstants.SchedulingGateName)).To(gomega.BeTrue())

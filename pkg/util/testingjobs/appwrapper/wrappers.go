@@ -73,6 +73,15 @@ func (aw *AppWrapperWrapper) Label(k, v string) *AppWrapperWrapper {
 	return aw
 }
 
+// Annotation sets an annotation of the AppWrapper
+func (aw *AppWrapperWrapper) Annotation(k, v string) *AppWrapperWrapper {
+	if aw.ObjectMeta.Annotations == nil {
+		aw.ObjectMeta.Annotations = make(map[string]string, 1)
+	}
+	aw.ObjectMeta.Annotations[k] = v
+	return aw
+}
+
 // Annotations updates annotations of the AppWrapper.
 func (aw *AppWrapperWrapper) Annotations(annotations map[string]string) *AppWrapperWrapper {
 	aw.ObjectMeta.Annotations = annotations
@@ -87,6 +96,11 @@ func (aw *AppWrapperWrapper) Queue(q string) *AppWrapperWrapper {
 // PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the AppWrapperWrapper
 func (aw *AppWrapperWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *AppWrapperWrapper {
 	return aw.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the AppWrapperWrapper
+func (aw *AppWrapperWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *AppWrapperWrapper {
+	return aw.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Name updates the name of the AppWrapper

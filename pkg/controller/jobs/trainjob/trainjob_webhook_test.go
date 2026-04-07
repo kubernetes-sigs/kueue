@@ -78,7 +78,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"with prebuilt workload": {
 			clusterTrainingRuntime: testCtr,
-			trainJob:               testTrainJob.Clone().Queue("local-queue").Label(controllerconstants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			trainJob:               testTrainJob.Clone().Queue("local-queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr:                nil,
 		},
 		"valid topology request in RuntimePatch": {

@@ -536,8 +536,10 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 
 			ginkgo.By("Call high priority group pods to complete", func() {
-				listOpts := util.GetListOptsFromLabel("kueue.x-k8s.io/pod-group-name=high-priority-group")
-				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, listOpts)
+				for _, p := range highPriorityGroup {
+					listOpts := client.MatchingFields{metav1.ObjectNameField: p.Name}
+					util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0, listOpts)
+				}
 			})
 
 			ginkgo.By("Verify the high priority group completes", func() {
@@ -592,7 +594,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
 				gomega.Expect(k8sClient.Get(ctx, pKey, &p)).To(gomega.Succeed())
 
-				p.Labels[podconstants.GroupNameLabel] = "test-group"
+				pod.SetPodGroupName(&p, "test-group")
 				p.Annotations[podconstants.GroupTotalCountAnnotation] = "1"
 				p.Annotations[podconstants.SuspendedByParentAnnotation] = "OtherController"
 				p.Labels[controllerconsts.QueueLabel] = lq.Name

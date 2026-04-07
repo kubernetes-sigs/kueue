@@ -140,6 +140,15 @@ func (j *MPIJobWrapper) Label(key, value string) *MPIJobWrapper {
 	return j
 }
 
+// Annotation sets the annotation key and value
+func (j *MPIJobWrapper) Annotation(k, v string) *MPIJobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string, 1)
+	}
+	j.Annotations[k] = v
+	return j
+}
+
 // PriorityClass updates job priorityclass.
 func (j *MPIJobWrapper) PriorityClass(pc string) *MPIJobWrapper {
 	if j.Spec.RunPolicy.SchedulingPolicy == nil {
@@ -175,6 +184,11 @@ func (j *MPIJobWrapper) Queue(queue string) *MPIJobWrapper {
 // PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
 func (j *MPIJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *MPIJobWrapper {
 	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *MPIJobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *MPIJobWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Request adds a resource request to the default container.

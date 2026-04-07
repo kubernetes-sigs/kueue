@@ -138,7 +138,15 @@ func (j *ClusterWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *Cluster
 	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
 }
 
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *ClusterWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *ClusterWrapper {
+	return j.SetAnnotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
+}
+
 func (j *ClusterWrapper) SetAnnotation(key, content string) *ClusterWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string, 1)
+	}
 	j.Annotations[key] = content
 	return j
 }

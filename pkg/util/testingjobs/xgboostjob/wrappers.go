@@ -126,6 +126,15 @@ func (j *XGBoostJobWrapper) Label(key, value string) *XGBoostJobWrapper {
 	return j
 }
 
+// Annotation sets the annotation key and value
+func (j *XGBoostJobWrapper) Annotation(k, v string) *XGBoostJobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string, 1)
+	}
+	j.Annotations[k] = v
+	return j
+}
+
 // PriorityClass updates job priorityclass.
 func (j *XGBoostJobWrapper) PriorityClass(pc string) *XGBoostJobWrapper {
 	if j.Spec.RunPolicy.SchedulingPolicy == nil {
@@ -152,6 +161,11 @@ func (j *XGBoostJobWrapper) Queue(queue string) *XGBoostJobWrapper {
 // PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
 func (j *XGBoostJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *XGBoostJobWrapper {
 	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *XGBoostJobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *XGBoostJobWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Request updates a resource request to the default container.

@@ -156,6 +156,11 @@ func (j *JobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JobWrapper 
 	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
 }
 
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *JobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *JobWrapper {
+	return j.SetAnnotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
+}
+
 // Label sets the label key and value
 func (j *JobWrapper) Label(key, value string) *JobWrapper {
 	if j.Labels == nil {
@@ -166,6 +171,9 @@ func (j *JobWrapper) Label(key, value string) *JobWrapper {
 }
 
 func (j *JobWrapper) SetAnnotation(key, content string) *JobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string, 1)
+	}
 	j.Annotations[key] = content
 	return j
 }
