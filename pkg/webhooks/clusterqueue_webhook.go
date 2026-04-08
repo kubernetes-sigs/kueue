@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -38,6 +39,8 @@ const (
 	limitIsEmptyErrorMsgTemplate string = `must be nil when %s is empty`
 	lendingLimitErrorMsg         string = `must be less than or equal to the nominalQuota`
 )
+
+var admissionChecksPath = field.NewPath("spec", "admissionChecksStrategy", "admissionChecks")
 
 type ClusterQueueWebhook struct{}
 
@@ -76,10 +79,10 @@ func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, cq *kueue.Clus
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, _, newCQ *kueue.ClusterQueue) (admission.Warnings, error) {
+func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldCQ, newCQ *kueue.ClusterQueue) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating update")
-	allErrs := ValidateClusterQueueUpdate(newCQ)
+	allErrs := ValidateClusterQueueUpdate(oldCQ, newCQ)
 	return nil, allErrs.ToAggregate()
 }
 
@@ -89,6 +92,18 @@ func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ *kueue.Cluster
 }
 
 func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
+	allErrs := validateClusterQueueSpec(cq)
+	allErrs = append(allErrs, validateAdmissionCheckOnFlavors(cq)...)
+	return allErrs
+}
+
+func ValidateClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
+	allErrs := validateClusterQueueSpec(newCQ)
+	allErrs = append(allErrs, validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ)...)
+	return allErrs
+}
+
+func validateClusterQueueSpec(cq *kueue.ClusterQueue) field.ErrorList {
 	path := field.NewPath("spec")
 
 	var allErrs field.ErrorList
@@ -112,8 +127,48 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	return allErrs
 }
 
-func ValidateClusterQueueUpdate(newObj *kueue.ClusterQueue) field.ErrorList {
-	return ValidateClusterQueue(newObj)
+func validateAdmissionCheckOnFlavors(cq *kueue.ClusterQueue) field.ErrorList {
+	return validateAdmissionCheckOnFlavorsWithOld(cq, nil)
+}
+
+func validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
+	oldOnFlavorsByName := map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]{}
+	newFlavors := utilqueue.AllFlavors(newCQ.Spec.ResourceGroups)
+	if oldStrategy := oldCQ.Spec.AdmissionChecksStrategy; oldStrategy != nil &&
+		utilqueue.AllFlavors(oldCQ.Spec.ResourceGroups).Equal(newFlavors) {
+		oldOnFlavorsByName = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(oldStrategy.AdmissionChecks))
+		for _, check := range oldStrategy.AdmissionChecks {
+			oldOnFlavorsByName[check.Name] = sets.New(check.OnFlavors...)
+		}
+	}
+
+	return validateAdmissionCheckOnFlavorsWithOld(newCQ, oldOnFlavorsByName)
+}
+
+func validateAdmissionCheckOnFlavorsWithOld(cq *kueue.ClusterQueue, oldOnFlavorsByName map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]) field.ErrorList {
+	strategy := cq.Spec.AdmissionChecksStrategy
+	if strategy == nil {
+		return nil
+	}
+
+	validFlavors := utilqueue.AllFlavors(cq.Spec.ResourceGroups)
+	allowedFlavors := validFlavors.UnsortedList()
+
+	var allErrs field.ErrorList
+	for i, check := range strategy.AdmissionChecks {
+		// allow unrelated updates for pre-existing ClusterQueues with invalid onFlavors
+		if oldOnFlavors, found := oldOnFlavorsByName[check.Name]; found && oldOnFlavors.Equal(sets.New(check.OnFlavors...)) {
+			continue
+		}
+		onFlavorsPath := admissionChecksPath.Index(i).Child("onFlavors")
+		for j, flavor := range check.OnFlavors {
+			if validFlavors.Has(flavor) {
+				continue
+			}
+			allErrs = append(allErrs, field.NotSupported(onFlavorsPath.Index(j), flavor, allowedFlavors))
+		}
+	}
+	return allErrs
 }
 
 func validateTotalFlavors(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
