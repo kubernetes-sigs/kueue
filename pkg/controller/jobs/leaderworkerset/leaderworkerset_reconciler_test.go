@@ -264,6 +264,175 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"should create prebuilt workload with custom annotations propagated to podsets": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testUID).
+				Replicas(2).
+				Size(3).
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							"custom-leader-annotation":                  "leader-value",
+							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+						},
+						Labels: map[string]string{
+							"leaderworkerset.sigs.k8s.io/name":        testLWS,
+							"leaderworkerset.sigs.k8s.io/group-index": "1",
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "c", Image: "pause"},
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							"custom-worker-annotation":                  "worker-value",
+							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+						},
+						Labels: map[string]string{
+							"leaderworkerset.sigs.k8s.io/name":        testLWS,
+							"leaderworkerset.sigs.k8s.io/group-index": "1",
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "c", Image: "pause"},
+						},
+					},
+				}).
+				Obj(),
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testUID).
+					Replicas(2).
+					Size(3).
+					LeaderTemplate(corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								"custom-leader-annotation":                  "leader-value",
+								"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+							},
+							Labels: map[string]string{
+								"leaderworkerset.sigs.k8s.io/name":        testLWS,
+								"leaderworkerset.sigs.k8s.io/group-index": "1",
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "c", Image: "pause"},
+							},
+						},
+					}).
+					WorkerTemplate(corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								"custom-worker-annotation":                  "worker-value",
+								"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+							},
+							Labels: map[string]string{
+								"leaderworkerset.sigs.k8s.io/name":        testLWS,
+								"leaderworkerset.sigs.k8s.io/group-index": "1",
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "c", Image: "pause"},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+					JobUID(testUID).
+					OwnerReference(gvk, testLWS, testUID).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						func() kueue.PodSet {
+							ps := *utiltestingapi.MakePodSet(leaderPodSetName, 1).
+								RestartPolicy("").
+								Image("pause").
+								Obj()
+							ps.Template.Annotations = map[string]string{"custom-leader-annotation": "leader-value"}
+							ps.Template.Labels = map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}
+							return ps
+						}(),
+						func() kueue.PodSet {
+							ps := *utiltestingapi.MakePodSet(workerPodSetName, 2).
+								RestartPolicy("").
+								Image("pause").
+								Obj()
+							ps.Template.Annotations = map[string]string{"custom-worker-annotation": "worker-value"}
+							ps.Template.Labels = map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}
+							return ps
+						}(),
+					).
+					Priority(0).
+					Obj(),
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
+					JobUID(testUID).
+					OwnerReference(gvk, testLWS, testUID).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						func() kueue.PodSet {
+							ps := *utiltestingapi.MakePodSet(leaderPodSetName, 1).
+								RestartPolicy("").
+								Image("pause").
+								Obj()
+							ps.Template.Annotations = map[string]string{"custom-leader-annotation": "leader-value"}
+							ps.Template.Labels = map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}
+							return ps
+						}(),
+						func() kueue.PodSet {
+							ps := *utiltestingapi.MakePodSet(workerPodSetName, 2).
+								RestartPolicy("").
+								Image("pause").
+								Obj()
+							ps.Template.Annotations = map[string]string{"custom-worker-annotation": "worker-value"}
+							ps.Template.Labels = map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}
+							return ps
+						}(),
+					).
+					Priority(0).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message: fmt.Sprintf(
+						"Created Workload: %s/%s",
+						testNS,
+						GetWorkloadName(types.UID(testUID), testLWS, "0"),
+					),
+				},
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message: fmt.Sprintf(
+						"Created Workload: %s/%s",
+						testNS,
+						GetWorkloadName(types.UID(testUID), testLWS, "1"),
+					),
+				},
+			},
+		},
 		"should create prebuilt workload with required topology annotation": {
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testUID).

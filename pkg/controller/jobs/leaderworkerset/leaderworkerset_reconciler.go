@@ -22,6 +22,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
@@ -59,6 +60,8 @@ import (
 const (
 	leaderPodSetName = "leader"
 	workerPodSetName = "worker"
+	lwsDomainPrefix  = "leaderworkerset.sigs.k8s.io"
+	lwsNameLabel     = "leaderworkerset.sigs.k8s.io/name"
 )
 
 type workloadToCreate struct {
@@ -276,14 +279,35 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	return createdWorkload, nil
 }
 
+func cleanMetadata(m map[string]string) {
+	for k := range m {
+		if strings.HasPrefix(k, lwsDomainPrefix) && k != lwsNameLabel {
+			delete(m, k)
+		}
+	}
+}
+
+func clearTASAnnotations(annotations map[string]string) {
+	keysToDelete := []string{
+		kueue.PodSetRequiredTopologyAnnotation,
+		kueue.PodSetPreferredTopologyAnnotation,
+		kueue.PodSetSliceRequiredTopologyAnnotation,
+		kueue.PodSetSliceSizeAnnotation,
+	}
+	for _, k := range keysToDelete {
+		delete(annotations, k)
+	}
+}
+
 func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemplateSpec, podIndexLabel *string) (*kueue.PodSet, error) {
 	podSet := &kueue.PodSet{
-		Name:  name,
-		Count: count,
-		Template: corev1.PodTemplateSpec{
-			Spec: *template.Spec.DeepCopy(),
-		},
+		Name:     name,
+		Count:    count,
+		Template: *template.DeepCopy(),
 	}
+	cleanMetadata(podSet.Template.Labels)
+	cleanMetadata(podSet.Template.Annotations)
+	clearTASAnnotations(podSet.Template.Annotations)
 	jobframework.SanitizePodSet(podSet)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		builder := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
