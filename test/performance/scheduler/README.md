@@ -33,11 +33,11 @@ Checks the results of a performance-scheduler against a set of expected value de
 make run-performance-scheduler-in-cluster
 ```
 
-Will run a performance-scheduler scenario against an existing cluster (connectable by the host's default kubeconfig), and store the resulting artifacts are stored in `$(PROJECT_DIR)/bin/run-performance-scheduler-in-cluster`.
+Will run a performance-scheduler scenario against an existing cluster (connectable by the host's default kubeconfig), and store the resulting artifacts in `$(PROJECT_DIR)/artifacts/run-performance-scheduler-in-cluster`.
 
 The generation config to be used can be set in `SCALABILITY_GENERATOR_CONFIG` by default using `$(PROJECT_DIR)/test/performance/scheduler/configs/baseline/generator.yaml`
 
-Setting `SCALABILITY_SCRAPE_INTERVAL` to an interval value and `SCALABILITY_SCRAPE_URL` to an URL exposing kueue's metrics will cause the scalability runner to scrape that URL every interval and store the results in `$(PROJECT_DIR)/bin/run-performance-scheduler-in-cluster/metricsDump.tgz`.
+Setting `SCALABILITY_SCRAPE_INTERVAL` to an interval value and `SCALABILITY_SCRAPE_URL` to an URL exposing kueue's metrics will cause the scalability runner to scrape that URL every interval and store the results in `$(PROJECT_DIR)/artifacts/run-performance-scheduler-in-cluster/metricsDump.tgz`.
 
 Check [installation guide](https://kueue.sigs.k8s.io/docs/installation) for cluster and [observability](https://kueue.sigs.k8s.io/docs/installation/#add-metrics-scraping-for-prometheus-operator).
 
@@ -49,15 +49,15 @@ make run-performance-scheduler
 
 Will run a performance-scheduler scenario against an [envtest](https://book.kubebuilder.io/reference/envtest.html) environment
 and an instance of minimalkueue.
-The resulting artifacts are stored in `$(PROJECT_DIR)/bin/run-performance-scheduler`.
+The resulting artifacts are stored in `$(PROJECT_DIR)/artifacts/run-performance-scheduler`.
 
 The generation config to be used can be set in `SCALABILITY_GENERATOR_CONFIG` by default using `$(PROJECT_DIR)/test/performance/scheduler/configs/baseline/generator.yaml`
 
-Setting `SCALABILITY_CPU_PROFILE=1` will generate a cpuprofile of minimalkueue in `$(PROJECT_DIR)/bin/run-performance-scheduler/minimalkueue.cpu.prof`
+Setting `SCALABILITY_CPU_PROFILE=1` will generate a cpuprofile of minimalkueue in `$(PROJECT_DIR)/artifacts/run-performance-scheduler/minimalkueue.cpu.prof`
 
-Setting `SCALABILITY_KUEUE_LOGS=1` will save the logs of minimalkueue in  `$(PROJECT_DIR)/bin/run-performance-scheduler/minimalkueue.out.log` and  `$(PROJECT_DIR)/bin/run-performance-scheduler/minimalkueue.err.log`
+Setting `SCALABILITY_KUEUE_LOGS=1` will save the logs of minimalkueue in `$(PROJECT_DIR)/artifacts/run-performance-scheduler/minimalkueue.out.log` and `$(PROJECT_DIR)/artifacts/run-performance-scheduler/minimalkueue.err.log`
 
-Setting `SCALABILITY_SCRAPE_INTERVAL` to an interval value (e.g. `1s`) will expose the metrics of `minimalkueue` and have them collected by the scalability runner in `$(PROJECT_DIR)/bin/run-performance-scheduler/metricsDump.tgz` every interval. 
+Setting `SCALABILITY_SCRAPE_INTERVAL` to an interval value (e.g. `1s`) will expose the metrics of `minimalkueue` and have them collected by the scalability runner in `$(PROJECT_DIR)/artifacts/run-performance-scheduler/metricsDump.tgz` every interval.
 
 ## Run performance-scheduler test
 
@@ -75,7 +75,7 @@ If an instance of [VictoriaMetrics](https://docs.victoriametrics.com/) listening
 
 ```bash
  TMPDIR=$(mktemp -d)
- tar -xf ./bin/run-performance-scheduler/metricsDump.tgz -C $TMPDIR
+ tar -xf ./artifacts/run-performance-scheduler/metricsDump.tgz -C $TMPDIR
  for file in ${TMPDIR}/*.prometheus; do timestamp=$(basename "$file" .prometheus);  curl -vX POST -T "$file" http://localhost:8428/api/v1/import/prometheus?timestamp="$timestamp"; done
  rm -r $TMPDIR
 
@@ -102,7 +102,7 @@ make test-tas-performance-scheduler
 ```
 
 Same environment variables as standard tests apply (`SCALABILITY_CPU_PROFILE`, `SCALABILITY_KUEUE_LOGS`, etc.).
-Results are stored in `$(PROJECT_DIR)/bin/run-tas-performance-scheduler/`.
+Results are stored in `$(PROJECT_DIR)/artifacts/run-tas-performance-scheduler/`.
 
 ### TAS configuration
 
