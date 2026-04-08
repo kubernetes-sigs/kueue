@@ -142,6 +142,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		workload       *kueue.Workload
 		deviceClasses  []*resourceapi.DeviceClass
 		mapperMappings []configapi.DeviceClassMapping
+		enablePD       bool
 		want           map[kueue.PodSetReference]corev1.ResourceList
 		wantReplaced   map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
 		wantErr        field.ErrorList
@@ -484,10 +485,63 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
+		{
+			name:     "extended resource with counters is rejected",
+			enablePD: true,
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "c",
+									Image: "pause",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"example.com/gpu": resource.MustParse("1"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			mapperMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "gpu.memory",
+					DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+					Sources: []configapi.DeviceClassSourceConfig{
+						{Counter: &configapi.DeviceClassCounterSource{
+							Name:   "memory",
+							Driver: "gpu.nvidia.com",
+							DeviceSelector: resourceapi.DeviceSelector{
+								CEL: &resourceapi.CELDeviceSelector{
+									Expression: "device.driver == 'gpu.nvidia.com'",
+								},
+							},
+						}},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "containers").Index(0),
+					"", "",
+				),
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.enablePD {
+				features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationPartitionableDevices, true)
+			}
 			mapper := NewResourceMapper()
 			if tt.mapperMappings != nil {
 				_ = mapper.PopulateFromConfiguration(tt.mapperMappings)

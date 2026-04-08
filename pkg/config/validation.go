@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	dracel "k8s.io/dynamic-resource-allocation/cel"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
@@ -503,6 +504,44 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 				deviceClassToResource[deviceClass] = mapping.Name
 			}
 		}
+
+		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapping.Sources) > 0 {
+			if len(mapping.Sources) > 1 {
+				allErrs = append(allErrs, field.TooMany(mappingPath.Child("sources"), len(mapping.Sources), 1))
+			}
+			celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
+			for sIdx, source := range mapping.Sources {
+				sourcePath := mappingPath.Child("sources").Index(sIdx)
+				if source.Counter == nil {
+					allErrs = append(allErrs, field.Required(sourcePath.Child("counter"), "exactly one source type must be set"))
+					continue
+				}
+				counterPath := sourcePath.Child("counter")
+				if source.Counter.Name == "" {
+					allErrs = append(allErrs, field.Required(counterPath.Child("name"), ""))
+				} else if len(source.Counter.Name) > 63 {
+					allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, "must not exceed 63 characters"))
+				}
+				if source.Counter.Driver == "" {
+					allErrs = append(allErrs, field.Required(counterPath.Child("driver"), ""))
+				} else if len(source.Counter.Driver) > 253 {
+					allErrs = append(allErrs, field.Invalid(counterPath.Child("driver"), source.Counter.Driver, "must not exceed 253 characters"))
+				}
+				selectorPath := counterPath.Child("deviceSelector", "cel", "expression")
+				if source.Counter.DeviceSelector.CEL == nil || source.Counter.DeviceSelector.CEL.Expression == "" {
+					allErrs = append(allErrs, field.Required(selectorPath, ""))
+				} else {
+					result := celCache.GetOrCompile(source.Counter.DeviceSelector.CEL.Expression)
+					if result.Error != nil {
+						allErrs = append(allErrs, field.Invalid(
+							selectorPath,
+							source.Counter.DeviceSelector.CEL.Expression,
+							fmt.Sprintf("CEL compilation failed: %v", result.Error),
+						))
+					}
+				}
+			}
+		}
 	}
 
 	return allErrs
@@ -583,6 +622,17 @@ func validateDRAFeatureGateDependencies() field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(featureGatesPath, "KueueDRAIntegrationExtendedResource", "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled"))
 		}
 	}
+
+	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+		if !features.Enabled(features.KueueDRAIntegration) {
+			allErrs = append(allErrs, field.Invalid(
+				featureGatesPath,
+				"KueueDRAIntegrationPartitionableDevices",
+				"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
+			))
+		}
+	}
+
 	return allErrs
 }
 

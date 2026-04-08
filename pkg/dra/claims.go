@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
@@ -217,6 +218,9 @@ func GetResourceRequestsForResourceClaimTemplates(
 						fmt.Sprintf("DeviceClass %s is not mapped in DRA configuration for podset %s", dc, ps.Name),
 					))
 					return nil, allErrs
+				}
+				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && mapper.getCounterConfig(dc) != nil {
+					continue
 				}
 				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(strconv.FormatInt(qty, 10))})
 			}

@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -1080,8 +1081,168 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "featureGates",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationPartitionableDevices: true,
+				features.KueueDRAIntegration:                     false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"valid counter source on deviceClassMapping": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"sources: missing driver": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.driver",
+				},
+			},
+		},
+		"sources: missing name": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.name",
+				},
+			},
+		},
+		"sources: missing deviceSelector": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.deviceSelector.cel.expression",
+				},
+			},
+		},
+		"sources: too many entries in alpha": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "multiprocessors",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeTooMany,
+					Field: "resources.deviceClassMappings[0].sources",
 				},
 			},
 		},
