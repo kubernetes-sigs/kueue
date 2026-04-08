@@ -54,7 +54,7 @@ import (
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
-	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
+	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -380,7 +380,7 @@ func managerAndMultiKueueSetup(
 		},
 	}
 	mgr.GetScheme().Default(configuration)
-	_, err = dispatcher.SetupControllers(mgr, configuration, nil)
+	_, err = workloaddispatcher.SetupControllers(mgr, configuration, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
