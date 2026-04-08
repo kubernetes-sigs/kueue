@@ -116,7 +116,7 @@ func ConfigureSuiteReporting(report ginkgo.Report) error {
 		OmitFailureMessageAttr: true,
 	}
 	suiteName := uniqueSuiteName(report.SuitePath)
-	reportDir := cmp.Or(os.Getenv("ARTIFACTS"), BinDir)
+	reportDir := cmp.Or(os.Getenv("ARTIFACTS"), ArtifactsDir)
 	if err := os.MkdirAll(reportDir, 0o755); err != nil {
 		return fmt.Errorf("cannot create suite report directory %q: %w", reportDir, err)
 	}

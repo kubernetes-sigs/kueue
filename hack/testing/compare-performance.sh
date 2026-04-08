@@ -66,7 +66,7 @@ function run_and_store {
 		.flat.userMs = .userMs |
 		.flat.wallMs = .wallMs |
 		.flat.mCPU = ((.sysMs + .userMs) * 1000 / .wallMs) |
-		.flat | [] + . ' bin/run-performance-scheduler/minimalkueue.stats.yaml >> "${STATS_FILE}"
+		.flat | [] + . ' artifacts/run-performance-scheduler/minimalkueue.stats.yaml >> "${STATS_FILE}"
 
 	run="${1}" git_rev="$2" yq ' .flat.run = env(run) |.flat.rev = env(git_rev) | 
 		.flat.largeMsToAdm = .workloadClasses.large.averageTimeToAdmissionMs | 
@@ -76,7 +76,7 @@ function run_and_store {
 		.flat.mediumEvictions = .workloadClasses.medium.totalEvictions | 
 		.flat.smallEvictions = .workloadClasses.small.totalEvictions | 
 		.flat.resUsage = .clusterQueueClasses.cq.cpuAverageUsage * 100 / .clusterQueueClasses.cq.nominalQuota | 
-		.flat |  [] + . ' bin/run-performance-scheduler/summary.yaml >> "$SUMMARY_FILE" 
+		.flat |  [] + . ' artifacts/run-performance-scheduler/summary.yaml >> "$SUMMARY_FILE" 
 
 }
 

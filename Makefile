@@ -53,7 +53,8 @@ CLUSTERPROFILE_PLUGIN_IMAGE_VERSION ?= 0.0.1
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
-ARTIFACTS ?= $(BIN_DIR)
+ARTIFACTS ?= $(PROJECT_DIR)/artifacts
+RELEASE_ARTIFACTS ?= $(PROJECT_DIR)/release-artifacts
 TOOLS_DIR := $(PROJECT_DIR)/hack/tools
 MOCKS_DIR := internal/mocks
 
@@ -307,7 +308,11 @@ site-server: hugo
 ##@ Release
 .PHONY: clean-artifacts
 clean-artifacts:
-	if [ -d artifacts ]; then rm -rf artifacts; fi
+	if [ -d "$(ARTIFACTS)" ]; then rm -rf "$(ARTIFACTS)"; fi
+
+.PHONY: clean-release-artifacts
+clean-release-artifacts:
+	$(MAKE) clean-artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 .PHONY: prepare-manifests
 prepare-manifests:
@@ -317,17 +322,21 @@ prepare-manifests:
 	cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
 
 .PHONY: artifacts
-artifacts: DEST_CHART_DIR="artifacts"
-artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate release artifacts.
-	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
-	$(KUSTOMIZE) build config/dev -o artifacts/manifests-dev.yaml
-	$(KUSTOMIZE) build config/alpha-enabled -o artifacts/manifests-alpha-enabled.yaml
-	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
-	$(KUSTOMIZE) build config/visibility-apf -o artifacts/visibility-apf.yaml
-	$(KUSTOMIZE) build config/kueueviz -o artifacts/kueueviz.yaml
-	$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o artifacts/kueue-populator.yaml
+artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
+artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate local artifacts.
+	$(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
+	$(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
+	$(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
+	$(KUSTOMIZE) build config/prometheus -o $(ARTIFACTS)/prometheus.yaml
+	$(KUSTOMIZE) build config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
+	$(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
+	$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
 	@$(call clean-manifests)
-	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+
+.PHONY: release-artifacts
+release-artifacts: ## Generate release artifacts.
+	$(MAKE) artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 .PHONY: prepare-release-branch
 prepare-release-branch: yq kustomize ## Prepare the release branch with the release version.
