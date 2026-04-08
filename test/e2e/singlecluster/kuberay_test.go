@@ -373,6 +373,45 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("Waiting for all 5 worker pods to be running", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				podList := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				runningWorkers := getRunningWorkerPodNames(podList)
+				g.Expect(runningWorkers).To(gomega.HaveLen(5), "Expected 5 running worker pods")
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		var deletedPodName string
+		ginkgo.By("Deleting one worker pod", func() {
+			podList := &corev1.PodList{}
+			gomega.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			runningWorkers := getRunningWorkerPodNames(podList)
+			gomega.Expect(runningWorkers).NotTo(gomega.BeEmpty())
+			deletedPodName = runningWorkers[0]
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      deletedPodName,
+					Namespace: ns.Name,
+				},
+			}
+			gomega.Expect(k8sClient.Delete(ctx, pod)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for a new worker pod to replace the deleted one", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				podList := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				runningWorkers := getRunningWorkerPodNames(podList)
+				g.Expect(runningWorkers).To(gomega.HaveLen(5), "Expected 5 running worker pods after replacement")
+				g.Expect(runningWorkers).NotTo(gomega.ContainElement(deletedPodName),
+					"Deleted pod should not be present among running workers")
+				// Update scaledUpPodNames to include the replacement pod,
+				// so the later scale-down superset check accounts for it.
+				scaledUpPodNames = runningWorkers
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("Waiting for workers reduced to 1 due to scaling down", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				podList := &corev1.PodList{}
