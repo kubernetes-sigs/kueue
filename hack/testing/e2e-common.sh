@@ -582,8 +582,8 @@ function cluster_kueue_deploy {
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra"
     elif [ "$E2E_USE_HELM" == 'true' ]; then
         helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
-    elif [[ ${E2E_TARGET_FOLDER:-} == "multikueue-sequential" ]]; then
-        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/multikueue-sequential"
+    elif [[ ${E2E_TARGET_FOLDER:-} == "multikueuesequential" ]]; then
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/multikueuesequential"
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/default"
     fi

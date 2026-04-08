@@ -18,7 +18,7 @@ limitations under the License.
 // (-procs=2), each process runs AfterSuite independently. If one process
 // finishes early and deletes secrets, the other process's tests fail with
 // "Secret not found".
-package mkdra
+package multikueuedra
 
 import (
 	"cmp"

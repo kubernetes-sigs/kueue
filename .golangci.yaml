@@ -60,6 +60,7 @@ linters:
             - []
             - []
             - - skip-package-name-collision-with-go-std: true
+        - name: package-directory-mismatch
         - name: redundant-import-alias
         - name: use-any
         - name: use-slices-sort
