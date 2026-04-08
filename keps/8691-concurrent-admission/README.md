@@ -200,7 +200,6 @@ I want my workloads to start as soon as possible, on whatever flavor. However, i
 
 To achieve that, I configure my ClusterQueue to use the UpgradeOnly mode.
 
-```
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
@@ -220,9 +219,8 @@ As an admin I have three resource flavors in my cluster:
 
 I want my workloads to start as soon as possible, on whatever flavor. However, I only want to incur the cost of migration if it means landing on the "Reservation" flavor.
 
-To achieve that, I set the minTargetFlavor to "reservation". This ensures that a workload on "Spot" will not migrate to "On-Demand," only to "Reservation."
+To achieve that, I set the minTargetFlavor to "Reservation". This ensures that a workload on "Spot" will not migrate to "On-Demand," only to "Reservation."
 
-```
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
@@ -246,9 +244,8 @@ As an admin I have four resource flavors in my cluster:
 
 I want my workloads to start as soon as possible. I want to migrate to "Reservation" if it becomes available, but I don't want to migrate between the homogeneous 2a/2b/2c flavors.
 
-By setting the minTargetFlavor to "reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
+By setting the minTargetFlavor to "Reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
 
-```
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
@@ -266,7 +263,6 @@ As an admin, I have three homogeneous resource flavors (1a, 1b, 1c). I want my w
 
 To achieve that, I use the `NoMigration` mode.
 
-```
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
@@ -287,7 +283,6 @@ I want to attempt scheduling on "Reservation" exclusively for the first 2 hours 
 
 To achieve this, I use explicitVariants and set createDelaySeconds for the On-Demand variant.
 
-```
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
@@ -314,7 +309,6 @@ I want to avoid migrating a long-running workload if it is nearing completion. I
 
 To achieve this, I set maxDeleteDelaySeconds on the more preferred variant. After this time passes, the "reservation" variant is deactivated, preventing any further upgrades.
 
-```
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
@@ -343,7 +337,6 @@ CPU:
 
 I want to allow upgrades for the GPU portion while keeping the CPU flavor constant across variants.
 
-```
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
@@ -381,7 +374,6 @@ Explicit Variants API section](#explicitvariants-api).
 ### ClusterQueue API
 The ClusterQueue is extended to define the policy for concurrent attempts. This includes how to handle sibling Variants once one is admitted and how to define specific, customized Variants.
 
-```
 type ClusterQueueSpec struct {
     ...
 
@@ -404,7 +396,7 @@ type ConcurrentAdmissionMigrationConstraints struct {
 
     // MinTargetFlavor defines the minimal flavor a Workload can migrate to.
     // The order is based on the order of flavors in ClusterQueue.
-    // It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is not specified.
+    // It can only be used if the Mode is `UpgradeOnly` and `explicitVariants` is not specified.
     // If the Mode is `UpgradeOnly` and MinTargetFlavor is not specified, then there's
     // no constraints on what flavors a Workload can migrate to.
     //
