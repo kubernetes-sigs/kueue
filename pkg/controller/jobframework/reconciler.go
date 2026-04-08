@@ -647,13 +647,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	if WorkloadSliceEnabled(job) {
-		// Start workload-slice schedule-gated pods (if any).
-		log.V(3).Info("Job running with admitted workload slice, start pods.")
-		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, wl)
-	}
-
 	// workload is admitted and job is running, nothing to do.
+	// For elastic jobs, pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
 }

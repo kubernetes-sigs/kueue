@@ -62,6 +62,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
 	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
@@ -481,6 +482,12 @@ func setupControllers(
 	if features.Enabled(features.TopologyAwareScheduling) {
 		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg, roleTracker); err != nil {
 			return fmt.Errorf("could not setup TAS controller %s: %w", failedCtrl, err)
+		}
+	}
+
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if failedCtrl, err := elasticjobs.SetupWithManager(mgr, cfg, roleTracker); err != nil {
+			return fmt.Errorf("could not setup %s controller: %w", failedCtrl, err)
 		}
 	}
 
