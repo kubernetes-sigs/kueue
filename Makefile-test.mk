@@ -74,6 +74,7 @@ endif
 
 .PHONY: test
 test: gotestsum ## Run tests.
+	mkdir -p $(ARTIFACTS)
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/') -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover.out
 
 ## Label Taxonomy:
@@ -98,6 +99,7 @@ test-integration: compile-crd-manifests envtest ginkgo dep-crds kueuectl ginkgo-
 
 .PHONY: test-integration-run
 test-integration-run:
+	mkdir -p $(ARTIFACTS)
 	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(BIN_DIR) \
@@ -117,6 +119,7 @@ test-integration-extended: test-integration ## Run extended integration tests fo
 
 .PHONY: test-multikueue-integration
 test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkgo-top ## Run integration tests for MultiKueue suite.
+	mkdir -p $(ARTIFACTS)
 	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(BIN_DIR) \
@@ -334,10 +337,10 @@ SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/config
 
 .PHONY: run-performance-scheduler
 run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
-	mkdir -p $(ARTIFACTS)
+	mkdir -p "$(ARTIFACTS)/$@"
 	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
 	$(SCALABILITY_RUNNER) \
-		--o $(ARTIFACTS) \
+		--o "$(ARTIFACTS)/$@" \
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
 		--minimalKueue=$(MINIMALKUEUE_RUNNER) $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
@@ -345,8 +348,8 @@ run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 .PHONY: test-performance-scheduler-once
 test-performance-scheduler-once: gotestsum run-performance-scheduler
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
-		--summary=$(ARTIFACTS)/summary.yaml \
-		--cmdStats=$(ARTIFACTS)/minimalkueue.stats.yaml \
+		--summary=$(ARTIFACTS)/run-performance-scheduler/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/run-performance-scheduler/minimalkueue.stats.yaml \
 		--range=$(PROJECT_DIR)/test/performance/scheduler/configs/baseline/rangespec.yaml
 
 PERFORMANCE_RETRY_COUNT?=2
@@ -370,10 +373,10 @@ SCALABILITY_TAS_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/
 
 .PHONY: run-tas-performance-scheduler
 run-tas-performance-scheduler: envtest performance-scheduler-runner minimalkueue
-	mkdir -p $(ARTIFACTS)
+	mkdir -p "$(ARTIFACTS)/$@"
 	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
 	$(SCALABILITY_RUNNER) \
-		--o $(ARTIFACTS) \
+		--o "$(ARTIFACTS)/$@" \
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
 		--generatorConfig=$(SCALABILITY_TAS_GENERATOR_CONFIG) \
 		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
@@ -382,8 +385,8 @@ run-tas-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 .PHONY: test-tas-performance-scheduler-once
 test-tas-performance-scheduler-once: gotestsum run-tas-performance-scheduler
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
-		--summary=$(ARTIFACTS)/summary.yaml \
-		--cmdStats=$(ARTIFACTS)/minimalkueue.stats.yaml \
+		--summary=$(ARTIFACTS)/run-tas-performance-scheduler/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/run-tas-performance-scheduler/minimalkueue.stats.yaml \
 		--range=$(SCALABILITY_TAS_RANGE_FILE)
 
 .PHONY: test-tas-performance-scheduler
