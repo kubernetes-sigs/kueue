@@ -27,7 +27,7 @@ PLATFORMS=${PLATFORMS:-linux/amd64}
 
 CURRENT_DIR=$(dirname "${BASH_SOURCE[0]}")
 ROOT_PATH=$(realpath "${CURRENT_DIR}/..")
-BUILD_PATH=${ROOT_PATH}/${BUILD_DIR}
+BUILD_PATH=${BUILD_PATH:-${ROOT_PATH}/artifacts}
 
 mkdir -p "${BUILD_PATH}"
 

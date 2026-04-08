@@ -37,10 +37,10 @@ Please do not remove items from the checklist
   - [ ] Create the draft release pointing out to the created tag.
   - [ ] Write the change log into the draft release.
   - [ ] Run
-      `make artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG=$VERSION`
-      to generate the artifacts in the `artifacts` folder.
-  - [ ] Upload the files in the `artifacts` folder to the draft release - either
-      via UI or `gh release --repo kubernetes-sigs/kueue upload $VERSION artifacts/*`.
+      `make release-artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG=$VERSION`
+      to generate the artifacts in the `release-artifacts` folder.
+  - [ ] Upload the files in the `release-artifacts` folder to the draft release - either
+      via UI or `gh release --repo kubernetes-sigs/kueue upload $VERSION release-artifacts/*`.
 - [ ] Promote images and Helm Charts to production:
   - [ ] Run `./hack/releasing/wait_for_images.sh $VERSION` to await for the staging images.
   - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
