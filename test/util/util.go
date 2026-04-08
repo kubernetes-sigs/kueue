@@ -1346,12 +1346,8 @@ func VerifyLogs(observedLogs *observer.ObservedLogs) {
 }
 
 func IsLoggedEntryAConcurrentModification(le observer.LoggedEntry) bool {
-	if le.ContextMap()["error"] == nil {
-		return false
-	}
-	errorDetals := le.ContextMap()["error"].(string)
-	expectedConcurrentModiciationDetails := "the object has been modified; please apply your changes to the latest version and try again"
-	return strings.Contains(errorDetals, expectedConcurrentModiciationDetails)
+	errLog := le.ContextMap()["error"]
+	return errLog != nil && utillogging.IsWriteConflictError(errLog.(string))
 }
 
 // BreakConnection breaks connection to the cluster.
