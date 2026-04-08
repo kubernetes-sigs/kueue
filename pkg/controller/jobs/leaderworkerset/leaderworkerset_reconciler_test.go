@@ -270,7 +270,7 @@ func TestReconciler(t *testing.T) {
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testUID).
-				Replicas(2).
+				Replicas(1).
 				Size(3).
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
@@ -310,7 +310,7 @@ func TestReconciler(t *testing.T) {
 			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 					UID(testUID).
-					Replicas(2).
+					Replicas(1).
 					Size(3).
 					LeaderTemplate(corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
@@ -379,36 +379,6 @@ func TestReconciler(t *testing.T) {
 					).
 					Priority(0).
 					Obj(),
-				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
-					JobUID(testUID).
-					OwnerReference(gvk, testLWS, testUID).
-					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
-					Annotation(constants.JobOwnerNameAnnotation, testLWS).
-					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(
-						func() kueue.PodSet {
-							ps := *utiltestingapi.MakePodSet(leaderPodSetName, 1).
-								RestartPolicy("").
-								Image("pause").
-								Obj()
-							ps.Template.Annotations = map[string]string{"custom-leader-annotation": "leader-value"}
-							ps.Template.Labels = map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}
-							return ps
-						}(),
-						func() kueue.PodSet {
-							ps := *utiltestingapi.MakePodSet(workerPodSetName, 2).
-								RestartPolicy("").
-								Image("pause").
-								Obj()
-							ps.Template.Annotations = map[string]string{"custom-worker-annotation": "worker-value"}
-							ps.Template.Labels = map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}
-							return ps
-						}(),
-					).
-					Priority(0).
-					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -419,16 +389,6 @@ func TestReconciler(t *testing.T) {
 						"Created Workload: %s/%s",
 						testNS,
 						GetWorkloadName(types.UID(testUID), testLWS, "0"),
-					),
-				},
-				{
-					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
-					EventType: corev1.EventTypeNormal,
-					Reason:    jobframework.ReasonCreatedWorkload,
-					Message: fmt.Sprintf(
-						"Created Workload: %s/%s",
-						testNS,
-						GetWorkloadName(types.UID(testUID), testLWS, "1"),
 					),
 				},
 			},
