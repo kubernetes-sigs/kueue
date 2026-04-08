@@ -190,29 +190,24 @@ func managerAndMultiKueueSetup(
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	var managerFeatureGates []string
 	ginkgo.By("creating the clusters", func() {
-		mu = sync.Mutex{}
 		wg := sync.WaitGroup{}
 		wg.Add(3)
 		go func() {
 			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 			// pass nil setup since the manager for the manage cluster is different in some specs.
-			c := createCluster(nil, managerFeatureGates...)
-			managerTestCluster = c
+			managerTestCluster = createCluster(nil)
 		}()
 		go func() {
 			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
-			c := createCluster(managerSetup)
-			worker1TestCluster = c
+			worker1TestCluster = createCluster(managerSetup)
 		}()
 		go func() {
 			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
-			c := createCluster(managerSetup)
-			worker2TestCluster = c
+			worker2TestCluster = createCluster(managerSetup)
 		}()
 		wg.Wait()
 	})
