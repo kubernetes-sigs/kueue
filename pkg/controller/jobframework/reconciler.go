@@ -1272,6 +1272,15 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false, nil
 	}
 
+	// Only compare MaximumExecutionTimeSeconds when the job explicitly has the
+	// max-exec-time-seconds label. If the label is absent, the workload's value
+	// may have been inherited from the ClusterQueue, and no mismatch should be reported.
+	if jobMaxExecTime := MaximumExecutionTimeSeconds(job); jobMaxExecTime != nil {
+		if ptr.Deref(wl.Spec.MaximumExecutionTimeSeconds, defaultDuration) != *jobMaxExecTime {
+			return false, nil
+		}
+	}
+
 	getPodSets, err := JobPodSets(ctx, job, c)
 	if err != nil {
 		return false, err
@@ -1305,6 +1314,9 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	err = r.prepareWorkload(ctx, job, newWl, wl.Spec.Active)
 	if err != nil {
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
+	}
+	if err = r.applyClusterQueueDefaults(ctx, newWl); err != nil {
+		return nil, fmt.Errorf("applying ClusterQueue defaults: %w", err)
 	}
 	wl.Spec = newWl.Spec
 	if err = r.client.Update(ctx, wl); err != nil {
@@ -1553,6 +1565,18 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
+// applyClusterQueueDefaults looks up the ClusterQueue backing the LocalQueue
+// and applies its defaults to the workload. Fields already set on the workload
+// are not overridden.
+func (r *JobReconciler) applyClusterQueueDefaults(ctx context.Context, wl *kueue.Workload) error {
+	defaults, err := GetClusterQueueDefaults(ctx, r.client, wl.Spec.QueueName, wl.Namespace)
+	if err != nil {
+		return err
+	}
+	ApplyClusterQueueDefaults(defaults, wl)
+	return nil
+}
+
 func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
 		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
@@ -1665,6 +1689,9 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	}
 	err = r.prepareWorkload(ctx, job, wl, wl.Spec.Active)
 	if err != nil {
+		return err
+	}
+	if err = r.applyClusterQueueDefaults(ctx, wl); err != nil {
 		return err
 	}
 	if err = r.client.Create(ctx, wl); err != nil {
