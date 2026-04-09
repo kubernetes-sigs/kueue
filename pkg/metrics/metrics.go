@@ -187,6 +187,10 @@ var (
 	// +metricsdoc:labels=preempting_cluster_queue="the ClusterQueue executing preemption",reason="eviction or preemption reason",replica_role="one of `leader`, `follower`, or `standalone`"
 	PreemptedWorkloadsTotal *prometheus.CounterVec
 
+	// +metricsdoc:group=job
+	// +metricsdoc:labels=job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
+	JobToWorkloadLatency *prometheus.HistogramVec
+
 	// Metrics tied to the cache.
 
 	// +metricsdoc:group=clusterqueue
@@ -509,6 +513,15 @@ The label 'underlying_cause' can have the following values:
 		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, extraLabels...),
 	)
 
+	JobToWorkloadLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "job_to_workload_latency_seconds",
+			Help:      "The time between a job was created until its workload was created, per 'job_kind'",
+			Buckets:   generateExponentialBuckets(14),
+		}, append([]string{"job_kind", "replica_role"}, extraLabels...),
+	)
+
 	EvictedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -754,6 +767,11 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration, tracker *r
 	role := roletracker.GetRole(tracker)
 	AdmissionAttemptsTotal.WithLabelValues(string(result), role).Inc()
 	admissionAttemptDuration.WithLabelValues(string(result), role).Observe(duration.Seconds())
+}
+
+func ReportJobToWorkloadLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
+	JobToWorkloadLatency.WithLabelValues(labels...).Observe(latency.Seconds())
 }
 
 func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1153,6 +1171,7 @@ func Register() {
 		EvictedWorkloadsTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
+		JobToWorkloadLatency,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
 		ClusterQueueByStatus,

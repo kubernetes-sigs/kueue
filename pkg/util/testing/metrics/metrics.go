@@ -85,6 +85,9 @@ func CollectFilteredGaugeVec(v prometheus.Collector, labels map[string]string) [
 				if dtoMetric.Counter != nil {
 					dp.Value = *dtoMetric.Counter.Value
 				}
+				if dtoMetric.Histogram != nil {
+					dp.Value = *dtoMetric.Histogram.SampleSum
+				}
 				ret = append(ret, dp)
 			}
 		}

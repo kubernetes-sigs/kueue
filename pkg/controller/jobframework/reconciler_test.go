@@ -61,6 +61,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
+	"sigs.k8s.io/kueue/pkg/metrics"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 
 	. "sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
@@ -1234,5 +1236,59 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 				t.Errorf("unexpected reconcile error want %s got %s)", tc.wantError, err)
 			}
 		})
+	}
+}
+
+func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
+	var (
+		testJobName        = "test-job"
+		testLocalQueueName = kueue.LocalQueueName("test-lq")
+	)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	mockctrl := gomock.NewController(t)
+
+	jobCreationTime := time.Now().Add(-10 * time.Second)
+	job := testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
+		UID(testJobName).
+		Queue(testLocalQueueName).
+		Obj()
+	job.CreationTimestamp = metav1.NewTime(jobCreationTime)
+
+	basePodSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("main", 1).Obj(),
+	}
+
+	uniqueJobKind := "TestJobKind"
+	testGVKWithUniqueKind := batchv1.SchemeGroupVersion.WithKind(uniqueJobKind)
+
+	mgj := mocks.NewMockGenericJob(mockctrl)
+	mgj.EXPECT().Object().Return(job).AnyTimes()
+	mgj.EXPECT().GVK().Return(testGVKWithUniqueKind).AnyTimes()
+	mgj.EXPECT().IsSuspended().Return(false).AnyTimes()
+	mgj.EXPECT().IsActive().Return(false).AnyTimes()
+	mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+	mgj.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
+	mgj.EXPECT().Suspend().AnyTimes()
+
+	cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+		WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault)).
+		WithObjects(job).
+		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVKWithUniqueKind), indexer.WorkloadOwnerIndexFunc(testGVKWithUniqueKind)).
+		Build()
+
+	recorder := &utiltesting.EventRecorder{}
+	rec := NewReconciler(cl, recorder)
+
+	_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{
+		NamespacedName: types.NamespacedName{Name: testJobName, Namespace: metav1.NamespaceDefault},
+	}, mgj)
+	if err != nil {
+		t.Fatalf("Failed to Reconcile GenericJob: %v", err)
+	}
+
+	all := testingmetrics.CollectFilteredGaugeVec(metrics.JobToWorkloadLatency, map[string]string{"job_kind": uniqueJobKind})
+	if len(all) != 1 {
+		t.Errorf("Expecting 1 metric got %d", len(all))
 	}
 }

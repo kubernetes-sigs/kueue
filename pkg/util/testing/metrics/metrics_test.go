@@ -44,6 +44,14 @@ func getTestCounterVec() *prometheus.CounterVec {
 	return ret
 }
 
+func getTestHistogramVec() *prometheus.HistogramVec {
+	ret := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Buckets: []float64{1, 2, 3},
+	}, []string{"h1"})
+	ret.With(prometheus.Labels{"h1": "h1v1"}).Observe(4)
+	return ret
+}
+
 func TestCollect(t *testing.T) {
 	cases := map[string]struct {
 		vec    prometheus.Collector
@@ -118,6 +126,13 @@ func TestCollect(t *testing.T) {
 				{Labels: map[string]string{"c1": "l1v1", "c2": "l2v1"}, Value: 1},
 				{Labels: map[string]string{"c1": "l1v1", "c2": "l2v2"}, Value: 1},
 				{Labels: map[string]string{"c1": "l1v1", "c2": "l2v3"}, Value: 1},
+			},
+		},
+		"empty filter for histogram metrics": {
+			vec:    getTestHistogramVec(),
+			labels: nil,
+			want: []MetricDataPoint{
+				{Labels: map[string]string{"h1": "h1v1"}, Value: 4},
 			},
 		},
 	}
