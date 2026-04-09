@@ -1039,6 +1039,15 @@ Additionally after the admission, Workloads can still try to pursue capacity on 
 It enables them to migrate to more preferable, whenever capacity appears.</p>
 </td>
 </tr>
+<tr><td><code>workloadDefaults</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ClusterQueueWorkloadDefaults"><code>ClusterQueueWorkloadDefaults</code></a>
+</td>
+<td>
+   <p>workloadDefaults defines default values that are applied to workloads
+submitted to LocalQueues backed by this ClusterQueue when the workload
+does not already specify them.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1115,6 +1124,38 @@ clusterQueue and haven't finished yet.</p>
    <p>fairSharing contains the current state for this ClusterQueue
 when participating in Fair Sharing.
 This is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ClusterQueueWorkloadDefaults`     {#kueue-x-k8s-io-v1beta2-ClusterQueueWorkloadDefaults}
+    
+
+**Appears in:**
+
+- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta2-ClusterQueueSpec)
+
+
+<p>ClusterQueueWorkloadDefaults defines default values that are applied to
+workloads submitted to LocalQueues backed by this ClusterQueue when the
+workload does not already specify them.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>maximumExecutionTimeSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>maximumExecutionTimeSeconds if provided, determines the default maximum
+time, in seconds, for workloads submitted to LocalQueues backed by this
+ClusterQueue.
+This value is used when the job does not already specify a maximum execution
+time via the kueue.x-k8s.io/max-exec-time-seconds label.</p>
 </td>
 </tr>
 </tbody>

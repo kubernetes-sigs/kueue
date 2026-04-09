@@ -117,6 +117,15 @@ func (c *ClusterQueueWrapper) Preemption(p kueue.ClusterQueuePreemption) *Cluste
 	return c
 }
 
+// MaximumExecutionTimeSeconds sets the default maximum execution time on the ClusterQueue.
+func (c *ClusterQueueWrapper) MaximumExecutionTimeSeconds(v int32) *ClusterQueueWrapper {
+	if c.Spec.WorkloadDefaults == nil {
+		c.Spec.WorkloadDefaults = &kueue.ClusterQueueWorkloadDefaults{}
+	}
+	c.Spec.WorkloadDefaults.MaximumExecutionTimeSeconds = &v
+	return c
+}
+
 // FlavorQuotasWrapper wraps a FlavorQuotas object.
 type FlavorQuotasWrapper struct{ kueue.FlavorQuotas }
 
