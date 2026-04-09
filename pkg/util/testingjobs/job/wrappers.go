@@ -78,6 +78,14 @@ func (j *JobWrapper) Clone() *JobWrapper {
 	return &JobWrapper{Job: *j.DeepCopy()}
 }
 
+// GeneratedName sets the prefix for the server to generate unique name.
+func (j *JobWrapper) GeneratedName(name string) *JobWrapper {
+	j.GenerateName = name
+	j.Name = ""
+
+	return j
+}
+
 func (j *JobWrapper) BackoffLimit(limit int32) *JobWrapper {
 	j.Spec.BackoffLimit = ptr.To(limit)
 	return j

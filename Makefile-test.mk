@@ -150,6 +150,7 @@ test-e2e-helm: test-e2e
 test-multikueue-e2e-parallel-builds:
 	$(MAKE) -j2 kind-ray-project-mini-image-build kind-secretreader-plugin-image-build
 
+test-multikueue-e2e-main: E2E_NPROCS := 3
 .PHONY: test-multikueue-e2e-main
 test-multikueue-e2e-main: setup-e2e-env test-multikueue-e2e-parallel-builds run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
