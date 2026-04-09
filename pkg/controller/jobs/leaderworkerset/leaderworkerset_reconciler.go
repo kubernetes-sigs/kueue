@@ -279,7 +279,7 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	return createdWorkload, nil
 }
 
-func cleanMetadata(m map[string]string) {
+func dropLWSPrefixedKeys(m map[string]string) {
 	for k := range m {
 		if strings.HasPrefix(k, lwsDomainPrefix) && k != lwsNameLabel {
 			delete(m, k)
@@ -287,7 +287,7 @@ func cleanMetadata(m map[string]string) {
 	}
 }
 
-func clearTASAnnotations(annotations map[string]string) {
+func dropTASAnnotations(annotations map[string]string) {
 	keysToDelete := []string{
 		kueue.PodSetRequiredTopologyAnnotation,
 		kueue.PodSetPreferredTopologyAnnotation,
@@ -305,9 +305,9 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 		Count:    count,
 		Template: *template.DeepCopy(),
 	}
-	cleanMetadata(podSet.Template.Labels)
-	cleanMetadata(podSet.Template.Annotations)
-	clearTASAnnotations(podSet.Template.Annotations)
+	dropLWSPrefixedKeys(podSet.Template.Labels)
+	dropLWSPrefixedKeys(podSet.Template.Annotations)
+	dropTASAnnotations(podSet.Template.Annotations)
 	jobframework.SanitizePodSet(podSet)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		builder := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
