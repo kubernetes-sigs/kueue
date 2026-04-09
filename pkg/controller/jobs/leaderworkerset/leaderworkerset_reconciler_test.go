@@ -465,11 +465,13 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
 							RestartPolicy("").
 							Image("pause").
+							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							RequiredTopologyRequest("cloud.com/block").
 							Obj(),
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
 							Image("pause").
+							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							RequiredTopologyRequest("cloud.com/block").
 							PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj(),
@@ -490,7 +492,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"should create prebuilt workload without required topology annotation is TAS is disabled": {
+		"should create prebuilt workload without topology request if TAS is disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
@@ -565,10 +567,12 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
 							RestartPolicy("").
 							Image("pause").
+							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							Obj(),
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
 							Image("pause").
+							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							Obj(),
 					).
 					Priority(0).

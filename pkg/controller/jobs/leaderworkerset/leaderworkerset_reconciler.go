@@ -287,18 +287,6 @@ func dropLWSPrefixedKeys(m map[string]string) {
 	}
 }
 
-func dropTASAnnotations(annotations map[string]string) {
-	keysToDelete := []string{
-		kueue.PodSetRequiredTopologyAnnotation,
-		kueue.PodSetPreferredTopologyAnnotation,
-		kueue.PodSetSliceRequiredTopologyAnnotation,
-		kueue.PodSetSliceSizeAnnotation,
-	}
-	for _, k := range keysToDelete {
-		delete(annotations, k)
-	}
-}
-
 func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemplateSpec, podIndexLabel *string) (*kueue.PodSet, error) {
 	podSet := &kueue.PodSet{
 		Name:     name,
@@ -307,7 +295,6 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 	}
 	dropLWSPrefixedKeys(podSet.Template.Labels)
 	dropLWSPrefixedKeys(podSet.Template.Annotations)
-	dropTASAnnotations(podSet.Template.Annotations)
 	jobframework.SanitizePodSet(podSet)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		builder := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
