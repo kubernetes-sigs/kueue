@@ -1,0 +1,26 @@
+title: ClusterQueue Default Maximum Execution Time
+kep-number: 7029
+authors:
+  - "@kannon92"
+status: provisional
+creation-date: 2026-04-09
+reviewers:
+  - TBD
+approvers:
+  - TBD
+
+see-also:
+  - "/keps/3125-maximum-execution-time"
+
+stage: alpha
+
+latest-milestone: "v0.18"
+
+milestone:
+  alpha: "v0.18"
+  beta:
+  stable:
+
+feature-gates:
+  - name: ClusterQueueMaxExecutionTime
+disable-supported: true
