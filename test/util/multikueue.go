@@ -51,60 +51,91 @@ func PolicyRule(group, resource string, verbs ...string) rbacv1.PolicyRule {
 	}
 }
 
-// DefaultMultiKueueRules returns the full set of RBAC rules for MultiKueue.
-func DefaultMultiKueueRules() []rbacv1.PolicyRule {
-	resourceVerbs := []string{"create", "update", "patch", "delete", "get", "list", "watch"}
-	return []rbacv1.PolicyRule{
+var resourceVerbs = []string{"create", "update", "patch", "delete", "get", "list", "watch"}
+
+var frameworkRules = map[string][]rbacv1.PolicyRule{
+	"batch/job": {
 		PolicyRule(batchv1.SchemeGroupVersion.Group, "jobs", resourceVerbs...),
 		PolicyRule(batchv1.SchemeGroupVersion.Group, "jobs/status", "get"),
+	},
+	"jobset.x-k8s.io/jobset": {
 		PolicyRule(jobset.SchemeGroupVersion.Group, "jobsets", resourceVerbs...),
 		PolicyRule(jobset.SchemeGroupVersion.Group, "jobsets/status", "get"),
-		PolicyRule(kueue.SchemeGroupVersion.Group, "workloads", resourceVerbs...),
-		PolicyRule(kueue.SchemeGroupVersion.Group, "workloads/status", "get", "patch", "update"),
-		PolicyRule(kftraining.SchemeGroupVersion.Group, "tfjobs", resourceVerbs...),
-		PolicyRule(kftraining.SchemeGroupVersion.Group, "tfjobs/status", "get"),
-		PolicyRule(kftraining.SchemeGroupVersion.Group, "paddlejobs", resourceVerbs...),
-		PolicyRule(kftraining.SchemeGroupVersion.Group, "paddlejobs/status", "get"),
-		PolicyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs", resourceVerbs...),
-		PolicyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs/status", "get"),
-		PolicyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs", resourceVerbs...),
-		PolicyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs/status", "get"),
-		PolicyRule(kftraining.SchemeGroupVersion.Group, "jaxjobs", resourceVerbs...),
-		PolicyRule(kftraining.SchemeGroupVersion.Group, "jaxjobs/status", "get"),
-		PolicyRule(awv1beta2.GroupVersion.Group, "appwrappers", resourceVerbs...),
-		PolicyRule(awv1beta2.GroupVersion.Group, "appwrappers/status", "get"),
-		PolicyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs", resourceVerbs...),
-		PolicyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs/status", "get"),
-		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayjobs", resourceVerbs...),
-		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayjobs/status", "get"),
+	},
+	"pod": {
 		PolicyRule(corev1.SchemeGroupVersion.Group, "pods", resourceVerbs...),
 		PolicyRule(corev1.SchemeGroupVersion.Group, "pods/status", "get"),
+	},
+	"statefulset": {
 		PolicyRule(appsv1.SchemeGroupVersion.Group, "statefulsets", resourceVerbs...),
 		PolicyRule(appsv1.SchemeGroupVersion.Group, "statefulsets/status", "get"),
-		PolicyRule(leaderworkersetv1.SchemeGroupVersion.Group, "leaderworkersets", resourceVerbs...),
-		PolicyRule(leaderworkersetv1.SchemeGroupVersion.Group, "leaderworkersets/status", "get"),
+	},
+	"kubeflow.org/tfjob": {
+		PolicyRule(kftraining.SchemeGroupVersion.Group, "tfjobs", resourceVerbs...),
+		PolicyRule(kftraining.SchemeGroupVersion.Group, "tfjobs/status", "get"),
+	},
+	"kubeflow.org/paddlejob": {
+		PolicyRule(kftraining.SchemeGroupVersion.Group, "paddlejobs", resourceVerbs...),
+		PolicyRule(kftraining.SchemeGroupVersion.Group, "paddlejobs/status", "get"),
+	},
+	"kubeflow.org/pytorchjob": {
+		PolicyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs", resourceVerbs...),
+		PolicyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs/status", "get"),
+	},
+	"kubeflow.org/xgboostjob": {
+		PolicyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs", resourceVerbs...),
+		PolicyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs/status", "get"),
+	},
+	"kubeflow.org/jaxjob": {
+		PolicyRule(kftraining.SchemeGroupVersion.Group, "jaxjobs", resourceVerbs...),
+		PolicyRule(kftraining.SchemeGroupVersion.Group, "jaxjobs/status", "get"),
+	},
+	"kubeflow.org/mpijob": {
+		PolicyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs", resourceVerbs...),
+		PolicyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs/status", "get"),
+	},
+	"workload.codeflare.dev/appwrapper": {
+		PolicyRule(awv1beta2.GroupVersion.Group, "appwrappers", resourceVerbs...),
+		PolicyRule(awv1beta2.GroupVersion.Group, "appwrappers/status", "get"),
+	},
+	"ray.io/rayjob": {
+		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayjobs", resourceVerbs...),
+		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayjobs/status", "get"),
+	},
+	"ray.io/raycluster": {
 		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayclusters", resourceVerbs...),
 		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayclusters/status", "get"),
+	},
+	"ray.io/rayservice": {
 		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayservices", resourceVerbs...),
 		PolicyRule(rayv1.SchemeGroupVersion.Group, "rayservices/status", "get"),
+	},
+	"leaderworkerset.x-k8s.io/leaderworkerset": {
+		PolicyRule(leaderworkersetv1.SchemeGroupVersion.Group, "leaderworkersets", resourceVerbs...),
+		PolicyRule(leaderworkersetv1.SchemeGroupVersion.Group, "leaderworkersets/status", "get"),
+	},
+	"trainer.kubeflow.org/trainjob": {
 		PolicyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs", resourceVerbs...),
 		PolicyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs/status", "get"),
-	}
+	},
 }
 
-// MinimalMultiKueueRules returns a minimal set of RBAC rules for MultiKueue.
-func MinimalMultiKueueRules() []rbacv1.PolicyRule {
-	resourceVerbs := []string{"create", "update", "patch", "delete", "get", "list", "watch"}
-	return []rbacv1.PolicyRule{
-		PolicyRule(batchv1.SchemeGroupVersion.Group, "jobs", resourceVerbs...),
-		PolicyRule(batchv1.SchemeGroupVersion.Group, "jobs/status", "get"),
-		PolicyRule(jobset.SchemeGroupVersion.Group, "jobsets", resourceVerbs...),
-		PolicyRule(jobset.SchemeGroupVersion.Group, "jobsets/status", "get"),
+// MultiKueueRulesForManager returns RBAC rules matching the integrations
+// enabled in the Kueue manager configuration. Workload rules are always included.
+func MultiKueueRulesForManager(ctx context.Context, k8sClient client.Client) []rbacv1.PolicyRule {
+	cfg := GetKueueConfiguration(ctx, k8sClient)
+
+	rules := []rbacv1.PolicyRule{
 		PolicyRule(kueue.SchemeGroupVersion.Group, "workloads", resourceVerbs...),
 		PolicyRule(kueue.SchemeGroupVersion.Group, "workloads/status", "get", "patch", "update"),
-		PolicyRule(corev1.SchemeGroupVersion.Group, "pods", resourceVerbs...),
-		PolicyRule(corev1.SchemeGroupVersion.Group, "pods/status", "get"),
 	}
+
+	for _, framework := range cfg.Integrations.Frameworks {
+		if r, ok := frameworkRules[framework]; ok {
+			rules = append(rules, r...)
+		}
+	}
+	return rules
 }
 
 // KubeconfigForMultiKueueSA creates RBAC resources and returns a kubeconfig for MultiKueue.

@@ -109,11 +109,11 @@ var _ = ginkgo.BeforeSuite(func() {
 	ctx = ginkgo.GinkgoT().Context()
 
 	// Use MinimalMultiKueueRules for DRA tests - only Jobs, Workloads, Pods
-	worker1KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, util.MinimalMultiKueueRules())
+	worker1KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).To(gomega.Succeed())
 
-	worker2KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, util.MinimalMultiKueueRules())
+	worker2KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).To(gomega.Succeed())
 
