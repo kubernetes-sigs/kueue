@@ -46,6 +46,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -761,4 +762,18 @@ func KPortForward(cfg *rest.Config, restClient *rest.RESTClient, ns, podName str
 	case err := <-errChan:
 		return 0, nil, fmt.Errorf("port forward failed: %w", err)
 	}
+}
+
+func SetResourceNominalQuota(cq *kueue.ClusterQueue, resourceName corev1.ResourceName, value string) *kueue.ClusterQueue {
+	for rgi := range cq.Spec.ResourceGroups {
+		for fi := range cq.Spec.ResourceGroups[rgi].Flavors {
+			for ri := range cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources {
+				if cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].Name == resourceName {
+					cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].NominalQuota = resource.MustParse(value)
+					return cq
+				}
+			}
+		}
+	}
+	return cq
 }
