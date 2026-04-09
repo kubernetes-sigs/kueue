@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
@@ -193,6 +194,11 @@ func TestGitVersionMetric(t *testing.T) {
 	expectFilteredMetricsCount(t, buildInfo, 1, "go_version", versionInfo.GoVersion)
 	expectFilteredMetricsCount(t, buildInfo, 1, "compiler", versionInfo.Compiler)
 	expectFilteredMetricsCount(t, buildInfo, 1, "platform", versionInfo.Platform)
+}
+
+func TestReportJobToWorkloadLatency(t *testing.T) {
+	ReportJobToWorkloadLatency("Job", 5*time.Second, nil, nil)
+	expectFilteredMetricsCount(t, JobToWorkloadLatency, 1, "job_kind", "Job")
 }
 
 func TestReportLocalQueueAdmissionChecksWaitTimeHasPriorityLabel(t *testing.T) {
