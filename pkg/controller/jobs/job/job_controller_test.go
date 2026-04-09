@@ -604,6 +604,8 @@ func TestReconciler(t *testing.T) {
 		workloads         []kueue.Workload
 		otherJobs         []batchv1.Job
 		priorityClasses   []client.Object
+		localQueues       []kueue.LocalQueue
+		clusterQueues     []kueue.ClusterQueue
 		wantJob           batchv1.Job
 		wantWorkloads     []kueue.Workload
 		wantEvents        []utiltesting.EventRecord
@@ -4330,6 +4332,169 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"ClusterQueue default is ignored when ClusterQueueMaxExecutionTime feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                     false,
+				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
+				features.AssignQueueLabelsForPods:                    true,
+				features.ClusterQueueMaxExecutionTime:                false,
+			},
+			job: baseJobWrapper.Clone().
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Obj(),
+			localQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue(localQueueName, "ns").
+					ClusterQueue(clusterQueueName).
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue(clusterQueueName).
+					MaximumExecutionTimeSeconds(3600).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(0).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()),
+				},
+			},
+		},
+		"the maximum execution time is set from ClusterQueue default when no label is set": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                     false,
+				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
+				features.AssignQueueLabelsForPods:                    true,
+				features.ClusterQueueMaxExecutionTime:                true,
+			},
+			job: baseJobWrapper.Clone().
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Obj(),
+			localQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue(localQueueName, "ns").
+					ClusterQueue(clusterQueueName).
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue(clusterQueueName).
+					MaximumExecutionTimeSeconds(3600).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					MaximumExecutionTimeSeconds(3600).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(0).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()),
+				},
+			},
+		},
+		"the job label maximum execution time takes precedence over ClusterQueue default": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                     false,
+				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
+				features.AssignQueueLabelsForPods:                    true,
+				features.ClusterQueueMaxExecutionTime:                true,
+			},
+			job: baseJobWrapper.Clone().
+				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
+				Obj(),
+			localQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue(localQueueName, "ns").
+					ClusterQueue(clusterQueueName).
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue(clusterQueueName).
+					MaximumExecutionTimeSeconds(3600).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					MaximumExecutionTimeSeconds(10).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(0).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()),
+				},
+			},
+		},
+		"workload equivalency passes with ClusterQueue-sourced timeout": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                     false,
+				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
+				features.AssignQueueLabelsForPods:                    true,
+				features.ClusterQueueMaxExecutionTime:                true,
+			},
+			job: baseJobWrapper.Clone().
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Obj(),
+			localQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue(localQueueName, "ns").
+					ClusterQueue(clusterQueueName).
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue(clusterQueueName).
+					MaximumExecutionTimeSeconds(3600).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					MaximumExecutionTimeSeconds(3600).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(0).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					MaximumExecutionTimeSeconds(3600).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(0).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
+					Obj(),
+			},
+		},
 		"job with queue name is not reconciled in unlabelled namespace when AlwaysRespected is enabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
@@ -4407,7 +4572,9 @@ func TestReconciler(t *testing.T) {
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+				for f, v := range tc.featureGates {
+					features.SetFeatureGateDuringTest(t, f, v)
+				}
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 
 				ctx, _ := utiltesting.ContextWithLog(t)
@@ -4424,6 +4591,12 @@ func TestReconciler(t *testing.T) {
 				objs := append(tc.priorityClasses, utiltestingapi.MakeResourceFlavor("default").Obj(), testNamespace, labelledNamespace)
 				if tc.job != nil {
 					objs = append(objs, tc.job)
+				}
+				for i := range tc.localQueues {
+					objs = append(objs, &tc.localQueues[i])
+				}
+				for i := range tc.clusterQueues {
+					objs = append(objs, &tc.clusterQueues[i])
 				}
 
 				kClient := clientBuilder.

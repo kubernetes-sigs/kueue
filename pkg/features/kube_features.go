@@ -485,6 +485,12 @@ const (
 	// TODO(#12820): temporary workaround in the RayService integration. Remove once
 	// the generic FinishOrphanedWorkloads owner-deletion check lands.
 	DeferRayServiceFinalizationForRedisCleanup featuregate.Feature = "DeferRayServiceFinalizationForRedisCleanup"
+
+	// owner: @kannon92
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7029-clusterqueue-default-execution-time
+	//
+	// Enables defaulting MaximumExecutionTimeSeconds on workloads from ClusterQueue configuration.
+	ClusterQueueMaxExecutionTime featuregate.Feature = "ClusterQueueMaxExecutionTime"
 )
 
 func init() {
@@ -745,6 +751,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DeferRayServiceFinalizationForRedisCleanup: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+	ClusterQueueMaxExecutionTime: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

@@ -517,6 +517,23 @@ spec:
                 - Hold
                 - HoldAndDrain
                 type: string
+              workloadDefaults:
+                description: |-
+                  workloadDefaults defines default values that are applied to workloads
+                  submitted to LocalQueues backed by this ClusterQueue when the workload
+                  does not already specify them.
+                properties:
+                  maximumExecutionTimeSeconds:
+                    description: |-
+                      maximumExecutionTimeSeconds if provided, determines the default maximum
+                      time, in seconds, for workloads submitted to LocalQueues backed by this
+                      ClusterQueue.
+                      This value is used when the job does not already specify a maximum execution
+                      time via the kueue.x-k8s.io/max-exec-time-seconds label.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                type: object
             type: object
             x-kubernetes-validations:
             - message: borrowingLimit must be nil when cohort is empty
@@ -1351,6 +1368,23 @@ spec:
                 - Hold
                 - HoldAndDrain
                 type: string
+              workloadDefaults:
+                description: |-
+                  workloadDefaults defines default values that are applied to workloads
+                  submitted to LocalQueues backed by this ClusterQueue when the workload
+                  does not already specify them.
+                properties:
+                  maximumExecutionTimeSeconds:
+                    description: |-
+                      maximumExecutionTimeSeconds if provided, determines the default maximum
+                      time, in seconds, for workloads submitted to LocalQueues backed by this
+                      ClusterQueue.
+                      This value is used when the job does not already specify a maximum execution
+                      time via the kueue.x-k8s.io/max-exec-time-seconds label.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                type: object
             type: object
             x-kubernetes-validations:
             - message: borrowingLimit must be nil when cohort is empty

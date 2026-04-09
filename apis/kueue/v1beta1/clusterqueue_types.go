@@ -142,6 +142,27 @@ type ClusterQueueSpec struct {
 	// admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
 	// +optional
 	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
+
+	// workloadDefaults defines default values that are applied to workloads
+	// submitted to LocalQueues backed by this ClusterQueue when the workload
+	// does not already specify them.
+	// +optional
+	WorkloadDefaults *ClusterQueueWorkloadDefaults `json:"workloadDefaults,omitempty"`
+}
+
+// ClusterQueueWorkloadDefaults defines default values that are applied to
+// workloads submitted to LocalQueues backed by this ClusterQueue when the
+// workload does not already specify them.
+type ClusterQueueWorkloadDefaults struct {
+	// maximumExecutionTimeSeconds if provided, determines the default maximum
+	// time, in seconds, for workloads submitted to LocalQueues backed by this
+	// ClusterQueue.
+	// This value is used when the job does not already specify a maximum execution
+	// time via the kueue.x-k8s.io/max-exec-time-seconds label.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
 }
 
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
