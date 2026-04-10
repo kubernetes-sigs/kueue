@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
@@ -133,12 +134,15 @@ func validateAdmissionCheckOnFlavors(cq *kueue.ClusterQueue) field.ErrorList {
 
 func validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
 	oldOnFlavorsByName := map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]{}
-	newFlavors := utilqueue.AllFlavors(newCQ.Spec.ResourceGroups)
-	if oldStrategy := oldCQ.Spec.AdmissionChecksStrategy; oldStrategy != nil &&
-		utilqueue.AllFlavors(oldCQ.Spec.ResourceGroups).Equal(newFlavors) {
-		oldOnFlavorsByName = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(oldStrategy.AdmissionChecks))
-		for _, check := range oldStrategy.AdmissionChecks {
-			oldOnFlavorsByName[check.Name] = sets.New(check.OnFlavors...)
+
+	if !features.Enabled(features.RejectUpdatesToCQWithInvalidOnFlavors) {
+		newFlavors := utilqueue.AllFlavors(newCQ.Spec.ResourceGroups)
+		if oldStrategy := oldCQ.Spec.AdmissionChecksStrategy; oldStrategy != nil &&
+			utilqueue.AllFlavors(oldCQ.Spec.ResourceGroups).Equal(newFlavors) {
+			oldOnFlavorsByName = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(oldStrategy.AdmissionChecks))
+			for _, check := range oldStrategy.AdmissionChecks {
+				oldOnFlavorsByName[check.Name] = sets.New(check.OnFlavors...)
+			}
 		}
 	}
 
@@ -156,7 +160,9 @@ func validateAdmissionCheckOnFlavorsWithOld(cq *kueue.ClusterQueue, oldOnFlavors
 
 	var allErrs field.ErrorList
 	for i, check := range strategy.AdmissionChecks {
-		// allow unrelated updates for pre-existing ClusterQueues with invalid onFlavors
+		// When the RejectUpdatesToCQWithInvalidOnFlavors feature gate is
+		// disabled, allow unrelated updates for legacy ClusterQueues that were
+		// already persisted with invalid onFlavors.
 		if oldOnFlavors, found := oldOnFlavorsByName[check.Name]; found && oldOnFlavors.Equal(sets.New(check.OnFlavors...)) {
 			continue
 		}

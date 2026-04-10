@@ -261,6 +261,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: RejectUpdatesToCQWithInvalidOnFlavors
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: RemoveFinalizersWithStrictPatch
   versionedSpecs:
   - default: true

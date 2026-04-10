@@ -26,9 +26,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -413,6 +415,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 		name            string
 		oldClusterQueue *kueue.ClusterQueue
 		newClusterQueue *kueue.ClusterQueue
+		featureGates    map[featuregate.Feature]bool
 		wantErr         field.ErrorList
 	}{
 		{
@@ -428,7 +431,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 			wantErr:         nil,
 		},
 		{
-			name: "legacy cluster queue with invalid onFlavors allows unrelated updates",
+			name: "legacy cluster queue with invalid onFlavors allows unrelated updates when the feature gate is disabled",
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				QueueingStrategy("StrictFIFO").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
@@ -439,7 +442,29 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
 				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
 				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.RejectUpdatesToCQWithInvalidOnFlavors: false,
+			},
 			wantErr: nil,
+		},
+		{
+			name: "legacy cluster queue with invalid onFlavors rejects unrelated updates when the feature gate is enabled",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				QueueingStrategy("StrictFIFO").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				QueueingStrategy("BestEffortFIFO").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.RejectUpdatesToCQWithInvalidOnFlavors: true,
+			},
+			wantErr: field.ErrorList{
+				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("ghost"), []string{"alpha"}),
+			},
 		},
 		{
 			name: "valid admissionCheckStrategy can be added when the old cluster queue has no strategy",
@@ -511,6 +536,9 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.featureGates != nil {
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			}
 			gotErr := ValidateClusterQueueUpdate(tc.oldClusterQueue, tc.newClusterQueue)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)

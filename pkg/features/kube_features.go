@@ -352,6 +352,13 @@ const (
 	// Pod integration's IsActive() check, allowing quota to be released immediately
 	// when preempted pods begin terminating rather than waiting for the grace period.
 	FastQuotaReleaseInPodIntegration featuregate.Feature = "FastQuotaReleaseInPodIntegration"
+
+	// owner: @ShaanveerS
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/7259
+	// Enables rejecting updates to ClusterQueues with invalid
+	// AdmissionCheckStrategy.OnFlavors references.
+	RejectUpdatesToCQWithInvalidOnFlavors featuregate.Feature = "RejectUpdatesToCQWithInvalidOnFlavors"
 )
 
 func init() {
@@ -542,6 +549,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FastQuotaReleaseInPodIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	RejectUpdatesToCQWithInvalidOnFlavors: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
