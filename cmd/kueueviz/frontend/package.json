@@ -20,9 +20,9 @@
     "@mui/icons-material": "^7.3.9",
     "@mui/material": "^7.3.1",
     "ace-builds": "^1.43.6",
-    "react": "^19.2.4",
+    "react": "^19.2.5",
     "react-ace": "^14.0.1",
-    "react-dom": "^19.2.4",
+    "react-dom": "^19.2.5",
     "react-router-dom": "^7.14.0",
     "react-toastify": "^11.0.5"
   },
