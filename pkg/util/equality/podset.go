@@ -24,10 +24,26 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
+type ComparePodSetsOptions struct {
+	ignoreTolerations bool
+}
+
+type ComparePodSetsOption func(*ComparePodSetsOptions)
+
+func WithIgnoreTolerations() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreTolerations = true
+	}
+}
+
 // TODO: Revisit this, maybe we should extend the check to everything that could potentially impact
 // the workload scheduling (priority, nodeSelectors(when suspended), tolerations and maybe more)
-func comparePodTemplate(a, b *corev1.PodSpec, ignoreTolerations bool) bool {
-	if !ignoreTolerations && !equality.Semantic.DeepEqual(a.Tolerations, b.Tolerations) {
+func comparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) bool {
+	opts := &ComparePodSetsOptions{}
+	for _, opt := range options {
+		opt(opts)
+	}
+	if !opts.ignoreTolerations && !equality.Semantic.DeepEqual(a.Tolerations, b.Tolerations) {
 		return false
 	}
 	if !equality.Semantic.DeepEqual(a.InitContainers, b.InitContainers) {
@@ -36,7 +52,7 @@ func comparePodTemplate(a, b *corev1.PodSpec, ignoreTolerations bool) bool {
 	return equality.Semantic.DeepEqual(a.Containers, b.Containers)
 }
 
-func ComparePodSets(a, b *kueue.PodSet, ignoreTolerations bool) bool {
+func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
 	if a.Count != b.Count {
 		return false
 	}
@@ -44,15 +60,15 @@ func ComparePodSets(a, b *kueue.PodSet, ignoreTolerations bool) bool {
 		return false
 	}
 
-	return comparePodTemplate(&a.Template.Spec, &b.Template.Spec, ignoreTolerations)
+	return comparePodTemplate(&a.Template.Spec, &b.Template.Spec, options...)
 }
 
-func ComparePodSetSlices(a, b []kueue.PodSet, ignoreTolerations bool) bool {
+func ComparePodSetSlices(a, b []kueue.PodSet, options ...ComparePodSetsOption) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
-		if !ComparePodSets(&a[i], &b[i], ignoreTolerations) {
+		if !ComparePodSets(&a[i], &b[i], options...) {
 			return false
 		}
 	}
