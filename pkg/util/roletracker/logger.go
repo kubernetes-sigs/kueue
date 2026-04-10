@@ -38,8 +38,10 @@ func withRequestContext(log logr.Logger, namespace, name string) logr.Logger {
 
 // NewLogConstructor creates a controller LogConstructor with replica-role and request context.
 func NewLogConstructor(tracker *RoleTracker, baseName string) func(*reconcile.Request) logr.Logger {
+	namedLog := ctrl.Log.WithName(baseName)
+
 	return func(req *reconcile.Request) logr.Logger {
-		log := ctrl.Log.WithName(baseName).WithValues("replica-role", GetRole(tracker))
+		log := WithReplicaRole(namedLog, tracker)
 		if req == nil {
 			return log
 		}
