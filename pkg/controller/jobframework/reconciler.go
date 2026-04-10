@@ -1589,12 +1589,13 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	r.record.Eventf(object, corev1.EventTypeNormal, ReasonCreatedWorkload,
 		"Created Workload: %v", workload.Key(wl))
 
-	creationTime := wl.CreationTimestamp.Time
-	if creationTime.IsZero() {
-		creationTime = r.clock.Now()
-	}
-	if !job.Object().GetCreationTimestamp().Time.IsZero() {
-		latency := creationTime.Sub(job.Object().GetCreationTimestamp().Time)
+	jobCreationTime := job.Object().GetCreationTimestamp().Time
+	if !jobCreationTime.IsZero() {
+		wlCreationTime := wl.CreationTimestamp.Time
+		if wlCreationTime.IsZero() {
+			wlCreationTime = r.clock.Now()
+		}
+		latency := wlCreationTime.Sub(jobCreationTime)
 		customLabelValues := r.customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
 		metrics.ReportJobToWorkloadLatency(job.GVK().Kind, latency, customLabelValues, r.RoleTracker())
 	}
