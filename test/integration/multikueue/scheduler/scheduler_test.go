@@ -678,7 +678,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 					// Evicted workload is requeued and pending on worker 2
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, evictedWlKey, evictedWl)).To(gomega.Succeed())
 					g.Expect(evictedWl.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
