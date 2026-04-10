@@ -22,7 +22,7 @@ tool (
 )
 
 require (
-	github.com/gohugoio/hugo v0.159.2
+	github.com/gohugoio/hugo v0.160.1
 	github.com/golangci/golangci-lint/v2 v2.11.4
 	github.com/google/go-cmp v0.7.0
 	github.com/helm-unittest/helm-unittest v1.0.3
@@ -262,8 +262,8 @@ require (
 	github.com/gohugoio/go-radix v1.2.0 // indirect
 	github.com/gohugoio/hashstructure v0.6.0 // indirect
 	github.com/gohugoio/httpcache v0.8.0 // indirect
-	github.com/gohugoio/hugo-goldmark-extensions/extras v0.6.0 // indirect
-	github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.4.0 // indirect
+	github.com/gohugoio/hugo-goldmark-extensions/extras v0.7.0 // indirect
+	github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.5.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/golangci/asciicheck v0.5.0 // indirect
 	github.com/golangci/dupl v0.0.0-20250308024227-f665c8d69b32 // indirect
@@ -338,7 +338,7 @@ require (
 	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/macabu/inamedparam v0.2.0 // indirect
-	github.com/magefile/mage v1.16.1 // indirect
+	github.com/magefile/mage v1.17.1 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mailru/easyjson v0.9.1 // indirect
 	github.com/makeworld-the-better-one/dither/v2 v2.4.0 // indirect
@@ -454,7 +454,7 @@ require (
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	github.com/yeya24/promlinter v0.3.0 // indirect
 	github.com/ykadowak/zerologlint v0.1.5 // indirect
-	github.com/yuin/goldmark v1.7.17 // indirect
+	github.com/yuin/goldmark v1.8.2 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	github.com/yuin/goldmark-highlighting v0.0.0-20210516132338-9216f9c5aa01 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
