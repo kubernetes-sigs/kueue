@@ -66,14 +66,14 @@ func ExpectLQReservingActiveWorkloadsMetric(lq *kueue.LocalQueue, value int) {
 
 func ExpectLQAdmittedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass string, value int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.LocalQueueAdmittedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
-	expectCounterMetric(metric, value)
+	expectCounterMetric(metrics.LocalQueueAdmittedWorkloadsTotal, value,
+		lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
 }
 
 func ExpectLQQuotaReservedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass string, value int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.LocalQueueQuotaReservedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
-	expectCounterMetric(metric, value)
+	expectCounterMetric(metrics.LocalQueueQuotaReservedWorkloadsTotal, value,
+		lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
 }
 
 func ExpectLQByStatusMetric(lq *kueue.LocalQueue, status metav1.ConditionStatus) {
@@ -109,8 +109,8 @@ func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 
 func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
-	expectCounterMetric(metric, v)
+	expectCounterMetric(metrics.AdmittedWorkloadsTotal, v,
+		cq.Name, priorityClass, roletracker.RoleStandalone)
 }
 
 func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
@@ -155,8 +155,8 @@ func ExpectLocalQueueReservedWaitTimeMetric(lq *kueue.LocalQueue, priorityClass 
 
 func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause, priorityClass string, v int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause, priorityClass, roletracker.RoleStandalone)
-	expectCounterMetric(metric, v)
+	expectCounterMetric(metrics.EvictedWorkloadsTotal, v,
+		cqName, reason, underlyingCause, priorityClass, roletracker.RoleStandalone)
 }
 
 func ExpectPodsReadyToEvictedTimeSeconds(cqName, reason, underlyingCause string, v int) {
@@ -166,26 +166,26 @@ func ExpectPodsReadyToEvictedTimeSeconds(cqName, reason, underlyingCause string,
 
 func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCause, priorityClass string, v int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.EvictedWorkloadsOnceTotal.WithLabelValues(cqName, reason, underlyingCause, priorityClass, roletracker.RoleStandalone)
-	expectCounterMetric(metric, v)
+	expectCounterMetric(metrics.EvictedWorkloadsOnceTotal, v,
+		cqName, reason, underlyingCause, priorityClass, roletracker.RoleStandalone)
 }
 
 func ExpectLQEvictedWorkloadsTotalMetric(lq *kueue.LocalQueue, reason, underlyingCause, priorityClass string, v int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.LocalQueueEvictedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, reason, underlyingCause, priorityClass, roletracker.RoleStandalone)
-	expectCounterMetric(metric, v)
+	expectCounterMetric(metrics.LocalQueueEvictedWorkloadsTotal, v,
+		lq.Name, lq.Namespace, reason, underlyingCause, priorityClass, roletracker.RoleStandalone)
 }
 
 func ExpectPreemptedWorkloadsTotalMetric(preemptorCqName, reason string, v int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.PreemptedWorkloadsTotal.WithLabelValues(preemptorCqName, reason, roletracker.RoleStandalone)
-	expectCounterMetric(metric, v)
+	expectCounterMetric(metrics.PreemptedWorkloadsTotal, v,
+		preemptorCqName, reason, roletracker.RoleStandalone)
 }
 
 func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
-	expectCounterMetric(metric, v)
+	expectCounterMetric(metrics.QuotaReservedWorkloadsTotal, v,
+		cq.Name, priorityClass, roletracker.RoleStandalone)
 }
 
 func ExpectQuotaReservedWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
@@ -195,14 +195,14 @@ func ExpectQuotaReservedWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass str
 
 func ExpectFinishedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.FinishedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone)
-	expectCounterMetric(metric, v)
+	expectCounterMetric(metrics.FinishedWorkloadsTotal, v,
+		cq.Name, priorityClass, roletracker.RoleStandalone)
 }
 
 func ExpectLQFinishedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass string, value int) {
 	ginkgo.GinkgoHelper()
-	metric := metrics.LocalQueueFinishedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
-	expectCounterMetric(metric, value)
+	expectCounterMetric(metrics.LocalQueueFinishedWorkloadsTotal, value,
+		lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
 }
 
 func ExpectFinishedWorkloadsGaugeMetric(cq *kueue.ClusterQueue, count int) {
@@ -217,10 +217,10 @@ func ExpectLQFinishedWorkloadsGaugeMetric(lq *kueue.LocalQueue, count int) {
 	expectGaugeMetric(metric, gomega.Equal(float64(count)))
 }
 
-func expectCounterMetric(metric prometheus.Counter, count int) {
+func expectCounterMetric(metric *prometheus.CounterVec, count int, lvs ...string) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
-		v, err := testutil.GetCounterMetricValue(metric)
+		v, err := testutil.GetCounterMetricValue(metric.WithLabelValues(lvs...))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())
