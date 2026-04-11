@@ -595,10 +595,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Levels: defaultOneLevel,
 					Domains: []tas.TopologyDomainAssignment{
 						{Count: 1, Values: []string{"x1"}},
-						{Count: 1, Values: []string{"x3"}},
+						{Count: 4, Values: []string{"x3"}},
 						{Count: 1, Values: []string{"x5"}},
-						{Count: 1, Values: []string{"x2"}},
-						{Count: 2, Values: []string{"x6"}},
 					},
 				},
 			}},
@@ -620,7 +618,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x2",
 							},
 						},
 					},
@@ -644,7 +642,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x2",
 							},
 						},
 					},

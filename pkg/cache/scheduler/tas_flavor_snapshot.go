@@ -1131,6 +1131,9 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 	case isSliceTopologyOnlyRequest(topologyRequest):
 		return new(s.highestLevel())
 	case ptr.Deref(topologyRequest.Unconstrained, false):
+		if features.Enabled(features.TASProfileMixed) {
+			return new(s.highestLevel())
+		}
 		return new(s.lowestLevel())
 	default:
 		return nil
