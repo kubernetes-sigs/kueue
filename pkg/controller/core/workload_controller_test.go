@@ -408,6 +408,7 @@ func TestReconcile(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 
 		workload                  *kueue.Workload
+		additionalObjects         []client.Object
 		cq                        *kueue.ClusterQueue
 		lq                        *kueue.LocalQueue
 		resourceClaims            []*resourcev1.ResourceClaim
@@ -2807,6 +2808,51 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			reconcilerOpts: []Option{},
 		},
+
+		"workload with existing controller owner should not be finished": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FinishOrphanedWorkloads: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Obj(),
+			additionalObjects: []client.Object{
+				&batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "ownername",
+						Namespace: "ns",
+						UID:       "owneruid",
+					},
+				},
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue  doesn't exist",
+				}).
+				Obj(),
+		},
+
+		"workload with gone controller owner should be finished": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FinishOrphanedWorkloads: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "deleted-job", "gone-uid").
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "deleted-job", "gone-uid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonOwnerNotFound,
+					Message: "The workload's owner no longer exists",
+				}).
+				Obj(),
+		},
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
@@ -2817,6 +2863,7 @@ func TestReconcile(t *testing.T) {
 
 				testWl := tc.workload.DeepCopy()
 				objs := []client.Object{testWl}
+				objs = append(objs, tc.additionalObjects...)
 				for _, rc := range tc.resourceClaims {
 					objs = append(objs, rc)
 				}
@@ -2826,8 +2873,10 @@ func TestReconcile(t *testing.T) {
 				}
 
 				// Create a stub owner object so that the FinishOrphanedWorkloads
-				// check does not incorrectly mark them as orphaned.
-				if ref := metav1.GetControllerOf(testWl); ref != nil {
+				// check does not incorrectly mark them as orphaned. Skip when
+				// the test explicitly enables the feature gate (those tests
+				// provide their own additionalObjects to control ownership).
+				if ref := metav1.GetControllerOf(testWl); ref != nil && !tc.featureGates[features.FinishOrphanedWorkloads] {
 					objs = append(objs, &batchv1.Job{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      ref.Name,

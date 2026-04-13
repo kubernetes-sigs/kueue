@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -2670,7 +2671,7 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 
 	ginkgo.BeforeAll(func() {
 		waitForPodsReady := &configapi.WaitForPodsReady{
-			Timeout:        metav1.Duration{Duration: util.TinyTimeout},
+			Timeout:        metav1.Duration{Duration: 3 * time.Second},
 			BlockAdmission: ptr.To(false),
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
@@ -2753,7 +2754,7 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 		gomega.Expect(k8sClient.Get(ctx, wl1Key, wl1)).To(gomega.Succeed())
 
 		ginkgo.By("waiting for PodsReady timeout to trigger eviction of workload-1")
-		util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, wl1Key, util.TinyTimeout)
+		util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, wl1Key, 3*time.Second)
 		util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
 
 		ginkgo.By("waiting for pod-1 to be finalized or gone")
@@ -2783,13 +2784,7 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 		ginkgo.By("asserting workload-1 is finished as stale (owner pod-1 was deleted)")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wl1Key, wl1)).To(gomega.Succeed())
-			g.Expect(wl1.Status.Conditions).To(gomega.ContainElements(
-				gomega.BeComparableTo(metav1.Condition{
-					Type:   kueue.WorkloadFinished,
-					Status: metav1.ConditionTrue,
-					Reason: "OwnerNotFound",
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration")),
-			))
+			g.Expect(wl1.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOwnerNotFound))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })

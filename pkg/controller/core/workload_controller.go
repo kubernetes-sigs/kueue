@@ -207,15 +207,14 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Finish orphaned workloads whose controller owner no longer exists.
-	// This prevents stale workload accumulation (e.g., after PodsReady timeout
-	// eviction deletes a Deployment-owned pod) and handles general orphaned
-	// workload cleanup (https://github.com/kubernetes-sigs/kueue/issues/1789).
+	// The ownerReference still points to a non-existent object (e.g., a
+	// Deployment-owned pod deleted after PodsReady timeout eviction).
 	if features.Enabled(features.FinishOrphanedWorkloads) && wl.DeletionTimestamp.IsZero() {
 		if ownerGone, err := r.isControllerOwnerGone(ctx, &wl); err != nil {
 			return ctrl.Result{}, err
 		} else if ownerGone {
-			log.V(2).Info("Controller owner of workload no longer exists, finishing orphaned workload")
-			if err := workload.Finish(ctx, r.client, &wl, "OwnerNotFound", "The workload's owner no longer exists", r.clock); err != nil {
+			log.V(2).Info("Workload is orphaned, finishing to release quota")
+			if err := workload.Finish(ctx, r.client, &wl, kueue.WorkloadFinishedReasonOwnerNotFound, "The workload's owner no longer exists", r.clock); err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 			if err := workload.RemoveFinalizer(ctx, r.client, &wl); err != nil {
