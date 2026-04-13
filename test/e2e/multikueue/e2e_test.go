@@ -339,6 +339,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			deployment := testingdeployment.MakeDeployment("deployment", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Replicas(3).
+				TerminationGracePeriod(1).
 				Queue(managerLq.Name).
 				Obj()
 
@@ -448,6 +449,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Replicas(3).
 				Request(corev1.ResourceCPU, "500m").
+				TerminationGracePeriod(1).
 				Queue(managerLq.Name).
 				Obj()
 
@@ -878,6 +880,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				RequestAndLimit(corev1.ResourceMemory, "2G").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
 
@@ -916,6 +919,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				RequestAndLimit(corev1.ResourceMemory, "2G").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
@@ -1134,6 +1138,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "2").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
+				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Creating the first job", func() {
 				util.MustCreate(ctx, k8sManagerClient, job1)
@@ -1167,6 +1172,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				RequestAndLimit(corev1.ResourceMemory, "2G").
+				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Creating the second job", func() {
 				util.MustCreate(ctx, k8sManagerClient, job2)
@@ -2380,6 +2386,7 @@ app = HelloWorld.bind()`,
 				RequestAndLimit(corev1.ResourceCPU, "0.1").
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(corev1.ResourceEphemeralStorage, "15G").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob1)
 
@@ -2412,6 +2419,7 @@ app = HelloWorld.bind()`,
 				RequestAndLimit(corev1.ResourceCPU, "0.1").
 				RequestAndLimit(corev1.ResourceMemory, "1.5G").
 				RequestAndLimit(corev1.ResourceEphemeralStorage, "5G").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob2)
 
@@ -2444,6 +2452,7 @@ app = HelloWorld.bind()`,
 				RequestAndLimit(corev1.ResourceCPU, "0.1").
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(corev1.ResourceEphemeralStorage, "5G").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
