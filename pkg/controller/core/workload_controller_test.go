@@ -2825,6 +2825,18 @@ func TestReconcile(t *testing.T) {
 					objs = append(objs, rct)
 				}
 
+				// Create a stub owner object so that the FinishOrphanedWorkloads
+				// check does not incorrectly mark them as orphaned.
+				if ref := metav1.GetControllerOf(testWl); ref != nil {
+					objs = append(objs, &batchv1.Job{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      ref.Name,
+							Namespace: testWl.Namespace,
+							UID:       ref.UID,
+						},
+					})
+				}
+
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithObjects(objs...).
 					WithStatusSubresource(objs...).

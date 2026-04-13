@@ -206,6 +206,25 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Finish orphaned workloads whose controller owner no longer exists.
+	// This prevents stale workload accumulation (e.g., after PodsReady timeout
+	// eviction deletes a Deployment-owned pod) and handles general orphaned
+	// workload cleanup (https://github.com/kubernetes-sigs/kueue/issues/1789).
+	if features.Enabled(features.FinishOrphanedWorkloads) && wl.DeletionTimestamp.IsZero() {
+		if ownerGone, err := r.isControllerOwnerGone(ctx, &wl); err != nil {
+			return ctrl.Result{}, err
+		} else if ownerGone {
+			log.V(2).Info("Controller owner of workload no longer exists, finishing orphaned workload")
+			if err := workload.Finish(ctx, r.client, &wl, "OwnerNotFound", "The workload's owner no longer exists", r.clock); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+			if err := workload.RemoveFinalizer(ctx, r.client, &wl); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+			return ctrl.Result{}, nil
+		}
+	}
+
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
 		updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := r.syncPreemptionGateStates(wl)
@@ -379,31 +398,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			}
 
 			if workload.Status(&wl) == workload.StatusPending {
-				// If the workload is already being garbage-collected, let the
-				// job controller's dropFinalizers path handle cleanup.
-				if !wl.DeletionTimestamp.IsZero() {
-					log.V(3).Info("Pending workload is being garbage collected, skipping requeue")
-					return ctrl.Result{}, nil
-				}
-
-				// Before re-enqueuing, check if the workload's controller owner
-				// still exists. If the owner (e.g., a pod deleted by eviction)
-				// is gone, the workload is stale and should be finished rather
-				// than re-enqueued. This prevents unbounded stale workload
-				// accumulation when Deployment-owned pods are evicted and replaced.
-				if ownerGone, err := r.isControllerOwnerGone(ctx, &wl); err != nil {
-					return ctrl.Result{}, err
-				} else if ownerGone {
-					log.V(2).Info("Controller owner of workload no longer exists, finishing stale workload")
-					if err := workload.Finish(ctx, r.client, &wl, "OwnerNotFound", "The workload's owner no longer exists", r.clock); err != nil {
-						return ctrl.Result{}, client.IgnoreNotFound(err)
-					}
-					if err := workload.RemoveFinalizer(ctx, r.client, &wl); err != nil {
-						return ctrl.Result{}, client.IgnoreNotFound(err)
-					}
-					return ctrl.Result{}, nil
-				}
-
 				log.V(3).Info("Pending workload requeued after backoff")
 
 				// Clear RequeueAt since backoff has elapsed

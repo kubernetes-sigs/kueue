@@ -359,6 +359,14 @@ const (
 	// Enables rejecting updates to ClusterQueues with invalid
 	// AdmissionCheckStrategy.OnFlavors references.
 	RejectUpdatesToCQWithInvalidOnFlavors featuregate.Feature = "RejectUpdatesToCQWithInvalidOnFlavors"
+
+	// owner: @sebest
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/1789
+	// Finish workloads whose controller owner no longer exists, preventing
+	// stale workload accumulation (e.g., after PodsReady timeout eviction
+	// deletes a Deployment-owned pod).
+	FinishOrphanedWorkloads featuregate.Feature = "FinishOrphanedWorkloads"
 )
 
 func init() {
@@ -552,6 +560,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	RejectUpdatesToCQWithInvalidOnFlavors: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	FinishOrphanedWorkloads: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

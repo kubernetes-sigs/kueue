@@ -20,15 +20,12 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -2673,7 +2670,7 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 
 	ginkgo.BeforeAll(func() {
 		waitForPodsReady := &configapi.WaitForPodsReady{
-			Timeout:        metav1.Duration{Duration: 3 * time.Second},
+			Timeout:        metav1.Duration{Duration: util.TinyTimeout},
 			BlockAdmission: ptr.To(false),
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
@@ -2739,47 +2736,28 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 			Obj()
 		util.MustCreate(ctx, k8sClient, pod1)
 
-		ginkgo.By("waiting for pod-1 to get a workload and be admitted")
+		ginkgo.By("waiting for pod-1 to be created and getting its UID")
 		createdPod1 := &corev1.Pod{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod1), createdPod1)).To(gomega.Succeed())
-			for _, gate := range createdPod1.Spec.SchedulingGates {
-				g.Expect(gate.Name).ShouldNot(gomega.Equal("kueue.x-k8s.io/admission"))
-			}
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		wl1Key := types.NamespacedName{
 			Name:      podcontroller.GetWorkloadNameForPod(pod1.Name, createdPod1.UID),
 			Namespace: ns.Name,
 		}
+
+		ginkgo.By("waiting for workload-1 to be admitted")
+		util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wl1Key)
 		wl1 := &kueue.Workload{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, wl1Key, wl1)).To(gomega.Succeed())
-			g.Expect(wl1.Status.Conditions).To(gomega.ContainElements(
-				gomega.BeComparableTo(metav1.Condition{
-					Type:   kueue.WorkloadQuotaReserved,
-					Status: metav1.ConditionTrue,
-				}, wlConditionCmpOpts...),
-				gomega.BeComparableTo(metav1.Condition{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionTrue,
-				}, wlConditionCmpOpts...),
-			))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Get(ctx, wl1Key, wl1)).To(gomega.Succeed())
 
 		ginkgo.By("waiting for PodsReady timeout to trigger eviction of workload-1")
-		util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, wl1Key, 3*time.Second)
+		util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, wl1Key, util.TinyTimeout)
 		util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
 
-		ginkgo.By("waiting for pod-1 to be deleted by the pod controller (Stop)")
-		gomega.Eventually(func(g gomega.Gomega) {
-			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(pod1), createdPod1)
-			if apierrors.IsNotFound(err) {
-				return // pod is gone, success
-			}
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-			g.Expect(createdPod1.DeletionTimestamp).ShouldNot(gomega.BeZero())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		ginkgo.By("waiting for pod-1 to be finalized or gone")
+		util.ExpectPodsFinalizedOrGone(ctx, k8sClient, client.ObjectKeyFromObject(pod1))
 
 		ginkgo.By("creating pod-2 as a replacement (simulating Deployment creating a new pod)")
 		pod2 := testingpod.MakePod("pod-2", ns.Name).
@@ -2788,42 +2766,30 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 			Obj()
 		util.MustCreate(ctx, k8sClient, pod2)
 
-		ginkgo.By("waiting for pod-2 to get a workload and be admitted")
+		ginkgo.By("waiting for pod-2 to be created and getting its UID")
 		createdPod2 := &corev1.Pod{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod2), createdPod2)).To(gomega.Succeed())
-			for _, gate := range createdPod2.Spec.SchedulingGates {
-				g.Expect(gate.Name).ShouldNot(gomega.Equal("kueue.x-k8s.io/admission"))
-			}
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		wl2Key := types.NamespacedName{
 			Name:      podcontroller.GetWorkloadNameForPod(pod2.Name, createdPod2.UID),
 			Namespace: ns.Name,
 		}
-		wl2 := &kueue.Workload{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, wl2Key, wl2)).To(gomega.Succeed())
-			g.Expect(wl2.Status.Conditions).To(gomega.ContainElements(
-				gomega.BeComparableTo(metav1.Condition{
-					Type:   kueue.WorkloadQuotaReserved,
-					Status: metav1.ConditionTrue,
-				}, wlConditionCmpOpts...),
-				gomega.BeComparableTo(metav1.Condition{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionTrue,
-				}, wlConditionCmpOpts...),
-			))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("waiting for workload-2 to be admitted")
+		util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wl2Key)
 
 		ginkgo.By("asserting workload-1 is finished as stale (owner pod-1 was deleted)")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wl1Key, wl1)).To(gomega.Succeed())
-			g.Expect(workload.IsFinished(wl1)).Should(gomega.BeTrue(),
-				"stale workload-1 should be finished after its owner pod was deleted")
-			finishedCond := apimeta.FindStatusCondition(wl1.Status.Conditions, kueue.WorkloadFinished)
-			g.Expect(finishedCond).ShouldNot(gomega.BeNil())
-			g.Expect(finishedCond.Reason).Should(gomega.Equal("OwnerNotFound"))
+			g.Expect(wl1.Status.Conditions).To(gomega.ContainElements(
+				gomega.BeComparableTo(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					Reason: "OwnerNotFound",
+				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration")),
+			))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
