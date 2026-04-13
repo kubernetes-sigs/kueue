@@ -27,13 +27,19 @@
     - [Manager quota automation](#manager-quota-automation-1)
     - [Cross-worker resource stats in Visibility API](#cross-worker-resource-stats-in-visibility-api-1)
       - [Utilization stats: worker-centric (new) vs. manager-centric (existing)](#utilization-stats-worker-centric-new-vs-manager-centric-existing)
-  - [MultiKueue Cache](#multikueue-cache)
-    - [Maintaining the cache up to date](#maintaining-the-cache-up-to-date)
-    - [The guiding principles](#the-guiding-principles)
+  - [Guiding principles for the implementation](#guiding-principles-for-the-implementation)
   - [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler)
+  - [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler)
+  - [MultiKueue Cache](#multikueue-cache)
   - [MultiKueue Workload Reconciler](#multikueue-workload-reconciler)
   - [Visibility Server](#visibility-server)
   - [Test Plan](#test-plan)
+    - [Unit Tests](#unit-tests)
+    - [Integration Tests](#integration-tests)
+    - [E2e Tests](#e2e-tests)
+  - [Possible Follow-ups](#possible-follow-ups)
+    - [Expand the cross-worker resource stats](#expand-the-cross-worker-resource-stats)
+    - [Introduce a MultiKueue manager ClusterQueue quota reservation overbooking multiplier](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier)
   - [Graduation Criteria](#graduation-criteria)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -41,7 +47,7 @@
   - [Support quota automation for no manager-side ResourceFlavors (auto-create one)](#support-quota-automation-for-no-manager-side-resourceflavors-auto-create-one)
   - [Avoid the quota automation multiplier](#avoid-the-quota-automation-multiplier)
   - [Make the `MultiKueueManagerQuotaAutomation` Condition message more informative](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative)
-  - [Store another set of fields in MultiKueue Cache](#store-another-set-of-fields-in-multikueue-cache)
+  - [Expose the cross-worker resource stats in the manager ClusterQueue Status](#expose-the-cross-worker-resource-stats-in-the-manager-clusterqueue-status)
 <!-- /toc -->
 
 ## Summary
@@ -131,7 +137,7 @@ In the Alpha stage, we plan this endpoint to surface the following information:
 
 * The values of per-flavor quotas, aggregated from the specs of all [related worker ClusterQueues](#defining-related-worker-clusterqueues), exposed in the same format as the above usage stats.
 
-Depending on the user feedback from the Alpha stage, we may decide to provide analogous resource stats also in other formats. Essentially, our "raw" data is a multi-dimensional array of numbers (where the dimensions are: worker cluster, worker ClusterQueue, ResourceFlavor, resource name, and the choice of "nominalQuota/reserved/used") - it is yet to be chosen how to arrange that information to be most useful.
+Depending on the user feedback from the Alpha stage, we may decide to provide analogous resource stats also in other formats (see [here](#expand-the-cross-worker-resource-stats) for details).
 
 ### User stories
 
@@ -248,12 +254,14 @@ The main risks of this proposal are the following:
 1. User confusion - the users may be surprised by, and have troubles understanding, several aspects:
    
    1. ClusterQueue quotas being adjusted automatically, without their initiative;
-   1. divergences between the "official" quotas on the manager and worker sides, caused by the quota automation multiplier;
-   1. the exact semantics of the new stats in Visibility API.
+   2. divergences between the "official" quotas on the manager and worker sides, caused by the quota automation multiplier;
+   3. the exact semantics of the new stats in Visibility API.
 
-1. Introducing management of ClusterQueue quotas which some users consider undesired (see [User Story 4](#story-4)).
+2. Introducing management of ClusterQueue quotas which some users consider undesired (see [User Story 4](#story-4)).
 
-1. Decreasing MultiKueue performance by adding more reconcilers and computations.
+3. Slowing down MultiKueue by adding more reconcilers and computations.
+
+4. Consuming too much memory with MultiKueue cache.
 
 For these, we propose the following mitigations:
 
@@ -261,10 +269,14 @@ For these, we propose the following mitigations:
 
 * Risk 1.iii is mitigated by meaningful comments on the new API fields.
 
-* Risks 1 and 2 are mitigated by introducing feature gates as well as a permanent opt-out API. \
+* Risks 1 and 2 are mitigated by introducing feature gates combined with the opt-in/opt-out API. \
   This also mitigates Risk 3, as long as we pay attention to skip computations which are not necessary per the ClusterQueue configuration.
 
-* Risk 3 is mitigated by a careful planning of [MultiKueue Cache](#multikueue-cache); see in particular [its guiding principles](#the-guiding-principles).
+* Risk 3 can be substantially mitigated by extending [MultiKueue Cache](#multikueue-cache); see our [guiding principles](#guiding-principles-for-the-implementation).
+
+* Risk 4 feels low: even though [MultiKueue Cache](#multikueue-cache) scales linearly with the number of all workloads (which can grow large), the amount of data stored per workload is low, likely below what's in the Kueue scheduler cache. \
+  Still, if this turns out problematic, the current cache format can be drastically compressed by tweaking [`FlavorResourceQuantities`](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/pkg/resources/resource.go#L37) to use short map keys (instead of `Flavor` and `Resource`, use their indices in some global map; these will certainly fit in an `int32`). \
+  For now, it feels a premature optimization, so we don't propose it right away.
 
 ## Design details
 
@@ -275,7 +287,7 @@ For these, we propose the following mitigations:
 The configuration for this feature will be added to the existing `MultiKueueConfig` struct. (For context, `MultiKueueConfig` objects are referenced from `AdmissionCheckSpec` as [`Parameters`](https://github.com/kubernetes-sigs/kueue/blob/24209c461b72fd6519581aca2234fb8f05dd1ce7/apis/kueue/v1beta2/admissioncheck_types.go#L60); this will allow controlling the feature independently for each ClusterQueue in the manager cluster).
 
 ```go
-type MultiKueueConfig struct {
+type MultiKueueConfigSpec struct {
    // ...
 
    // quotaAutomation specifies whether (and how) the ClusterQueue quotas 
@@ -298,9 +310,9 @@ type QuotaAutomation struct {
 }
 ```
 
-The status of the feature will be communicated by a new Condition added to ClusterQueueStatus. The Condition will be present whenever quota automation is enabled (either by `.Enabled == True` or by the feature gate).
+The status of the feature will be communicated by a new Condition added to ClusterQueueStatus. The Condition will be present in all ClusterQueues enrolled in MultiKueue.
 
-When the manager quota has been automated successfully, the condition will look like this:
+When quota automation is requested and supported, the condition will look like this:
 
 ```yaml
 type: MultiKueueManagerQuotaAutomation
@@ -310,7 +322,17 @@ message: ClusterQueue quota is automatically managed based on MultiKueue workers
 lastTransitionTime: 2026-01-01T00:00:00Z
 ```
 
-where `lastTransitionTime` only tracks changes affecting the Condition `status` and `message` (i.e. feature enablement, potential errors) but **not** subsequent quota updates. (An alternative approach is discussed [here](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative)).
+where `lastTransitionTime` only tracks changes affecting the Condition `status` and `message` (i.e. feature enablement, potential errors) but **not** subsequent quota updates. (See [this section](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative) in Alternatives).
+
+When quota automation is not requested, the condition will look like this:
+
+```yaml
+type: MultiKueueManagerQuotaAutomation
+status: False
+reason: NotRequested
+message: MultiKueue manager quota automation has not been requested.
+lastTransitionTime: 2026-01-01T00:00:00Z
+```
 
 Enabling quota automation will be subject to a **constraint** that the manager ClusterQueue has exactly one ResourceFlavor. This constraint will **not** be enforced via validation (e.g. a webhook) but by Kueue controllers code (similarly to [analogous existing AdmissionCheck-related constraints](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/pkg/cache/scheduler/clusterqueue.go#L284-L307), evaluated in the core ClusterQueue controller). A violation of this new constraint will **not** make the ClusterQueue Inactive (as is the case for the existing analogous constraints). In this case of a violation, the queue itself will be still operational, just not supportable by the quota automation feature. This will be communicated as an error of that feature, by its status Condition:
 
@@ -348,25 +370,49 @@ type MultiKueueWorkerResourceStats struct {
    // They are grouped by worker-side flavors.
    // +listType=map
    // +listMapKey=name
-   FlavorsReservation []FlavorUsage `json:"flavorsReservation,omitempty"`
+   FlavorsReservation []WorkerFlavorUsage `json:"flavorsReservation,omitempty"`
 
    // flavorsUsage are the quotas used on MultiKueue workers
    // by the *admitted* remote clones of workloads from this manager ClusterQueue.
    // They are grouped by worker-side flavors.
    // +listType=map
    // +listMapKey=name
-   FlavorsUsage []FlavorUsage `json:"flavorsUsage,omitempty"`
+   FlavorsUsage []WorkerFlavorUsage `json:"flavorsUsage,omitempty"`
 
    // flavorsQuotas are the total quotas of all ClusterQueues on the
    // MultiKueue workers which may serve workloads from this manager ClusterQueue.
    // They are grouped by worker-side flavors.
    // +listType=map
    // +listMapKey=name
-   FlavorsQuotas []FlavorUsage `json:"flavorsQuotas,omitempty"`
+   FlavorsQuotas []WorkerFlavorUsage `json:"flavorsQuotas,omitempty"`
+}
+
+type WorkerFlavorUsage struct {
+	// name of the flavor.
+	// +required
+	Name ResourceFlavorReference `json:"name,omitempty"`
+
+	// resources lists the quota usage for the resources in this flavor.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=64
+	// +required
+	Resources []WorkerResourceUsage `json:"resources,omitempty"`
+}
+
+type WorkerResourceUsage struct {
+	// name of the resource
+	// +required
+	Name corev1.ResourceName `json:"name,omitempty"`
+
+	// total is the total quantity of used quota, including the amount borrowed
+	// from the cohort.
+	// +optional
+	Total resource.Quantity `json:"total,omitempty"`
 }
 ```
 
-All these fields use the `FlavorUsage` type already defined [here](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/apis/kueue/v1beta2/clusterqueue_types.go#L333-L344).
+The `WorkerFlavorUsage` type is deliberately forked from [`FlavorUsage`]((https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/apis/kueue/v1beta2/clusterqueue_types.go#L333-L344)), already used in ClusterQueueStatus; the only difference is removing the [`Borrowed`](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/apis/kueue/v1beta2/clusterqueue_types.go#L359) field - for which it could be cumbersome to define the indended meaning in a MultiKueue setup (supporting that is [a possible follow-up](#expand-the-cross-worker-resource-stats)).
 
 ##### Utilization stats: worker-centric (new) vs. manager-centric (existing)
 
@@ -382,18 +428,109 @@ In comparison to the [existing manager-centric fields](https://github.com/kubern
 
 However, the new flavor utilization stats are **not** going to be just aggregates of the [existing ClusterQueueStatus fields](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/apis/kueue/v1beta2/clusterqueue_types.go#L294-L309) from all [related worker ClusterQueues](#defining-related-worker-clusterqueues). Doing so would include various kinds of "stray" workloads unrelated to the considered manager ClusterQueue (see [Potential reasons for decreasing manager quota](#potential-reasons-for-decreasing-manager-quota)). Instead, we will aggregate resource stats **only** for remotes **dispatched from** the given manager ClusterQueue.
 
+### Guiding principles for the implementation
+
+The implementation details discussed below are based on the following guiding principles:
+
+1. Avoid API calls with O(workload count) response size.
+
+   This is to avoid hitting large network delays or even control plane scalability bottlenecks. For context, workload count can reach hundreds of thousands, if not more.
+
+2. Tolerate API calls regarding other Kueue resource types, even on remote clients, and multiple of them.
+
+   This is intended to simplify the structure of [MultiKueue Cache](#multikueue-cache) and its handling code.
+
+   While it may seem too simplistic (especially compared to core Kueue reconcilers, not to mention Kueue scheduler), here are a few insights justifying this approach:
+
+   * Reconcilers can "afford" being less optimized if they're expected to run less often. \
+     In our case, the "slow" reconcile routines are only going to be triggered by creations / deletions / "re-bindings" (like [#10122](https://github.com/kubernetes-sigs/kueue/issues/10122)) within the Kueue setup objects, plus changes of MultiKueueConfigs and _quota changes_ in ClusterQueues (see Principle #4 below). \
+     This means a much lower rate of events than for scheduler cycles or even core reconcilers - **except** for a (hypothetical) scenario when some automation external to Kueue frequently updates e.g. worker ClusterQueue quotas.
+
+   * This is based on the current status quo of MultiKueue, which, in particular:
+
+     * tolerates multiple `.List()` API calls triggered by a single change event (e.g. [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload.go#L880-L890))
+
+     * tolerates cross-cluster API reads, even multiple in a single reconcile, and even if they could be avoided just by caching (e.g. [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload.go#L312-L314) in `readGroup` - where all remote `Workload` object have been already seen by the manager cluster as a result of [this `.Watch()` call](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L178))
+
+   * Our `.List()` calls, once we adhere to Principle #1, will involve LocalQueues, ClusterQueues and AdmissionChecks, which do not tend to exist in large numbers.
+
+   * If this approach ever turns too relaxed, we have numerous ways to win more efficiency by extending [MultiKueue Cache](#multikueue-cache).
+
+Still, to keep up with Kueue code standards, we will:
+
+3. When possible, make `.List()` calls filtered (by API fields), and make sure that these filters are covered by API indexes.
+
+4. When feasible, pre-guard reconcile routines and `.Watches()` calls with predicates, ensuring that a reconcile is not triggered by an update which only changed irrelevant fields. \
+   (Such predicates will be clearly indicated in the recipes below).
+
+### MultiKueue ClusterQueue Reconciler
+
+Besides the [existing MultiKueue reconcilers](https://github.com/kubernetes-sigs/kueue/blob/161a2abc9e484b9fe0d6b3025c0bcac4fb8ef3a4/pkg/controller/admissionchecks/multikueue/controllers.go#L151-L165), we'll add a new one for ClusterQueue objects (mostly on the manager side). Its operation will be enabled by the `MultiKueueManagerQuotaAutomation` feature gate.
+
+Reconciling a manager ClusterQueue `Q` will proceed as follows:
+
+1. Fetch `Q` from the API client.
+
+2. Find the MultiKueue AdmissionCheck for `Q` (using an unfiltered local API `.List()` call). \
+   Then, fetch the MultiKueueConfig for `Q` from the API client. \
+   If any of this fails, clear the `MultiKueueManagerQuotaAutomation` Condition (if present) and exit.
+
+3. Determine whether quota automation has been requested and can be supported for `Q` (based on the MultiKueueConfig, the feature gate, and the number of ResourceFlavors). \
+   If not, set the `MultiKueueManagerQuotaAutomation` Condition accordingly (to `False`) and exit.
+
+5. Find all manager LocalQueues connected to `Q` (using a filtered local API `.List()` call).
+
+6. Fetch all worker LocalQueues of those names (using an unfiltered remote API `.List()` call).
+
+7. Fetch all worker ClusterQueues connected to those LocalQueues (using a single unfilterd remote API `.List()` call).
+
+8. Determine the new quota values for `Q`.
+
+9. If `MultiKueueManagerQuotaAutomation` is not `True`, set it to `True`.
+
+10. Update quotas for `Q` if the desired values differ from the current ones.
+
+(See the "Takeaway" part [here](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative) for the rationale for the ordering of the last 2 steps).
+
+This reconciler will be triggered in the following ways:
+
+1. For (manager) ClusterQueue events (creations, deletions, changes of `.Spec.ResourceGroups` or of `.Spec.AdmissionChecksStrategy`).
+
+2. For (manager) LocalQueue events (creations, deletions), where the update handler function will:
+   1. Trigger reconcile for the corresponding ClusterQueue.
+
+3. For (manager) AdmissionCheck events (creations, deletions, changes of "does `.Spec.ControllerName` indicate MultiKueue?" or, if it does, of `.Spec.Parameters`), where the update handler function will:
+   1. Find all manager ClusterQueues using it (using a filtered API `.List` call).
+   2. Trigger reconcile for all those ClusterQueues.
+
+4. For (manager) MultiKueueConfig events (creations, deletions, changes of `.Spec.QuotaAutomation`), where the update handler function will:
+   1. Find all manager ClusterQueues using it (using 2 levels of filtered API `.List` calls, similarly as [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload.go#L880-L890)).
+   2. Trigger reconcile for all those ClusterQueues.
+
+5. For remote objects events, propagated from the [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler) (see there for details).
+
+Cases 2-4 will be implemented by additional `.Watches()` calls on the reconciler (like e.g. [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload.go#L915)). Case 5 will be implemented by watching a custom channel (like [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload.go#L914)).
+
+### MultiKueue Cluster Reconciler
+
+In `multikueuecluster.go`, where the `startWatcher()` method calls `.Watch()` on the remote clusters [for Workloads](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L178) as well as [for the supported job types](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L190), we'll add additional `.Watch()` calls:
+
+1. For (remote) LocalQueue events (creations, deletions), where the update handler function will:
+   1. Fetch the corresponding manager LocalQueue from the API client, and check its ClusterQueue.
+   2. Trigger the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler) for that ClusterQueue.
+
+2. For (remote) ClusterQueue events (creations, deletions, changes of `.Spec.ResourceGroups`), where the update handler function will, for a ClusterQueue `Q` on worker `W`:
+   1. Find all LocalQueues on `W` pointing to `Q` (using a filtered remote `.List` API call).
+   2. Find all manager ClusterQueues connected with manager LocalQueues of the same names (using a single unfiltered local `.List` API call).
+   3. Trigger the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler) for all those ClusterQueues.
+
 ### MultiKueue Cache
 
-Both features will be based on a new **MultiKueue Cache**, storing some information retrieved from the watched resources and fetched workloads.
+A new **MultiKueue Cache** will store the minimal information on the watched remote workloads that is needed to avoid bulk-fetching them from worker clusters. This is needed only for the "resource visibility" part, and will be maintained only when the `MultiKueueWorkerResourceStats` feature gate is enabled.
 
-The cache format will be tentatively as follows: \
-(referring to the existing definitions of [`FlavorResourceQuantities`](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/pkg/resources/resource.go#L37) and [`LocalQueueReference`](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/pkg/util/queue/local_queue.go#L25-L26))
+The cache format will be tentatively as follows:
 
 ```go
-type clusterReference string
-
-type clusterQueueReference string
-
 type workloadReference struct {
    Name string
    Namespace string
@@ -405,160 +542,182 @@ type FlavorsUtilization struct {
 }
 
 type wlGroupResourceInfo struct {
-   // This is not nil if and only if the workload has quota reserved locally.
-   LocalClusterQueue *clusterQueueReference
+   // This is not nil if and only if the workload has quota reserved on the manager cluster.
+   ManagerClusterQueue *clusterQueueReference
    FlavorsUtilization FlavorsUtilization
 }
 
 type MultiKueueCache struct {
-   localLqToCqMap map[LocalQueueReference]clusterQueueReference
-
-   localMultiKueueConfigs map[clusterQueueReference]MultiKueueConfig
-
-   remoteLqToCqMap map[clusterReference]map[LocalQueueReference]clusterQueueReference
-
-   remoteCqQuotas map[clusterReference]map[clusterQueueReference]FlavorResourceQuantities
-
    wlGroupResourceStats map[workloadReference]wlGroupResourceInfo
-
-   remoteResourceStatsByLocalCq map[clusterQueueReference]FlavorsUtilization
 }
 ```
 
+The `FlavorsUtilization` struct refers to an existing type of [`FlavorResourceQuantities`](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/pkg/resources/resource.go#L37), which differs from `WorkerFlavorUsage` used on the API surface. This is deliberate: the former representation allows more efficient and convenient summation.
+
 The cache instance will be created in the [MultiKueue `SetupControllers` method](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/controllers.go#L111), and passed down to specific controllers as necessary.
-
-#### Maintaining the cache up to date
-
-The cache fields will be kept up to date in the following way:
-
-* `localLqToCqMap` will be maintained by the new [MK ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler), on which we'll also call `.Watches()` to watch LocalQueues on the manager cluster (analogously as e.g. [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload.go#L915)).
-
-* `localMultiKueueConfigs` will be maintained by the new [MK ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler), on which we'll also call `.Watches()` to watch AdmissionChecks and MultiKueueConfigs on the manager cluster. \
-  (This way, we'll detect *any* change in the "CQ -> AC -> MKConfig" dependency chain; cf. issue [#10122](https://github.com/kubernetes-sigs/kueue/issues/10122)).
-
-* `remoteLqToCqMap` will be maintained by `.Watch()` API calls for LocalQueues in the remote clients (like it's done [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L207) for other resource kinds). 
-
-  However, unlike the existing Workloads handling (where change events travel through a special channel to finally trigger a `Reconcile()` in the MK Workload Reconciler), `remoteLqToCqMap` will be updated _directly_ in response to any `.Watch()` results. \
-  (This is because, in our current case, we need to handle the update while knowing in which remote cluster it happened, and that bit information is essentially not passable via the standard kube-controller workqueues).
-
-* `remoteCqQuotas` will be maintained by `.Watch()` API calls for ClusterQueues in the remote clients, also in a _direct_ manner (similarly as `remoteLqToCqMap` in the previous point).
-
-* `wlGroupResourceStats` and `remoteResourceStatsByLocalCq` will be updated in the MK Workload Reconciler. \
-  The latter map is simply an aggregating derivative of the former; yet, maintaining both allows O(1) computations while reconciling workloads and serving Visiblity API queries. See [below](#multikueue-workload-reconciler) for more details.
-
-While we propose to bundle all fields in a single structure for conceptual complexity, the **need** for specific fields will **depend on the feature gates** introduced in this KEP, as follows:
-
-| field \ feature gate           | `MultiKueueManagerQuotaAutomation` | `MultiKueueWorkerResourceStats` |
-| ------------------------------ | :--------------------------------: | :-----------------------------: |
-| `localLqToCqMap`               | needed                             | needed                          |
-| `localMultiKueueConfigs`       | needed                             | -                               |
-| `remoteLqToCqMap`              | needed                             | needed                          |
-| `remoteCqQuotas`               | needed                             | needed                          |
-| `wlGroupResourceStats`         | -                                  | needed                          |
-| `remoteResourceStatsByLocalCq` | -                                  | needed                          |
-
-A specific field will be maintained only if needed for some enabled feature gate.
-
-#### The guiding principles
-
-The proposed format of MultiKueue Cache has been chosen to keep it _possibly simple_ under the following _principles_:
-
-1. Avoid O(workload count) computations.
-2. Avoid cross-cluster API calls.
-3. Avoid unbounded batches of local API calls triggered by a single Kubernetes event.
-4. Tolerate computations of time complexity O(total number of LocalQueues and ClusterQueues on the manager and worker clusters).
-
-These principles may be debatable. In particular, #3 is already violated in MultiKueue code, e.g. in `queueWorkloadsForConfig` making [a batch](https://github.com/kubernetes-sigs/kueue/blob/15764bcf9d471f7452697a43df09c7bbf20c888a/pkg/controller/admissionchecks/multikueue/workload.go#L883-L890) of `List` calls. The proposed `localMultiKueueConfigs` map may be used to eliminate that batch as well.
-
-This choice is also [discussed](#store-another-set-of-fields-in-multikueue-cache) in the Alternatives section.
-
-### MultiKueue ClusterQueue Reconciler
-
-Besides the [existing MultiKueue reconcilers](https://github.com/kubernetes-sigs/kueue/blob/161a2abc9e484b9fe0d6b3025c0bcac4fb8ef3a4/pkg/controller/admissionchecks/multikueue/controllers.go#L151-L165), we'll add a new one for (manager) ClusterQueue objects. 
-
-Its operation will be enabled by the `MultiKueueManagerQuotaAutomation` feature gate, and heavily based on the [MultiKueue Cache](#multikueue-cache).
-
-Reconciling a manager ClusterQueue `Q` will proceed as follows:
-
-1. Fetch `Q` from the API client.
-
-2. Determine whether quota automation has been requested for `Q` (based on `localMultiKueueConfigs` and the feature gate). \
-   If not, exit.
-
-3. Determine whether quota automation can be supported for `Q` (i.e. if it has exactly one ResourceFlavor). \
-   If not, set the `MultiKueueManagerQuotaAutomation` Condition accordingly (to `False`), and exit.
-
-4. Determine the new quota values for `Q` (based on all cache fields needed for quota automation).
-
-5. Compare the desired state of `Q` (quotas, `MultiKueueManagerQuotaAutomation` Condition status and message) with the desired values. If there are any differences, update `Q`.
-   * In some cases, this may mean *two* updates: one of Spec (quotas) and one of Status (the Condition). \
-     In such cases, update the Condition first. (See the "Takeaway" part [here](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative) for the rationale).
-
-Triggering such a reconcile will happen in the following situations: \
-(in a large part following the [definition of related worker queues](#defining-related-worker-clusterqueues))
-
-1. On a creation or deletion of a manager LocalQueue, we'll update `localLqToCqMap`, and then trigger reconcile for its ClusterQueue. \
-   (Updates can be ignored because the LocalQueue -> ClusterQueue assignment is immutable).
-
-2. On a creation or deletion of a worker LocalQueue, we'll update `remoteLqToCqMap`, and then trigger reconcile for the manager ClusterQueue assigned to the corresponding manager LocalQueue (same name & namespace).
-
-3. On any event regarding a worker ClusterQueue `Q2`, we'll update `remoteCqQuotas`, then find all LocalQueues assigned to `Q2` (by scanning `remoteLqToCqMap`), and trigger reconciles for all local ClusterQueues as dictated by `localLqToCqMap`.
-
-4. On any event regarding a manager AdmissionCheck, we'll find all manager ClusterQueues using it (with an API `.List` call), and trigger reconciles for them (having updated `localMultiKueueConfigs` if necessary).
-
-5. On any event regarding a manager MultiKueueConfig, we'll find all ClusterQueues using it (by scanning `localMultiKueueConfigs`), and trigger reconciles for them (having updated `localMultiKueueConfigs` before).
-
-6. Finally, out of the box, a reconcile will be triggered by any Kubernetes event regarding `Q` itself. \
-   As a result, the quota automation - when enabled - will promptly override any quota changes made by any other party. \
-   If this effect is not desired, the user can always opt out from quota automation.
 
 ### MultiKueue Workload Reconciler
 
-In the MK Workload Reconciler, every run of [`Reconcile`](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/pkg/controller/admissionchecks/multikueue/workload.go#L158) will update the values of `wlGroupResourceStats` and `remoteResourceStatsByLocalCq` in the [MultiKueue Cache](#multikueue-cache).
+In the MultiKueue Workload Reconciler, every run of [`Reconcile`](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/pkg/controller/admissionchecks/multikueue/workload.go#L158) will update the values of `wlGroupResourceStats` in the [MultiKueue Cache](#multikueue-cache).
 
-The cache maintenance will happen after [this call](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload.go#L224) `.readGroup()`. For non-deletion scenarios, it will be postponed to follow [this call](https://github.com/kubernetes-sigs/kueue/blob/083e985b0f750901b813e70a1e168348b21a42f8/pkg/controller/admissionchecks/multikueue/workload.go#L240) to `.reconcileGroup()`. For a given workload group `W`, it will proceed as follows:
+The cache maintenance will happen after [this call](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload.go#L224) `.readGroup()`. For non-deletion scenarios, it will be postponed to follow [this call](https://github.com/kubernetes-sigs/kueue/blob/083e985b0f750901b813e70a1e168348b21a42f8/pkg/controller/admissionchecks/multikueue/workload.go#L240) to `.reconcileGroup()`. 
 
-1. Let `info := wlGroupResourceStats[W]`.
-
-2. Subtract `info.FlavorsUtilization` from `remoteResourceStatsByLocalCq[*info.LocalClusterQueue]`. \
-   (Skip this if `info.LocalClusterQueue` is `nil`).
-
-3. Update `info.LocalClusterQueue` based on the status of `W.local`.
-
-4. Update `info.FlavorsUtilization`, based on the resource requests and statuses of `W`'s remotes.
-
-5. Store the updated `info` back in `wlGroupResourceStats[W]`.
-
-6. Add `info.FlavorsUtilization` to `remoteResourceStatsByLocalCq[*info.LocalClusterQueue]`. \
-   (Skip this if `info.LocalClusterQueue` is `nil`).
-
-Thus, maintaining the aggregated values will be incremental, taking O(1) time per each reconcile. It's also idempotent.
-
-Notably, we anticipate no need for "snapshotting", even when Kueue is started (or restarted) in an existing cluster, or a new MK worker appears, etc. In such cases, [the `.Watch()` calls on remote workloads](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L178) will lead to a wave of reconciles for all workloads unknown to MultiKueue, through which the MultiKueue Cache will be updated incrementally.
+Notably, we anticipate no need for "snapshotting", even when Kueue is started (or restarted) in an existing cluster, or a new MultiKueue worker appears, etc. In such cases, [the `.Watch()` calls on remote workloads](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L178) will lead to a wave of reconciles for all workloads unknown to MultiKueue, through which the MultiKueue Cache will be updated incrementally.
 
 ### Visibility Server
 
-The Visibility Server will be provided with [MultiKueue Cache](#multikueue-cache) [via `main.go`](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/cmd/kueue/main.go#L380), similarly as it's already given the core queues cache.
+The Visibility Server will be provided with [MultiKueue Cache](#multikueue-cache) - [via `main.go`](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/cmd/kueue/main.go#L380), similarly as it's already given the core queues cache.
 
 Based on that, the new REST endpoint (`clusterqueues/workerresourcestats`), given a ClusterQueue `Q`, will do the following:
 
-1. Check if `Q` is a MultiKueue manager queue. Return an error otherwise.
+1. Check if `Q` is a MultiKueue manager queue (as in steps 1-2 of the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler)). \
+   If not, return an error.
 
-2. Set `FlavorsReservation` and `FlavorsUsage` based on `remoteResourceStatsByLocalCq[Q]`.
+2. Determine and fetch the [related worker ClusterQueues](#defining-related-worker-clusterqueues), by making:
+   1. a filtered local `.List()` API call for LocalQueues,
+   2. unfiltered remote `.List()` API calls for LocalQueues (one per worker cluster),
+   3. unfiltered remote `.List()` API calls for ClusterQueues (one per worker cluster).
 
-3. [Determine the set of related worker ClusterQueues](#defining-related-worker-clusterqueues), based on `localLqToCqMap` and `remoteLqToCqMap`.
+3. Set `FlavorsQuotas` based on summing up the quotas for all related worker ClusterQueues.
 
-4. Set `FlavorsQuotas` based on summing up `remoteCqQuotas` values for all related worker ClusterQueues.
+4. Set `FlavorsReservation` and `FlavorsUsage` to the total usage stats, summed up over all entries in `wlGroupResourceStats` which have `ManagerClusterQueue` set to `Q`.
 
-This will involve conversions from [`FlavorResourceQuantities`](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/pkg/resources/resource.go#L37) to [`FlavorUsage`](https://github.com/kubernetes-sigs/kueue/blob/3f0c4b2884fe5577d7a7ae4c3579a49718077be3/apis/kueue/v1beta2/clusterqueue_types.go#L333). This is deliberate; the former format allows more efficient and convenient arithmetics.
+   * Notably, this involves no API calls.
+
+   * For cleaner blackboxing, this logic will be wrapped in a public method of the MultiKueue Cache object. \
+     This way, the Visibility Server won't have write access to the cache (or even read access to its internals).
 
 ### Test Plan
 
-TODO
+[x] I/we understand the owners of the involved components may require updates to
+existing tests to make this code solid enough prior to committing the changes necessary
+to implement this enhancement.
+
+#### Unit Tests
+
+* For the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler): 
+
+  * Test the reconcile logic with all exit paths (similarly to e.g. [this suite](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload_test.go#L60)).
+
+  * Test all additional triggering paths from local watchers in the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler) (similarly to e.g. [this suite](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload_test.go#L2266))
+
+  * Test the _non-triggering_ paths, e.g. a ClusterQueue event touching only irrelevant fields.
+
+* For the [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler):
+
+  * Test triggering vs. _non-triggering_ paths (by just verifying the content of the event channel, analogous to [`wlUpdateCh`](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L95)).
+
+* For the [MultiKueue Cache](#multikueue-cache):
+
+  * Test the public helper exposed to the [Visibility Server](#visibility-server).
+
+* For the [MultiKueue Workload Reconciler](#multikueue-workload-reconciler):
+
+  * Test the updates to MultiKueue Cache.
+
+* For the [Visibility Server](#visibility-server):
+
+  * Test steps 1-3 of the recipe. (Test 4 will be covered by MultiKueue Cache unit tests).
+
+#### Integration Tests
+
+* For the integration between [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler) and [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler):
+
+  * Test triggering the latter by changes in remote LocalQueues and ClusterQueues. \
+    (This could be also unit-tested, by a well-crafted watch interceptor similarly as [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/multikueuecluster_test.go#L69-L70) - but an integration test feels a much cleaner way).
+
+* For the integration between [MultiKueue Workload Reconciler](#multikueue-workload-reconciler) and [Visibility Server](#visibility-server):
+
+  * Test some _relatively simple_ scenario of worker resource stats. \
+    (Where we'd like enough complexity to demonstrate that the resource utilization stats are not just aggregates over the values reported by worker-side ClusterQueues).
+
+#### E2e Tests
+
+* Test the scenario of a ClusterQueue having quota automation disabled -> then enabled (and reacting to some change) -> then disabled. Verify that:
+
+  * Manager quota is adjusted, as intended, upon:
+
+    - adding a new worker in MultiKueueConfig
+    - changing a remote ClusterQueueQuota
+    - (if we decide to support that) a worker cluster becoming unreachable
+
+  * New jobs can be admitted at all 3 phases of this scenario (quota automation disabled, then enabled, then disabled again).
+
+* Verify that manager quota auto-adjustments (in either direction: increases and decreases) promptly trigger the expected re-assignments of Workloads.
+
+### Possible Follow-ups
+
+#### Expand the cross-worker resource stats
+
+The [proposed format] of cross-worker resource stats ([overview](#cross-worker-resource-stats-in-visibility-api), [API](#cross-worker-resource-stats-in-visibility-api-1)) is essentially a collection of 2D arrays (indexed by flavor and resource) returned for a ClusterQueue.
+
+Early insights suggest that we might want to develop this in various directions:
+
+- Expose the above data broken down also per worker. \
+  This would make it effectively a collection of _3D arrays_, posing a question how to arrange those to be best human-readable right away (and whether we should at all aim at that). \
+  Our initial idea is to group by resource, then worker, then flavor, though for now we leave it open for feedback.
+
+- Expose per-LocalQueue stats (like in the existing Visibility API endpoint).
+
+- Support borrowing information, like [here](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/apis/kueue/v1beta2/clusterqueue_types.go#L359). \
+  This could be less clear in the MultiKueue case, due to the "stray workloads" story. (For example: if the manager-side ClusterQueue `Q` dispatched a 4 CPU Job to ClusterQueue `Q2` on `worker1`, which happens to also host another 6 CPU Job unrelated to MultiKueue, using 8 CPU of nominal quota and borrowing 2 CPU from a Cohort on `worker2`, then what value of `Borrowed` should we report for `Q`? 2 CPU? 0 CPU? Some "proportional fraction" like 0.8 CPU?)
+
+#### Introduce a MultiKueue manager ClusterQueue quota reservation overbooking multiplier
+
+That is, an analogue of the proposed quota mutliplier - but differing in that:
+
+* it would **not affect** the [nominal ClusterQueue quota](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/apis/kueue/v1beta2/clusterqueue_types.go#L250) value,
+* it would **not increase** the "total volume" of workloads which can be **admitted** by the manager,
+* it would **only** affect the "total volume" of workloads can **reserve quota** on the manager-side ClusterQueue (and hence, get dispatched to the workers).
+
+For example, if there are 2 workers, each with 10 CPU capacity, the `QuotaMultiplier` (as proposed in this KEP) is 0.8 (to leave 20% of worker capacity for "stray workloads"), and the Quota Reservation Overbooking Multiplier (as discussed here) is 3.0, then the manager-side ClusterQueue:
+
+* will have nominal quota set to (10 + 10) * 0.8 = 16,
+* will admit workloads requesting at most 16 CPU in total,
+* will reserve quota (and hence - dispatch to workers) workloads requesting up to 16 * 3 = 48 CPU in total.
+
+As weird as it seems, this opens a way to "reconcile" various, otherwise clashing, design factors for this KEP; specifically:
+
+* seamless dispatching vs. per-team allocations (see [Drawback #3](#drawbacks)),
+* (if `QuotaMultiplier` from this KEP is `1.0`) seamless dispatching vs. intuitive quotas (see [Drawback #2](#drawbacks)).
+
+Yet, this comes with some **disadvantages**:
+
+* Adding another form of user confusion ("why this ClusterQueue reserved quota above its nominal limit, despite using no borrowing?").
+
+* Adding complexity to core Kueue code. (In particular, we'd need to carefully plan how to enforce the "don't admit over the quota" constraint. Manager-side eviction propagated to workers? But whom to evict?)
+
+* Adding conceptual complexity. (Just look at the section name for this follow-up idea; it's long enough to make it feel like a joke).
+
+* Blurring separation of concerns, by introducing new ways of MultiKueue awareness to core Kueue code.
+
+Therefore, this idea is **shelved** for now. We may consider it later, depending on the feedback.
 
 ### Graduation Criteria
 
-TODO
+This design is covered by two feature gates:
+
+* `MultiKueueMaangerQuotaAutomation` - for the [quota automation part](#manager-quota-automation);
+* `MultiKueueWorkerResourceStats` - for the [cross-worker resource stats part](#cross-worker-resource-stats-in-visibility-api).
+
+Graduation criteria listed jointly for both:
+
+* **Alpha:**
+  * Features implemented behind the respective gates, disabled by default.
+  * The newly introduced API calls (local & remote) are guarded by feature gates.
+  * Tests are implemented.
+
+* **Beta:**
+  * Feature gates are enabled by default.
+  * The features have been succesfully used in production environment.
+  * [Potential extensions of cross-worker resource stats](#expand-the-cross-worker-resource-stats) have been considered, and (if desired) implemented.
+  * No warning signs on performance were seen (in particular, no news of any external automation of worker ClusterQueue quotas; see [here](#guiding-principles-for-the-implementation)) - or, if any were, [MultiKueue Cache](#multikueue-cache) is extended accordingly.
+  * The "guiding principles" (see [here](#guiding-principles-for-the-implementation)) are considered fully aligned on.
+  * Issue [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) (see [Drawback #4](#drawbacks)) is diagnosed, its impact on quota automation is understood and any mitigations deemed necessary are implemented.
+
+* **Stable:**
+  * The features (offered functionality, API surface and implementation) have stabilized, without raising concerns.
+  * Feature gates are removed.
 
 ## Drawbacks
 
@@ -571,11 +730,23 @@ Besides introducing some risks (see [Risks and Mitigations](#risks-and-mitigatio
    1. The quotient between manager-side reserved quota and total worker quota could be exposed as a metric and monitored. \
       The proposed solution makes this easier to implement (in exposing the total worker quota via Visibility API) but does not include setting up such a metric specifically. Even if it did, monitoring the metric (and likely collecting it for some period of time) would be necessarily the responsibility of the user.
 
-1. While the `QuotaMultiplier` allows addressing individual [reasons for increasing manager quota](#potential-reasons-for-increasing-manager-quota) or [for decreasing it](#potential-reasons-for-decreasing-manager-quota), some combinations of those reasons remain not supportable in the most efficient way. \
+1. With the `QuotaMultiplier`, the manager-side quota can effectively tell "what amount of workloads we want to dispatch" but may get _very divergent_ from "what amount of workloads we want to execute".
+
+   This is largely counter-intuitive, as the latter is the more "fundamental" meaning of a ClusterQueue quota, likely the most intuitive one for many users.
+
+   This drawback is the main motivation for the possible follow-up idea of [quota reservation overbooking](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier).
+
+1. While the `QuotaMultiplier` allows addressing individual [reasons for increasing manager quota](#potential-reasons-for-increasing-manager-quota) or [for decreasing it](#potential-reasons-for-decreasing-manager-quota), some combinations of those reasons remain not supportable in the most efficient way.
+
    For example, in the "Per-team quotas on the manager" scenario discussed [here](#potential-reasons-for-decreasing-manager-quota), the Batch Admin will be able to configure manager-side ClusterQuotas for teams A / B / C to have 50% / 30% / 20% of the total workers quota respectively, but then each of the teams will be vulnerable to scheduling delays resulting from quota fragmentation, as explained in the "Divergence of quota reservation" scenario [here](#potential-reasons-for-increasing-manager-quota). \
    Conversely, an attempt to increase the quotas for each of the teams would allow individual teams to consume more quotas than intended. For example, if the Batch Admin applied our default multiplier (3.0) on top of the initial per-team assignments discussed above, team B would be able to consume 90% of the total worker capacity.
 
-   This drawback may be addressable by introducing a separate "quota overbooking multiplier" (discussed in #3 [here](#avoid-the-quota-automation-multiplier)) - yet, the overall complexity of such solution feels unacceptable for now. We may consider it later depending on the feedback.
+   Just like Drawback #2, this may be addressable by the [quota reservation overbooking](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier) idea, if used _together_ with the nominal quota multiplier as in the current proposal. Yet, the overall complexity of such solution feels unacceptable for now. We may consider it later depending on the feedback.
+
+1. In the quota automation feature, the proposed solution fails to react to some types of detectable worker connection issues. \
+   See [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) which describes this problem in more detail, and speculates that it may already affect existing MultiKueue reconcilers (e.g. the one for Workloads).
+
+   If this turns out problematic, it should be fixable by extending the [MultiKueue Cache](#multikueue-cache) with the "manager ClusterQueue <-> MultiKueueCluster" relationship.
 
 ## Alternatives
 
@@ -615,8 +786,7 @@ The proposed multiplier mechanism is admittedly quite counter-intuitive, and we'
 2. Implement quota automation but abandon the multiplier. \
    (This seems appealing at the first glance, as it would allow implementing [User Story 1](#story-1) via the ClusterQueue quotas, which is the most intuitive place - even if without the breakdown per worker-side flavor).
 
-3. Set manager quota to the total worker quota (without the multiplier), but on top of that allow manager-side "overbooking" **only for quota reservation** (not for admitting) by an analogous MK-specific multiplier (just with a different name). \
-   For example: if there are 2 workers of capacity 10 CPU each, quota automation is enabled and `MultiKueueConfig` has `ManagerQuotaOverbookingMultiplier` set to `3`, then the manager ClusterQueue quota would be set to 20 CPU; yet, Kueue controller on the manager cluster would allow _quota reservation_ (and hence dispatching to worker clusters) for up to 60 CPU, and then enforce that no set of workloads requesting more than 20 CPU in total can get _admitted_.
+3. Use the "quota reservation overbooking multiplier" (see [this possible follow-up idea](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier)) _instead_ of the multiplier in the current proposal.
 
 **Reasons for discarding/deferring**
 
@@ -624,28 +794,12 @@ The proposed multiplier mechanism is admittedly quite counter-intuitive, and we'
 
 * For #2, we choose to introduce the multiplier, given the [numerous potential reasons](#factors-influencing-desired-manager-quota) for using it.
 
-* For #3, we identified a number of subtle disadvantages:
-
-  * Replacing one form of confusion ("why is manager quota so high?") with another ("why do we have more quota reserved on the manager than the nominal limit?").
-
-  * Adding complexity to core Kueue code. (In particular, we'd need to carefully plan how to enforce the "don't admit over the quota" constraint).
-
-  * Blurring separation of concerns, by introducing new ways of MultiKueue awareness to core Kueue code.
+* For #3, see the disadvantages discussed [here](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier). \
+  Also, using that multiplier _instead_ of `QuotaMultiplier` from the main proposal brings two additional subtle disadvantages:
 
   * Removing a way to address the "Borrowing on a worker" case discussed [here](#potential-reasons-for-increasing-manager-quota) - because that case is caused by divergence of _admission_, not just _quota reservation_.
 
   * Making the quota automation feature dependent on the `MultiKueueWaitForWorkloadAdmitted` feature gate (as a fix of [#8585](https://github.com/kubernetes-sigs/kueue/issues/8585)).
-
-  Still, this idea remains appealing, for at least two reasons:
-
-  * It allows retaining the most natural meaning of manager-side quota ("what is the total weight of workloads that we want to allow to _execute_ at a time") while still allowing to _dispatch above the quota levels_ which seems necessary for best MultiKueue efficiency, as discussed in the "Divergence of quota reservation" scenario [here](#potential-reasons-for-increasing-manager-quota).
-
-  * Implementing _both kinds_ of multipliers (one for "admissible quota", _and_ one for "reservation over-booking") would allow reconciling various reasons for increasing and decreasing manager quota (see [Drawback #2](#drawbacks)). \
-    Specifically, in the example scenario described there, the Batch Admin could define the manager quotas for ClusterQueues for teams A / B / C as 50% / 30% / 20% of the total worker capacity, and _on top of that_ introduce a 3x "reservation over-booking" multiplier. \
-    (Also, this would offer a way to handle the abovementioned "Borrowing on a worker" scenario). \
-    Yet, the complexity of this approach feels unacceptable for the start.
-
-  Therefore, overall, we propose to **shelve** this idea for now, to be possibly revisited based on user feedback.
 
 ### Make the `MultiKueueManagerQuotaAutomation` Condition message more informative
 
@@ -672,22 +826,18 @@ The ClusterQueue quotas (part of `.Spec`) and Conditions (part of `.Status`) can
 While our proposed design does not _fully eliminate_ the above inconsistencies (when enabling quota automation for a pre-existing ClusterQueue, we'll still need to update the quota and the Condition _separately_, in some order), it decreases its frequency, and makes it less confusing. \
 In particular, if we choose to update the Condition before the quota, the intermediate state can be still interpreted as the Condition saying "quota management has been [just] enabled [but hasn't yet managed to act]", which may be considered legitimate.
 
-### Store another set of fields in MultiKueue Cache
+### Expose the cross-worker resource stats in the manager ClusterQueue Status
 
-The content of MultiKueueCache could be changed in various ways, e.g.:
+This may seem more natural, especially given how analogous these stats are to some [existing ClusterQueueStatus fields](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/apis/kueue/v1beta2/clusterqueue_types.go#L294-L309).
 
-* **Richer:** to eliminate "wasteful" linear-time computations, e.g.:
-  * instead of doing inverse lookup in `localLqToCqMap`, maintain an additional `map[clusterQueueReference]sets.Set[LocalQueueReference]`
-  * instead of summing up values from `remoteCqQuotas` for the related worker ClusterQueues, maintain totals ready to serve in O(1) time.
+**Reasons for discarding/deferring**
 
-* **Simpler:** drop some of the cache fields - replacing them with ad-hoc computations - to decrease its conceptual complexity.
+* These numbers would diverge, possibly confusingly, from the [existing Status fields](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/apis/kueue/v1beta2/clusterqueue_types.go#L294-L309), as well as from the nominal manager ClusterQueue quota in its `.Spec`. \
+  (The latter would often happen even if quota automation is enabled, due to `QuotaMultiplier`). \
+  Exposing in a more "distant" place (Visibility Server) should help reduce that confusion.
 
-  * In particular, if we choose to allow unbounded batches of local API calls, we could drop the "local" cache maps (`localLqToCqMap` and `localMultiKueueConfigs`).
+* At this point, the format of those stats is considered unstable. \
+  This makes it safer to keep it out from `ClusterQueue` API, one of central focal points of Kueue.
 
-**Reasons for discarding**
-
-The current design feels to be the "golden mean" between simplicity and performance, codified by the "principles" outlined [here](#a-note-on-performance).
-
-* **Why not richer:** The tolerated performance overheads (single local API calls, computations linear in terms of Kueue setup size but not in terms of workload count) are negligible, in particular given that they're going to execute relatively infrequently (in event handlers for relatively stable objects, like LocalQueues, ClusterQueues etc.), as opposed to Workload event handlers or Kueue scheduling cycle.
-
-* **Why not simpler:** This is a less obvious judgement call; yet, to maintain Kueue healthy, we'd prefer to avoid delays noticeable by human perception, even in relatively infrequent reconciling routines.
+* Kueue Visibility API is on demand, and hence may afford slower computations. \
+  Storing the same information in `ClusterQueueStatus` would require maintaining it permanently up to date; in particular, triggering the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler) on all remote Workload events. (Which, in turn, would force us to migrate from [this flow of API calls](#visibility-server) to a substantially richer [MultiKueue Cache](#multikueue-cache)).
