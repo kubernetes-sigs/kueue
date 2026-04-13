@@ -6,7 +6,7 @@ Issue: [kubernetes-sigs/kueue#10168](https://github.com/kubernetes-sigs/kueue/is
 - [Summary](#summary)
 - [Motivation](#motivation)
   - [Goals](#goals)
-  - [Non-Goals](#non-goals)
+  - [Non-Goals (initially)](#non-goals-initially)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
   - [Relationship to existing tooling](#relationship-to-existing-tooling)
