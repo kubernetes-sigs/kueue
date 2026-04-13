@@ -17,6 +17,7 @@ limitations under the License.
 package dra
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -25,8 +26,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/test/util"
@@ -58,9 +57,11 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
-	waitForDRAExampleDriverAvailability(ctx, k8sClient)
+	clusterName := cmp.Or(os.Getenv("KIND_CLUSTER_NAME"), "kind")
+	util.WaitForDRAExampleDriverAvailability(ctx, k8sClient, clusterName)
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and DRA example driver are available in the cluster",
+		"clusterName", clusterName,
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
 })
@@ -69,16 +70,3 @@ var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Repo
 	err := util.ConfigureSuiteReporting(report)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
-
-func waitForDRAExampleDriverAvailability(ctx context.Context, k8sClient client.Client) {
-	dsKey := types.NamespacedName{Namespace: "dra-example-driver", Name: "dra-example-driver-kubeletplugin"}
-	daemonset := &appsv1.DaemonSet{}
-	waitForAvailableStart := time.Now()
-	ginkgo.By(fmt.Sprintf("Waiting for availability of daemonset: %q", dsKey))
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, dsKey, daemonset)).To(gomega.Succeed())
-		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.BeNumerically(">", 0))
-		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.Equal(daemonset.Status.NumberAvailable))
-	}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-	ginkgo.GinkgoLogr.Info("DaemonSet is available in the cluster", "daemonset", dsKey, "waitingTime", time.Since(waitForAvailableStart))
-}

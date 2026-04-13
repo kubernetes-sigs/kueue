@@ -30,8 +30,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/types"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
@@ -74,19 +72,6 @@ func TestAPIs(t *testing.T) {
 	ginkgo.RunSpecs(t, suiteName)
 }
 
-func waitForDRAExampleDriverAvailability(ctx context.Context, k8sClient client.Client, clusterName string) {
-	dsKey := types.NamespacedName{Namespace: "dra-example-driver", Name: "dra-example-driver-kubeletplugin"}
-	daemonset := &appsv1.DaemonSet{}
-	waitForAvailableStart := time.Now()
-	ginkgo.By(fmt.Sprintf("Waiting for availability of daemonset %q on cluster %s", dsKey, clusterName))
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, dsKey, daemonset)).To(gomega.Succeed())
-		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.BeNumerically(">", 0))
-		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.Equal(daemonset.Status.NumberAvailable))
-	}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-	ginkgo.GinkgoLogr.Info("DaemonSet is available in the cluster", "daemonset", dsKey, "cluster", clusterName, "waitingTime", time.Since(waitForAvailableStart))
-}
-
 var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
 
@@ -125,9 +110,9 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForKueueAvailability(ctx, k8sWorker2Client)
 
 	// Wait for DRA example driver availability on all clusters
-	waitForDRAExampleDriverAvailability(ctx, k8sManagerClient, managerClusterName)
-	waitForDRAExampleDriverAvailability(ctx, k8sWorker1Client, worker1ClusterName)
-	waitForDRAExampleDriverAvailability(ctx, k8sWorker2Client, worker2ClusterName)
+	util.WaitForDRAExampleDriverAvailability(ctx, k8sManagerClient, managerClusterName)
+	util.WaitForDRAExampleDriverAvailability(ctx, k8sWorker1Client, worker1ClusterName)
+	util.WaitForDRAExampleDriverAvailability(ctx, k8sWorker2Client, worker2ClusterName)
 
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and DRA example driver are available in all clusters",

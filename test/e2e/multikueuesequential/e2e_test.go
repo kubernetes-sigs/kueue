@@ -17,7 +17,6 @@ limitations under the License.
 package multikueuesequential
 
 import (
-	"context"
 	"fmt"
 	"os/exec"
 
@@ -28,7 +27,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -251,7 +249,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			createdLeaderWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 			// the execution should be given to the worker
-			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker2")
+			util.ExpectWorkloadAdmittedWithCheck(ctx, wlLookupKey, multiKueueAc.Name, "worker2", k8sManagerClient)
 
 			ginkgo.By("Waiting for the manager's job unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -284,8 +282,8 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the job is completed", func() {
-				expectObjectToBeDeletedOnWorkerClusters(ctx, createdLeaderWorkload)
-				expectObjectToBeDeletedOnWorkerClusters(ctx, job)
+				util.ExpectObjectToBeDeletedOnClusters(ctx, createdLeaderWorkload, k8sWorker1Client, k8sWorker2Client)
+				util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 				createdJob := &batchv1.Job{}
 				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
@@ -878,36 +876,3 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 })
-
-func waitForJobAdmitted(wlLookupKey types.NamespacedName, acName, workerName string) {
-	ginkgo.GinkgoHelper()
-	ginkgo.By(fmt.Sprintf("Waiting to be admitted in %s and manager", workerName))
-	gomega.Eventually(func(g gomega.Gomega) {
-		createdWorkload := &kueue.Workload{}
-		g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-		g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
-			Type:    kueue.WorkloadAdmitted,
-			Status:  metav1.ConditionTrue,
-			Reason:  "Admitted",
-			Message: "The workload is admitted",
-		}, util.IgnoreConditionTimestampsAndObservedGeneration))
-	}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-	util.ExpectAdmissionCheckStateWithMessage(
-		ctx, k8sManagerClient, wlLookupKey,
-		acName,
-		kueue.CheckStateReady,
-		fmt.Sprintf(`The workload got reservation on "%s"`, workerName),
-	)
-}
-
-type objAsPtr[T any] interface {
-	client.Object
-	*T
-}
-
-func expectObjectToBeDeletedOnWorkerClusters[PtrT objAsPtr[T], T any](ctx context.Context, obj PtrT) {
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, obj, false)
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, obj, false)
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
-}

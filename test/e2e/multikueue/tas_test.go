@@ -296,8 +296,8 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the job is completed", func() {
-				expectObjectToBeDeletedOnWorkerClusters(ctx, createdWorkload)
-				expectObjectToBeDeletedOnWorkerClusters(ctx, job)
+				util.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+				util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 				createdJob := &batchv1.Job{}
 				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
@@ -531,7 +531,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
 			Namespace: managerNs.Name,
 		}
-		waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker1")
+		util.ExpectWorkloadAdmittedWithCheck(ctx, wlLookupKey, multiKueueAc.Name, "worker1", k8sManagerClient)
 
 		ginkgo.By("Waiting for TopologyAssignment to be computed on worker1", func() {
 			waitForTopologyAssignment(k8sWorker1Client, wlLookupKey)
@@ -553,8 +553,8 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Checking no objects are left in worker clusters and job is completed")
-		expectObjectToBeDeletedOnWorkerClusters(ctx, createdWorkload)
-		expectObjectToBeDeletedOnWorkerClusters(ctx, job)
+		util.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+		util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 		createdJob := &batchv1.Job{}
 		gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
@@ -623,7 +623,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Checking cleanup on worker clusters")
-		expectObjectToBeDeletedOnWorkerClusters(ctx, createdWorkload)
-		expectObjectToBeDeletedOnWorkerClusters(ctx, job)
+		util.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+		util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 	})
 })

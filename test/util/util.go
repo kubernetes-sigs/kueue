@@ -1499,3 +1499,39 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 		}, MediumTimeout, Interval).Should(gomega.Succeed())
 	})
 }
+
+func ExpectObjectToBeDeletedOnClusters[PtrT objAsPtr[T], T any](ctx context.Context, obj PtrT, clients ...client.Client) {
+	ginkgo.GinkgoHelper()
+	if len(clients) == 0 {
+		ginkgo.Fail("At least one client must be provided to check for object deletion")
+	}
+	for _, c := range clients {
+		ExpectObjectToBeDeleted(ctx, c, obj, false)
+	}
+}
+
+func ExpectWorkloadAdmittedWithCheck(ctx context.Context, wlLookupKey types.NamespacedName, acName, clusterName string, client client.Client) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By(fmt.Sprintf("Waiting to be admitted in %s and manager clusters", clusterName))
+	ExpectWorkloadsToBeAdmittedByKeys(ctx, client, wlLookupKey)
+	ExpectAdmissionCheckStateWithMessage(
+		ctx, client, wlLookupKey,
+		acName,
+		kueue.CheckStateReady,
+		fmt.Sprintf(`The workload got reservation on "%s"`, clusterName),
+	)
+}
+
+func WaitForDRAExampleDriverAvailability(ctx context.Context, k8sClient client.Client, clusterName string) {
+	ginkgo.GinkgoHelper()
+	dsKey := types.NamespacedName{Namespace: "dra-example-driver", Name: "dra-example-driver-kubeletplugin"}
+	daemonset := &appsv1.DaemonSet{}
+	waitForAvailableStart := time.Now()
+	ginkgo.By(fmt.Sprintf("Waiting for availability of daemonset %q on cluster %s", dsKey, clusterName))
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, dsKey, daemonset)).To(gomega.Succeed())
+		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.BeNumerically(">", 0))
+		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.Equal(daemonset.Status.NumberAvailable))
+	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
+	ginkgo.GinkgoLogr.Info("DaemonSet is available in the cluster", "daemonset", dsKey, "cluster", clusterName, "waitingTime", time.Since(waitForAvailableStart))
+}
