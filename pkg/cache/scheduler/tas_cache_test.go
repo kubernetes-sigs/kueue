@@ -1655,6 +1655,36 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 4; excluded: nodeSelector: 2, resource "cpu": 1, taint "key=value:NoSchedule": 1`,
 			}},
 		},
+		"stale topology nodeSelector from prior admission is stripped; pod still schedules": {
+			nodes: defaultNodes,
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				// Simulate stale nodeSelector from a prior TAS admission that
+				// injected kubernetes.io/hostname. This should be stripped by the
+				// scheduler so it does not constrain node filtering.
+				nodeSelector: map[string]string{
+					corev1.LabelHostname: "deleted-node",
+				},
+				count: 1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count: 1,
+							Values: []string{
+								"x3",
+							},
+						},
+					},
+				},
+			}},
+		},
 		"resource exclusion picks most restrictive resource": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("dual-shortage").

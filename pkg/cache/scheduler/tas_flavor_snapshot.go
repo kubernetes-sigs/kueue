@@ -792,6 +792,17 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 	podSetTolerations := info.Tolerations
 	podSetNodeSelectors := info.NodeSelector
+
+	// Strip any nodeSelector keys that match topology level keys. These may
+	// be stale values from a prior TAS admission (e.g., kubernetes.io/hostname
+	// injected by the topology ungater) that survived eviction because the
+	// PodSet template was rebuilt from live pods carrying the old nodeSelector.
+	// TAS will compute its own topology assignment, so these keys must not
+	// constrain node filtering.
+	for _, levelKey := range s.levelKeys {
+		delete(podSetNodeSelectors, levelKey)
+	}
+
 	count := workersTasPodSetRequests.Count
 
 	// If slice topology is not requested then we can assume that slice is a single pod
