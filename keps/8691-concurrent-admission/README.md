@@ -26,14 +26,9 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Scheduling &amp; Lifecycle](#scheduling--lifecycle)
   - [User Stories](#user-stories)
     - [Story 1: ResourceFlavor Upgrade](#story-1-resourceflavor-upgrade)
-    - [Story 2: Upgrade only to Reservation](#story-2-upgrade-only-to-reservation)
-    - [Story 3: Reservation + Homogenous Flavors](#story-3-reservation--homogenous-flavors)
-    - [Story 4: Homogenous Flavors only](#story-4-homogenous-flavors-only)
+    - [Story 3: reservation + Homogenous Flavors](#story-3-reservation--homogenous-flavors)
     - [Story 5: Delaying Variant creation](#story-5-delaying-variant-creation)
-    - [Story 6: Limit when migration can happen](#story-6-limit-when-migration-can-happen)
     - [Story 7: Workload with multiple PodSets](#story-7-workload-with-multiple-podsets)
-- [Design Details](#design-details)
-  - [ClusterQueue API](#clusterqueue-api)
   - [Workload API](#workload-api)
     - [Naming Convention](#naming-convention)
     - [Workload Spec](#workload-spec)
@@ -42,15 +37,14 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Aggregation](#aggregation)
     - [Policy Enforcement](#policy-enforcement)
     - [Eviction](#eviction)
+    - [Lifecycle of a Parent and its Variants](#lifecycle-of-a-parent-and-its-variants)
   - [Observability](#observability)
   - [Code Changes Complexity](#code-changes-complexity)
   - [Reserving Quota for the same Workload twice](#reserving-quota-for-the-same-workload-twice)
   - [Multiple Preemptions](#multiple-preemptions)
   - [Ordering Variants](#ordering-variants)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-    - [Beta API](#beta-api)
-      - [ExplicitVariants API](#explicitvariants-api)
-      - [Workload Status](#workload-status)
+    - [Number of Variants](#number-of-variants)
     - [StrictFIFO](#strictfifo)
   - [Risks and Mitigations](#risks-and-mitigations)
   - [FlavorFungibility Misinterpretation](#flavorfungibility-misinterpretation)
@@ -67,6 +61,9 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Drawbacks](#drawbacks)
   - [Increased API Object Count](#increased-api-object-count)
 - [Alternatives](#alternatives)
+    - [Beta API](#beta-api)
+      - [ExplicitVariants API](#explicitvariants-api)
+      - [Workload Status](#workload-status)
   - [Modify AdmissionCheck API](#modify-admissioncheck-api)
   - [Migration within a Single Workload](#migration-within-a-single-workload)
   - [WorkloadTypes API](#workloadtypes-api)
@@ -101,7 +98,7 @@ updates.
 ## Motivation
 
 The current single-flavor evaluation leads to several inefficiencies:
-- Inability to migrate: Workloads cannot move to a more preferred RF (like a Reservation) once they are already running on a less preferred one.
+- Inability to migrate: Workloads cannot move to a more preferred RF (like a reservation) once they are already running on a less preferred one.
 - Sequential bottlenecks: Users cannot pursue multiple flavors (which often include long-running AdmissionChecks) in parallel to find placement as quickly as possible.
 
 The feature is intended for environments where gains from more accurate scheduling decisions (potential migration) outweigh
@@ -118,7 +115,7 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 -->
 
 ### Goals
-- Pursue capacity on multiple flavors (e.g. Spot and Reservation) simultaneously.
+- Pursue capacity on multiple flavors (e.g. spot and reservation) simultaneously.
 
 - Start two or more independent long-running AdmissionChecks until any succeeds.
 
@@ -192,9 +189,9 @@ nitty-gritty.
 
 #### Story 1: ResourceFlavor Upgrade
 As an admin I have three resource flavors in my cluster:
-1) Most preferable: Reservation
-2) Less preferable: On-Demand
-3) Least preferable: Spot
+1) Most preferable: reservation
+2) Less preferable: on-demand
+3) Least preferable: spot
 
 I want my workloads to start as soon as possible, on whatever flavor. However, if a more preferable flavor releases some quota, I want to migrate to that flavor.
 
@@ -206,20 +203,20 @@ metadata:
   name: "cluster-queue"
 spec:
   ...
-  concurrentAdmission:
+  concurrentAdmissionPolicy:
     migrationConstraints:
       mode: UpgradeOnly
 ```
 
-#### Story 2: Upgrade only to Reservation
+#### Story 2: Upgrade only to reservation
 As an admin I have three resource flavors in my cluster:
-1) Most preferable: Reservation
-2) Less preferable: On-Demand
-3) Least preferable: Spot
+1) Most preferable: reservation
+2) Less preferable: on-demand
+3) Least preferable: spot
 
-I want my workloads to start as soon as possible, on whatever flavor. However, I only want to incur the cost of migration if it means landing on the "Reservation" flavor.
+I want my workloads to start as soon as possible, on whatever flavor. However, I only want to incur the cost of migration if it means landing on the "reservation" flavor.
 
-To achieve that, I set the minTargetFlavor to "Reservation". This ensures that a workload on "Spot" will not migrate to "On-Demand," only to "Reservation."
+To achieve that, I set the minTargetFlavor to "reservation". This ensures that a workload on "spot" will not migrate to "on-demand," only to "reservation."
 
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
@@ -227,22 +224,22 @@ metadata:
   name: "cluster-queue"
 spec:
   ...
-  concurrentAdmission:
+  concurrentAdmissionPolicy:
     migrationConstraints:
       mode: UpgradeOnly
       minTargetFlavor: "reservation"
 ```
 
-#### Story 3: Reservation + Homogenous Flavors
+#### Story 3: reservation + Homogenous Flavors
 As an admin I have four resource flavors in my cluster:
 
-1) Most preferable: Reservation
+1) Most preferable: reservation
 2) Less preferable flavors with a long-running AdmissionCheck
    - A
    - B
    - C
 
-I want my workloads to start as soon as possible. I want to migrate to "Reservation" if it becomes available, but I don't want to migrate between the homogeneous 2a/2b/2c flavors.
+I want my workloads to start as soon as possible. I want to migrate to "reservation" if it becomes available, but I don't want to migrate between the homogeneous 2a/2b/2c flavors.
 
 By setting the minTargetFlavor to "Reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
 
@@ -252,7 +249,7 @@ metadata:
   name: "cluster-queue"
 spec:
   ...
-  concurrentAdmission:
+  concurrentAdmissionPolicy:
     migrationConstraints:
       mode: UpgradeOnly
       minTargetFlavor: reservation
@@ -269,19 +266,19 @@ metadata:
   name: "cluster-queue"
 spec:
   ...
-  concurrentAdmission:
+  concurrentAdmissionPolicy:
     migrationConstraints:
       mode: NoMigration
 ```
 
 #### Story 5: Delaying Variant creation
 As an admin I have two resource flavors in my cluster:
-1) Most preferable: Reservation
-2) Less preferable: On-Demand
+1) Most preferable: reservation
+2) Less preferable: on-demand
 
-I want to attempt scheduling on "Reservation" exclusively for the first 2 hours before allowing the "On-Demand" variant to activate.
+I want to attempt scheduling on "reservation" exclusively for the first 2 hours before allowing the "on-demand" variant to activate.
 
-To achieve this, I use explicitVariants and set createDelaySeconds for the On-Demand variant.
+To achieve this, I use explicitVariants and set createDelaySeconds for the on-demand variant.
 
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
@@ -289,7 +286,7 @@ metadata:
   name: "cluster-queue"
 spec:
   ...
-  concurrentAdmission:
+  concurrentAdmissionPolicy:
     migrationConstraints:
       mode: UpgradeOnly
     explicitVariants:
@@ -302,8 +299,8 @@ spec:
 
 #### Story 6: Limit when migration can happen
 As an admin I have two resource flavors in my CQ:
-1) Most preferable: Reservation
-2) Less preferable: On-Demand
+1) Most preferable: reservation
+2) Less preferable: on-demand
 
 I want to avoid migrating a long-running workload if it is nearing completion. I want to constrain the migration window to the first 24 hours (86,400 seconds) of the workload's lifecycle.
 
@@ -315,7 +312,7 @@ metadata:
   name: "cluster-queue"
 spec:
   ...
-  concurrentAdmission:
+  concurrentAdmissionPolicy:
     migrationConstraints:
       mode: UpgradeOnly
     explicitVariants:
@@ -329,11 +326,11 @@ spec:
 #### Story 7: Workload with multiple PodSets
 As an admin I have two GPU resource flavors and one CPU resource flavor in my cluster.
 GPU:
-1) Most preferable: Reservation
-2) Less preferable: On-Demand
+1) Most preferable: reservation
+2) Less preferable: on-demand
 
 CPU:
-1) Default-CPU
+1) default-cpu
 
 I want to allow upgrades for the GPU portion while keeping the CPU flavor constant across variants.
 
@@ -343,7 +340,7 @@ metadata:
   name: "cluster-queue"
 spec:
   ...
-  concurrentAdmission:
+  concurrentAdmissionPolicy:
     migrationConstraints:
       mode: UpgradeOnly
     explicitVariants:
@@ -378,21 +375,21 @@ type ClusterQueueSpec struct {
     ...
 
     // +optional
-    ConcurrentAdmission *ConcurrentAdmission
+    ConcurrentAdmissionPolicy *ConcurrentAdmissionPolicy `json:"concurrentAdmissionPolicy,omitempty"`
 }
 
-type ConcurrentAdmission struct {
+type ConcurrentAdmissionPolicy struct {
     // MigrationConstraints defines the constraints of Variants' migration
     //
     // +required
-    MigrationConstraints ConcurrentAdmissionMigrationConstraints
+    MigrationConstraints ConcurrentAdmissionMigrationConstraints `json:"migrationConstraints"`
 }
 
 type ConcurrentAdmissionMigrationConstraints struct {
     // Mode defines the mode of Workload's migration.
     //
     // +required
-    Mode ConcurrentAdmissionMigrationMode
+    Mode ConcurrentAdmissionMigrationMode `json:"mode"`
 
     // MinTargetFlavor defines the minimal flavor a Workload can migrate to.
     // The order is based on the order of flavors in ClusterQueue.
@@ -401,7 +398,7 @@ type ConcurrentAdmissionMigrationConstraints struct {
     // no constraints on what flavors a Workload can migrate to.
     //
     // +optional
-    MinTargetFlavor *ResourceFlavorReference
+    MinTargetFlavor *ResourceFlavorReference `json:"minTargetFlavor,omitempty"`
 }
 
 type ConcurrentAdmissionMigrationMode string
@@ -421,8 +418,8 @@ This will be reconsidered when graduating the feature to Beta.
 ### Workload API
 
 A Variant Workload references its Parent in the `metadata.ownerReferences` field.
-Besides that a Parent Workload has the `kueue.x-k8s.io/parent-variant` label to distinguish it from
-"regular" Workloads, in a cluster.
+Besides that a Parent Workload has the boolean `kueue.x-k8s.io/parent-variant` label to distinguish it from
+"regular" Workloads, in a cluster. Parent Workloads have this label present and set to `true`.
 
 This way of distinguishing Variants, Parents, and "regular" Workloads is introduced in the Alpha, and will be
 revisited when graduating to Beta.
@@ -466,7 +463,7 @@ type WorkloadSpec struct {
     // when reserving quota for a Workload.
     //
     // +optional
-    AdmissionConstraints *AdmissionConstraints
+    AdmissionConstraints *AdmissionConstraints `json:"admissionConstraints,omitempty"`
 }
 
 type AdmissionConstraints struct {
@@ -475,10 +472,12 @@ type AdmissionConstraints struct {
     // If set, only RF from this list can be assigned to this Workload.
     //
     // +optional
-    AllowedResourceFlavors []ResourceFlavorReference
+    AllowedResourceFlavors []ResourceFlavorReference `json:"allowedResourceFlavors,omitempty"`
 }
 
 ```
+
+The API is an additional layer on top of the ResourceFlavor's taints and tolerations.
 
 ### Variant Controller
 
@@ -502,7 +501,7 @@ Once any of the Variants is evicted it should suspend the job, and mark Parent a
 
 #### Policy Enforcement
 The controller is responsible for executing `MigrationConstraints` upon an admission of a Variant. It should deactivate Variants with respect to a chosen policy.
-It should also activate and deactivate Variants based on `CreateDelaySeconds` and `MaxDeleteDelaySeconds` fields.
+It should also activate and deactivate (via `.spec.active`) Variants based on `CreateDelaySeconds` and `MaxDeleteDelaySeconds` fields.
 
 #### Eviction
 A Variant can be evicted because of its sibling Variant during the "upgrade" process, in that case the evicted Variant
@@ -510,6 +509,19 @@ is simply deactivated.
 
 In case of preemption by other Workloads (e.g. priority-based preemption), we reset all the Variants and treat them as if
 Parent Workload has just been created - we reset the delay countdown, and activate all Variants again (beside those  with `CreateDelaySeconds`)
+
+#### Lifecycle of a Parent and its Variants
+
+A Parent and its Variant share very similar lifecycle:
+1. Upon the submission of a job to the ClusterQueue with ConcurrentAdmission configured, a Workload with the parent label is created.
+The Parent Workload doesn't take part in scheduling cycles of Kueue scheduler.
+2. The Variant Controller picks up the Parent Workload and creates Variants based on the ClusterQueue configuration.
+3. All Variants are picked up by the Kueue scheduler.
+4. If one of the Variants is admitted, the Parent Workload gets admitted. Other Variants either get deactivated, or keep
+trying to get scheduled based on `migrationConstraints` configuration.
+5. If the admitted Variant gets evicted, the Parent Workload gets evicted and all deactivated Variants get reactivated.
+6. If the Parent Workload finishes, the `Finished` condition is propagated to all Variants.
+7. If the Parent Workload is deleted, all Variants get deleted.
 
 ### Observability
 
@@ -560,99 +572,10 @@ results in Kueue scheduler picking sibling Variants one after the another, witho
 
 ### Notes/Constraints/Caveats (Optional)
 
-#### Beta API
+#### Number of Variants
 
-Part of the proposed API will be introduced in Beta. For the sake of clarity and ease of reviewing, we place
-the API here. We'd like to reconsider below proposal when graduating to Beta.
-
-
-##### ExplicitVariants API
-
-```
-type ConcurrentAdmission struct {
-    ...
-
-    // ExplicitVariants allows for fine-grained control over which variants are created.
-    // If not specified, Kueue creates a variant for each RF mentioned in the CQ.
-    //
-    // +optional
-    // +kubebuilder:validation:MaxItems=16
-    ExplicitVariants []ConcurrentAdmissionExplicitVariant
-}
-
-type ConcurrentAdmissionMigrationConstraints struct {
-    ...
-
-    // MinTargetExplicitVariant defines the minimal Variant a Workload can migrate to.
-    // The order is based on the order of variant in `ExplicitVariants`.
-    // It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is specified.
-    // If the Mode is `UpgradeOnly` and MinTargetExplicitVariant is not specified, then there's
-    // no constraints on what Variant a Workload can migrate to.
-    //
-    // +optional
-    MinTargetExplicitVariant *string
-}
-
-type ConcurrentAdmissionExplicitVariant struct {
-    // Name of the variant, must be unique within the ClusterQueue.
-    //
-    // +required
-    Name string
-
-    // CreateDelaySeconds defines how long after Workload creation this Variant is activated.
-    // Allows prioritizing a preferred RF before falling back to others.
-    //
-    // +optional
-    CreateDelaySeconds *int32
-
-    // MaxDeleteDelaySeconds defines how long after admission of other Variants,
-    // this Variant should be deactivated.
-    // Allows disallowing migration after a certain amount of time
-    //
-    // +optional
-    MaxDeleteDelaySeconds *int32
-
-    // AllowedResourceFlavors limits which flavors can be assigned to PodSets for this variant.
-    //
-    // +required
-    AllowedResourceFlavors []ResourceFlavorReference
-}
-```
-
-##### Workload Status
-
-To ensure the user can easily check which attempts are still active, the WorkloadStatus is extended to include a Variants list.
-This provides a central view of all virtual workloads without needing to query for child objects manually.
-
-For more detailed scheduling stats a user can check a particular Variant Workload.
-
-```
-type WorkloadVariantStatus struct {
-    // name of the Variant (corresponds to the virtual workload name).
-    Name string
-
-    // resourceFlavors assigned to this Variant.
-    ResourceFlavors []string
-
-    // inherited information from Variant's `.spec.active.` field.
-    Active bool
-
-    // selected Conditions present in Variant, to inherit information about
-    // its state e.g. whether it's pending or admitted.
-    //
-    // +optional
-    // +listType=map
-    // +listMapKey=type
-    Conditions []metav1.Condition
-}
-
-type WorkloadStatus struct {
-    // ...
-
-    // Variants tracks the state of all concurrent admission attempts.
-    Variants []WorkloadVariantStatus
-}
-```
+To limit the number of Variants Kueue creates based on the ClusterQueue's configuration of ResourceFlavors, we'll
+introduce the validation that limits number of ResourceGroups in ClusterQueue to 1, and the number of ResourceFlavors in that ResourceGroup to 16.
 
 #### StrictFIFO
 
@@ -673,6 +596,7 @@ The other one is to not block Variants siblings if the first one cannot be sched
 For Alpha and Beta version of this feature we don't plan to support `StrictFIFO` queueing strategy. Based on users' feedback we will reconsider it for GA.
 
 ### Risks and Mitigations
+
 ### FlavorFungibility Misinterpretation
 
 In the first iteration of the feature we don't plan to integrate with the `FlavorFungibility` on the
@@ -848,6 +772,100 @@ Why should this KEP _not_ be implemented?
 -->
 
 ## Alternatives
+
+#### Beta API
+
+Part of the proposed API will be introduced in Beta. For the sake of clarity and ease of reviewing, we place
+the API here. We'd like to reconsider below proposal when graduating to Beta.
+
+
+##### ExplicitVariants API
+
+```
+type ConcurrentAdmission struct {
+    ...
+
+    // ExplicitVariants allows for fine-grained control over which variants are created.
+    // If not specified, Kueue creates a variant for each RF mentioned in the CQ.
+    //
+    // +optional
+    // +kubebuilder:validation:MaxItems=16
+    ExplicitVariants []ConcurrentAdmissionExplicitVariant `json:"explicitVariants,omitempty"`
+}
+
+type ConcurrentAdmissionMigrationConstraints struct {
+    ...
+
+    // MinTargetExplicitVariant defines the minimal Variant a Workload can migrate to.
+    // The order is based on the order of variant in `ExplicitVariants`.
+    // It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is specified.
+    // If the Mode is `UpgradeOnly` and MinTargetExplicitVariant is not specified, then there's
+    // no constraints on what Variant a Workload can migrate to.
+    //
+    // +optional
+    MinTargetExplicitVariant *string `json:"minTargetExplicitVariant,omitempty"`
+}
+
+type ConcurrentAdmissionExplicitVariant struct {
+    // Name of the variant, must be unique within the ClusterQueue.
+    //
+    // +required
+    Name string `json:"name"`
+
+    // CreateDelaySeconds defines how long after Workload creation this Variant is activated.
+    // Allows prioritizing a preferred RF before falling back to others.
+    //
+    // +optional
+    CreateDelaySeconds *int32 `json:"createDelaySeconds,omitempty"`
+
+    // MaxDeleteDelaySeconds defines how long after admission of other Variants,
+    // this Variant should be deactivated.
+    // Allows disallowing migration after a certain amount of time
+    //
+    // +optional
+    MaxDeleteDelaySeconds *int32 `json:"maxDeleteDelaySeconds,omitempty"`
+
+    // AllowedResourceFlavors limits which flavors can be assigned to PodSets for this variant.
+    //
+    // +required
+    AllowedResourceFlavors []ResourceFlavorReference `json:"allowedResourceFlavors"`
+}
+```
+
+##### Workload Status
+
+To ensure the user can easily check which attempts are still active, the WorkloadStatus is extended to include a Variants list.
+This provides a central view of all virtual workloads without needing to query for child objects manually.
+
+For more detailed scheduling stats a user can check a particular Variant Workload.
+
+```
+type WorkloadVariantStatus struct {
+    // name of the Variant (corresponds to the virtual workload name).
+    Name string
+
+    // resourceFlavors assigned to this Variant.
+    ResourceFlavors []string
+
+    // inherited information from Variant's `.spec.active.` field.
+    Active bool
+
+    // selected Conditions present in Variant, to inherit information about
+    // its state e.g. whether it's pending or admitted.
+    //
+    // +optional
+    // +listType=map
+    // +listMapKey=type
+    Conditions []metav1.Condition
+}
+
+type WorkloadStatus struct {
+    // ...
+
+    // Variants tracks the state of all concurrent admission attempts.
+    Variants []WorkloadVariantStatus
+}
+```
 
 ### Modify AdmissionCheck API
 We considered changing the AdmissionCheck API to issue multiple checks simultaneously and wait until only one succeeds (OR logic) rather than requiring all to succeed (AND logic).
