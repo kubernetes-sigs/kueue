@@ -141,6 +141,8 @@ E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e
 {{% alert title="Note" color="primary" %}}
 When reusing a kept cluster in `E2E_MODE=dev`, external operators (MPI, KubeRay, etc.) are installed only once.
 To force re-installing them on every run, set `E2E_ENFORCE_OPERATOR_UPDATE=true`.
+
+In dev mode, e2e setup skips `docker pull` for dependency images that are already in your local Docker cache, and skips loading an image into kind worker nodes when that image reference is already present in the node containerd store. That makes repeat runs much faster, especially on multi-node clusters. The Kueue controller image is always reloaded into the cluster unless `E2E_SKIP_REINSTALL=true`, because you may rebuild it with `make kind-image-build` under the same tag.
 {{% /alert %}}
 
 To delete the kept cluster(s) afterwards:
