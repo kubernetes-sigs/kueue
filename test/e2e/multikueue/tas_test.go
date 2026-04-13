@@ -291,8 +291,8 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the job is completed", func() {
-				expectObjectToBeDeletedOnWorkerClusters(ctx, createdWorkload)
-				expectObjectToBeDeletedOnWorkerClusters(ctx, job)
+				util.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+				util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 				createdJob := &batchv1.Job{}
 				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
