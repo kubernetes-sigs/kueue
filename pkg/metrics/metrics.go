@@ -518,7 +518,6 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "job_to_workload_latency_seconds",
 			Help:      "The time between a job was created until its workload was created, per 'job_kind'",
-			Buckets:   generateExponentialBuckets(14),
 		}, append([]string{"job_kind", "replica_role"}, extraLabels...),
 	)
 
