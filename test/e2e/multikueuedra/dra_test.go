@@ -17,7 +17,6 @@ limitations under the License.
 package multikueuedra
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -39,19 +38,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
-
-type objAsPtr[T any] interface {
-	client.Object
-	*T
-}
-
-func expectObjectToBeDeletedOnWorkerClusters[PtrT objAsPtr[T], T any](ctx context.Context, obj PtrT) {
-	ginkgo.GinkgoHelper()
-	gomega.Eventually(func(g gomega.Gomega) {
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, obj, false)
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, obj, false)
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
-}
 
 var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area:multikueue", "feature:multikueue"), ginkgo.Ordered, func() {
 	var (
@@ -270,8 +256,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Checking no objects are left in worker clusters and job is completed")
-			expectObjectToBeDeletedOnWorkerClusters(ctx, createdWorkload)
-			expectObjectToBeDeletedOnWorkerClusters(ctx, job)
+			util.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+			util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 			createdJob := &batchv1.Job{}
 			gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
