@@ -2658,3 +2658,59 @@ func TestReconcile(t *testing.T) {
 		})
 	}
 }
+
+func TestIsTAS(t *testing.T) {
+	cases := map[string]struct {
+		pod  *corev1.Pod
+		want bool
+	}{
+		"no annotations": {
+			pod:  testingpod.MakePod("pod", "ns").Obj(),
+			want: false,
+		},
+		"PodSetPreferredTopologyAnnotation": {
+			pod: testingpod.MakePod("pod", "ns").
+				Annotation(kueue.PodSetPreferredTopologyAnnotation, tasBlockLabel).
+				Obj(),
+			want: true,
+		},
+		"PodSetRequiredTopologyAnnotation": {
+			pod: testingpod.MakePod("pod", "ns").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, tasRackLabel).
+				Obj(),
+			want: true,
+		},
+		"PodSetSliceRequiredTopologyAnnotation": {
+			pod: testingpod.MakePod("pod", "ns").
+				Annotation(kueue.PodSetSliceRequiredTopologyAnnotation, tasBlockLabel).
+				Obj(),
+			want: true,
+		},
+		"PodSetSliceRequiredTopologyConstraintsAnnotation": {
+			pod: testingpod.MakePod("pod", "ns").
+				Annotation(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation, `[{"topology":"cloud.com/rack","size":2}]`).
+				Obj(),
+			want: true,
+		},
+		"PodSetUnconstrainedTopologyAnnotation": {
+			pod: testingpod.MakePod("pod", "ns").
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Obj(),
+			want: true,
+		},
+		"unrelated annotation": {
+			pod: testingpod.MakePod("pod", "ns").
+				Annotation("foo", "bar").
+				Obj(),
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tas.IsTAS(tc.pod)
+			if got != tc.want {
+				t.Errorf("IsTAS() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
