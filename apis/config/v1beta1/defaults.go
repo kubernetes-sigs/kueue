@@ -74,6 +74,8 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.LeaderElection = cmp.Or(cfg.LeaderElection, &configv1alpha1.LeaderElectionConfiguration{})
 	cfg.LeaderElection.ResourceName = cmp.Or(cfg.LeaderElection.ResourceName, DefaultLeaderElectionID)
 
+	cfg.Metrics.LocalQueueMetrics = cmp.Or(cfg.Metrics.LocalQueueMetrics, &LocalQueueMetrics{Enable: true})
+
 	// Default to Lease as component-base still defaults to endpoint resources
 	// until core components migrate to using Leases. See k/k #80289 for more details.
 	cfg.LeaderElection.ResourceLock = cmp.Or(cfg.LeaderElection.ResourceLock, resourcelock.LeasesResourceLock)

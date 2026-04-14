@@ -62,7 +62,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   controller_manager_config.yaml: |
+    {{- if eq (default "Static" .Values.kueuePopulator.config.localQueue.nameMode) "AsClusterQueue" }}
+    localQueueNameMode: AsClusterQueue
+    {{- else }}
     localQueueName: {{ .Values.kueuePopulator.config.localQueue.name }}
+    {{- end }}
     {{- if .Values.kueuePopulator.config.managedJobsNamespaceSelector }}
     managedJobsNamespaceSelector:
       {{- toYaml .Values.kueuePopulator.config.managedJobsNamespaceSelector | nindent 6 }}

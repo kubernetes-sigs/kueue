@@ -491,7 +491,7 @@ func getResourcesGroupID(coveredResources []corev1.ResourceName) string {
 }
 
 func isResourceGroupValid(indexByResourceGroup map[string]int, newResourceGroup string) bool {
-	// check that new resource groups dooesn't share resources with another group
+	// check that new resource groups doesn't share resources with another group
 	for k := range indexByResourceGroup {
 		if strings.Contains(k, newResourceGroup) {
 			return false

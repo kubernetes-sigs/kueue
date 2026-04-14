@@ -19,7 +19,6 @@ package jobframework_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +33,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+  "k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
@@ -46,6 +46,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -90,27 +91,26 @@ func TestReconcileGenericJob(t *testing.T) {
 		Priority(0)
 
 	testCases := map[string]struct {
-		elasticJobsViaWorkloadSlicesEnabled bool
-		admissionGatedByEnabled             bool
-		req                                 types.NamespacedName
-		job                                 *batchv1.Job
-		podSets                             []kueue.PodSet
-		objs                                []client.Object
-		wantWorkloads                       []kueue.Workload
-		wantEvents                          []utiltesting.EventRecord
+		featureGates  map[featuregate.Feature]bool
+		req           types.NamespacedName
+		job           *batchv1.Job
+		podSets       []kueue.PodSet
+		objs          []client.Object
+		wantWorkloads []kueue.Workload
+		wantEvents    []utiltesting.EventRecord
 	}{
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
-			elasticJobsViaWorkloadSlicesEnabled: false,
-			req:                                 baseReq,
-			job:                                 baseJob.DeepCopy(),
-			podSets:                             basePodSets,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			req:          baseReq,
+			job:          baseJob.DeepCopy(),
+			podSets:      basePodSets,
 			wantWorkloads: []kueue.Workload{
 				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
 			},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false and elastic job annotation)": {
-			elasticJobsViaWorkloadSlicesEnabled: false,
-			req:                                 baseReq,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			req:          baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -120,17 +120,17 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = true)": {
-			elasticJobsViaWorkloadSlicesEnabled: true,
-			req:                                 baseReq,
-			job:                                 baseJob.DeepCopy(),
-			podSets:                             basePodSets,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			req:          baseReq,
+			job:          baseJob.DeepCopy(),
+			podSets:      basePodSets,
 			wantWorkloads: []kueue.Workload{
 				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
 			},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = true and elastic job annotation)": {
-			elasticJobsViaWorkloadSlicesEnabled: true,
-			req:                                 baseReq,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			req:          baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -145,8 +145,8 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"update workload to match job (one existing workload)": {
-			elasticJobsViaWorkloadSlicesEnabled: true,
-			req:                                 baseReq,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			req:          baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -213,8 +213,8 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"job with AdmissionGatedBy annotation should create workload with annotation": {
-			admissionGatedByEnabled: true,
-			req:                     baseReq,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+			req:          baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
 				Obj(),
@@ -227,8 +227,8 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"job with AdmissionGatedBy annotation removed should update workload": {
-			admissionGatedByEnabled: true,
-			req:                     baseReq,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+			req:          baseReq,
 			job: baseJob.Clone().
 				Obj(),
 			podSets: basePodSets,
@@ -242,8 +242,8 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"job with multiple AdmissionGatedBy gates should create workload with annotation": {
-			admissionGatedByEnabled: true,
-			req:                     baseReq,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+			req:          baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
 				Obj(),
@@ -256,8 +256,8 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"job with AdmissionGatedBy annotation when feature gate disabled should not propagate annotation": {
-			admissionGatedByEnabled: false,
-			req:                     baseReq,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: false},
+			req:          baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
 				Obj(),
@@ -269,8 +269,8 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"job with AdmissionGatedBy annotation unchanged should not emit event": {
-			admissionGatedByEnabled: true,
-			req:                     baseReq,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+			req:          baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
 				Obj(),
@@ -288,8 +288,8 @@ func TestReconcileGenericJob(t *testing.T) {
 			wantEvents: nil,
 		},
 		"job with AdmissionGatedBy annotation changed should emit event": {
-			admissionGatedByEnabled: true,
-			req:                     baseReq,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+			req:          baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
 				Obj(),
@@ -314,8 +314,8 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"job with AdmissionGatedBy annotation changed when feature disabled should not emit event": {
-			admissionGatedByEnabled: false,
-			req:                     baseReq,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: false},
+			req:          baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
 				Obj(),
@@ -335,8 +335,7 @@ func TestReconcileGenericJob(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlicesEnabled)
-			features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, tc.admissionGatedByEnabled)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			mockctrl := gomock.NewController(t)
@@ -475,209 +474,6 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			}
 			if *updated.Spec.Active != tc.expectedActive {
 				t.Fatalf("Workload.Spec.Active = %t, want %t", *updated.Spec.Active, tc.expectedActive)
-			}
-		})
-	}
-}
-
-func TestReconcileGenericJobWithCustomAnnotations(t *testing.T) {
-	const (
-		testJobName = "test-job"
-		testNS      = metav1.NamespaceDefault
-	)
-
-	var (
-		testLocalQueueName = kueue.LocalQueueName("test-lq")
-		testGVK            = batchv1.SchemeGroupVersion.WithKind("Job")
-		req                = types.NamespacedName{Name: testJobName, Namespace: testNS}
-	)
-
-	baseJob := testingjob.MakeJob(testJobName, testNS).UID(testJobName).Queue(testLocalQueueName).
-		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
-	basePodSets := []kueue.PodSet{
-		*utiltestingapi.MakePodSet("main", 1).Obj(),
-	}
-
-	testCases := map[string]struct {
-		job                  *batchv1.Job
-		customAnnotations    map[string]string
-		customAnnotationsErr error
-		podSetsErr           error
-		patchInterceptErr    error
-		wantAnnotations      map[string]string
-		wantErrMsg           string
-	}{
-		"patches custom annotations onto job when GetCustomAnnotations returns annotations": {
-			job: baseJob.DeepCopy(),
-			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
-			},
-			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":3}]`,
-			},
-		},
-		"does not patch when GetCustomAnnotations returns nil": {
-			job:               baseJob.DeepCopy(),
-			customAnnotations: nil,
-			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-			},
-		},
-		"does not patch when GetCustomAnnotations returns empty map": {
-			job:               baseJob.DeepCopy(),
-			customAnnotations: map[string]string{},
-			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-			},
-		},
-		"updates annotation when value changes (scale up)": {
-			job: baseJob.Clone().
-				SetAnnotation(PodsetReplicaSizesAnnotation, `[{"name":"main","count":1}]`).
-				Obj(),
-			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`,
-			},
-			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":5}]`,
-			},
-		},
-		"updates annotation when value changes (scale down)": {
-			job: baseJob.Clone().
-				SetAnnotation(PodsetReplicaSizesAnnotation, `[{"name":"main","count":5}]`).
-				Obj(),
-			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":2}]`,
-			},
-			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":2}]`,
-			},
-		},
-		"no change when annotation already matches": {
-			job: baseJob.Clone().
-				SetAnnotation(PodsetReplicaSizesAnnotation, `[{"name":"main","count":3}]`).
-				Obj(),
-			customAnnotations: nil,
-			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":3}]`,
-			},
-		},
-		"skips patch when custom annotations already match existing values": {
-			job: baseJob.Clone().
-				SetAnnotation(PodsetReplicaSizesAnnotation, `[{"name":"main","count":5}]`).
-				Obj(),
-			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`,
-			},
-			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":5}]`,
-			},
-		},
-		"patches only changed annotation when some already match": {
-			job: baseJob.Clone().
-				SetAnnotation(PodsetReplicaSizesAnnotation, `[{"name":"main","count":3}]`).
-				SetAnnotation("custom-annotation", "old-value").
-				Obj(),
-			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
-				"custom-annotation":          "new-value",
-			},
-			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":3}]`,
-				"custom-annotation":                  "new-value",
-			},
-		},
-		"returns error when GetCustomAnnotations fails": {
-			job:                  baseJob.DeepCopy(),
-			customAnnotationsErr: errors.New("custom annotations error"),
-			wantErrMsg:           "failed to get custom annotations based on pod sets from job",
-		},
-		"returns error when annotation patch fails": {
-			job: baseJob.DeepCopy(),
-			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
-			},
-			patchInterceptErr: errors.New("patch conflict"),
-			wantErrMsg:        "failed to update custom annotations on job",
-		},
-		"returns error when PodSets fails": {
-			job:        baseJob.DeepCopy(),
-			podSetsErr: errors.New("pod sets retrieval error"),
-			wantErrMsg: "failed to retrieve pod sets from job",
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-			ctx, _ := utiltesting.ContextWithLog(t)
-			mockctrl := gomock.NewController(t)
-
-			builder := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
-				WithObjects(utiltesting.MakeNamespace(testNS)).
-				WithObjects(tc.job).
-				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK))
-
-			if tc.patchInterceptErr != nil {
-				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
-					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-						if _, ok := obj.(*batchv1.Job); ok {
-							return tc.patchInterceptErr
-						}
-						return c.Patch(ctx, obj, patch, opts...)
-					},
-				})
-			}
-
-			cl := builder.Build()
-
-			recorder := &utiltesting.EventRecorder{}
-			reconciler := NewReconciler(cl, recorder)
-
-			mgj := &struct {
-				*mocks.MockGenericJob
-				*mocks.MockJobWithCustomAnnotations
-			}{
-				MockGenericJob:               mocks.NewMockGenericJob(mockctrl),
-				MockJobWithCustomAnnotations: mocks.NewMockJobWithCustomAnnotations(mockctrl),
-			}
-			mgj.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
-			mgj.MockGenericJob.EXPECT().GVK().Return(testGVK).AnyTimes()
-			mgj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
-			mgj.MockGenericJob.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
-			mgj.MockGenericJob.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-			mgj.MockGenericJob.EXPECT().PodSets(gomock.Any()).Return(basePodSets, tc.podSetsErr).AnyTimes()
-			mgj.MockJobWithCustomAnnotations.EXPECT().GetCustomAnnotations(gomock.Any(), gomock.Any(), gomock.Any()).Return(tc.customAnnotations, tc.customAnnotationsErr).AnyTimes()
-
-			_, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, mgj)
-
-			if tc.wantErrMsg != "" {
-				if err == nil {
-					t.Fatalf("Expected error containing %q, but got nil", tc.wantErrMsg)
-				}
-				if !strings.Contains(err.Error(), tc.wantErrMsg) {
-					t.Fatalf("Expected error containing %q, got: %v", tc.wantErrMsg, err)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
-			}
-
-			// Fetch the job from the API server and verify its annotations
-			updatedJob := &batchv1.Job{}
-			if err := cl.Get(ctx, req, updatedJob); err != nil {
-				t.Fatalf("Failed to get job: %v", err)
-			}
-
-			if diff := cmp.Diff(tc.wantAnnotations, updatedJob.GetAnnotations(), cmpopts.SortMaps(func(a, b string) bool { return a < b })); diff != "" {
-				t.Errorf("Job annotations mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -1225,6 +1021,7 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 			options := []Option{
 				WithClock(fakeClock),
 				WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
+				WithCache(schdcache.New(cl)),
 			}
 			recorder := &utiltesting.EventRecorder{}
 			r := NewReconciler(cl, recorder, options...)

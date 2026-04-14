@@ -140,7 +140,14 @@ func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCl
 			allErrors = append(allErrors, validateElasticJob(job)...)
 		} else if ptr.Deref(spec.EnableInTreeAutoscaling, false) {
 			// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
-			allErrors = append(allErrors, field.Invalid(specPath.Child("enableInTreeAutoscaling"), spec.EnableInTreeAutoscaling, "a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job"))
+			allErrors = append(
+				allErrors,
+				field.Invalid(
+					specPath.Child("enableInTreeAutoscaling"),
+					spec.EnableInTreeAutoscaling,
+					"a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+				),
+			)
 		}
 
 		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
@@ -181,12 +188,26 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 		wgs := &job.Spec.WorkerGroupSpecs[index]
 
 		if !slices.Contains(wgs.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
-			allErrors = append(allErrors, field.Invalid(specPath.Child("workerGroupSpecs").Index(index).Child("template").Child("spec").Child("schedulingGates"), wgs.Template.Spec.SchedulingGates, "an elastic job must have the ElasticJobSchedulingGate"))
+			allErrors = append(
+				allErrors,
+				field.Invalid(
+					specPath.Child("workerGroupSpecs").Index(index).Child("template").Child("spec").Child("schedulingGates"),
+					wgs.Template.Spec.SchedulingGates,
+					"an elastic job must have the ElasticJobSchedulingGate",
+				),
+			)
 		}
 	}
 
 	if !slices.Contains(job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
-		allErrors = append(allErrors, field.Invalid(specPath.Child("headGroupSpec").Child("template").Child("spec").Child("schedulingGates"), job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, "an elastic job must have the ElasticJobSchedulingGate"))
+		allErrors = append(
+			allErrors,
+			field.Invalid(
+				specPath.Child("headGroupSpec").Child("template").Child("spec").Child("schedulingGates"),
+				job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates,
+				"an elastic job must have the ElasticJobSchedulingGate",
+			),
+		)
 	}
 
 	return allErrors

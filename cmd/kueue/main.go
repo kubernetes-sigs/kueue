@@ -63,6 +63,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
 	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
@@ -223,6 +224,8 @@ func main() {
 	}
 	options.Metrics = metricsServerOptions
 
+	lqMetrics := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
+
 	var customLabels *metrics.CustomLabels
 	if features.Enabled(features.CustomMetricLabels) {
 		customLabels = metrics.NewCustomLabels(cfg.Metrics.CustomLabels)
@@ -285,11 +288,13 @@ func main() {
 		schdcache.WithRoleTracker(roleTracker),
 		schdcache.WithResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 		schdcache.WithCustomLabels(customLabels),
+		schdcache.WithLocalQueueMetrics(lqMetrics),
 	}
 	queueOptions := []qcache.Option{
 		qcache.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg)),
 		qcache.WithRoleTracker(roleTracker),
 		qcache.WithCustomLabels(customLabels),
+		qcache.WithLocalQueueMetrics(lqMetrics),
 	}
 	if cfg.Resources != nil && len(cfg.Resources.ExcludeResourcePrefixes) > 0 {
 		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
@@ -322,6 +327,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	preemptionExpectations := preemptexpectations.New()
+	queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
 	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions...)
 
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
@@ -355,8 +362,6 @@ func main() {
 			queues.ResyncGaugeMetrics()
 		})
 	}
-
-	preemptionExpectations := preemptexpectations.New()
 
 	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, roleTracker, preemptionExpectations, customLabels); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
@@ -423,7 +428,9 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher, roleTracker *roletracker.RoleTracker, preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels) error {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager,
+	cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher, roleTracker *roletracker.RoleTracker,
+	preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels) error {
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, roleTracker, preemptionExpectations, customLabels); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
 	}
@@ -490,6 +497,12 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		}
 	}
 
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if failedCtrl, err := elasticjobs.SetupWithManager(mgr, cfg, roleTracker); err != nil {
+			return fmt.Errorf("could not setup %s controller: %w", failedCtrl, err)
+		}
+	}
+
 	opts := []jobframework.Option{
 		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(cfg.WaitForPodsReady),
@@ -546,7 +559,9 @@ func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) error {
 	return nil
 }
 
-func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker, preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels) error {
+func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration,
+	roleTracker *roletracker.RoleTracker, preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels,
+) error {
 	sched := scheduler.New(
 		queues,
 		cCache,

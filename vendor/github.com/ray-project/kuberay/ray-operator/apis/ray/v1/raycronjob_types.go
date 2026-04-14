@@ -34,7 +34,7 @@ type RayCronJobStatus struct {
 // +kubebuilder:resource:categories=all
 // +kubebuilder:storageversion
 //
-//nolint:govet // RayCronJob is the Schema for the raycronjobs API
+// RayCronJob is the Schema for the raycronjobs API
 type RayCronJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

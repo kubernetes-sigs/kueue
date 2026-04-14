@@ -239,14 +239,18 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 
 	ginkgo.When("the queue has admission checks", func() {
 		var (
-			flavor *kueue.ResourceFlavor
-			check1 *kueue.AdmissionCheck
-			check2 *kueue.AdmissionCheck
+			flavor1 *kueue.ResourceFlavor
+			flavor2 *kueue.ResourceFlavor
+			check1  *kueue.AdmissionCheck
+			check2  *kueue.AdmissionCheck
 		)
 
 		ginkgo.BeforeEach(func() {
-			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
-			util.MustCreate(ctx, k8sClient, flavor)
+			flavor1 = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			util.MustCreate(ctx, k8sClient, flavor1)
+
+			flavor2 = utiltestingapi.MakeResourceFlavor(flavorSpot).Obj()
+			util.MustCreate(ctx, k8sClient, flavor2)
 
 			check1 = utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ctrl").Obj()
 			util.MustCreate(ctx, k8sClient, check1)
@@ -257,10 +261,19 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
 
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
-					Resource(resourceGPU, "5", "5").Obj()).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).Resource(resourceGPU, "5", "5").Obj()).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorSpot).Resource(corev1.ResourceMemory, "5", "5").Obj()).
 				Cohort("cohort").
-				AdmissionChecks("check1", "check2").
+				AdmissionCheckStrategy(
+					kueue.AdmissionCheckStrategyRule{Name: "check1"},
+					kueue.AdmissionCheckStrategyRule{Name: "check2"},
+					kueue.AdmissionCheckStrategyRule{
+						Name: "check3",
+						OnFlavors: []kueue.ResourceFlavorReference{
+							kueue.ResourceFlavorReference(flavor2.Name),
+						},
+					},
+				).
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -271,10 +284,11 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, check2, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, check1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor1, true)
 		})
 
-		ginkgo.It("the workload should get the AdditionalChecks added", func() {
+		ginkgo.It("the workload should have checks updated when changed on the cluster queue", func() {
 			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
 			wlKey := client.ObjectKeyFromObject(wl)
 			createdWl := kueue.Workload{}
@@ -336,6 +350,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				gomega.Expect(check2Cond).To(gomega.Equal(oldCheck2Cond))
 			})
 		})
+
 		ginkgo.It("should finish an unadmitted workload with failure when a check is rejected", func() {
 			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
 			wlKey := client.ObjectKeyFromObject(wl)
@@ -389,7 +404,9 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		})
 
 		ginkgo.It("should evict then finish with failure an admitted workload when a check is rejected", func() {
-			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				Queue("queue").
+				Obj()
 			wlKey := client.ObjectKeyFromObject(wl)
 			createdWl := kueue.Workload{}
 			ginkgo.By("creating the workload, the check conditions should be added", func() {
@@ -404,7 +421,18 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			})
 
 			ginkgo.By("setting quota reservation and the checks ready, should admit the workload", func() {
-				util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(clusterQueue.Name).Obj())
+				podSet := kueue.PodSetAssignment{
+					Name: kueue.DefaultPodSetName,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
+					},
+				}
+				util.SetQuotaReservation(
+					ctx,
+					k8sClient,
+					wlKey,
+					utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(podSet).Obj(),
+				)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())

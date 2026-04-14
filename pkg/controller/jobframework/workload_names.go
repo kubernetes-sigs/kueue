@@ -19,37 +19,71 @@ package jobframework
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
+
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
-	hashLength = 5
-	// 253 is the maximal length for a CRD name. We need to subtract one for '-', and the hash length.
-	maxPrefixLength = 252 - hashLength
+	hashLength                = 5
+	longMaxWorkloadNameLength = 253
+	// shortMaxWorkloadNameLength is set to 63 to comply with Kubernetes label value length constraints.
+	// Kubernetes label values must be 63 characters or less per the Kubernetes specification.
+	// Since workload names are used as label values, they must respect this limit.
+	// See https://github.com/kubernetes-sigs/kueue/issues/9872 and
+	// https://github.com/kubernetes-sigs/kueue/issues/10098 for more details.
+	shortMaxWorkloadNameLength = 63
 )
 
+// maxWorkloadNameLength returns the maximum allowed length for a workload name based on the enabled feature configuration.
+func maxWorkloadNameLength() int {
+	if features.Enabled(features.ShortWorkloadNames) {
+		return shortMaxWorkloadNameLength
+	}
+	return longMaxWorkloadNameLength
+}
+
+// maxPrefixLength calculates the maximum length of the workload name prefix, subtracting the hash length and separator.
+func maxPrefixLength() int {
+	return maxWorkloadNameLength() - 1 - hashLength
+}
+
+// truncate returns the first n characters of a string.
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
+
 func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
-	return generateWorkloadName(ownerName, ownerUID, ownerGVK, nil)
+	return GenerateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, "")
+}
+
+func GenerateWorkloadNamePrefix(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
+	return truncate(strings.ToLower(ownerGVK.Kind)+"-"+ownerName, maxPrefixLength())
 }
 
 func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation int64) string {
-	return generateWorkloadName(ownerName, ownerUID, ownerGVK, &generation)
+	extra := strconv.FormatInt(generation, 10)
+	return GenerateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, extra)
 }
 
-func generateWorkloadName(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation *int64) string {
-	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName
-	if len(prefixedName) > maxPrefixLength {
-		prefixedName = prefixedName[:maxPrefixLength]
-	}
-	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, generation)[:hashLength]
+func GenerateWorkloadNameWithExtra(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, extra string) string {
+	prefixedName := GenerateWorkloadNamePrefix(ownerName, ownerUID, ownerGVK)
+	return fmt.Sprintf(
+		"%s-%s",
+		prefixedName,
+		getHash(ownerName, ownerUID, ownerGVK, extra)[:hashLength],
+	)
 }
 
-func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, generation *int64) string {
+func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, extra string) string {
 	h := sha1.New()
 	h.Write([]byte(gvk.Kind))
 	h.Write([]byte("\n"))
@@ -58,9 +92,9 @@ func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, 
 	h.Write([]byte(ownerName))
 	h.Write([]byte("\n"))
 	h.Write([]byte(ownerUID))
-	if generation != nil {
+	if extra != "" {
 		h.Write([]byte("\n"))
-		h.Write([]byte(strconv.FormatInt(ptr.Deref(generation, 0), 10)))
+		h.Write([]byte(extra))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

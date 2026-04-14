@@ -104,6 +104,12 @@ func addCacheByObjectTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		return
 	}
 
+	// Strip managedFields from all cached objects to reduce memory usage.
+	// ManagedFields are server-side apply tracking metadata that no kueue
+	// controller reads at runtime, and they can account for 30-50% of
+	// cached object size.
+	o.Cache.DefaultTransform = ctrlcache.TransformStripManagedFields()
+
 	if o.Cache.ByObject == nil {
 		o.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
 	}

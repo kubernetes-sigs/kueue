@@ -147,7 +147,7 @@ func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool 
 			kueue.CohortReference(e.ObjectNew.GetName()),
 			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
 			func() {
-				metrics.ClearCohortMetrics(e.ObjectNew.GetName())
+				metrics.ClearCohortMetrics(kueue.CohortReference(e.ObjectNew.GetName()))
 			})
 	}
 
@@ -184,7 +184,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			r.cache.ClearCohortMetrics(log, kueue.CohortReference(req.Name))
 			r.cache.DeleteCohort(kueue.CohortReference(req.Name))
 			r.qManager.DeleteCohort(kueue.CohortReference(req.Name))
-			metrics.ClearCohortMetrics(req.Name)
+			metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
 			if features.Enabled(features.CustomMetricLabels) {
 				r.customLabels.CohortDelete(kueue.CohortReference(req.Name))
 			}
@@ -195,7 +195,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.CohortStoreAndClear(kueue.CohortReference(cohort.Name),
 			cohort.GetLabels(), cohort.GetAnnotations(),
-			func() { metrics.ClearCohortMetrics(cohort.Name) })
+			func() { metrics.ClearCohortMetrics(kueue.CohortReference(cohort.Name)) })
 	}
 
 	log.V(2).Info("Cohort is being created or updated", "resources", cohort.Spec.ResourceGroups)

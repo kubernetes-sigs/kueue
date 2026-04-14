@@ -29,9 +29,11 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/cmd/experimental/kueue-populator/pkg/controller"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -83,9 +85,11 @@ func managerAndControllerSetup(controllersCfg *config.Configuration) framework.M
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
 		cCache := schdcache.New(mgr.GetClient())
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
+		preemptionExpectations := preemptexpectations.New()
+		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
+		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		opts := []controller.KueuePopulatorReconcilerOption{

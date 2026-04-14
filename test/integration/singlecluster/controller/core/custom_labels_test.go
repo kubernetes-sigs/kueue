@@ -664,6 +664,12 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				g.Expect(updatedWl.Status.Admission).ToNot(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			ginkgo.By("verifying CohortSubtreeQuota includes custom_team=data-eng")
+			util.ExpectCohortSubtreeQuotaGaugeMetric(cohort.Name, defaultFlavor.Name, corev1.ResourceCPU.String(), 5_000, "data-eng")
+
+			ginkgo.By("verifying CohortSubtreeResourceReservations includes custom_team=data-eng")
+			util.ExpectCohortSubtreeResourceReservationsGaugeMetric(cohort.Name, defaultFlavor.Name, corev1.ResourceCPU.String(), 1_000, "data-eng")
+
 			ginkgo.By("verifying CohortWeightedShare includes custom_team=data-eng")
 			gomega.Eventually(func(g gomega.Gomega) {
 				lvs := []string{"cohort-labeled", roletracker.RoleStandalone, "data-eng"}
@@ -671,6 +677,58 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				_, err := testutil.GetGaugeMetricValue(metric)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("shouldn't clear cohort counter metrics on label changed", func() {
+			cohort = utiltestingapi.MakeCohort("cohort-labeled").
+				Label("team", "data-eng").
+				Obj()
+			util.MustCreate(ctx, k8sClient, cohort)
+
+			cq = utiltestingapi.MakeClusterQueue("cq-cohort").
+				Label("team", "data-eng").
+				Cohort("cohort-labeled").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-cohort", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl := utiltestingapi.MakeWorkload("wl-cohort", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(updatedWl.Status.Admission).ToNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying CohortWeightedShare includes custom_team=data-eng")
+			gomega.Eventually(func(g gomega.Gomega) {
+				lvs := []string{"cohort-labeled", roletracker.RoleStandalone, "data-eng"}
+				metric := metrics.CohortWeightedShare.WithLabelValues(lvs...)
+				_, err := testutil.GetGaugeMetricValue(metric)
+				g.Expect(err).ToNot(gomega.HaveOccurred())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(cohort.Name), "", 1, "data-eng")
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCohort kueue.Cohort
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &updatedCohort)).To(gomega.Succeed())
+				updatedCohort.Labels["team"] = "data-test"
+				g.Expect(k8sClient.Update(ctx, &updatedCohort)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(cohort.Name), "", 1, "data-eng")
+			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(cohort.Name), "", 0, "data-test")
 		})
 	})
 

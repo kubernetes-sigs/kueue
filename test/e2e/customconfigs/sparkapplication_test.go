@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:spark"), ginkgo.Ordered, func() {
 	var (
 		ns                 *corev1.Namespace
 		rf                 *kueue.ResourceFlavor

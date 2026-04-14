@@ -46,6 +46,7 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
+	qManager  *qcache.Manager
 )
 
 func TestScheduler(t *testing.T) {
@@ -68,6 +69,11 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+
 func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		fairSharing := &config.FairSharing{}
@@ -76,13 +82,17 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cCache := schdcache.New(mgr.GetClient(), schdcache.WithFairSharing(fairsharing.Enabled(fairSharing)), schdcache.WithAdmissionFairSharing(admissionFairSharing))
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, qcache.WithAdmissionFairSharing(admissionFairSharing))
+		preemptionExpectations := preemptexpectations.New()
+		queueOptions := []qcache.Option{}
+		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(admissionFairSharing))
+		queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
+		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		qManager = queues
 
 		configuration := &config.Configuration{FairSharing: fairSharing, AdmissionFairSharing: admissionFairSharing}
 		configuration.Metrics.EnableClusterQueueResources = true
 		mgr.GetScheme().Default(configuration)
 
-		preemptionExpectations := preemptexpectations.New()
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 

@@ -48,13 +48,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
-	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -394,8 +395,14 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (float64, error) {
-	lqKey := utilqueue.KeyFromWorkload(i.Obj)
+func (i *Info) CalcLocalQueueFSUsage(
+	ctx context.Context,
+	c client.Client,
+	resWeights map[corev1.ResourceName]float64,
+	afsEntryPenalties *queueafs.AfsEntryPenalties,
+	afsConsumedResources *queueafs.AfsConsumedResources,
+) (float64, error) {
+	lqKey := queue.KeyFromWorkload(i.Obj)
 
 	consumed := corev1.ResourceList{}
 	if afsConsumedResources != nil {
@@ -451,7 +458,8 @@ func IsExplicitlyRequestingTAS(podSets ...kueue.PodSet) bool {
 	return slices.ContainsFunc(podSets,
 		func(ps kueue.PodSet) bool {
 			tr := ps.TopologyRequest
-			return tr != nil && (tr.Unconstrained != nil || tr.Required != nil || tr.Preferred != nil || tr.PodSetSliceRequiredTopology != nil || tr.PodSetSliceSize != nil || len(tr.PodsetSliceRequiredTopologyConstraints) > 0)
+			return tr != nil &&
+				(tr.Unconstrained != nil || tr.Required != nil || tr.Preferred != nil || tr.PodSetSliceRequiredTopology != nil || tr.PodSetSliceSize != nil || len(tr.PodsetSliceRequiredTopologyConstraints) > 0)
 		})
 }
 
@@ -1498,46 +1506,74 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 	return nil
 }
 
+type flavorSet = sets.Set[kueue.ResourceFlavorReference]
+
 // AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
-// ClusterQueue configuration and ResourceFlavors
-func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], allFlavors sets.Set[kueue.ResourceFlavorReference]) sets.Set[kueue.AdmissionCheckReference] {
-	// If all admissionChecks should be run for all flavors we don't need to wait for Workload's Admission to be set.
-	// This is also the case if admissionChecks are specified with ClusterQueue.Spec.AdmissionChecks instead of
-	// ClusterQueue.Spec.AdmissionCheckStrategy
-	hasAllFlavors := true
-	for _, flavors := range admissionChecks {
-		if !flavors.Equal(allFlavors) {
-			hasAllFlavors = false
-		}
-	}
-	if hasAllFlavors {
-		return sets.New(slices.Collect(maps.Keys(admissionChecks))...)
+// ClusterQueue configuration
+func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.ClusterQueue) sets.Set[kueue.AdmissionCheckReference] {
+	allChecks := admissioncheck.NewAdmissionChecks(cq)
+
+	if wl.Status.Admission != nil {
+		// If we have an admission we can provide all relevant checks right away.
+		// Checks that are defined with an empty list of flavors are considered
+		// to apply to all flavors declared for the ClusterQueue.
+		// These checks are considered valid by this logic, as intended,
+		// because checks with empty OnFlavor lists have their lists populated
+		// with all flavors in the CQ when initially processed by Kueue.
+		return admissionChecksForAdmission(log, allChecks, *wl.Status.Admission)
 	}
 
-	// Kueue sets AdmissionChecks first based on ClusterQueue configuration and at this point Workload has no
-	// ResourceFlavors assigned, so we cannot match AdmissionChecks to ResourceFlavor.
-	// After Quota is reserved, another reconciliation happens and we can match AdmissionChecks to ResourceFlavors
-	if wl.Status.Admission == nil {
-		log.V(2).Info("Workload has no Admission", "Workload", klog.KObj(wl))
-		return nil
+	// If no admission is present yet we can only list
+	// the checks which apply to all flavors supported by the ClusterQueue
+	allFlavors := queue.AllFlavors(cq.Spec.ResourceGroups)
+	checksForAllFlavors := filterChecks(allChecks, func(acFlavors flavorSet) bool {
+		return acFlavors.IsSuperset(allFlavors)
+	})
+	log.V(3).Info(
+		"Workload has no Admission: assigning only checks that apply to all workloads in the Cluster Queue regardless of flavor",
+		"Assigned AdmissionChecks",
+		checksForAllFlavors,
+	)
+	return checksForAllFlavors
+}
+
+func admissionChecksForAdmission(log logr.Logger, acs AdmissionChecks, admission kueue.Admission) sets.Set[kueue.AdmissionCheckReference] {
+	admissionFlavors := findAdmissionFlavors(admission)
+	if len(admissionFlavors) > 0 {
+		return filterChecks(acs, func(acFlavors flavorSet) bool {
+			return admissionFlavors.Intersection(acFlavors).Len() > 0
+		})
 	}
 
-	var assignedFlavors []kueue.ResourceFlavorReference
-	for _, podSet := range wl.Status.Admission.PodSetAssignments {
-		for _, flavor := range podSet.Flavors {
-			assignedFlavors = append(assignedFlavors, flavor)
-		}
-	}
+	// Some tests allow for admissions not to be assigned any flavors.
+	// To ensure those tests work as before: flavorless Admissions are assigned/expected to fulfill all Admission Checks.
+	// Issue to address the matter further: https://github.com/kubernetes-sigs/kueue/issues/10316
+	log.V(3).Info(
+		"Admission has no Flavors; assigning all checks",
+		"AdmissionChecks",
+		acs,
+	)
+	return sets.KeySet(acs)
+}
 
+func filterChecks(acs AdmissionChecks, fsPredicate func(flavorSet) bool) sets.Set[kueue.AdmissionCheckReference] {
 	acNames := sets.New[kueue.AdmissionCheckReference]()
-	for acName, flavors := range admissionChecks {
-		for _, fName := range assignedFlavors {
-			if flavors.Has(fName) {
-				acNames.Insert(acName)
-			}
+	for acName, acFlavors := range acs {
+		if fsPredicate(acFlavors) {
+			acNames.Insert(acName)
 		}
 	}
 	return acNames
+}
+
+func findAdmissionFlavors(admission kueue.Admission) sets.Set[kueue.ResourceFlavorReference] {
+	assignedFlavors := sets.New[kueue.ResourceFlavorReference]()
+	for _, podSet := range admission.PodSetAssignments {
+		for _, flavor := range podSet.Flavors {
+			assignedFlavors.Insert(flavor)
+		}
+	}
+	return assignedFlavors
 }
 
 type EvictOption func(*EvictOptions)
@@ -1575,7 +1611,19 @@ func EvictWithRetryOnConflictForPatch() EvictOption {
 	}
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels, options ...EvictOption) error {
+func Evict(
+	ctx context.Context,
+	c client.Client,
+	recorder record.EventRecorder,
+	wl *kueue.Workload,
+	reason, msg string,
+	underlyingCause kueue.EvictionUnderlyingCause,
+	clock clock.Clock,
+	exposeLqMetrics bool,
+	tracker *roletracker.RoleTracker,
+	cl *metrics.CustomLabels,
+	options ...EvictOption,
+) error {
 	opts := DefaultEvictOptions()
 	for _, opt := range options {
 		opt(opts)
@@ -1619,7 +1667,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
 		return nil
 	}
-	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, tracker, cl)
+	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, exposeLqMetrics, tracker, cl)
 	if reportWorkloadEvictedOnce {
 		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), PriorityClassName(wl), cl.CQGet(wl.Status.Admission.ClusterQueue), tracker)
 	}
@@ -1704,21 +1752,24 @@ func closeAllPreemptionGates(w *kueue.Workload, now time.Time) {
 	}
 }
 
-func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {
+func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference,
+	reason, message string, underlyingCause kueue.EvictionUnderlyingCause, exposeLqMetrics bool,
+	tracker *roletracker.RoleTracker, cl *metrics.CustomLabels,
+) {
 	priorityClassName := PriorityClassName(wl)
 	cqCustomLabels := cl.CQGet(cqName)
 	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), priorityClassName, cqCustomLabels, tracker)
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
 		metrics.ReportPodsReadyToEvictedTimeSeconds(cqName, reason, string(underlyingCause), *podsReadyToEvictionTime, cqCustomLabels, tracker)
 	}
-	if features.Enabled(features.LocalQueueMetrics) {
+	if exposeLqMetrics {
 		lqRef := metrics.LQRefFromWorkload(wl)
 		metrics.ReportLocalQueueEvictedWorkloads(
 			lqRef,
 			reason,
 			string(underlyingCause),
 			priorityClassName,
-			cl.LQGet(utilqueue.KeyFromWorkload(wl)),
+			cl.LQGet(queue.KeyFromWorkload(wl)),
 			tracker,
 		)
 	}

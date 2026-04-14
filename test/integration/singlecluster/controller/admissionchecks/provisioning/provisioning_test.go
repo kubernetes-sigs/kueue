@@ -356,161 +356,172 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 		})
 
-		ginkgo.It("Should set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workloads is not Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", framework.SlowSpec, func() {
-			ginkgo.By("Admitting the workload", func() {
-				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			})
-
-			ginkgo.By("Setting the ProvisioningRequest as Provisioned and admitting the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
-					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
-						Type:   autoscaling.Provisioned,
-						Status: metav1.ConditionTrue,
-						Reason: autoscaling.Provisioned,
-					})
-					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				gomega.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &updatedWl)
-			})
-
-			ginkgo.By("Setting the ProvisioningRequest as CapacityRevoked", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
-					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
-						Type:   autoscaling.CapacityRevoked,
-						Status: metav1.ConditionTrue,
-						Reason: autoscaling.CapacityRevoked,
-					})
-					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckStateWithMessage(
-					ctx, k8sClient, wlKey,
-					ac.Name,
-					kueue.CheckStatePending,
-					"Reset to Pending after eviction. Previously: Rejected",
-				)
-				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
-					Reason:  "AdmissionCheckRejected",
-					Type:    corev1.EventTypeWarning,
-					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
+		ginkgo.It(
+			"Should set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workloads is not Finished, and the ProvisioningRequest's condition is set to CapacityRevoked",
+			framework.SlowSpec,
+			func() {
+				ginkgo.By("Admitting the workload", func() {
+					util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 				})
 
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+				ginkgo.By("Setting the ProvisioningRequest as Provisioned and admitting the workload", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Provisioned,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "Deactivated", "AdmissionCheck", "", 1)
-			})
-		})
-
-		ginkgo.It("Should set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workloads is not Admitted, and the ProvisioningRequest's condition is set to CapacityRevoked", framework.SlowSpec, func() {
-			ginkgo.By("Setting the quota reservation to the workload", func() {
-				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			})
-
-			ginkgo.By("Setting the ProvisioningRequest as CapacityRevoked", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
-					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
-						Type:   autoscaling.CapacityRevoked,
-						Status: metav1.ConditionTrue,
-						Reason: autoscaling.CapacityRevoked,
-					})
-					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking if workload is deactivated, once had Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckStateWithMessage(
-					ctx, k8sClient, wlKey,
-					ac.Name,
-					kueue.CheckStatePending,
-					"Reset to Pending after eviction. Previously: Rejected",
-				)
-				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
-					Reason:  "AdmissionCheckRejected",
-					Type:    corev1.EventTypeWarning,
-					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &updatedWl)
 				})
 
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+				ginkgo.By("Setting the ProvisioningRequest as CapacityRevoked", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.CapacityRevoked,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.CapacityRevoked,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
 
-					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "Deactivated", "AdmissionCheck", "", 1)
-			})
-		})
-
-		ginkgo.It("Should not set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workload is Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", func() {
-			ginkgo.By("Setting the quota reservation to the workload", func() {
-				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			})
-
-			ginkgo.By("Setting the ProvisioningRequest as Provisioned", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
-					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
-						Type:   autoscaling.Provisioned,
-						Status: metav1.ConditionTrue,
-						Reason: autoscaling.Provisioned,
+				ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+						g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					util.ExpectAdmissionCheckStateWithMessage(
+						ctx, k8sClient, wlKey,
+						ac.Name,
+						kueue.CheckStatePending,
+						"Reset to Pending after eviction. Previously: Rejected",
+					)
+					util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
+						Reason:  "AdmissionCheckRejected",
+						Type:    corev1.EventTypeWarning,
+						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
 					})
-					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
 
-			ginkgo.By("Checking if the AdmissionCheck is Ready", func() {
-				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
-			})
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
-			ginkgo.By("Marking the workload as Finished", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+						g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.FinishWorkloads(ctx, k8sClient, &updatedWl)
-			})
+					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "Deactivated", "AdmissionCheck", "", 1)
+				})
+			},
+		)
 
-			ginkgo.By("Setting the ProvisioningRequest as CapacityRevoked", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
-					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
-						Type:   autoscaling.CapacityRevoked,
-						Status: metav1.ConditionTrue,
-						Reason: autoscaling.CapacityRevoked,
+		ginkgo.It(
+			"Should set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workloads is not Admitted, and the ProvisioningRequest's condition is set to CapacityRevoked",
+			framework.SlowSpec,
+			func() {
+				ginkgo.By("Setting the quota reservation to the workload", func() {
+					util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				})
+
+				ginkgo.By("Setting the ProvisioningRequest as CapacityRevoked", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.CapacityRevoked,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.CapacityRevoked,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking if workload is deactivated, once had Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+						g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					util.ExpectAdmissionCheckStateWithMessage(
+						ctx, k8sClient, wlKey,
+						ac.Name,
+						kueue.CheckStatePending,
+						"Reset to Pending after eviction. Previously: Rejected",
+					)
+					util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
+						Reason:  "AdmissionCheckRejected",
+						Type:    corev1.EventTypeWarning,
+						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
 					})
-					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
 
-			ginkgo.By("Checking if workload is active and an event is not emitted", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeTrue())
-					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
-				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadDeactivated, "", "", 0)
-			})
-		})
+						g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "Deactivated", "AdmissionCheck", "", 1)
+				})
+			},
+		)
+
+		ginkgo.It(
+			"Should not set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workload is Finished, and the ProvisioningRequest's condition is set to CapacityRevoked",
+			func() {
+				ginkgo.By("Setting the quota reservation to the workload", func() {
+					util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				})
+
+				ginkgo.By("Setting the ProvisioningRequest as Provisioned", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Provisioned,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking if the AdmissionCheck is Ready", func() {
+					util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+				})
+
+				ginkgo.By("Marking the workload as Finished", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					util.FinishWorkloads(ctx, k8sClient, &updatedWl)
+				})
+
+				ginkgo.By("Setting the ProvisioningRequest as CapacityRevoked", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.CapacityRevoked,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.CapacityRevoked,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking if workload is active and an event is not emitted", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+						g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeTrue())
+						g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeFalse())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+
+					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadDeactivated, "", "", 0)
+				})
+			},
+		)
 
 		ginkgo.It("Should ignore the change if Workload is Admitted and the ProvisioningRequest's condition is set to BookingExpired", framework.SlowSpec, func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {

@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -52,22 +53,23 @@ var (
 func TestReconciler(t *testing.T) {
 	now := time.Now()
 	cases := map[string]struct {
-		enableTAS               bool
-		admissionGatedByEnabled bool
-		stsKey                  client.ObjectKey
-		statefulSet             *appsv1.StatefulSet
-		pods                    []corev1.Pod
-		workloads               []kueue.Workload
-		wantStatefulSet         *appsv1.StatefulSet
-		wantPods                []corev1.Pod
-		wantWorkloads           []kueue.Workload
-		wantErr                 error
+		featureGates    map[featuregate.Feature]bool
+		stsKey          client.ObjectKey
+		statefulSet     *appsv1.StatefulSet
+		pods            []corev1.Pod
+		workloads       []kueue.Workload
+		wantStatefulSet *appsv1.StatefulSet
+		wantPods        []corev1.Pod
+		wantWorkloads   []kueue.Workload
+		wantErr         error
 	}{
 		"statefulset not found": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 		},
 		"statefulset with finished pods": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Replicas(0).
@@ -110,7 +112,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"statefulset with update revision": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				CurrentRevision("1").
@@ -158,7 +161,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should add StatefulSet to Workload owner references if replicas > 0": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -181,7 +185,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't add StatefulSet to Workload owner references if replicas = 0": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Replicas(0).
@@ -202,7 +207,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should remove StatefulSet from Workload owner references if replicas = 0": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -224,7 +230,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create workload when replicas > 0 and workload doesn't exist": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -254,8 +261,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create workload with TAS topology request when TAS enabled": {
-			enableTAS: true,
-			stsKey:    client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -291,7 +298,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should not create workload when replicas == 0": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Replicas(0).
@@ -304,7 +312,8 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 		},
 		"should not create workload when queue name is empty": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Obj(),
@@ -313,7 +322,8 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 		},
 		"should adopt legacy workload instead of creating duplicate": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -347,7 +357,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should list pods by legacy workload name": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Replicas(0).
@@ -381,7 +392,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should finalize deleted pod": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Replicas(0).
@@ -402,8 +414,11 @@ func TestReconciler(t *testing.T) {
 			wantPods: nil,
 		},
 		"statefulset with single AdmissionGatedBy gate should propagate to workload": {
-			admissionGatedByEnabled: true,
-			stsKey:                  client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+				features.AdmissionGatedBy:        true,
+			},
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -436,8 +451,11 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"statefulset with multiple AdmissionGatedBy gates should propagate to workload": {
-			admissionGatedByEnabled: true,
-			stsKey:                  client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+				features.AdmissionGatedBy:        true,
+			},
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -470,7 +488,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"statefulset with AdmissionGatedBy annotation but feature gate disabled should not propagate": {
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -504,8 +523,7 @@ func TestReconciler(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTAS)
-			features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, tc.admissionGatedByEnabled)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 			indexer := utiltesting.AsIndexer(clientBuilder)

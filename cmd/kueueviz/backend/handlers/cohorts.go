@@ -110,9 +110,22 @@ func (h *Handlers) fetchCohortDetails(ctx context.Context, cohortName string) (m
 	for _, item := range cql.Items {
 		if string(item.Spec.CohortName) == cohortName {
 			clusterQueues = append(clusterQueues, map[string]any{
-				"name":   item.GetName(),
-				"spec":   item.Spec,
-				"status": item.Status,
+				"name": item.GetName(),
+				"spec": map[string]any{
+					"cohortName":        string(item.Spec.CohortName),
+					"resourceGroups":    convertResourceGroups(item.Spec.ResourceGroups),
+					"preemption":        item.Spec.Preemption,
+					"flavorFungibility": item.Spec.FlavorFungibility,
+					"queueingStrategy":  item.Spec.QueueingStrategy,
+				},
+				"status": map[string]any{
+					"admittedWorkloads":  item.Status.AdmittedWorkloads,
+					"reservingWorkloads": item.Status.ReservingWorkloads,
+					"pendingWorkloads":   item.Status.PendingWorkloads,
+					"flavorsUsage":       convertFlavorsUsage(item.Status.FlavorsUsage),
+					"flavorsReservation": convertFlavorsUsage(item.Status.FlavorsReservation),
+					"fairSharing":        item.Status.FairSharing,
+				},
 			})
 		}
 	}

@@ -25,6 +25,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -44,7 +45,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 	testcases := map[string]struct {
 		manageJobsWithoutQueueName bool
 		defaultLqExist             bool
-		enableMultiKueue           bool
+		featureGates               map[featuregate.Feature]bool
 		job                        *batchv1.Job
 		want                       *batchv1.Job
 	}{
@@ -80,7 +81,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Queue("multikueue").
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
-			enableMultiKueue: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		"ManagedByDefaulting, targeting multikueue local queue but already managaed by someone else": {
 			job: utiljob.MakeJob("job", metav1.NamespaceDefault).
@@ -91,7 +92,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Queue("multikueue").
 				ManagedBy("someone-else").
 				Obj(),
-			enableMultiKueue: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		"ManagedByDefaulting, targeting non-multikueue local queue": {
 			job: utiljob.MakeJob("job", metav1.NamespaceDefault).
@@ -100,13 +101,13 @@ func TestBaseWebhookDefault(t *testing.T) {
 			want: utiljob.MakeJob("job", metav1.NamespaceDefault).
 				Queue("queue").
 				Obj(),
-			enableMultiKueue: true,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.enableMultiKueue)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(
 					utiltesting.MakeNamespace(metav1.NamespaceDefault),
@@ -120,7 +121,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
 			}
-			if tc.enableMultiKueue {
+			if tc.featureGates[features.MultiKueue] {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("multikueue", metav1.NamespaceDefault).
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)

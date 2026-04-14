@@ -60,19 +60,25 @@ func CheckEventRecordedFor(ctx context.Context, k8sClient client.Client,
 		len(events.Items), eventReason, eventType, eventMessage, ref.Namespace)
 }
 
-// HasMatchingEventAppearedTimes returns how many times the event has appeared.
-func HasMatchingEventAppearedTimes(ctx context.Context, k8sClient client.Client, matcher func(*corev1.Event) bool) (int, error) {
+// HasMatchingEvents returns the matching events
+func HasMatchingEvents(ctx context.Context, k8sClient client.Client, matcher func(*corev1.Event) bool) ([]corev1.Event, error) {
 	events := &corev1.EventList{}
-	count := 0
+	var result []corev1.Event
 	if err := k8sClient.List(ctx, events, &client.ListOptions{}); err != nil {
-		return 0, err
+		return nil, err
 	}
 	for _, item := range events.Items {
 		if matcher(&item) {
-			count++
+			result = append(result, item)
 		}
 	}
-	return count, nil
+	return result, nil
+}
+
+// HasMatchingEventAppearedTimes returns how many times the event has appeared.
+func HasMatchingEventAppearedTimes(ctx context.Context, k8sClient client.Client, matcher func(*corev1.Event) bool) (int, error) {
+	events, err := HasMatchingEvents(ctx, k8sClient, matcher)
+	return len(events), err
 }
 
 // HasMatchingEventAppeared returns if an event has been emitted

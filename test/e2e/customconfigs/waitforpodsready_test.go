@@ -44,7 +44,7 @@ const (
 	metricsReaderClusterRoleName = "kueue-metrics-reader"
 )
 
-var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeout", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeout", ginkgo.Label("feature:waitforpodsready"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns    *corev1.Namespace
 		rf    *kueue.ResourceFlavor

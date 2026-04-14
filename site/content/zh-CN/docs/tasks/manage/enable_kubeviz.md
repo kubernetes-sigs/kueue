@@ -74,15 +74,51 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 
 ### 端口转发（仅用于开发） {#port-forwarding-only-for-development}
 
-在开发或测试期间快速访问（已在 Docker Desktop 上测试）：
+为了在开发或测试期间快速访问，首先修补前端 ConfigMap 以指向端口转发的后端。
+
+如果你通过 Helm 安装，ConfigMap 名称是 `kueue-kueueviz-frontend-env`。
+如果你通过 `kubectl apply -f kueueviz.yaml` 安装，
+ConfigMap 名称包含由 kustomize 生成的哈希后缀。使用以下命令查找：
 
 ```bash
-kubectl port-forward svc/kueue-kueueviz-frontend -n kueue-system 8080
-kubectl port-forward svc/kueue-kueueviz-backend  -n kueue-system 8081:8080
+kubectl -n kueue-system get configmap | grep frontend-env
 ```
 
-编辑 kueue-viz-frontend Deployment 以设置环境变量
-`REACT_APP_WEBSOCKET_URL=ws://localhost:8081`。
+编辑 ConfigMap（将 `<configmap-name>` 替换为实际名称）：
+
+```bash
+kubectl edit configmap <configmap-name> -n kueue-system
+```
+
+更新 `env.js` 文件，使其指向 `ws://localhost:8081`：
+
+```yaml
+data:
+  env.js: |
+    window.env = {
+      VITE_WEBSOCKET_URL: "ws://localhost:8081",
+      REACT_APP_WEBSOCKET_URL: "ws://localhost:8081"
+    };
+```
+
+设置后端 CORS 允许的来源，使其与前端 URL 匹配：
+
+```bash
+kubectl -n kueue-system set env deployment/kueue-kueueviz-backend KUEUEVIZ_ALLOWED_ORIGINS=http://localhost:8080
+```
+
+重启前端 Pod 以使 ConfigMap 更改生效：
+
+```bash
+kubectl rollout restart deployment kueue-kueueviz-frontend -n kueue-system
+```
+
+然后开始端口转发：
+
+```bash
+kubectl port-forward svc/kueue-kueueviz-frontend -n kueue-system 8080 &
+kubectl port-forward svc/kueue-kueueviz-backend  -n kueue-system 8081:8080
+```
 
 然后在 [http://localhost:8080](http://localhost:8080) 访问 Dashboard。
 

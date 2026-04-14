@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Frameworks", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Frameworks", ginkgo.Label("feature:podintegrationautoenablement"), ginkgo.Ordered, func() {
 	var (
 		ns           *corev1.Namespace
 		defaultRf    *kueue.ResourceFlavor

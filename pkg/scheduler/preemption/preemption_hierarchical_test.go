@@ -1862,7 +1862,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
 				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
-				preempted, failed, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
+				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
 				}

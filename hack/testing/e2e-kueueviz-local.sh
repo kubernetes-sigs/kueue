@@ -21,6 +21,8 @@ ROOT_DIR="$SOURCE_DIR/../.."
 # shellcheck source=hack/testing/e2e-common.sh
 source "${SOURCE_DIR}/e2e-common.sh"
 
+mkdir -p "${ARTIFACTS}"
+
 # Function to clean up background processes
 cleanup() {
   echo "Cleaning up kueueviz processes"

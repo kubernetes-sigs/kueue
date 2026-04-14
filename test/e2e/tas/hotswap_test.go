@@ -22,7 +22,6 @@ import (
 	"os/exec"
 	"slices"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -109,13 +108,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					Status: corev1.ConditionTrue,
 				})
 
-				gomega.Eventually(func(g gomega.Gomega) {
-					var node corev1.Node
-					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeToRestore.Name}, &node)).To(gomega.Succeed())
-					g.Expect(tas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectNodeToBecomeReady(ctx, k8sClient, nodeToRestore.Name, localQueue)
 
-				waitForDummyWorkloadToRunOnNode(nodeToRestore, localQueue)
 				nodeToRestore = nil
 			}
 			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
@@ -703,25 +697,6 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 		})
 	})
 })
-
-func waitForDummyWorkloadToRunOnNode(node *corev1.Node, lq *kueue.LocalQueue) {
-	ginkgo.By(fmt.Sprintf("Waiting for a dummy workload to run on the recovered node %s", node.Name), func() {
-		dummyJob := testingjob.MakeJob(fmt.Sprintf("dummy-job-%s", node.Name), lq.Namespace).
-			Queue(kueue.LocalQueueName(lq.Name)).
-			NodeSelector(corev1.LabelHostname, node.Name).
-			Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-			Obj()
-		util.MustCreate(ctx, k8sClient, dummyJob)
-		gomega.Eventually(func(g gomega.Gomega) {
-			var createdDummyJob batchv1.Job
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dummyJob), &createdDummyJob)).To(gomega.Succeed())
-			g.Expect(createdDummyJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(batchv1.JobCondition{
-				Type:   batchv1.JobComplete,
-				Status: corev1.ConditionTrue,
-			}, cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
-		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-	})
-}
 
 func expectWorkloadTopologyAssignment(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, numPods int, expectedNodes []string) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {

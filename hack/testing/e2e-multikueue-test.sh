@@ -21,7 +21,7 @@ set -o pipefail
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/../.."
 
-# E2E_TARGET_FOLDER allows running different test suites (multikueue, multikueue-dra)
+# E2E_TARGET_FOLDER allows running different test suites (multikueue, multikueue-dra, multikueue-sequential)
 E2E_TARGET_FOLDER=${E2E_TARGET_FOLDER:-multikueue}
 
 export MANAGER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-manager
@@ -118,6 +118,5 @@ if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
   exit 0
 fi
 
-# Quote GINKGO_ARGS so values with spaces are not word-split (avoids "flag after package list").
-$GINKGO ${GINKGO_ARGS:+"$GINKGO_ARGS"} --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
+run_e2e_ginkgo --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
 "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"

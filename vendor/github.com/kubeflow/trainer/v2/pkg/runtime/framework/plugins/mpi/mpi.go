@@ -30,7 +30,6 @@ import (
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -41,15 +40,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	configapi "github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1"
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/kubeflow/trainer/v2/pkg/apply"
 	"github.com/kubeflow/trainer/v2/pkg/constants"
 	"github.com/kubeflow/trainer/v2/pkg/runtime"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework"
-)
-
-var (
-	numProcPerNodePath = field.NewPath("spec").Child("trainer").Child("numProcPerNode")
 )
 
 // TODO : Support MPICH and IntelMPI implementations.
@@ -69,7 +65,7 @@ const Name = "MPI"
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=create;get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=create;get;list;watch;update;patch
 
-func New(_ context.Context, client client.Client, _ client.FieldIndexer) (framework.Plugin, error) {
+func New(_ context.Context, client client.Client, _ client.FieldIndexer, _ *configapi.Configuration) (framework.Plugin, error) {
 	return &MPI{
 		client: client,
 		scheme: client.Scheme(),
@@ -89,11 +85,6 @@ func (m *MPI) Validate(_ context.Context, runtimeInfo *runtime.Info, _, newJobOb
 		return nil, allErrs
 	}
 	specPath := field.NewPath("spec")
-	if trainJobTrainer := newJobObj.Spec.Trainer; trainJobTrainer != nil && trainJobTrainer.NumProcPerNode != nil {
-		if trainJobTrainer.NumProcPerNode.Type != intstr.Int {
-			allErrs = append(allErrs, field.Invalid(numProcPerNodePath, *trainJobTrainer.NumProcPerNode, "must have an int value for MPI TrainJob"))
-		}
-	}
 	// validate PodSet configurations based on NumNodes and RunLauncherAsNode.
 	if trainJobTrainer := newJobObj.Spec.Trainer; trainJobTrainer != nil && ptr.Deref(trainJobTrainer.NumNodes, 1) >= 2 && ptr.Deref(runtimeInfo.RuntimePolicy.MLPolicySource.MPI.RunLauncherAsNode, false) {
 		if runtimeInfo.FindPodSetByName(constants.Launcher) == nil || runtimeInfo.FindPodSetByName(constants.Node) == nil {
@@ -122,7 +113,7 @@ func (m *MPI) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) er
 	}
 
 	if trainJob.Spec.Trainer != nil && trainJob.Spec.Trainer.NumProcPerNode != nil {
-		info.RuntimePolicy.MLPolicySource.MPI.NumProcPerNode = ptr.To(int32(trainJob.Spec.Trainer.NumProcPerNode.IntValue()))
+		info.RuntimePolicy.MLPolicySource.MPI.NumProcPerNode = trainJob.Spec.Trainer.NumProcPerNode
 		// If numProcPerNode is set to 1 in runtime, we make it equal to number of GPUs.
 	} else if *info.RuntimePolicy.MLPolicySource.MPI.NumProcPerNode == 1 {
 		resourcesPerNode := ptr.Deref(runtime.ExtractResourcePerNodeFromRuntime(info), corev1.ResourceRequirements{})

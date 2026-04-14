@@ -24,6 +24,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,11 +37,10 @@ import (
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		rayService                    *RayService
-		rayCluster                    *rayv1.RayCluster
-		wantPodSets                   func(rayService *RayService) []kueue.PodSet
-		enableTopologyAwareScheduling bool
-		enableElasticJobsFeature      bool
+		rayService   *RayService
+		rayCluster   *rayv1.RayCluster
+		wantPodSets  func(rayService *RayService) []kueue.PodSet
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			rayService: (*RayService)(&rayv1.RayService{
@@ -86,7 +86,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with required topology annotation": {
 			rayService: (*RayService)(&rayv1.RayService{
@@ -136,7 +136,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with NumOfHosts > 1": {
 			rayService: (*RayService)(&rayv1.RayService{
@@ -174,7 +174,7 @@ func TestPodSets(t *testing.T) {
 											Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with workload slicing and autoscaling enabled, update from RayCluster": {
 			rayService: (*RayService)(&rayv1.RayService{
@@ -242,8 +242,10 @@ func TestPodSets(t *testing.T) {
 											Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
-			enableElasticJobsFeature:      true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
 		},
 		"with workload slicing enabled but autoscaling disabled, use spec count": {
 			rayService: (*RayService)(&rayv1.RayService{
@@ -303,8 +305,10 @@ func TestPodSets(t *testing.T) {
 											Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
-			enableElasticJobsFeature:      true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
 		},
 		"with workload slicing and autoscaling enabled, RayCluster not found fallback to spec": {
 			rayService: (*RayService)(&rayv1.RayService{
@@ -351,8 +355,10 @@ func TestPodSets(t *testing.T) {
 											Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
-			enableElasticJobsFeature:      true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
 		},
 		"with workload slicing and autoscaling enabled, no RayClusterName in status": {
 			rayService: (*RayService)(&rayv1.RayService{
@@ -399,15 +405,16 @@ func TestPodSets(t *testing.T) {
 											Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
-			enableElasticJobsFeature:      true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.enableElasticJobsFeature)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			// Set up fake client with optional RayCluster
 			objs := []client.Object{}

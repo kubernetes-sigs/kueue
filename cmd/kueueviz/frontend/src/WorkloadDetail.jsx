@@ -15,8 +15,8 @@ limitations under the License.
 */
 
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom'; 
-import { Typography,  Paper, CircularProgress, Grid, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import { useParams, Link } from 'react-router-dom';
+import { Typography, Paper, CircularProgress, Grid, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
@@ -33,7 +33,9 @@ const WorkloadDetail = () => {
 
   useEffect(() => {
     if (eventData && Array.isArray(eventData)) {
-      const sortedEvents = eventData.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      const sortedEvents = [...eventData].sort((a, b) =>
+        new Date(b.firstTimestamp) - new Date(a.firstTimestamp) || (a.reason || '').localeCompare(b.reason || '') || (a.name || '').localeCompare(b.name || '')
+      );
       setEvents(sortedEvents);
     }
   }, [eventData]);
@@ -42,7 +44,7 @@ const WorkloadDetail = () => {
   if (workloadError) return <ErrorMessage error={workloadError} />;
 
   return (
-    <Paper style={{ padding: '16px', marginTop: '20px' , alignContent: 'left', alignItems: 'left' }}>
+    <Paper style={{ padding: '16px', marginTop: '20px', alignContent: 'left', alignItems: 'left' }}>
       <Typography variant="h4" gutterBottom>Workload Detail: {namespace}/{workloadName}</Typography>
       <Grid container spacing={2}>
         <Grid item xs={12} sm={6}>
@@ -88,7 +90,7 @@ const WorkloadDetail = () => {
               {events.map((event) => (
                 <TableRow key={event.name}>
                   <TableCell>
-                    {new Date(event.firstTimestamp).toISOString().replace('T', '@').slice(0, 19)  } UTC
+                    {new Date(event.firstTimestamp).toISOString().replace('T', '@').slice(0, 19)} UTC
                   </TableCell>
                   <TableCell>{event.type}</TableCell>
                   <TableCell>{event.reason}</TableCell>

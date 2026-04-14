@@ -39,7 +39,9 @@ const (
 
 // SetupControllers sets up the core controllers. It returns the name of the
 // controller that failed to create and an error, if any.
-func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker, preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels) (string, error) {
+func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker,
+	preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels) (string, error) {
+	lqMetrics := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
 	rfRec := NewResourceFlavorReconciler(mgr.GetClient(), qManager, cc, roleTracker)
 	if err := rfRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ResourceFlavor", err
@@ -55,7 +57,8 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc,
 		WithAdmissionFairSharingConfig(cfg.AdmissionFairSharing),
 		WithRoleTracker(roleTracker),
-		WithCustomLabels(customLabels))
+		WithCustomLabels(customLabels),
+		WithLocalQueueMetrics(lqMetrics))
 	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
 		return "LocalQueue", err
 	}
@@ -95,6 +98,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithWorkloadRoleTracker(roleTracker),
 		WithPreemptionExpectations(preemptionExpectations),
 		WithWorkloadCustomLabels(customLabels),
+		WithAdmissionFairSharing(cfg.AdmissionFairSharing),
 	)
 	if features.Enabled(features.DynamicResourceAllocation) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())

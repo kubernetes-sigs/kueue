@@ -379,7 +379,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		ctx = ctrl.LoggerInto(ctx, log)
 
 		// workload evicted on manager cluster
-		if remoteEvictCond.Reason == workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadEvictedOnManagerCluster) {
+		if workload.IsEvicted(group.local) {
 			if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
 				log.Error(err, "Syncing remote controller object")
 				// We'll retry this in the next reconciling.
@@ -704,6 +704,12 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	componentWorkloads, err := w.listComponentWorkloads(ctx, group.local)
 	if err != nil {
 		return reconcile.Result{}, err
+	}
+
+	// check nonMK AdmissionChecks are Ready before nominating clusters, to avoid nominating clusters for workloads that are not fully admitted yet.
+	if ready, ac := allNonMKAdmissionChecksReady(group.local, group.acName); !ready {
+		log.V(3).Info("Waiting for all non-MultiKueue admission checks to be ready before nominating clusters", "admissionCheck", ac)
+		return reconcile.Result{}, nil
 	}
 
 	if _, ok := group.jobAdapter.(jobframework.MultiKueueMultiWorkloadAdapter); ok && componentWorkloads != nil {
@@ -1104,4 +1110,17 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 	}
 
 	return remoteWl
+}
+
+func allNonMKAdmissionChecksReady(wl *kueue.Workload, mkACName kueue.AdmissionCheckReference) (bool, []kueue.AdmissionCheckReference) {
+	var notReady []kueue.AdmissionCheckReference
+	for _, ac := range wl.Status.AdmissionChecks {
+		if ac.Name == mkACName {
+			continue
+		}
+		if ac.State != kueue.CheckStateReady {
+			notReady = append(notReady, ac.Name)
+		}
+	}
+	return len(notReady) == 0, notReady
 }

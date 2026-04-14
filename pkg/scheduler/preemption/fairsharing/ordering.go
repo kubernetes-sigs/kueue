@@ -152,6 +152,9 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		switch {
 		case (!drs.IsBorrowing() && cq != t.preemptorCq) || !t.hasWorkload(cq):
 			t.prunedClusterQueues.Insert(cq)
+			if logV := t.log.V(6); logV.Enabled() {
+				logV.Info("Pruning ClusterQueue during Target ordering", "clusterQueue", cq.GetName(), "drs", drs)
+			}
 		case schdcache.CompareDRS(drs, highestCqDrs) == 0:
 			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
 			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
@@ -182,6 +185,9 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		// of its children have been pruned.
 		if !drs.IsBorrowing() && !t.onPathFromRootToPreemptorCQ(cohort) {
 			t.prunedCohorts.Insert(cohort)
+			if logV := t.log.V(6); logV.Enabled() {
+				logV.Info("Pruning Cohort during Target ordering", "cohort", cohort.GetName(), "drs", drs)
+			}
 		} else if schdcache.CompareDRS(drs, highestCohortDrs) >= 0 {
 			highestCohortDrs = drs
 			highestCohort = cohort
@@ -192,6 +198,9 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 	// children pruned), so this Cohort is pruned.
 	if highestCohort == nil && highestCq == nil {
 		t.prunedCohorts.Insert(cohort)
+		if logV := t.log.V(6); logV.Enabled() {
+			logV.Info("Pruning Cohort during Target ordering as all children are pruned", "cohort", cohort.GetName())
+		}
 		return nil
 	}
 
@@ -199,7 +208,13 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 	// slightly more fair, as we can choose the most unfair node
 	// within that Cohort.
 	if schdcache.CompareDRS(highestCohortDrs, highestCqDrs) >= 0 {
+		if logV := t.log.V(6); logV.Enabled() {
+			logV.Info("Selected Cohort with highest DRS", "cohort", highestCohort.GetName(), "drs", highestCohortDrs)
+		}
 		return t.nextTarget(highestCohort)
+	}
+	if logV := t.log.V(6); logV.Enabled() {
+		logV.Info("Selected ClusterQueue with highest DRS", "clusterQueue", highestCq.GetName(), "drs", highestCqDrs)
 	}
 	return &TargetClusterQueue{
 		ordering: t,

@@ -24,7 +24,7 @@ metadata:
   namespace: '{{ .Release.Namespace }}'
 rules:
   - apiGroups: ["kueue.x-k8s.io"]
-    resources: ["workloads", "clusterqueues", "localqueues", "resourceflavors"]
+    resources: ["workloads", "clusterqueues", "localqueues", "resourceflavors", "cohorts"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods", "events", "nodes"]

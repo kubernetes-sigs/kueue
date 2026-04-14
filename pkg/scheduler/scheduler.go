@@ -165,12 +165,22 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 	}
 	s := &Scheduler{
-		fairSharing:             options.fairSharing,
-		queues:                  queues,
-		cache:                   cache,
-		client:                  cl,
-		recorder:                recorder,
-		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, afs.Enabled(options.admissionFairSharing), options.clock, options.roleTracker, options.preemptionExpectations, options.customLabels),
+		fairSharing: options.fairSharing,
+		queues:      queues,
+		cache:       cache,
+		client:      cl,
+		recorder:    recorder,
+		preemptor: preemption.New(
+			cl,
+			wo,
+			recorder,
+			options.fairSharing,
+			afs.Enabled(options.admissionFairSharing),
+			options.clock,
+			options.roleTracker,
+			options.preemptionExpectations,
+			options.customLabels,
+		),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 		clock:                   options.clock,
@@ -356,7 +366,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
 			// If preemptions are issued, the next attempt should try all the flavors.
 			e.LastAssignment = nil
-			preempted, errors, err := s.preemptor.IssuePreemptions(ctx, &e.Info, preemptionTargets, e.clusterQueueSnapshot)
+			preempted, errors, err := s.preemptor.IssuePreemptions(ctx, s.cache, &e.Info, preemptionTargets, e.clusterQueueSnapshot)
 			if err != nil {
 				log.Error(err, "Failed to preempt workloads")
 			}
@@ -643,8 +653,9 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	unhealthyNodesCsv := strings.Join(unhealthyNodes, ",")
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled", "unhealthyNodes", unhealthyNodes)
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for unhealthy node(s): %s", unhealthyNodesCsv)
+	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
 	if err := workload.Evict(
-		ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock, s.roleTracker, s.customLabels,
+		ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock, exposeLqMetrics, s.roleTracker, s.customLabels,
 		workload.EvictWithLooseOnApply(), workload.EvictWithRetryOnConflictForPatch(),
 	); err != nil {
 		return fmt.Errorf("failed to evict workload after failed try to find a replacement for unhealthy nodes: %s, %w", unhealthyNodesCsv, err)
@@ -732,7 +743,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 
 func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) {
 	workload.SetQuotaReservation(wl, admission, s.clock)
-	if workload.HasAllChecks(wl, workload.AdmissionChecksForWorkload(log, wl, cq.AdmissionChecks, schdcache.AllFlavors(cq.ResourceGroups))) {
+	if workload.HasAllRequiredChecks(log, wl, cq.AdmissionChecks) {
 		// sync Admitted, ignore the result since an API update is always done.
 		_ = workload.SyncAdmittedCondition(wl, s.clock.Now())
 	}
@@ -842,13 +853,15 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	}
 
 	if s.queues.QueueSecondPassIfNeeded(ctx, e.Obj, e.SecondPassIteration) {
-		log.V(2).Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
+		log.V(2).
+			Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
 		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "SecondPassFailed", api.TruncateEventMessage(e.inadmissibleMsg))
 		return
 	}
 
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
-	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
+	log.V(2).
+		Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
 		wl := e.Obj.DeepCopy()
 		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
@@ -871,12 +884,12 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 func (s *Scheduler) recordWorkloadAdmissionMetrics(log logr.Logger, newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, consideredFlavors string) {
 	waitTime := workload.QueuedWaitTime(newWorkload, s.clock)
 
-	s.recordQuotaReservationMetrics(newWorkload, originalWorkload, admission, waitTime, consideredFlavors)
+	s.recordQuotaReservationMetrics(log, newWorkload, originalWorkload, admission, waitTime, consideredFlavors)
 	s.recordWorkloadAdmissionEvents(log, newWorkload, originalWorkload, admission, waitTime)
 }
 
 // recordQuotaReservationMetrics records metrics and events for quota reservation
-func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, waitTime time.Duration, consideredFlavors string) {
+func (s *Scheduler) recordQuotaReservationMetrics(log logr.Logger, newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, waitTime time.Duration, consideredFlavors string) {
 	if workload.HasQuotaReservation(originalWorkload) {
 		return
 	}
@@ -890,8 +903,8 @@ func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload 
 
 	priorityClassName := workload.PriorityClassName(newWorkload)
 	metrics.QuotaReservedWorkload(admission.ClusterQueue, priorityClassName, waitTime, s.customLabels.CQGet(admission.ClusterQueue), s.roleTracker)
-	if features.Enabled(features.LocalQueueMetrics) {
-		lqRef := metrics.LQRefFromWorkload(newWorkload)
+	lqRef := metrics.LQRefFromWorkload(newWorkload)
+	if s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, newWorkload) {
 		metrics.LocalQueueQuotaReservedWorkload(lqRef, priorityClassName, waitTime, s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload)), s.roleTracker)
 	}
 }
@@ -908,7 +921,8 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 	cqCustomLabels := s.customLabels.CQGet(admission.ClusterQueue)
 	s.cache.ReportCohortSubtreeAdmittedWorkload(log, newWorkload)
 	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime, cqCustomLabels, s.roleTracker)
-	if features.Enabled(features.LocalQueueMetrics) {
+	shouldExposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, newWorkload)
+	if shouldExposeLqMetrics {
 		lqRef := metrics.LQRefFromWorkload(newWorkload)
 		lqCustomLabels := s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload))
 		metrics.LocalQueueAdmittedWorkload(lqRef, priorityClassName, waitTime, lqCustomLabels, s.roleTracker)
@@ -916,7 +930,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 
 	if len(newWorkload.Status.AdmissionChecks) > 0 {
 		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, priorityClassName, 0, cqCustomLabels, s.roleTracker)
-		if features.Enabled(features.LocalQueueMetrics) {
+		if shouldExposeLqMetrics {
 			lqRef := metrics.LQRefFromWorkload(newWorkload)
 			metrics.ReportLocalQueueAdmissionChecksWaitTime(lqRef, priorityClassName, 0, s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload)), s.roleTracker)
 		}

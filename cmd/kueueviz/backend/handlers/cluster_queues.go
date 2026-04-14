@@ -76,11 +76,13 @@ func (h *Handlers) fetchClusterQueues(ctx context.Context) ([]map[string]any, er
 		result = append(result, map[string]any{
 			"name":               name,
 			"cohort":             cohort,
-			"resourceGroups":     item.Spec.ResourceGroups,
+			"resourceGroups":     convertResourceGroups(item.Spec.ResourceGroups),
 			"admittedWorkloads":  admittedWorkloads,
 			"pendingWorkloads":   pendingWorkloads,
 			"reservingWorkloads": reservingWorkloads,
 			"flavors":            flavors,
+			"flavorsUsage":       convertFlavorsUsage(item.Status.FlavorsUsage),
+			"flavorsReservation": convertFlavorsUsage(item.Status.FlavorsReservation),
 		})
 	}
 
@@ -110,26 +112,35 @@ func (h *Handlers) fetchClusterQueueDetails(ctx context.Context, name string) (a
 			continue
 		}
 
-		var reservation any = item.Status.FlavorsReservation
-		var usage any = item.Status.FlavorsUsage
-
 		queuesUsingClusterQueue = append(queuesUsingClusterQueue, map[string]any{
 			"namespace":   item.GetNamespace(),
 			"name":        item.GetName(),
-			"reservation": reservation,
-			"usage":       usage,
+			"reservation": convertLocalQueueFlavorsUsage(item.Status.FlavorsReservation),
+			"usage":       convertLocalQueueFlavorsUsage(item.Status.FlavorsUsage),
 		})
 	}
 
-	type cqResult struct {
-		*kueueapi.ClusterQueue
-
-		Queues []map[string]any `json:"queues"`
+	// Build result with converted numeric resource values
+	result := map[string]any{
+		"metadata": cq.ObjectMeta,
+		"spec": map[string]any{
+			"cohortName":        string(cq.Spec.CohortName),
+			"resourceGroups":    convertResourceGroups(cq.Spec.ResourceGroups),
+			"preemption":        cq.Spec.Preemption,
+			"flavorFungibility": cq.Spec.FlavorFungibility,
+			"queueingStrategy":  cq.Spec.QueueingStrategy,
+		},
+		"status": map[string]any{
+			"admittedWorkloads":  cq.Status.AdmittedWorkloads,
+			"reservingWorkloads": cq.Status.ReservingWorkloads,
+			"pendingWorkloads":   cq.Status.PendingWorkloads,
+			"conditions":         cq.Status.Conditions,
+			"flavorsUsage":       convertFlavorsUsage(cq.Status.FlavorsUsage),
+			"flavorsReservation": convertFlavorsUsage(cq.Status.FlavorsReservation),
+			"fairSharing":        cq.Status.FairSharing,
+		},
+		"queues": queuesUsingClusterQueue,
 	}
 
-	// Attach the queues information to the ClusterQueue details
-	return cqResult{
-		ClusterQueue: cq,
-		Queues:       queuesUsingClusterQueue,
-	}, nil
+	return result, nil
 }

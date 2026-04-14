@@ -31,6 +31,7 @@ import (
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -318,7 +319,8 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			manager := qcache.NewManagerForUnitTests(utiltesting.NewFakeClient(), nil)
+			options := qcache.WithPreemptionExpectations(preemptexpectations.New())
+			manager := qcache.NewManagerForUnitTests(utiltesting.NewFakeClient(), nil, options)
 			ctx, log := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()

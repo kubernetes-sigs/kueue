@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -493,15 +492,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				TrainerImage(util.GetAgnHostImage(), []string{"/agnhost"}, util.BehaviorExitFast).
 				TrainerRequest(corev1.ResourceCPU, "500m").
 				TrainerRequest(corev1.ResourceMemory, "200Mi").
-				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
-					{
-						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
-							{Name: "node"},
-						},
-						Metadata: &metav1.ObjectMeta{
-							Annotations: map[string]string{kueue.PodSetRequiredTopologyAnnotation: corev1.LabelHostname},
-						},
-					},
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("test-e2e/tas").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("node").
+								PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+								Obj(),
+						).
+						Obj(),
 				}).
 				Obj()
 
@@ -517,9 +515,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("verify the TrainJob has nodeSelector set", func() {
-				gomega.Expect(trainjob.Spec.PodTemplateOverrides).To(gomega.HaveLen(2))
-				gomega.Expect(trainjob.Spec.PodTemplateOverrides[1].Spec.NodeSelector).To(gomega.Equal(
+			ginkgo.By("Verify that the trainjob has a runtime patch from kueue", func() {
+				kueueRuntimePatch := testingtrainjob.KueueRuntimePatch(trainjob)
+				gomega.Expect(kueueRuntimePatch).ToNot(gomega.BeNil())
+				rJobs := kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs
+				gomega.Expect(rJobs).To(gomega.HaveLen(1))
+				gomega.Expect(rJobs[0].Template.Spec.Template.Spec.NodeSelector).To(gomega.Equal(
 					map[string]string{
 						"instance-type": "on-demand",
 					},

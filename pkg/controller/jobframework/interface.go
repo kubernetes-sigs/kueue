@@ -179,6 +179,12 @@ type JobWithCustomAnnotations interface {
 	GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error)
 }
 
+// ElasticWorkloadNameProvider interface contains method to provide extra information to build workload name for elastic job
+type ElasticWorkloadNameProvider interface {
+	// GetWorkloadNameExtraPart gets extra information to build workload name
+	GetWorkloadNameExtraPart() string
+}
+
 // TopLevelJob interface is an optional interface used to indicate
 // that the Job owns/manages the Workload object, regardless of the Job
 // owner references.

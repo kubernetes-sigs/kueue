@@ -27,7 +27,7 @@ import ViewYamlButton from './ViewYamlButton';
 const buildCohortTree = (cohorts) => {
   const cohortMap = new Map();
   cohorts.forEach(c => cohortMap.set(c.name, { ...c, children: [] }));
-  
+
   const roots = [];
   cohorts.forEach(c => {
     const node = cohortMap.get(c.name);
@@ -58,7 +58,7 @@ const CohortTreeNode = ({ cohort, depth = 0 }) => {
             )}
           </Box>
           <ListItemButton component={Link} to={`/cohort/${cohort.name}`} sx={{ py: 1 }}>
-            <ListItemText 
+            <ListItemText
               primary={
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Typography variant="subtitle1" fontWeight="medium">{cohort.name}</Typography>
@@ -95,7 +95,7 @@ const Cohorts = () => {
 
   useEffect(() => {
     if (cohorts && Array.isArray(cohorts)) {
-      setCohortList(cohorts);
+      setCohortList([...cohorts].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
     }
   }, [cohorts]);
 

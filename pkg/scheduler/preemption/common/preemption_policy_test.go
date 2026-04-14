@@ -165,9 +165,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			for feature, enabled := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, feature, enabled)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ordering := workload.Ordering{}
 			got := SatisfiesPreemptionPolicy(log, tc.preemptor, tc.candidate, ordering, tc.policy)
 			if got != tc.want {

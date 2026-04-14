@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
@@ -264,15 +265,42 @@ var (
 	// +metricsdoc:group=cohort
 	// +metricsdoc:labels=cohort="the name of the Cohort",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
 	CohortSubtreeAdmittedWorkloadsTotal *prometheus.CounterVec
+
+	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortSubtreeResourceReservations *prometheus.GaugeVec
+
+	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortSubtreeAdmittedActiveWorkloads *prometheus.GaugeVec
 )
 
-func trackGaugeVec(g *prometheus.GaugeVec) *prometheus.GaugeVec {
-	allGaugeVecs = append(allGaugeVecs, g)
+type gaugeCleanupScope uint8
+
+const (
+	gaugeCleanupScopeRole gaugeCleanupScope = iota
+	gaugeCleanupScopeClusterQueue
+	gaugeCleanupScopeClusterQueueLabelChange
+	gaugeCleanupScopeClusterQueueCache
+	gaugeCleanupScopeClusterQueueResource
+	gaugeCleanupScopeLocalQueue
+	gaugeCleanupScopeLocalQueueCache
+	gaugeCleanupScopeLocalQueueResource
+	gaugeCleanupScopeCohort
+)
+
+var gaugeVecsByScope map[gaugeCleanupScope][]*prometheus.GaugeVec
+
+func trackGaugeVec(g *prometheus.GaugeVec, scopes ...gaugeCleanupScope) *prometheus.GaugeVec {
+	gaugeVecsByScope[gaugeCleanupScopeRole] = append(gaugeVecsByScope[gaugeCleanupScopeRole], g)
+	for _, scope := range scopes {
+		gaugeVecsByScope[scope] = append(gaugeVecsByScope[scope], g)
+	}
 	return g
 }
 
 func InitMetricVectors(extraLabels []string) {
-	allGaugeVecs = nil
+	gaugeVecsByScope = make(map[gaugeCleanupScope][]*prometheus.GaugeVec)
 
 	AdmissionAttemptsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -297,14 +325,15 @@ The label 'result' can have the following values:
 		}, []string{"result", "replica_role"},
 	)
 
-	AdmissionCyclePreemptionSkips = trackGaugeVec(prometheus.NewGaugeVec(
+	AdmissionCyclePreemptionSkips = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_cycle_preemption_skips",
 			Help: "The number of Workloads in the ClusterQueue that got preemption candidates " +
 				"but had to be skipped because other ClusterQueues needed the same resources in the same cycle",
 		}, append([]string{"cluster_queue", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(AdmissionCyclePreemptionSkips, gaugeCleanupScopeClusterQueue)
 
 	buildInfo = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -317,7 +346,7 @@ The label 'result' can have the following values:
 	versionInfo := version.Get()
 	buildInfo.WithLabelValues(versionInfo.GitVersion, versionInfo.GitCommit, versionInfo.BuildDate, versionInfo.GoVersion, versionInfo.Compiler, versionInfo.Platform).Set(1)
 
-	PendingWorkloads = trackGaugeVec(prometheus.NewGaugeVec(
+	PendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "pending_workloads",
@@ -326,9 +355,10 @@ The label 'result' can have the following values:
 - "active" means that the workloads are in the admission queue.
 - "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
 		}, append([]string{"cluster_queue", "status", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(PendingWorkloads, gaugeCleanupScopeClusterQueue)
 
-	LocalQueuePendingWorkloads = trackGaugeVec(prometheus.NewGaugeVec(
+	LocalQueuePendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_pending_workloads",
@@ -337,23 +367,26 @@ The label 'result' can have the following values:
 - "active" means that the workloads are in the admission queue.
 - "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
 		}, append([]string{"name", "namespace", "status", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(LocalQueuePendingWorkloads, gaugeCleanupScopeLocalQueue)
 
-	FinishedWorkloads = trackGaugeVec(prometheus.NewGaugeVec(
+	FinishedWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "finished_workloads",
 			Help:      `The number of finished workloads per 'cluster_queue'.`,
 		}, append([]string{"cluster_queue", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(FinishedWorkloads, gaugeCleanupScopeClusterQueue)
 
-	LocalQueueFinishedWorkloads = trackGaugeVec(prometheus.NewGaugeVec(
+	LocalQueueFinishedWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_finished_workloads",
 			Help:      `The number of finished workloads, per 'local_queue'.`,
 		}, append([]string{"name", "namespace", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(LocalQueueFinishedWorkloads, gaugeCleanupScopeLocalQueue)
 
 	QuotaReservedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -610,113 +643,126 @@ The label 'reason' can have the following values:
 		}, append([]string{"preempting_cluster_queue", "reason", "replica_role"}, extraLabels...),
 	)
 
-	ReservingActiveWorkloads = trackGaugeVec(prometheus.NewGaugeVec(
+	ReservingActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "reserving_active_workloads",
 			Help:      "The number of Workloads that are reserving quota, per 'cluster_queue'",
 		}, append([]string{"cluster_queue", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(ReservingActiveWorkloads, gaugeCleanupScopeClusterQueueCache)
 
-	LocalQueueReservingActiveWorkloads = trackGaugeVec(prometheus.NewGaugeVec(
+	LocalQueueReservingActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_reserving_active_workloads",
 			Help:      "The number of Workloads that are reserving quota, per 'localQueue'",
 		}, append([]string{"name", "namespace", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(LocalQueueReservingActiveWorkloads, gaugeCleanupScopeLocalQueueCache)
 
-	AdmittedActiveWorkloads = trackGaugeVec(prometheus.NewGaugeVec(
+	AdmittedActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admitted_active_workloads",
-			Help:      "The number of admitted Workloads that are active (unsuspended and not finished), per 'cluster_queue'",
+			Help:      "The number of admitted Workloads that are active, per 'cluster_queue'",
 		}, append([]string{"cluster_queue", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(AdmittedActiveWorkloads, gaugeCleanupScopeClusterQueueCache)
 
-	LocalQueueAdmittedActiveWorkloads = trackGaugeVec(prometheus.NewGaugeVec(
+	LocalQueueAdmittedActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admitted_active_workloads",
-			Help:      "The number of admitted Workloads that are active (unsuspended and not finished), per 'localQueue'",
+			Help:      "The number of admitted Workloads that are active, per 'localQueue'",
 		}, append([]string{"name", "namespace", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(LocalQueueAdmittedActiveWorkloads, gaugeCleanupScopeLocalQueueCache)
 
-	ClusterQueueByStatus = trackGaugeVec(prometheus.NewGaugeVec(
+	ClusterQueueByStatus = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_status",
 			Help: `Reports 'cluster_queue' with its 'status' (with possible values 'pending', 'active' or 'terminated').
 For a ClusterQueue, the metric only reports a value of 1 for one of the statuses.`,
 		}, append([]string{"cluster_queue", "status", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(ClusterQueueByStatus, gaugeCleanupScopeClusterQueueCache)
 
-	LocalQueueByStatus = trackGaugeVec(prometheus.NewGaugeVec(
+	LocalQueueByStatus = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_status",
 			Help: `Reports 'localQueue' with its 'active' status (with possible values 'True', 'False', or 'Unknown').
 For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`,
 		}, append([]string{"name", "namespace", "active", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(LocalQueueByStatus, gaugeCleanupScopeLocalQueueCache)
 
-	ClusterQueueResourceReservations = trackGaugeVec(prometheus.NewGaugeVec(
+	ClusterQueueResourceReservations = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_resource_reservation",
 			Help:      `Reports the cluster_queue's total resource reservation within all the flavors`,
 		}, append([]string{"cohort", "cluster_queue", "flavor", "resource", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(ClusterQueueResourceReservations, gaugeCleanupScopeClusterQueueResource)
 
-	ClusterQueueResourceUsage = trackGaugeVec(prometheus.NewGaugeVec(
+	ClusterQueueResourceUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_resource_usage",
 			Help:      `Reports the cluster_queue's total resource usage within all the flavors`,
 		}, append([]string{"cohort", "cluster_queue", "flavor", "resource", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(ClusterQueueResourceUsage, gaugeCleanupScopeClusterQueueResource)
 
-	LocalQueueResourceReservations = trackGaugeVec(prometheus.NewGaugeVec(
+	LocalQueueResourceReservations = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_resource_reservation",
 			Help:      `Reports the localQueue's total resource reservation within all the flavors`,
 		}, append([]string{"name", "namespace", "flavor", "resource", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(LocalQueueResourceReservations, gaugeCleanupScopeLocalQueueResource)
 
-	LocalQueueResourceUsage = trackGaugeVec(prometheus.NewGaugeVec(
+	LocalQueueResourceUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_resource_usage",
 			Help:      `Reports the localQueue's total resource usage within all the flavors`,
 		}, append([]string{"name", "namespace", "flavor", "resource", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(LocalQueueResourceUsage, gaugeCleanupScopeLocalQueueResource)
 
-	ClusterQueueResourceNominalQuota = trackGaugeVec(prometheus.NewGaugeVec(
+	ClusterQueueResourceNominalQuota = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_nominal_quota",
 			Help:      `Reports the cluster_queue's resource nominal quota within all the flavors`,
 		}, append([]string{"cohort", "cluster_queue", "flavor", "resource", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(ClusterQueueResourceNominalQuota, gaugeCleanupScopeClusterQueueResource)
 
-	ClusterQueueResourceBorrowingLimit = trackGaugeVec(prometheus.NewGaugeVec(
+	ClusterQueueResourceBorrowingLimit = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_borrowing_limit",
 			Help:      `Reports the cluster_queue's resource borrowing limit within all the flavors`,
 		}, append([]string{"cohort", "cluster_queue", "flavor", "resource", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(ClusterQueueResourceBorrowingLimit, gaugeCleanupScopeClusterQueueResource)
 
-	ClusterQueueResourceLendingLimit = trackGaugeVec(prometheus.NewGaugeVec(
+	ClusterQueueResourceLendingLimit = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_lending_limit",
 			Help:      `Reports the cluster_queue's resource lending limit within all the flavors`,
 		}, append([]string{"cohort", "cluster_queue", "flavor", "resource", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(ClusterQueueResourceLendingLimit, gaugeCleanupScopeClusterQueueResource)
 
-	ClusterQueueWeightedShare = trackGaugeVec(prometheus.NewGaugeVec(
+	ClusterQueueWeightedShare = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_weighted_share",
@@ -726,9 +772,10 @@ the ClusterQueue, and divided by the weight.
 If zero, it means that the usage of the ClusterQueue is below the nominal quota.
 If the ClusterQueue has a weight of zero and is borrowing, this will return NaN.`,
 		}, append([]string{"cluster_queue", "cohort", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(ClusterQueueWeightedShare, gaugeCleanupScopeClusterQueueLabelChange)
 
-	CohortWeightedShare = trackGaugeVec(prometheus.NewGaugeVec(
+	CohortWeightedShare = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cohort_weighted_share",
@@ -738,15 +785,17 @@ the Cohort, and divided by the weight.
 If zero, it means that the usage of the Cohort is below the nominal quota.
 If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, append([]string{"cohort", "replica_role"}, extraLabels...),
-	))
+	)
+	trackGaugeVec(CohortWeightedShare, gaugeCleanupScopeCohort)
 
-	CohortSubtreeQuota = trackGaugeVec(prometheus.NewGaugeVec(
+	CohortSubtreeQuota = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cohort_subtree_quota",
 			Help:      `Reports the cohort's nominal quota aggregated within the cohort's subtree. The values are reported per resource and flavor`,
-		}, []string{"cohort", "flavor", "resource", "replica_role"},
-	))
+		}, append([]string{"cohort", "flavor", "resource", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(CohortSubtreeQuota, gaugeCleanupScopeCohort)
 
 	CohortSubtreeAdmittedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -755,6 +804,24 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 			Help:      "The total number of admitted workloads per cohort's subtree",
 		}, append([]string{"cohort", "priority_class", "replica_role"}, extraLabels...),
 	)
+
+	CohortSubtreeResourceReservations = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_subtree_resource_reservations",
+			Help:      `Reports the cohort's resource reservations aggregated within the cohort's subtree. The values are reported per resource and flavor`,
+		}, append([]string{"cohort", "flavor", "resource", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(CohortSubtreeResourceReservations, gaugeCleanupScopeCohort)
+
+	CohortSubtreeAdmittedActiveWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_subtree_admitted_active_workloads",
+			Help:      "The number of admitted Workloads that are active, per cohort's subtree",
+		}, append([]string{"cohort", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(CohortSubtreeAdmittedActiveWorkloads)
 }
 
 func init() {
@@ -908,11 +975,9 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 
 func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	cqName := string(cq)
-	AdmissionCyclePreemptionSkips.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
-	PendingWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueue, prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
-	FinishedWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	FinishedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PodsReadyToEvictedTimeSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -928,27 +993,30 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 func ClearClusterQueueMetricsOnLabelChange(cq kueue.ClusterQueueReference) {
 	cqName := string(cq)
 	ReplacedWorkloadSlicesTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
-	ClusterQueueWeightedShare.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueueLabelChange, prometheus.Labels{"cluster_queue": cqName})
 }
 
 func ClearLocalQueueMetrics(lq LocalQueueReference) {
-	LocalQueuePendingWorkloads.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueQuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueFinishedWorkloads.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueFinishedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueAdmissionWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueAdmissionChecksWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueQueuedUntilReadyWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueAdmittedUntilReadyWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
+	lbls := prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace}
+	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueue, lbls)
+	LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(lbls)
+	LocalQueueQuotaReservedWaitTime.DeletePartialMatch(lbls)
+	LocalQueueFinishedWorkloadsTotal.DeletePartialMatch(lbls)
+	LocalQueueAdmittedWorkloadsTotal.DeletePartialMatch(lbls)
+	LocalQueueAdmissionWaitTime.DeletePartialMatch(lbls)
+	LocalQueueAdmissionChecksWaitTime.DeletePartialMatch(lbls)
+	LocalQueueQueuedUntilReadyWaitTime.DeletePartialMatch(lbls)
+	LocalQueueAdmittedUntilReadyWaitTime.DeletePartialMatch(lbls)
+	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(lbls)
 }
 
-func ClearCohortMetrics(cohortName string) {
-	CohortSubtreeQuota.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
-	CohortWeightedShare.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
-	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cohort": cohortName})
+func ClearCohortMetrics(cohortName kueue.CohortReference) {
+	clearScopedGaugeMetrics(gaugeCleanupScopeCohort, prometheus.Labels{"cohort": string(cohortName)})
+}
+
+func ClearCohortAdmittedWorkloadsMetrics(cohortName kueue.CohortReference) {
+	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
+	CohortSubtreeAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
 }
 
 func ReportClusterQueueStatus(cqName kueue.ClusterQueueReference, cqStatus ClusterQueueStatus, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -980,15 +1048,11 @@ func ReportLocalQueueStatus(lq LocalQueueReference, conditionStatus metav1.Condi
 }
 
 func ClearCacheMetrics(cqName string) {
-	ReservingActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
-	AdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
-	ClusterQueueByStatus.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueueCache, prometheus.Labels{"cluster_queue": cqName})
 }
 
 func ClearLocalQueueCacheMetrics(lq LocalQueueReference) {
-	LocalQueueReservingActiveWorkloads.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	LocalQueueByStatus.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
+	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueueCache, prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 }
 
 func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resource string, nominal, borrowing, lending float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -998,8 +1062,16 @@ func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resou
 	ClusterQueueResourceLendingLimit.WithLabelValues(labels...).Set(lending)
 }
 
-func ReportCohortSubtreeQuota(cohort kueue.CohortReference, flavor, resource string, quota float64, tracker *roletracker.RoleTracker) {
-	CohortSubtreeQuota.WithLabelValues(string(cohort), flavor, resource, roletracker.GetRole(tracker)).Set(quota)
+func ReportCohortSubtreeQuota(
+	cohort kueue.CohortReference,
+	flavor kueue.ResourceFlavorReference,
+	resource corev1.ResourceName,
+	quota int64,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	labels := append([]string{string(cohort), string(flavor), string(resource), roletracker.GetRole(tracker)}, customLabelValues...)
+	CohortSubtreeQuota.WithLabelValues(labels...).Set(float64(quota))
 }
 
 func ReportCohortSubtreeAdmittedWorkload(cohort kueue.CohortReference, priorityClass string, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1007,17 +1079,37 @@ func ReportCohortSubtreeAdmittedWorkload(cohort kueue.CohortReference, priorityC
 	CohortSubtreeAdmittedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
-func ClearCohortSubtreeQuota(cohort kueue.CohortReference, flavor, resource string) {
-	lbls := prometheus.Labels{
-		"cohort": string(cohort),
-	}
+func cohortPartialMatchLabels(cohort kueue.CohortReference, flavor, resource string) prometheus.Labels {
+	lbls := prometheus.Labels{"cohort": string(cohort)}
 	if len(flavor) != 0 {
 		lbls["flavor"] = flavor
 	}
 	if len(resource) != 0 {
 		lbls["resource"] = resource
 	}
+	return lbls
+}
+
+func ClearCohortSubtreeQuota(cohort kueue.CohortReference, flavor kueue.ResourceFlavorReference, resource corev1.ResourceName) {
+	lbls := cohortPartialMatchLabels(cohort, string(flavor), string(resource))
 	CohortSubtreeQuota.DeletePartialMatch(lbls)
+}
+
+func ReportCohortSubtreeResourceReservations(
+	cohort kueue.CohortReference,
+	flavor kueue.ResourceFlavorReference,
+	resource corev1.ResourceName,
+	usage int64,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	labels := append([]string{string(cohort), string(flavor), string(resource), roletracker.GetRole(tracker)}, customLabelValues...)
+	CohortSubtreeResourceReservations.WithLabelValues(labels...).Set(float64(usage))
+}
+
+func ClearCohortSubtreeResourceReservations(cohort kueue.CohortReference, flavor kueue.ResourceFlavorReference, resource corev1.ResourceName) {
+	lbls := cohortPartialMatchLabels(cohort, string(flavor), string(resource))
+	CohortSubtreeResourceReservations.DeletePartialMatch(lbls)
 }
 
 func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue, flavor, resource string, usage float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1050,6 +1142,11 @@ func ReportCohortWeightedShare(cohort kueue.CohortReference, weightedShare float
 	CohortWeightedShare.WithLabelValues(labels...).Set(weightedShare)
 }
 
+func ReportCohortSubtreeAdmittedActiveWorkloads(cohort kueue.CohortReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cohort), roletracker.GetRole(tracker)}, customLabelValues...)
+	CohortSubtreeAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
 func ReportAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
 	AdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
@@ -1080,36 +1177,28 @@ func ReportAdmissionCyclePreemptionSkips(cqName kueue.ClusterQueueReference, cou
 	AdmissionCyclePreemptionSkips.WithLabelValues(labels...).Set(float64(count))
 }
 
-var allGaugeVecs []*prometheus.GaugeVec
+func clearScopedGaugeMetrics(scope gaugeCleanupScope, lbls prometheus.Labels) {
+	for _, g := range gaugeVecsByScope[scope] {
+		g.DeletePartialMatch(lbls)
+	}
+}
 
 // ClearGaugeMetricsForRole deletes all gauge metric time series matching
 // replica_role=role. Called during HA role transitions to remove stale
 // time series reported under the old role.
 func ClearGaugeMetricsForRole(role string) {
-	lbls := prometheus.Labels{"replica_role": role}
-	for _, g := range allGaugeVecs {
-		g.DeletePartialMatch(lbls)
-	}
+	clearScopedGaugeMetrics(gaugeCleanupScopeRole, prometheus.Labels{"replica_role": role})
 }
 
 func ClearClusterQueueResourceMetrics(cqName string) {
-	lbls := prometheus.Labels{
-		"cluster_queue": cqName,
-	}
-	ClusterQueueResourceNominalQuota.DeletePartialMatch(lbls)
-	ClusterQueueResourceBorrowingLimit.DeletePartialMatch(lbls)
-	ClusterQueueResourceLendingLimit.DeletePartialMatch(lbls)
-	ClusterQueueResourceUsage.DeletePartialMatch(lbls)
-	ClusterQueueResourceReservations.DeletePartialMatch(lbls)
+	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueueResource, prometheus.Labels{"cluster_queue": cqName})
 }
 
 func ClearLocalQueueResourceMetrics(lq LocalQueueReference) {
-	lbls := prometheus.Labels{
+	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueueResource, prometheus.Labels{
 		"name":      string(lq.Name),
 		"namespace": lq.Namespace,
-	}
-	LocalQueueResourceReservations.DeletePartialMatch(lbls)
-	LocalQueueResourceUsage.DeletePartialMatch(lbls)
+	})
 }
 
 func ClearClusterQueueResourceQuotas(cqName, flavor, resource string) {
@@ -1186,6 +1275,8 @@ func Register() {
 		CohortWeightedShare,
 		CohortSubtreeQuota,
 		CohortSubtreeAdmittedWorkloadsTotal,
+		CohortSubtreeResourceReservations,
+		CohortSubtreeAdmittedActiveWorkloads,
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()

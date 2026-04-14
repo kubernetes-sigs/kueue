@@ -28,7 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/importer/util"
+	"sigs.k8s.io/kueue/cmd/importer/cache"
+	"sigs.k8s.io/kueue/cmd/importer/mapping"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -91,7 +92,7 @@ func TestImportNamespace(t *testing.T) {
 		pods          []corev1.Pod
 		clusterQueues []kueue.ClusterQueue
 		localQueues   []kueue.LocalQueue
-		mapping       util.MappingRules
+		mapping       mapping.Rules
 		addLabels     map[string]string
 
 		wantPods      []corev1.Pod
@@ -103,9 +104,9 @@ func TestImportNamespace(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.Clone().Obj(),
 			},
-			mapping: util.MappingRules{
-				util.MappingRule{
-					Match: util.MappingMatch{
+			mapping: mapping.Rules{
+				mapping.Rule{
+					Match: mapping.Match{
 						PriorityClassName: "",
 						Labels: map[string]string{
 							testingQueueLabel: "q1",
@@ -136,9 +137,9 @@ func TestImportNamespace(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.Clone().Obj(),
 			},
-			mapping: util.MappingRules{
-				util.MappingRule{
-					Match: util.MappingMatch{
+			mapping: mapping.Rules{
+				mapping.Rule{
+					Match: mapping.Match{
 						PriorityClassName: "",
 						Labels: map[string]string{
 							testingQueueLabel: "q1",
@@ -186,7 +187,7 @@ func TestImportNamespace(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			mpc, _ := util.LoadImportCache(ctx, client, []string{testingNamespace}, tc.mapping, tc.addLabels)
+			mpc, _ := cache.Load(ctx, client, []string{testingNamespace}, tc.mapping, tc.addLabels)
 			gotErr := Import(ctx, client, mpc, 8)
 
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {

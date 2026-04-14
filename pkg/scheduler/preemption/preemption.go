@@ -174,11 +174,24 @@ func preemptionMessage(preemptor *kueue.Workload, reason, preemptorPath, preempt
 	jUID := cmp.Or(uid, "UNKNOWN")
 	preemptorMsgPath := cmp.Or(preemptorPath, "UNKNOWN")
 	preempteeMsgPath := cmp.Or(preempteePath, "UNKNOWN")
-	return fmt.Sprintf("Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s; preemptor path: %s; preemptee path: %s", wUID, jUID, HumanReadablePreemptionReasons[reason], preemptorMsgPath, preempteeMsgPath)
+	return fmt.Sprintf(
+		"Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s; preemptor path: %s; preemptee path: %s",
+		wUID,
+		jUID,
+		HumanReadablePreemptionReasons[reason],
+		preemptorMsgPath,
+		preempteeMsgPath,
+	)
 }
 
 // IssuePreemptions marks the target workloads as evicted.
-func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*Target, snap *schdcache.ClusterQueueSnapshot) (preempted int, failedPreemptions int, exampleError error) {
+func (p *Preemptor) IssuePreemptions(
+	ctx context.Context,
+	cache *schdcache.Cache,
+	preemptor *workload.Info,
+	targets []*Target,
+	snap *schdcache.ClusterQueueSnapshot,
+) (preempted int, failedPreemptions int, exampleError error) {
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
@@ -191,6 +204,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 		if workload.IsEvicted(target.WorkloadInfo.Obj) {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
 			successfullyPreempted.Add(1)
+			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			return
 		}
 		if !p.preemptionExpectations.Satisfied(log, targetKey) {
@@ -208,8 +222,9 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 
 		message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
+		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 		err := workload.Evict(
-			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, p.roleTracker, p.customLabels,
+			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
 			workload.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),
@@ -400,7 +415,15 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
 			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
-			if strategy(preemptorNewShare, targetOldShare, targetNewShare) {
+			passed := strategy(preemptorNewShare, targetOldShare, targetNewShare)
+			if logV := preemptionCtx.log.V(6); logV.Enabled() {
+				logV.Info("Evaluating FairSharing strategy",
+					"preemptorNewShare", preemptorNewShare,
+					"targetOldShare", targetOldShare,
+					"targetNewShare", targetNewShare,
+					"strategyPassed", passed)
+			}
+			if passed {
 				preemptionCtx.snapshot.RemoveWorkload(candWl)
 				targets = append(targets, &Target{
 					WorkloadInfo: candWl,
@@ -426,9 +449,16 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, preemptionCtx.log, preemptionCtx.clock)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
+		passed := fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{})
+		if logV := preemptionCtx.log.V(6); logV.Enabled() {
+			logV.Info("Evaluating FairSharing strategy",
+				"preemptorNewShare", preemptorNewShare,
+				"targetOldShare", targetOldShare,
+				"strategyPassed", passed)
+		}
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
-		if fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{}) {
+		if passed {
 			// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
 			candWl := candCQ.PopWorkload()
 			preemptionCtx.snapshot.RemoveWorkload(candWl)
@@ -457,7 +487,15 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 		return preemptioncommon.CandidatesOrdering(preemptionCtx.log, p.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, p.clock.Now())
 	})
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
-		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
+		logV.Info(
+			"Simulating fair preemption",
+			"candidates",
+			workload.References(candidates),
+			"resourcesRequiringPreemption",
+			preemptionCtx.frsNeedPreemption.UnsortedList(),
+			"preemptingWorkload",
+			klog.KObj(preemptionCtx.preemptor.Obj),
+		)
 	}
 
 	// DRS values must include incoming workload.
@@ -507,7 +545,14 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Se
 	return resPerFlavor
 }
 
-func findCandidatesForPolicy(log logr.Logger, wl *kueue.Workload, workloadsToFilter map[workload.Reference]*workload.Info, policy kueue.PreemptionPolicy, frsNeedPreemption sets.Set[resources.FlavorResource], workloadOrdering workload.Ordering) []*workload.Info {
+func findCandidatesForPolicy(
+	log logr.Logger,
+	wl *kueue.Workload,
+	workloadsToFilter map[workload.Reference]*workload.Info,
+	policy kueue.PreemptionPolicy,
+	frsNeedPreemption sets.Set[resources.FlavorResource],
+	workloadOrdering workload.Ordering,
+) []*workload.Info {
 	var candidates []*workload.Info
 	for _, candidateWl := range workloadsToFilter {
 		if !preemptioncommon.SatisfiesPreemptionPolicy(

@@ -142,6 +142,21 @@ func (a *Assignment) podSetAssignmentByName(psName kueue.PodSetReference) *PodSe
 	return nil
 }
 
+func (a *Assignment) updateMode(psName kueue.PodSetReference, mode FlavorAssignmentMode) {
+	if psAssignment := a.podSetAssignmentByName(psName); psAssignment != nil {
+		psAssignment.updateMode(mode)
+		a.representativeMode = ptr.To(mode)
+	}
+}
+
+func (a *Assignment) updateModeForTASRequests(tasRequests schdcache.WorkloadTASRequests, mode FlavorAssignmentMode) {
+	for _, reqs := range tasRequests {
+		for _, req := range reqs {
+			a.updateMode(req.PodSet.Name, mode)
+		}
+	}
+}
+
 // RepresentativeMode calculates the representative mode for the assignment as
 // the worst assignment mode among all the pod sets.
 func (a *Assignment) RepresentativeMode() FlavorAssignmentMode {
@@ -518,7 +533,14 @@ type FlavorAssigner struct {
 	replaceWorkloadSlice *workload.Info
 }
 
-func New(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle, preemptWorkloadSlice *workload.Info) *FlavorAssigner {
+func New(
+	wl *workload.Info,
+	cq *schdcache.ClusterQueueSnapshot,
+	resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor,
+	enableFairSharing bool,
+	oracle preemptionOracle,
+	preemptWorkloadSlice *workload.Info,
+) *FlavorAssigner {
 	return &FlavorAssigner{
 		wl:                   wl,
 		cq:                   cq,
@@ -691,8 +713,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
 				psAssignment.reason(failure.Reason)
 				// update the mode for all flavors and the representative mode
-				psAssignment.updateMode(Preempt)
-				assignment.representativeMode = ptr.To(Preempt)
+				assignment.updateMode(failure.PodSetName, Preempt)
 			} else {
 				// All PodSets fit, we just update the TopologyAssignments
 				assignment.UpdateForTASResult(a.cq, result)
@@ -704,10 +725,13 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit even if
 				// all workloads are preempted.
-				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
 				// update the mode for all flavors and the representative mode
-				psAssignment.updateMode(NoFit)
-				assignment.representativeMode = ptr.To(NoFit)
+				assignment.updateMode(failure.PodSetName, NoFit)
+			} else {
+				// Update TAS-related assignments to Preempt because preemptions might be needed
+				// in resources in which total unused quota is sufficient (Fit), but the
+				// quota is fragmented.
+				assignment.updateModeForTASRequests(tasRequests, Preempt)
 			}
 		}
 	}
@@ -1023,8 +1047,14 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 
 	// No Fit
 	if val > maxCapacity {
-		status.appendf("insufficient quota for %s in flavor %s, previously considered podsets requests (%s) + current podset request (%s) > maximum capacity (%s)",
-			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, assumedUsage), resources.ResourceQuantityString(fr.Resource, requestUsage), resources.ResourceQuantityString(fr.Resource, maxCapacity))
+		status.appendf(
+			"insufficient quota for %s in flavor %s, previously considered podsets requests (%s) + current podset request (%s) > maximum capacity (%s)",
+			fr.Resource,
+			fr.Flavor,
+			resources.ResourceQuantityString(fr.Resource, assumedUsage),
+			resources.ResourceQuantityString(fr.Resource, requestUsage),
+			resources.ResourceQuantityString(fr.Resource, maxCapacity),
+		)
 		return noFit, 0, &status
 	}
 

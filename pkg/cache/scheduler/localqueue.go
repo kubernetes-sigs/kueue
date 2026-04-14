@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"maps"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
@@ -36,12 +37,19 @@ type LocalQueue struct {
 	admittedUsage      resources.FlavorResourceQuantities
 	// values extracted from K8s labels/annotations, used as custom Prometheus metric labels
 	customMetricLabelValues []string
+	labels                  map[string]string
 }
 
 func (q *LocalQueue) GetAdmittedUsage() corev1.ResourceList {
 	q.RLock()
 	defer q.RUnlock()
 	return q.admittedUsage.FlattenFlavors().ToResourceList()
+}
+
+func (q *LocalQueue) GetLabels() map[string]string {
+	q.RLock()
+	defer q.RUnlock()
+	return maps.Clone(q.labels)
 }
 
 func (q *LocalQueue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) {
@@ -76,4 +84,10 @@ func (q *LocalQueue) reportResourceMetrics(cqQuotas map[resources.FlavorResource
 		metrics.ReportLocalQueueResourceReservations(lqRef, fName, rName, resourceFloat(fr.Resource, q.totalReserved[fr]), q.customMetricLabelValues, tracker)
 		metrics.ReportLocalQueueResourceUsage(lqRef, fName, rName, resourceFloat(fr.Resource, q.admittedUsage[fr]), q.customMetricLabelValues, tracker)
 	}
+}
+
+func (q *LocalQueue) shouldExposeMetrics(lqMetrics *metrics.LocalQueueMetricsConfig) bool {
+	q.RLock()
+	defer q.RUnlock()
+	return lqMetrics.ShouldExposeLocalQueueMetrics(q.labels)
 }

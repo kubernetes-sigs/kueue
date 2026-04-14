@@ -27,14 +27,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -67,6 +71,11 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		reconciler, err := job.NewReconciler(
@@ -97,16 +106,25 @@ func managerAndControllersSetup(
 	opts ...jobframework.Option,
 ) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		managerSetup(opts...)(ctx, mgr)
 		if configuration == nil {
 			configuration = &config.Configuration{}
 		}
 		mgr.GetScheme().Default(configuration)
 
-		cCache := schdcache.New(mgr.GetClient())
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
+		lqMetrics := metrics.NewLocalQueueMetricsConfig(configuration.Metrics.LocalQueueMetrics)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptexpectations.New(), nil)
+		cCache := schdcache.New(mgr.GetClient(), schdcache.WithLocalQueueMetrics(lqMetrics))
+		preemptionExpectations := preemptexpectations.New()
+		queueOptions := []qcache.Option{
+			qcache.WithPreemptionExpectations(preemptionExpectations),
+			qcache.WithLocalQueueMetrics(lqMetrics),
+		}
+		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+
+		opts = append(opts, jobframework.WithCache(cCache))
+		managerSetup(opts...)(ctx, mgr)
+
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		if setupTASControllers {
@@ -117,8 +135,14 @@ func managerAndControllersSetup(
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+			failedCtrl, err = elasticjobs.SetupWithManager(mgr, configuration, nil)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "ElasticJobUngater controller", failedCtrl)
+		}
+
 		if enableScheduler {
-			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptexpectations.New()))
+			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName),
+				scheduler.WithPreemptionExpectations(preemptionExpectations))
 			err = sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

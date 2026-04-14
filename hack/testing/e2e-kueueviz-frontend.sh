@@ -31,9 +31,12 @@ cleanup() {
   kill "${FRONTEND_PID}"
 }
 
-# Start kueueviz frontend
+# Run frontend unit tests before starting the app
 cd "${PROJECT_DIR}/cmd/kueueviz/frontend"
 npm install
+npm test
+
+# Start kueueviz frontend
 npm start & FRONTEND_PID=$!
 
 # Run Cypress tests for kueueviz frontend

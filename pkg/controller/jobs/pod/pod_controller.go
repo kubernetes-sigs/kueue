@@ -404,12 +404,21 @@ func (p *Pod) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 // elapsed, it is treated as inactive. This prevents workloads from being
 // blocked by Pods that are stuck terminating, ensuring quota can be released
 // and new Pods admitted.
+//
+// When the FastQuotaReleaseInPodIntegration feature gate is enabled, any pod
+// with a DeletionTimestamp is treated as inactive immediately, regardless of
+// its grace period status. This allows quota to be released as soon as
+// preempted pods begin terminating.
 func (p *Pod) IsActive() bool {
 	for i := range p.list.Items {
 		pod := p.list.Items[i]
 
 		// Pods that are not in the Running phase are never considered Active.
 		if pod.Status.Phase != corev1.PodRunning {
+			continue
+		}
+
+		if features.Enabled(features.FastQuotaReleaseInPodIntegration) && pod.DeletionTimestamp != nil {
 			continue
 		}
 
@@ -502,12 +511,18 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 			},
 		}
 		//nolint:staticcheck //SA1019: client.Apply is deprecated
-		if err := c.Status().Patch(ctx, pCopy, client.Apply, client.FieldOwner(constants.KueueName)); err != nil && !apierrors.IsNotFound(err) {
+		err := c.Status().Patch(ctx, pCopy, client.Apply, client.FieldOwner(constants.KueueName))
+		if client.IgnoreNotFound(err) != nil {
 			return stoppedNow, err
 		}
-		if err := c.Delete(ctx, podInGroup.Object()); err != nil && !apierrors.IsNotFound(err) {
-			return stoppedNow, err
+
+		// Delete the pod if it is not already deleted.
+		if err == nil {
+			if err := c.Delete(ctx, podInGroup.Object()); client.IgnoreNotFound(err) != nil {
+				return stoppedNow, err
+			}
 		}
+
 		stoppedNow = append(stoppedNow, podInGroup.Object())
 	}
 

@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -403,8 +405,7 @@ func TestReconcile(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 
 	cases := map[string]struct {
-		enableDRAFeature                      bool
-		enableMKOrchestratedPreemptionFeature bool
+		featureGates map[featuregate.Feature]bool
 
 		workload                  *kueue.Workload
 		cq                        *kueue.ClusterQueue
@@ -422,7 +423,10 @@ func TestReconcile(t *testing.T) {
 		reconcilerOpts            []Option
 	}{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
-			enableDRAFeature: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -461,7 +465,10 @@ func TestReconcile(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate should be pre-processed and queued": {
-			enableDRAFeature:     true,
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
 			wantDRAResourceTotal: ptr.To(int64(1)),
 			wantWorkloadsInQueue: ptr.To(1),
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
@@ -496,7 +503,10 @@ func TestReconcile(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate multi-pod should be pre-processed and queued": {
-			enableDRAFeature:     true,
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
 			wantDRAResourceTotal: ptr.To(int64(6)),
 			wantWorkloadsInQueue: ptr.To(1),
 			workload: utiltestingapi.MakeWorkload("wlMultiPodDRA", "ns").
@@ -531,7 +541,10 @@ func TestReconcile(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
-			enableDRAFeature: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
 			workload: utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -580,7 +593,10 @@ func TestReconcile(t *testing.T) {
 			wantEvents:   nil,
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
-			enableDRAFeature: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
 			workload: utiltestingapi.MakeWorkload("wlMissingTemplate", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -2564,8 +2580,10 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{},
 		},
 		"should synchronize the status of preemption gates": {
-			enableMKOrchestratedPreemptionFeature: true,
-
+			featureGates: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation:        false,
+				features.MultiKueueOrchestratedPreemption: true,
+			},
 			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2793,8 +2811,7 @@ func TestReconcile(t *testing.T) {
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, tc.enableDRAFeature)
-				features.SetFeatureGateDuringTest(t, features.MultiKueueOrchestratedPreemption, tc.enableMKOrchestratedPreemptionFeature)
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
 
@@ -2808,12 +2825,16 @@ func TestReconcile(t *testing.T) {
 					objs = append(objs, rct)
 				}
 
-				clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithObjects(objs...).
+					WithStatusSubresource(objs...).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+				queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptexpectations.New())}
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache, queueOptions...)
 				reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
 				// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
 				reconciler.clock = fakeClock
@@ -2907,7 +2928,7 @@ func TestReconcile(t *testing.T) {
 				}
 
 				// For DRA tests, verify that workloads are properly queued/cached
-				if tc.enableDRAFeature && testWl != nil &&
+				if tc.featureGates[features.DynamicResourceAllocation] && testWl != nil &&
 					len(testWl.Spec.PodSets) > 0 &&
 					len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
 					workloadKey := client.ObjectKeyFromObject(testWl)
@@ -3103,7 +3124,8 @@ func TestWorkloadDeletion(t *testing.T) {
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
 			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptexpectations.New())}
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, queueOptions...)
 
 			mockWatcher := mockWorkloadUpdateWatcher(qManager)
 
@@ -3163,6 +3185,174 @@ func TestWorkloadDeletion(t *testing.T) {
 			}
 			if cqCache.GetWorkloadFromCache(wlRef) != nil {
 				t.Error("Workload still present in the scheduler cache")
+			}
+		})
+	}
+}
+
+func TestReconcileSyncAdmissionChecks(t *testing.T) {
+	cases := map[string]struct {
+		wl         kueue.Workload
+		cq         kueue.ClusterQueue
+		wantChecks []kueue.AdmissionCheckState
+	}{
+		"no checks in cq": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			cq: *utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Obj(),
+				).Obj(),
+		},
+		"add checks from cq": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			cq: *utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Obj(),
+				).AdmissionChecks("ac1", "ac2").Obj(),
+			wantChecks: []kueue.AdmissionCheckState{
+				{
+					Name:  "ac1",
+					State: kueue.CheckStatePending,
+				},
+				{
+					Name:  "ac2",
+					State: kueue.CheckStatePending,
+				},
+			},
+		},
+		"add only checks covering all flavors to unadmitted wl from cq with strategy": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			cq: *utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Obj(),
+				).AdmissionCheckStrategy(
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj(),
+			).Obj(),
+			wantChecks: []kueue.AdmissionCheckState{
+				{
+					Name:  "ac2",
+					State: kueue.CheckStatePending,
+				},
+			},
+		},
+		"add all cq checks to wl with empty assignment": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").Admission(&kueue.Admission{
+				ClusterQueue:      "cq",
+				PodSetAssignments: []kueue.PodSetAssignment{},
+			}).Obj(),
+			cq: *utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Obj(),
+				).AdmissionCheckStrategy(
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj(),
+			).Obj(),
+			wantChecks: []kueue.AdmissionCheckState{
+				{
+					Name:  "ac1",
+					State: kueue.CheckStatePending,
+				},
+				{
+					Name:  "ac2",
+					State: kueue.CheckStatePending,
+				},
+			},
+		},
+		"add checks to admitted wl from cq with strategy": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Admission(&kueue.Admission{
+					ClusterQueue: "cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "p1",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "flavor1",
+							},
+						},
+					},
+				}).Obj(),
+			cq: *utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Obj(),
+				).AdmissionCheckStrategy(
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2", "flavor2").Obj(),
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac3").Obj(),
+			).Obj(),
+			wantChecks: []kueue.AdmissionCheckState{
+				{
+					Name:  "ac1",
+					State: kueue.CheckStatePending,
+				},
+				{
+					Name:  "ac3",
+					State: kueue.CheckStatePending,
+				},
+			},
+		},
+		"keep only existing valid checks": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:  "ac1",
+						State: kueue.CheckStateReady,
+					},
+					kueue.AdmissionCheckState{
+						Name:  "ac3",
+						State: kueue.CheckStateReady,
+					},
+				).Obj(),
+			cq: *utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Obj(),
+				).AdmissionCheckStrategy(
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1").Obj(),
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj(),
+			).Obj(),
+			wantChecks: []kueue.AdmissionCheckState{
+				{
+					Name:  "ac1",
+					State: kueue.CheckStateReady,
+				},
+				{
+					Name:  "ac2",
+					State: kueue.CheckStatePending,
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+
+			cl := clientBuilder.Build()
+			recorder := &utiltesting.EventRecorder{}
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+
+			mockWatcher := mockWorkloadUpdateWatcher(qManager)
+
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
+			reconciler.watchers = []WorkloadUpdateWatcher{mockWatcher}
+
+			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
+			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
+			defer ctxCancel()
+
+			if _, err := reconciler.reconcileSyncAdmissionChecks(ctx, &tc.wl, &tc.cq); err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+
+			if diff := cmp.Diff(tc.wantChecks, tc.wl.Status.AdmissionChecks, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")); diff != "" {
+				t.Errorf("Incorrect admission checks (-want,+got):\n%s", diff)
 			}
 		})
 	}

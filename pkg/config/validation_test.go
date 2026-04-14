@@ -1018,10 +1018,10 @@ func TestValidate(t *testing.T) {
 
 func TestValidateFeatureGates(t *testing.T) {
 	cases := map[string]struct {
-		featureGatesCLI   string
-		featureGateMap    map[string]bool
-		setupFeatureGates map[featuregate.Feature]bool
-		wantErr           field.ErrorList
+		featureGatesCLI string
+		featureGateMap  map[string]bool
+		featureGates    map[featuregate.Feature]bool
+		wantErr         field.ErrorList
 	}{
 		"no feature gates is null": {
 			featureGatesCLI: "",
@@ -1041,7 +1041,7 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"cannot set TAS profile with TAS disabled": {
-			setupFeatureGates: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TASProfileMixed:         true,
 				features.TopologyAwareScheduling: false,
 			},
@@ -1054,7 +1054,7 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices": {
-			setupFeatureGates: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 				features.TopologyAwareScheduling:             true,
 				features.ElasticJobsViaWorkloadSlices:        false,
@@ -1069,7 +1069,7 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling": {
-			setupFeatureGates: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 				features.ElasticJobsViaWorkloadSlices:        true,
 				features.TopologyAwareScheduling:             false,
@@ -1084,7 +1084,7 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS valid when all dependencies enabled": {
-			setupFeatureGates: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 				features.ElasticJobsViaWorkloadSlices:        true,
 				features.TopologyAwareScheduling:             true,
@@ -1092,7 +1092,7 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"multiple FG validation errors at once": {
-			setupFeatureGates: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TASProfileMixed:                     true,
 				features.TopologyAwareScheduling:             false,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
@@ -1117,7 +1117,7 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"DRAExtendedResources requires DynamicResourceAllocation": {
-			setupFeatureGates: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.DRAExtendedResources:      true,
 				features.DynamicResourceAllocation: false,
 			},
@@ -1133,9 +1133,7 @@ func TestValidateFeatureGates(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			// Set up feature gates for this test
-			for fg, enabled := range tc.setupFeatureGates {
-				features.SetFeatureGateDuringTest(t, fg, enabled)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			got := ValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
 			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("Unexpected result from ValidateFeatureGates (-want,+got):\n%s", diff)

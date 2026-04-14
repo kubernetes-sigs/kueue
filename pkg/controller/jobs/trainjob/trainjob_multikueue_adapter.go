@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -75,6 +76,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// clear the managedBy enables the TrainJob controller to take over
 	remoteJob.Spec.ManagedBy = nil
+
+	// Remove the Kueue runtime patch so the remote webhook can add its own.
+	remoteJob.Spec.RuntimePatches = slices.DeleteFunc(remoteJob.Spec.RuntimePatches, func(p kftrainerapi.RuntimePatch) bool {
+		return p.Manager == runtimePatchManagerName
+	})
 
 	return remoteClient.Create(ctx, &remoteJob)
 }

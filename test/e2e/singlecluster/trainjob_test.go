@@ -184,8 +184,14 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("Verify that the trainjob has a runtime patch from kueue", func() {
+				gomega.Expect(testingtrainjob.KueueRuntimePatch(trainjob)).ToNot(gomega.BeNil())
+			})
+
 			ginkgo.By("Verify the trainjob has nodeSelector set", func() {
-				gomega.Expect(trainjob.Spec.PodTemplateOverrides[0].Spec.NodeSelector).To(gomega.Equal(
+				rJobs := testingtrainjob.KueueRuntimePatch(trainjob).TrainingRuntimeSpec.Template.Spec.ReplicatedJobs
+				gomega.Expect(rJobs).To(gomega.HaveLen(1))
+				gomega.Expect(rJobs[0].Template.Spec.Template.Spec.NodeSelector).To(gomega.Equal(
 					map[string]string{
 						"instance-type": "on-demand",
 					},

@@ -150,6 +150,7 @@ $(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/front
 $(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
 endef
 
+
 # ---- verify-* wrappers (generation prereqs + shared recipe) ---------------
 
 .PHONY: verify-ci-lint

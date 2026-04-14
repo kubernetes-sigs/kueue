@@ -19,6 +19,7 @@ package workload
 import (
 	"time"
 
+	"github.com/go-logr/logr"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -29,6 +30,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 )
+
+type AdmissionChecks = map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
 
 // SyncAdmittedCondition sync the state of the Admitted condition based on the
 // state of QuotaReserved, AdmissionChecks and DelayedTopologyRequests.
@@ -158,9 +161,12 @@ func HasAllChecksReady(wl *kueue.Workload) bool {
 	return true
 }
 
-// HasAllChecks returns true if all the mustHaveChecks are present in the workload.
+// HasAllRequiredChecks returns true if all the relevant checks are present in the workload.
 // (They don't have to be in the Ready state; for that, see HasAllChecksReady).
-func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[kueue.AdmissionCheckReference]) bool {
+// The workload is expected to have an admission.
+func HasAllRequiredChecks(log logr.Logger, wl *kueue.Workload, allChecks AdmissionChecks) bool {
+	mustHaveChecks := admissionChecksForAdmission(log, allChecks, *wl.Status.Admission)
+
 	if mustHaveChecks.Len() == 0 {
 		return true
 	}
@@ -169,7 +175,6 @@ func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[kueue.AdmissionChe
 		return false
 	}
 
-	mustHaveChecks = mustHaveChecks.Clone()
 	for i := range wl.Status.AdmissionChecks {
 		mustHaveChecks.Delete(wl.Status.AdmissionChecks[i].Name)
 	}

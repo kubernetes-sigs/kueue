@@ -30,6 +30,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjaxjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/jaxjob"
@@ -312,7 +313,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{})))
+		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
 
 		ginkgo.By("Create a resource flavor")
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -332,7 +333,9 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
 		func(podsReadyTestSpec kftesting.PodsReadyTestSpec) {
-			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadjaxjob.JobControl)(testingjaxjob.MakeJAXJob(jobName, ns.Name).JAXReplicaSpecsDefault().Parallelism(kftraining.JAXJobReplicaTypeWorker, 2).Obj())}
+			kfJob := kubeflowjob.KubeflowJob{
+				KFJobControl: (*workloadjaxjob.JobControl)(testingjaxjob.MakeJAXJob(jobName, ns.Name).JAXReplicaSpecsDefault().Parallelism(kftraining.JAXJobReplicaTypeWorker, 2).Obj()),
+			}
 			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadjaxjob.JobControl)(&kftraining.JAXJob{})}
 
 			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{

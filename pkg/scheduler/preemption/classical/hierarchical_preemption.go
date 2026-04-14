@@ -176,7 +176,14 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 
 // visit the nodes in the hierarchy and collect the ones that exceed quota
 // avoid subtrees that are within quota and the skipped subtree
-func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, currentCohort *schdcache.CohortSnapshot, subtreeRoot *schdcache.CohortSnapshot, skipSubtree *schdcache.CohortSnapshot, hasHierarchicalAdvantage bool, result *[]*candidateElem) {
+func collectCandidatesInSubtree(
+	ctx *HierarchicalPreemptionCtx,
+	currentCohort *schdcache.CohortSnapshot,
+	subtreeRoot *schdcache.CohortSnapshot,
+	skipSubtree *schdcache.CohortSnapshot,
+	hasHierarchicalAdvantage bool,
+	result *[]*candidateElem,
+) {
 	for _, childCohort := range currentCohort.ChildCohorts() {
 		// we already processed this subtree
 		if childCohort == skipSubtree {

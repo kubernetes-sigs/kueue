@@ -14,13 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { CircularProgress, Grid, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
+import { CircularProgress, Grid, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography, Switch, FormControlLabel } from '@mui/material';
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom'; 
+import { useParams, Link } from 'react-router-dom';
 import useWebSocket from './useWebSocket';
 import './App.css';
 import FlavorTable from './FlavorTable';
 import ErrorMessage from './ErrorMessage';
+import UsageBar, { toNumber, formatResourceValue, computeEffectiveQuota } from './UsageBar';
 
 const ClusterQueueDetail = () => {
   const { clusterQueueName } = useParams();
@@ -28,9 +29,16 @@ const ClusterQueueDetail = () => {
   const { data: clusterQueueData, error } = useWebSocket(url);
 
   const [clusterQueue, setClusterQueue] = useState(null);
+  const [showReservation, setShowReservation] = useState(false);
 
   useEffect(() => {
-    if (clusterQueueData) setClusterQueue(clusterQueueData);
+    if (clusterQueueData) {
+      const sorted = { ...clusterQueueData };
+      if (sorted.queues) {
+        sorted.queues = [...sorted.queues].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      }
+      setClusterQueue(sorted);
+    }
   }, [clusterQueueData]);
 
   if (error) return <ErrorMessage error={error} />;
@@ -101,62 +109,96 @@ const ClusterQueueDetail = () => {
         </Grid>
       </Grid>
 
-      {/* Resource Groups Section */}
-      <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>
-        Resource Groups (Quotas)
-      </Typography>
+      {/* Resource Groups — Quota vs Usage */}
+      <div data-testid="resource-quotas-section">
+        <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>
+          Resource Quotas & Usage
+          <FormControlLabel
+            control={<Switch checked={showReservation} onChange={(e) => setShowReservation(e.target.checked)} size="small" />}
+            label="Show Reservation"
+            sx={{ ml: 2 }}
+          />
+        </Typography>
 
-      {clusterQueue.spec?.resourceGroups && clusterQueue.spec.resourceGroups.length > 0 ? (
-        <TableContainer component={Paper} className="tableContainerWithBorder">
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Flavor</TableCell>
-                <TableCell>Resource</TableCell>
-                <TableCell>Nominal Quota</TableCell>
-                <TableCell>Borrowing Limit</TableCell>
-                <TableCell>Lending Limit</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {clusterQueue.spec.resourceGroups.map((group, groupIndex) => (
-                <React.Fragment key={`resourceGroup-${groupIndex}`}>
-                  {group.flavors.map((flavor, flavorIndex) => (
-                    <React.Fragment key={`${groupIndex}-${flavor.name}`}>
-                      {flavor.resources.map((resource, resourceIndex) => (
-                        <TableRow key={`${groupIndex}-${flavor.name}-${resource.name}`}>
-                          {/* Display Flavor Name with rowSpan across its resources */}
-                          {resourceIndex === 0 && (
-                            <TableCell rowSpan={flavor.resources.length}>
-                              <Link to={`/resource-flavor/${flavor.name}`}>{flavor.name}</Link>
-                            </TableCell>
-                          )}
+        {clusterQueue.spec?.resourceGroups && clusterQueue.spec.resourceGroups.length > 0 ? (
+          <TableContainer component={Paper} className="tableContainerWithBorder">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Flavor</TableCell>
+                  <TableCell>Resource</TableCell>
+                  <TableCell>Nominal Quota</TableCell>
+                  <TableCell>Usage</TableCell>
+                  {showReservation && <TableCell>Reservation</TableCell>}
+                  <TableCell>Borrowed</TableCell>
+                  <TableCell>Borrowing Limit</TableCell>
+                  <TableCell>Lending Limit</TableCell>
+                  <TableCell sx={{ minWidth: 200 }}>Utilization</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {clusterQueue.spec.resourceGroups.map((group, groupIndex) => (
+                  <React.Fragment key={`resourceGroup-${groupIndex}`}>
+                    {group.flavors.map((flavor, flavorIndex) => (
+                      <React.Fragment key={`${groupIndex}-${flavor.name}`}>
+                        {flavor.resources.map((resource, resourceIndex) => {
+                          const usageFlavor = clusterQueue.status?.flavorsUsage?.find(f => f.name === flavor.name);
+                          const usageRes = usageFlavor?.resources?.find(r => r.name === resource.name);
+                          const usageVal = toNumber(usageRes?.total);
+                          const borrowedVal = toNumber(usageRes?.borrowed);
+                          const quotaVal = toNumber(resource.nominalQuota);
+                          const resName = String(resource.name);
 
-                          {/* Display Resource Name and Nominal Quota */}
-                          <TableCell>{resource.name}</TableCell>
-                          <TableCell>{resource.nominalQuota}</TableCell>
-                          <TableCell>{resource.borrowingLimit}</TableCell>
-                          <TableCell>{resource.lendingLimit}</TableCell>
-                        </TableRow>
-                      ))}
-                    </React.Fragment>
-                  ))}
-                </React.Fragment>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      ) : (
-        <Typography>No resource groups defined for this cluster queue.</Typography>
-      )}
+                          const reservationFlavor = clusterQueue.status?.flavorsReservation?.find(f => f.name === flavor.name);
+                          const reservationRes = reservationFlavor?.resources?.find(r => r.name === resource.name);
+                          const reservationVal = toNumber(reservationRes?.total);
 
-      {/* Flavor Reservation Table */}
-      <FlavorTable title="Flavor Reservation" flavorData={clusterQueue.status?.flavorsReservation} linkToFlavor={true} 
-                   showBorrowingColumn={true} />
+                          const borrowingLimitVal = toNumber(resource.borrowingLimit);
+                          const hasBorrowingLimit = resource.borrowingLimit != null;
+                          const inCohort = !!(clusterQueue.spec?.cohortName);
+                          const unlimitedBorrowing = !hasBorrowingLimit && inCohort;
+                          const r = { usage: usageVal, borrowed: borrowedVal, quota: quotaVal, borrowingLimit: hasBorrowingLimit ? borrowingLimitVal : (inCohort ? null : 0), unlimitedBorrowing };
+                          const effectiveQuota = computeEffectiveQuota(r);
 
-      {/* Flavor Usage Table */}
-      <FlavorTable title="Flavor Usage" flavorData={clusterQueue.status?.flavorsUsage} linkToFlavor={true}
-                   showBorrowingColumn={true} />
+                          const formatVal = (v) => {
+                            if (v === 0) return '0';
+                            if (resName === 'cpu') return v < 1 ? `${Math.round(v * 1000)}m` : `${parseFloat(v.toFixed(2))}`;
+                            if (resName === 'memory') { const gi = v / (1024 * 1024 * 1024); return gi >= 1 ? `${parseFloat(gi.toFixed(1))}Gi` : `${Math.round(v / (1024 * 1024))}Mi`; }
+                            return `${parseFloat(v.toFixed(2))}`;
+                          };
+
+                          return (
+                            <TableRow key={`${groupIndex}-${flavor.name}-${resource.name}`}>
+                              {resourceIndex === 0 && (
+                                <TableCell rowSpan={flavor.resources.length}>
+                                  <Link to={`/resource-flavor/${flavor.name}`}>{flavor.name}</Link>
+                                </TableCell>
+                              )}
+                              <TableCell>{resource.name}</TableCell>
+                              <TableCell>{formatVal(quotaVal)}</TableCell>
+                              <TableCell>{formatVal(usageVal)}</TableCell>
+                              {showReservation && <TableCell>{formatVal(reservationVal)}</TableCell>}
+                              <TableCell>{formatVal(borrowedVal)}</TableCell>
+                              <TableCell>{hasBorrowingLimit ? formatVal(borrowingLimitVal) : ''}</TableCell>
+                              <TableCell>{resource.lendingLimit != null ? formatVal(toNumber(resource.lendingLimit)) : ''}</TableCell>
+                              <TableCell>
+                                <UsageBar usage={usageVal} borrowed={borrowedVal} quota={quotaVal}
+                                  effectiveQuota={effectiveQuota} unlimitedBorrowing={unlimitedBorrowing} label={resName} />
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
+                  </React.Fragment>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        ) : (
+          <Typography>No resource groups defined for this cluster queue.</Typography>
+        )}
+      </div>
 
       {/* Local Queues Section */}
       <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>
@@ -197,10 +239,13 @@ const ClusterQueueDetail = () => {
 
                           {/* Display Resource Name, Reservation, and Usage */}
                           <TableCell>{resource.name}</TableCell>
-                          <TableCell>{resource.total}</TableCell>
+                          <TableCell>{formatResourceValue(toNumber(resource.total), String(resource.name))}</TableCell>
                           <TableCell>
-                            {queue.usage?.find((usage) => usage.name === reservation.name)
-                              ?.resources?.find((res) => res.name === resource.name)?.total || 'N/A'}
+                            {(() => {
+                              const usageRes = queue.usage?.find((u) => u.name === reservation.name)
+                                ?.resources?.find((res) => res.name === resource.name);
+                              return usageRes ? formatResourceValue(toNumber(usageRes.total), String(resource.name)) : 'N/A';
+                            })()}
                           </TableCell>
                         </TableRow>
                       ))}

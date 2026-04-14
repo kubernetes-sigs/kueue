@@ -24,6 +24,11 @@ run:
 debug:
 	npm start
 
+# Test target: runs unit tests
+.PHONY: test
+test:
+	npm test
+
 # Clean target: cleans the build directory
 .PHONY: clean
 clean:

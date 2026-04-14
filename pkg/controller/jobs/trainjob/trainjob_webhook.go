@@ -20,6 +20,7 @@ import (
 	"context"
 
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -79,15 +80,25 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	if err != nil {
 		return err
 	}
+	runtimePatch := kftrainerapi.RuntimePatch{
+		Manager: runtimePatchManagerName,
+		TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
+			Template: &kftrainerapi.JobSetTemplatePatch{
+				Spec: &kftrainerapi.JobSetSpecPatch{},
+			},
+		},
+	}
 	if suspend {
 		trainJob.Suspend()
 		if trainJobQueueName := jobframework.QueueNameForObject(trainJob.Object()); trainJobQueueName != "" {
-			if trainJob.Spec.Labels == nil {
-				trainJob.Spec.Labels = make(map[string]string, 1)
+			runtimePatch.TrainingRuntimeSpec.Template.Metadata = &metav1.ObjectMeta{
+				Labels: map[string]string{
+					controllerconstants.QueueLabel: string(trainJobQueueName),
+				},
 			}
-			trainJob.Spec.Labels[controllerconstants.QueueLabel] = string(trainJobQueueName)
 		}
 	}
+	trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, runtimePatch)
 	return nil
 }
 
@@ -156,7 +167,7 @@ func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob 
 
 	if len(allErrs) > 0 {
 		for _, err := range allErrs {
-			err.Detail += `. Adjust either the "TrainJob.spec.podTemplateOverrides" or the "TrainingRuntime.Template" annotations for the corresponding Job`
+			err.Detail += `. Adjust either the "TrainJob.spec.runtimePatches" or the "TrainingRuntime.Template" annotations for the corresponding Job`
 		}
 		return allErrs, nil
 	}

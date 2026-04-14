@@ -265,9 +265,7 @@ func TestPriorityBoost(t *testing.T) {
 
 	for desc, tt := range tests {
 		t.Run(desc, func(t *testing.T) {
-			for fg, enable := range tt.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enable)
-			}
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 			got, err := PriorityBoost(tt.workload)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PriorityBoost() error = %v, wantErr %v", err, tt.wantErr)
@@ -326,9 +324,7 @@ func TestParseEffectivePriority(t *testing.T) {
 
 	for desc, tt := range tests {
 		t.Run(desc, func(t *testing.T) {
-			for fg, enable := range tt.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enable)
-			}
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 			got, err := ParseEffectivePriority(tt.workload)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParseEffectivePriority() error = %v, wantErr %v", err, tt.wantErr)
@@ -370,9 +366,7 @@ func TestEffectivePriority(t *testing.T) {
 
 	for desc, tt := range tests {
 		t.Run(desc, func(t *testing.T) {
-			for fg, enable := range tt.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enable)
-			}
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 			_, log := utiltesting.ContextWithLog(t)
 			got := EffectivePriority(log, tt.workload)
 			if got != tt.wantPriority {

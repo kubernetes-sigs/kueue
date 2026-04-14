@@ -58,7 +58,7 @@ var (
 
 func TestReconciler(t *testing.T) {
 	cases := map[string]struct {
-		features                map[featuregate.Feature]bool
+		featureGates            map[featuregate.Feature]bool
 		labelKeysToCopy         []string
 		leaderWorkerSet         *leaderworkersetv1.LeaderWorkerSet
 		workloads               []kueue.Workload
@@ -69,7 +69,7 @@ func TestReconciler(t *testing.T) {
 		wantErr                 error
 	}{
 		"should create prebuilt workload": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
@@ -107,7 +107,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with leader template": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -170,7 +170,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workloads with leader template": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -264,6 +264,129 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"should create prebuilt workload with custom annotations propagated to podsets": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testUID).
+				Replicas(1).
+				Size(3).
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							"custom-leader-annotation":                  "leader-value",
+							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+						},
+						Labels: map[string]string{
+							"leaderworkerset.sigs.k8s.io/name":        testLWS,
+							"leaderworkerset.sigs.k8s.io/group-index": "1",
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "c", Image: "pause"},
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							"custom-worker-annotation":                  "worker-value",
+							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+						},
+						Labels: map[string]string{
+							"leaderworkerset.sigs.k8s.io/name":        testLWS,
+							"leaderworkerset.sigs.k8s.io/group-index": "1",
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "c", Image: "pause"},
+						},
+					},
+				}).
+				Obj(),
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testUID).
+					Replicas(1).
+					Size(3).
+					LeaderTemplate(corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								"custom-leader-annotation":                  "leader-value",
+								"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+							},
+							Labels: map[string]string{
+								"leaderworkerset.sigs.k8s.io/name":        testLWS,
+								"leaderworkerset.sigs.k8s.io/group-index": "1",
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "c", Image: "pause"},
+							},
+						},
+					}).
+					WorkerTemplate(corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								"custom-worker-annotation":                  "worker-value",
+								"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+							},
+							Labels: map[string]string{
+								"leaderworkerset.sigs.k8s.io/name":        testLWS,
+								"leaderworkerset.sigs.k8s.io/group-index": "1",
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "c", Image: "pause"},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+					JobUID(testUID).
+					OwnerReference(gvk, testLWS, testUID).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
+							Annotations(map[string]string{"custom-leader-annotation": "leader-value"}).
+							Labels(map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
+						*utiltestingapi.MakePodSet(workerPodSetName, 2).
+							Annotations(map[string]string{"custom-worker-annotation": "worker-value"}).
+							Labels(map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
+					).
+					Priority(0).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message: fmt.Sprintf(
+						"Created Workload: %s/%s",
+						testNS,
+						GetWorkloadName(types.UID(testUID), testLWS, "0"),
+					),
+				},
+			},
+		},
 		"should create prebuilt workload with required topology annotation": {
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testUID).
@@ -336,11 +459,13 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
 							RestartPolicy("").
 							Image("pause").
+							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							RequiredTopologyRequest("cloud.com/block").
 							Obj(),
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
 							Image("pause").
+							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							RequiredTopologyRequest("cloud.com/block").
 							PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj(),
@@ -361,8 +486,8 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"should create prebuilt workload without required topology annotation is TAS is disabled": {
-			features: map[featuregate.Feature]bool{
+		"should create prebuilt workload without topology request if TAS is disabled": {
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -436,10 +561,12 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
 							RestartPolicy("").
 							Image("pause").
+							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							Obj(),
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
 							Image("pause").
+							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							Obj(),
 					).
 					Priority(0).
@@ -459,7 +586,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with workload priority": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -512,7 +639,7 @@ func TestReconciler(t *testing.T) {
 		// maxSurge > 0 alone would cause filterWorkloads to use stale status.Replicas, keeping the
 		// excess workload in toUpdate instead of toDelete.
 		"should delete excess workload on scale down with maxSurge configured but no active rolling update": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: func() *leaderworkersetv1.LeaderWorkerSet {
@@ -575,7 +702,7 @@ func TestReconciler(t *testing.T) {
 		// must be kept. This, paired with the test above, proves that maxSurge > 0 alone is
 		// not sufficient — the UpdatedReplicas check is needed to distinguish the two cases.
 		"should keep surge workloads during active rolling update with maxSurge": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: func() *leaderworkersetv1.LeaderWorkerSet {
@@ -668,7 +795,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should delete LeaderWorkerSet ownerReference from the redundant prebuilt workload": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
@@ -716,7 +843,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with AdmissionGatedBy annotation": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 				features.AdmissionGatedBy:        true,
 			},
@@ -762,7 +889,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with multiple AdmissionGatedBy gates": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 				features.AdmissionGatedBy:        true,
 			},
@@ -808,7 +935,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should not propagate AdmissionGatedBy annotation when feature gate is disabled": {
-			features: map[featuregate.Feature]bool{
+			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 				features.AdmissionGatedBy:        false,
 			},
@@ -855,9 +982,7 @@ func TestReconciler(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			for feature, enable := range tc.features {
-				features.SetFeatureGateDuringTest(t, feature, enable)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme)
 			indexer := utiltesting.AsIndexer(clientBuilder)

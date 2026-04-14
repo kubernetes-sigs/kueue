@@ -19,6 +19,7 @@ GINKGO := $(BIN_DIR)/ginkgo
 GOTESTSUM := $(BIN_DIR)/gotestsum
 ARTIFACTS ?= $(ROOT_DIR)/artifacts
 ENVTEST_K8S_VERSION ?= 1.35
+KUBEBUILDER_ASSETS = $(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 INTEGRATION_NPROCS ?= 4
 CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
@@ -79,6 +80,7 @@ build:
 .PHONY: image-build
 image-build:
 	$(IMAGE_BUILD_CMD) \
+		-f Dockerfile \
 		-t $(IMAGE_TAG) \
 		--platform=$(PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
@@ -86,7 +88,7 @@ image-build:
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
-		.
+		$(ROOT_DIR)
 
 .PHONY: image-push
 image-push: PUSH=--push
@@ -107,7 +109,7 @@ compile-crd-manifests:
 
 .PHONY: test-integration
 test-integration: compile-crd-manifests $(ENVTEST) $(GINKGO)
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
 	PROJECT_DIR=$(ROOT_DIR)/ \
 	GOWORK=off $(GINKGO) -procs=$(INTEGRATION_NPROCS) -v ./test/integration/...
 

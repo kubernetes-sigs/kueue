@@ -20,6 +20,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,9 +29,11 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -122,6 +125,23 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should setup a noop webhook for disabled integrations", func() {
+		job := testingjob.MakeJob("job", ns.Name).
+			Label(constants.QueueLabel, localQueue.Name).
+			Suspend(false).
+			Obj()
+
+		ginkgo.By("Create a Job while only JobSet integration is enabled", func() {
+			util.MustCreate(ctx, k8sClient, job)
+		})
+
+		ginkgo.By("Check that the Job webhook does not default suspend", func() {
+			createdJob := &batchv1.Job{}
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: ns.Name}, createdJob)).Should(gomega.Succeed())
+			gomega.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 		})
 	})
 })

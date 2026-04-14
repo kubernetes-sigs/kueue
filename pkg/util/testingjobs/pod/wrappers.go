@@ -67,6 +67,12 @@ func (p *PodWrapper) Obj() *corev1.Pod {
 	return &p.Pod
 }
 
+// ResourceVersion sets the ResourceVersion of the Pod.
+func (p *PodWrapper) ResourceVersion(version string) *PodWrapper {
+	p.ObjectMeta.ResourceVersion = version
+	return p
+}
+
 // MakeGroup returns multiple pods that form a pod group, based on the original wrapper.
 func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
 	var pods []*corev1.Pod

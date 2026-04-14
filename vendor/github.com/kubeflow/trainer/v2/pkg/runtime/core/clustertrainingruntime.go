@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	configapi "github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1"
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/kubeflow/trainer/v2/pkg/constants"
 	"github.com/kubeflow/trainer/v2/pkg/runtime"
@@ -48,7 +49,7 @@ var ClusterTrainingRuntimeGroupKind = schema.GroupKind{
 	Kind:  trainer.ClusterTrainingRuntimeKind,
 }.String()
 
-func NewClusterTrainingRuntime(context.Context, client.Client, client.FieldIndexer) (runtime.Runtime, error) {
+func NewClusterTrainingRuntime(context.Context, client.Client, client.FieldIndexer, *configapi.Configuration) (runtime.Runtime, error) {
 	return &ClusterTrainingRuntime{
 		TrainingRuntime: trainingRuntimeFactory,
 	}, nil

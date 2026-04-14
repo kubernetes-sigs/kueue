@@ -117,6 +117,13 @@ func WithCustomLabels(cl *metrics.CustomLabels) Option {
 	}
 }
 
+// WithLocalQueueMetrics sets the configuration for local queue metrics.
+func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
+	return func(c *Cache) {
+		c.lqMetrics = value
+	}
+}
+
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
 	sync.RWMutex
@@ -139,6 +146,7 @@ type Cache struct {
 
 	roleTracker  *roletracker.RoleTracker
 	customLabels *metrics.CustomLabels
+	lqMetrics    *metrics.LocalQueueMetricsConfig
 }
 
 func New(client client.Client, options ...Option) *Cache {
@@ -171,6 +179,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		AdmissionScope:      cq.Spec.AdmissionScope,
 
 		roleTracker: c.roleTracker,
+		lqMetrics:   c.lqMetrics,
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
@@ -434,6 +443,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			admittedWorkloads:  0,
 			totalReserved:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
+			labels:             q.GetLabels(),
 		}
 		if features.Enabled(features.CustomMetricLabels) {
 			qImpl.customMetricLabelValues = c.customLabels.ExtractValues(q.Labels, q.Annotations)
@@ -474,6 +484,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
 		return err
 	}
+	c.handleParentUpdate(oldParent)
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
@@ -491,7 +502,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	if curCq == nil {
 		return
 	}
-	if features.Enabled(features.LocalQueueMetrics) {
+	if c.lqMetrics.IsEnabled() {
 		for _, q := range curCq.localQueues {
 			namespace, lqName := queue.MustParseLocalQueueReference(q.key)
 			metrics.ClearLocalQueueCacheMetrics(metrics.LocalQueueReference{
@@ -506,9 +517,10 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	c.hm.DeleteClusterQueue(cqName)
 	metrics.ClearCacheMetrics(cq.Name)
 
-	// Update cohort resources after deletion
 	if parent != nil {
+		// Update cohort resources after deletion
 		updateCohortTreeResourcesIfNoCycle(parent)
+		c.handleParentUpdate(parent)
 	}
 }
 
@@ -520,13 +532,27 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	cohort := c.hm.Cohort(cohortName)
 	oldParent := cohort.Parent()
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
-	return cohort.updateCohort(apiCohort, oldParent)
+	err := cohort.updateCohort(apiCohort, oldParent)
+	if err != nil {
+		return err
+	}
+	c.handleParentUpdate(oldParent)
+	return nil
 }
 
 func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	c.Lock()
 	defer c.Unlock()
+
+	var parent *cohort
+	if cohort := c.hm.Cohort(cohortName); cohort != nil {
+		cohort.updateAdmittedWorkloadsCount(-cohort.admittedWorkloadsCount)
+		metrics.ClearCohortAdmittedWorkloadsMetrics(cohort.Name)
+		parent = cohort.Parent()
+	}
+
 	c.hm.DeleteCohort(cohortName)
+	c.handleParentUpdate(parent)
 
 	// If the cohort still exists after deletion, it means
 	// that it has one or more children referencing it.
@@ -534,6 +560,21 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		updateCohortResourceNode(cohort)
 	}
+}
+
+func (c *Cache) handleParentUpdate(cachedParent *cohort) {
+	if cachedParent == nil {
+		return
+	}
+	if updatedParent := c.hm.Cohort(cachedParent.Name); updatedParent != nil {
+		if updatedParent.IsExplicit() {
+			return
+		}
+		if len(updatedParent.ChildCohorts()) > 0 || len(updatedParent.ChildCQs()) > 0 {
+			return
+		}
+	}
+	metrics.ClearCohortAdmittedWorkloadsMetrics(cachedParent.Name)
 }
 
 func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
@@ -585,18 +626,7 @@ func (c *Cache) ClusterQueueUsesAdmissionFairSharing(cqName kueue.ClusterQueueRe
 
 func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	if oldQ.Spec.ClusterQueue == newQ.Spec.ClusterQueue {
-		if features.Enabled(features.CustomMetricLabels) {
-			c.RLock()
-			defer c.RUnlock()
-			cq := c.hm.ClusterQueue(newQ.Spec.ClusterQueue)
-			if cq != nil {
-				if lq := cq.localQueues[queue.Key(newQ)]; lq != nil {
-					lq.Lock()
-					lq.customMetricLabelValues = c.customLabels.ExtractValues(newQ.Labels, newQ.Annotations)
-					lq.Unlock()
-				}
-			}
-		}
+		c.updateLqMetricLabels(newQ)
 		return nil
 	}
 	c.Lock()
@@ -614,6 +644,19 @@ func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 		return cq.addLocalQueue(newQ, customLabelValues)
 	}
 	return nil
+}
+
+func (c *Cache) updateLqMetricLabels(newLq *kueue.LocalQueue) {
+	cachedLq, err := c.GetCacheLocalQueue(newLq.Spec.ClusterQueue, queue.Key(newLq))
+	if err != nil {
+		return
+	}
+	cachedLq.Lock()
+	defer cachedLq.Unlock()
+	cachedLq.labels = newLq.GetLabels()
+	if features.Enabled(features.CustomMetricLabels) {
+		cachedLq.customMetricLabelValues = c.customLabels.ExtractValues(newLq.Labels, newLq.Annotations)
+	}
 }
 
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
@@ -994,8 +1037,8 @@ func (c *Cache) ResyncGaugeMetrics() {
 		if c.resourceMetricsEnabled {
 			cq.reportResourceMetrics(c.fairSharingEnabled)
 		}
-		if features.Enabled(features.LocalQueueMetrics) {
-			for _, lq := range cq.localQueues {
+		for _, lq := range cq.localQueues {
+			if lq.shouldExposeMetrics(c.lqMetrics) {
 				lq.reportActiveWorkloads(c.roleTracker)
 				lq.reportResourceMetrics(cq.resourceNode.Quotas, c.roleTracker)
 			}
@@ -1021,4 +1064,21 @@ func resourceFloat(name corev1.ResourceName, v int64) float64 {
 // Key is the key used to index the queue.
 func queueKey(q *kueue.LocalQueue) queue.LocalQueueReference {
 	return queue.NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
+}
+
+// ShouldExposeLocalQueueMetricsForWorkload determines if LocalQueue metric reporting should be made for the associated LocalQueue.
+func (c *Cache) ShouldExposeLocalQueueMetricsForWorkload(log logr.Logger, wl *kueue.Workload) bool {
+	if !c.lqMetrics.IsEnabled() {
+		return false
+	}
+	if wl.Status.Admission == nil {
+		log.V(5).Info("Skip the update for local queue metrics for a workload without admission", "workload", klog.KObj(wl))
+		return false
+	}
+	lq, err := c.GetCacheLocalQueue(wl.Status.Admission.ClusterQueue, queue.KeyFromWorkload(wl))
+	if err != nil {
+		log.Error(err, "Failed to get LocalQueue for metrics", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
+		return false
+	}
+	return lq.shouldExposeMetrics(c.lqMetrics)
 }

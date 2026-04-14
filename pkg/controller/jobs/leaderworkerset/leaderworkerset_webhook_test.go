@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -177,11 +178,11 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations     []string
-		lws              *leaderworkersetv1.LeaderWorkerSet
-		admissionGatedBy bool
-		wantErr          error
-		wantWarns        admission.Warnings
+		integrations []string
+		lws          *leaderworkersetv1.LeaderWorkerSet
+		featureGates map[featuregate.Feature]bool
+		wantErr      error
+		wantWarns    admission.Warnings
 	}{
 		"without queue": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -439,7 +440,11 @@ func TestValidateCreate(t *testing.T) {
 				WorkerTemplate(corev1.PodTemplateSpec{}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
+				field.Invalid(
+					field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"),
+					"groupname",
+					"can only define groups of exactly 2 pod sets, got: 1 pod set(s)",
+				),
 			}.ToAggregate(),
 		},
 		"invalid PodSet grouping request - group specified only in worker": {
@@ -456,7 +461,11 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
+				field.Invalid(
+					field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"),
+					"groupname",
+					"can only define groups of exactly 2 pod sets, got: 1 pod set(s)",
+				),
 			}.ToAggregate(),
 		},
 		"invalid PodSet grouping request - group name does not match": {
@@ -480,8 +489,16 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname1", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname2", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
+				field.Invalid(
+					field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"),
+					"groupname1",
+					"can only define groups of exactly 2 pod sets, got: 1 pod set(s)",
+				),
+				field.Invalid(
+					field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"),
+					"groupname2",
+					"can only define groups of exactly 2 pod sets, got: 1 pod set(s)",
+				),
 			}.ToAggregate(),
 		},
 		"invalid PodSet grouping request - required topology request does not match": {
@@ -505,8 +522,16 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 		},
 		"invalid PodSet grouping request - preferred topology request does not match": {
@@ -530,8 +555,16 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 		},
 		"invalid PodSet grouping request - different topology annotations within group": {
@@ -555,8 +588,16 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 		},
 		"invalid PodSet grouping request - neither preferred nor required topology is requested": {
@@ -597,11 +638,15 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
+				field.Invalid(
+					field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"),
+					"groupname",
+					"can only define groups of exactly 2 pod sets, got: 1 pod set(s)",
+				),
 			}.ToAggregate(),
 		},
 		"AdmissionGatedBy Annotation - single gate": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -609,7 +654,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - trailing space": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -617,7 +662,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - space before comma": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -625,7 +670,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - space after comma": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -633,7 +678,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - leading space": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -641,7 +686,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - multiple gates": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -649,7 +694,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"invalid AdmissionGatedBy Annotation - invalid format": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -660,7 +705,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy Annotation - duplicate gates": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -671,7 +716,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy Annotation - gate name too long": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -682,7 +727,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy Annotation - space in path component": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -693,7 +738,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy Annotation - space in domain component": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -704,7 +749,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy Annotation - multiple gates where one is invalid": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -715,7 +760,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"AdmissionGatedBy Annotation with feature gate disabled - valid value": {
-			admissionGatedBy: false,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: false},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -724,7 +769,7 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: nil,
 		},
 		"AdmissionGatedBy Annotation with feature gate disabled - invalid value": {
-			admissionGatedBy: false,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: false},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -733,7 +778,7 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: nil,
 		},
 		"AdmissionGatedBy Annotation with feature gate enabled - empty string": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -749,9 +794,7 @@ func TestValidateCreate(t *testing.T) {
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
-			if tc.admissionGatedBy {
-				features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
 			w := &Webhook{client: client}
@@ -769,11 +812,11 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations     []string
-		oldObj           *leaderworkersetv1.LeaderWorkerSet
-		newObj           *leaderworkersetv1.LeaderWorkerSet
-		admissionGatedBy bool
-		wantErr          error
+		integrations []string
+		oldObj       *leaderworkersetv1.LeaderWorkerSet
+		newObj       *leaderworkersetv1.LeaderWorkerSet
+		featureGates map[featuregate.Feature]bool
+		wantErr      error
 	}{
 		"no changes": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -1278,7 +1321,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"AdmissionGatedBy Annotation - reject adding gates after creation": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1293,7 +1336,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"AdmissionGatedBy Annotation - allow removing single gate": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1305,7 +1348,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - allow removing all gates": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1317,7 +1360,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - allow removing one gate from multiple": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1330,7 +1373,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - reject injecting new gates": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1346,7 +1389,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"AdmissionGatedBy Annotation - allow reordering gates": {
-			admissionGatedBy: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1365,9 +1408,7 @@ func TestValidateUpdate(t *testing.T) {
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
-			if tc.admissionGatedBy {
-				features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			wh := &Webhook{}
 
 			ctx, _ := utiltesting.ContextWithLog(t)

@@ -31,8 +31,8 @@ import (
 
 func TestNewRequeuer(t *testing.T) {
 	type args struct {
-		features map[featuregate.Feature]bool
-		opts     []RequeuerOption
+		featureGates map[featuregate.Feature]bool
+		opts         []RequeuerOption
 	}
 
 	type want struct {
@@ -45,7 +45,7 @@ func TestNewRequeuer(t *testing.T) {
 	}{
 		"SchedulerLongRequeueInterval feature disabled": {
 			args: args{
-				features: map[featuregate.Feature]bool{
+				featureGates: map[featuregate.Feature]bool{
 					features.SchedulerLongRequeueInterval: false,
 				},
 			},
@@ -55,7 +55,7 @@ func TestNewRequeuer(t *testing.T) {
 		},
 		"SchedulerLongRequeueInterval feature enabled": {
 			args: args{
-				features: map[featuregate.Feature]bool{
+				featureGates: map[featuregate.Feature]bool{
 					features.SchedulerLongRequeueInterval: true,
 				},
 			},
@@ -76,9 +76,7 @@ func TestNewRequeuer(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			for feature, enabled := range tc.args.features {
-				features.SetFeatureGateDuringTest(t, feature, enabled)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.args.featureGates)
 			requeuer := NewRequeuer(tc.args.opts...)
 			if diff := cmp.Diff(tc.want.batchPeriod, requeuer.batchPeriod); len(diff) != 0 {
 				t.Errorf("Unexpected requeue batch period (-want,+got):\n%s", diff)

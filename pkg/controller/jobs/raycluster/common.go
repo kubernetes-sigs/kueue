@@ -18,10 +18,13 @@ package raycluster
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -34,6 +37,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
+)
+
+const (
+	// RayClusterPodsetReplicaSizesAnnotation is set on the job when autoscaling causes
+	// PodSet replica sizes to differ from the original spec. The value is a JSON
+	// array compatible with []kueue.PodSet, containing only the changed PodSets.
+	// This annotation is alpha-level enabled by the ElasticJobsViaWorkloadSlices.
+	RayClusterPodsetReplicaSizesAnnotation = "kueue.x-k8s.io/raycluster-podset-replica-sizes"
+	// RayClusterGenerationAnnotation is set on the job when autoscaling causes
+	// PodSet replica sizes to differ from the original spec. The value is the generation of
+	// the RayCluster.
+	RayClusterGenerationAnnotation = "kueue.x-k8s.io/raycluster-generation"
 )
 
 // BuildPodSets builds PodSets from RayClusterSpec
@@ -191,7 +206,14 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 
 	// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
 	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && !workloadslicing.Enabled(object) {
-		allErrors = append(allErrors, field.Invalid(rayClusterSpecPath.Child("enableInTreeAutoscaling"), rayClusterSpec.EnableInTreeAutoscaling, "a kueue managed job should only use autoscaling when workload slicing is enabled"))
+		allErrors = append(
+			allErrors,
+			field.Invalid(
+				rayClusterSpecPath.Child("enableInTreeAutoscaling"),
+				rayClusterSpec.EnableInTreeAutoscaling,
+				"a kueue managed job should only use autoscaling when workload slicing is enabled",
+			),
+		)
 	}
 
 	// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
@@ -202,7 +224,10 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 	// None of the workerGroups should be named "head"
 	for i := range rayClusterSpec.WorkerGroupSpecs {
 		if rayClusterSpec.WorkerGroupSpecs[i].GroupName == headGroupPodSetName {
-			allErrors = append(allErrors, field.Forbidden(rayClusterSpecPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)))
+			allErrors = append(
+				allErrors,
+				field.Forbidden(rayClusterSpecPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
+			)
 		}
 	}
 
@@ -251,4 +276,85 @@ func BuildPodSetAnnotationsPathByNameMap(rayClusterSpec *rayv1.RayClusterSpec, h
 		podSetAnnotationsPathByName[kueue.NewPodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
 	}
 	return podSetAnnotationsPathByName
+}
+
+func GetWorkloadNameExtraPart(objectMeta metav1.Object) string {
+	extra := strconv.FormatInt(objectMeta.GetGeneration(), 10)
+	rayClusterGeneration := objectMeta.GetAnnotations()[RayClusterGenerationAnnotation]
+	if rayClusterGeneration != "" {
+		extra += "_" + rayClusterGeneration
+	}
+	return extra
+}
+
+// ComparePodSetCounts returns true if any PodSet count differs from referenceCounts.
+func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSetReference]int32) bool {
+	if len(podSets) != len(referenceCounts) {
+		return true
+	}
+	for _, ps := range podSets {
+		if refCount, ok := referenceCounts[ps.Name]; !ok || ps.Count != refCount {
+			return true
+		}
+	}
+	return false
+}
+
+// ParsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
+// Returns an empty map if the annotation is absent or empty.
+func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
+	counts := make(map[kueue.PodSetReference]int32)
+	if annotation == "" {
+		return counts, nil
+	}
+	var podSets []jobframework.PodSetReplicaSize
+	if err := json.Unmarshal([]byte(annotation), &podSets); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal %s annotation: %w", RayClusterPodsetReplicaSizesAnnotation, err)
+	}
+	for _, ps := range podSets {
+		counts[ps.Name] = ps.Count
+	}
+	return counts, nil
+}
+
+// SerializePodSetCounts converts PodSets into a JSON byte slice of podSetReplicaSize entries.
+func SerializePodSetCounts(podSets []kueue.PodSet) ([]byte, error) {
+	sizes := make([]jobframework.PodSetReplicaSize, len(podSets))
+	for i, ps := range podSets {
+		sizes[i] = jobframework.PodSetReplicaSize{Name: ps.Name, Count: ps.Count}
+	}
+	return json.Marshal(sizes)
+}
+
+func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client.Client, jobObject client.Object, podSets []kueue.PodSet, rayClusterName string) (map[string]string, error) {
+	if workloadslicing.Enabled(jobObject) {
+		log := ctrl.LoggerFrom(ctx)
+
+		rayClusterGeneration := ""
+
+		var rayClusterObj rayv1.RayCluster
+		err := c.Get(ctx, types.NamespacedName{
+			Namespace: jobObject.GetNamespace(),
+			Name:      rayClusterName,
+		}, &rayClusterObj)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				log.V(3).Info("RayCluster not found, skipping generation annotation", "rayCluster", rayClusterName)
+			} else {
+				return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
+			}
+		} else {
+			rayClusterGeneration = strconv.FormatInt(rayClusterObj.GetGeneration(), 10)
+		}
+
+		podSetsJSON, err := SerializePodSetCounts(podSets)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
+		}
+		return map[string]string{
+			RayClusterPodsetReplicaSizesAnnotation: string(podSetsJSON),
+			RayClusterGenerationAnnotation:         rayClusterGeneration,
+		}, nil
+	}
+	return nil, nil
 }

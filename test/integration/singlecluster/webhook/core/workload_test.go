@@ -1123,7 +1123,9 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Status.Admission = utiltestingapi.MakeAdmission("cluster-queue").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment("on-demand", "5", "1").Obj()).Obj()
+				newWL.Status.Admission = utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment("on-demand", "5", "1").Obj()).
+					Obj()
 				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(utiltesting.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

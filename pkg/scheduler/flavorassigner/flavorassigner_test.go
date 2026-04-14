@@ -153,7 +153,13 @@ type testOracle struct {
 	simulationResult map[resources.FlavorResource]simulationResultForFlavor
 }
 
-func (f *testOracle) SimulatePreemption(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) (preemptioncommon.PreemptionPossibility, int) {
+func (f *testOracle) SimulatePreemption(
+	log logr.Logger,
+	cq *schdcache.ClusterQueueSnapshot,
+	wl workload.Info,
+	fr resources.FlavorResource,
+	quantity int64,
+) (preemptioncommon.PreemptionPossibility, int) {
 	if f.simulationResult != nil {
 		if result, ok := f.simulationResult[fr]; ok {
 			return result.preemptionPossiblity, result.borrowingAfterSimulation
@@ -191,19 +197,18 @@ func TestAssignFlavors(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		wlPods                              []kueue.PodSet
-		wlReclaimablePods                   []kueue.ReclaimablePod
-		clusterQueue                        kueue.ClusterQueue
-		clusterQueueUsage                   resources.FlavorResourceQuantities
-		secondaryClusterQueue               *kueue.ClusterQueue
-		secondaryClusterQueueUsage          resources.FlavorResourceQuantities
-		wantRepMode                         FlavorAssignmentMode
-		wantAssignment                      Assignment
-		enableFairSharing                   bool
-		simulationResult                    map[resources.FlavorResource]simulationResultForFlavor
-		elasticJobsViaWorkloadSlicesEnabled bool
-		preemptWorkloadSlice                *workload.Info
-		featureGates                        map[featuregate.Feature]bool
+		wlPods                     []kueue.PodSet
+		wlReclaimablePods          []kueue.ReclaimablePod
+		clusterQueue               kueue.ClusterQueue
+		clusterQueueUsage          resources.FlavorResourceQuantities
+		secondaryClusterQueue      *kueue.ClusterQueue
+		secondaryClusterQueueUsage resources.FlavorResourceQuantities
+		wantRepMode                FlavorAssignmentMode
+		wantAssignment             Assignment
+		enableFairSharing          bool
+		simulationResult           map[resources.FlavorResource]simulationResultForFlavor
+		preemptWorkloadSlice       *workload.Info
+		featureGates               map[featuregate.Feature]bool
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -602,9 +607,11 @@ func TestAssignFlavors(t *testing.T) {
 								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (5) > maximum capacity (4)"},
 							},
 							{
-								Flavor:  "two",
-								Mode:    NoFit,
-								Reasons: []string{"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)"},
+								Flavor: "two",
+								Mode:   NoFit,
+								Reasons: []string{
+									"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)",
+								},
 							},
 						},
 						Count: 4,
@@ -625,9 +632,11 @@ func TestAssignFlavors(t *testing.T) {
 								Reasons: []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (5) > maximum capacity (4)"},
 							},
 							{
-								Flavor:  "two",
-								Mode:    NoFit,
-								Reasons: []string{"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)"},
+								Flavor: "two",
+								Mode:   NoFit,
+								Reasons: []string{
+									"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)",
+								},
 							},
 						},
 						Count: 1,
@@ -3171,7 +3180,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"workload slice preemption fits in the original workload resource flavor": {
-			elasticJobsViaWorkloadSlicesEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
@@ -3236,7 +3245,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"workload slice preemption does not fit in the original workload resource flavor": {
-			elasticJobsViaWorkloadSlicesEnabled: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
@@ -3351,10 +3360,6 @@ func TestAssignFlavors(t *testing.T) {
 					t.Fatalf("Failed to create secondary CQ snapshot")
 				}
 				secondaryClusterQueue.AddUsage(workload.Usage{Quota: tc.secondaryClusterQueueUsage})
-			}
-
-			if tc.elasticJobsViaWorkloadSlicesEnabled {
-				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			}
 
 			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing, &testOracle{simulationResult: tc.simulationResult}, tc.preemptWorkloadSlice)

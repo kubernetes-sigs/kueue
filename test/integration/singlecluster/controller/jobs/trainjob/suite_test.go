@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
@@ -37,6 +38,7 @@ import (
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -60,6 +62,7 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
 		DepCRDPaths: []string{util.JobsetCrds, util.KfTrainerCrds},
+		WebhookPath: util.WebhookPath,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -69,44 +72,24 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		reconciler, err := trainjob.NewReconciler(
-			ctx,
-			mgr.GetClient(),
-			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
-			opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = trainjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = reconciler.SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = trainjob.SetupTrainJobWebhook(mgr, opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		failedWebhook, err := webhooks.Setup(mgr, nil)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+		preemptionExpectations := preemptexpectations.New()
+		controllersSetup(ctx, mgr, preemptionExpectations, opts...)
 	}
 }
 
 func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		managerSetup(opts...)(ctx, mgr)
-
-		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		cCache := schdcache.New(mgr.GetClient())
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache)
-
-		configuration := &config.Configuration{}
-		mgr.GetScheme().Default(configuration)
-
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptexpectations.New(), nil)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
-
+		preemptionExpectations := preemptexpectations.New()
+		cCache, queues, configuration := controllersSetup(ctx, mgr, preemptionExpectations, opts...)
 		if setupTASControllers {
-			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil)
+			failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, configuration, nil)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 			err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -114,7 +97,41 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 		}
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptexpectations.New()))
-		err = sched.Start(ctx)
+		err := sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+}
+
+func controllersSetup(
+	ctx context.Context, mgr manager.Manager, preemptionExpectations *expectations.Store, opts ...jobframework.Option,
+) (*schdcache.Cache, *qcache.Manager, *config.Configuration) {
+	cCache := schdcache.New(mgr.GetClient())
+	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
+	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+
+	opts = append(opts, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+
+	reconciler, err := trainjob.NewReconciler(
+		ctx,
+		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
+		mgr.GetEventRecorderFor(constants.JobControllerName),
+		opts...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = indexer.Setup(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = trainjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = reconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = trainjob.SetupTrainJobWebhook(mgr, opts...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	configuration := &config.Configuration{}
+	mgr.GetScheme().Default(configuration)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+	failedWebhook, err := webhooks.Setup(mgr, nil)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+	return cCache, queues, configuration
 }

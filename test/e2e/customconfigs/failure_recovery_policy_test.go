@@ -41,7 +41,7 @@ const (
 	podTerminationGracePeriodSeconds = 1
 )
 
-var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failurerecoverypolicy"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		job *batchv1.Job
 		ns  *corev1.Namespace
@@ -160,12 +160,18 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Ordered, ginkgo.Contin
 			})
 		})
 
-		ginkgo.AfterEach(func() {
+		ginkgo.JustAfterEach(func() {
 			ginkgo.By("starting the kubelet on the node running the pod", func() {
 				cmd := exec.Command("docker", "exec", nodeName, "systemctl", "start", "kubelet")
 				gomega.Expect(cmd.Run()).To(gomega.Succeed())
 			})
 
+			ginkgo.By("waiting for the node to be ready again", func() {
+				util.ExpectNodeToBecomeReady(ctx, k8sClient, nodeName, lq)
+			})
+		})
+
+		ginkgo.AfterEach(func() {
 			ginkgo.By("deleting the cluster queue", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			})

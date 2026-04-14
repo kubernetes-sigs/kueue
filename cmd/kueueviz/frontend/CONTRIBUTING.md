@@ -21,3 +21,9 @@ make debug
 
 This will open your browser and enables hot code replacement on the client side.
 
+## Running tests
+
+Run unit tests:
+```
+make test
+```

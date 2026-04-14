@@ -34,6 +34,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
@@ -207,7 +208,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()
 			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			options := qcache.WithPreemptionExpectations(preemptexpectations.New())
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, options)
 			if tc.insertCqIntoCache {
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 					t.Fatalf("Inserting clusterQueue in cache: %v", err)

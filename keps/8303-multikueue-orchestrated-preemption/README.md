@@ -57,7 +57,8 @@ This can cause them to make decisions which make sense from a single cluster's p
 taking the whole system (other workers) into account.
 
 For example, a high-priority workload can trigger simultaneous preemptions in multiple worker clusters.
-For instance, a workload sent to three clusters using the `AllAtOnce` strategy might initiate preemptions on all three.
+For instance, a workload sent to three clusters using the `AllAtOnce` strategy might initiate preemptions on all three (although this is not
+specific to any one dispatch strategy and might occur as long as there is more than one nominated cluster).
 Since the workload can only be admitted to one cluster, the preemptions on the other two are unnecessary and lead to wasted resources by
 halting running workloads and then having to re-admit them.
 
@@ -179,14 +180,14 @@ type WorkloadSpec struct {
   PreemptionGates []PreemptionGate `json:"preemptionGates,omitempty"`
 }
 
-type GateState string
+type PreemptionGatePosition string
 
 const (
-  // GateStateClosed means that the gate is blocking the workload from preempting.
-  GateStateClosed GateState = "Closed"
+  // PreemptionGatePositionClosed means that the gate is blocking the workload from preempting.
+  PreemptionGatePositionClosed PreemptionGatePosition = "Closed"
 
-  // GateStateOpen means that the gate is not blocking the workload from preempting.
-  GateStateOpen GateState = "Open"
+  // PreemptionGatePositionOpen means that the gate is not blocking the workload from preempting.
+  PreemptionGatePositionOpen PreemptionGatePosition = "Open"
 )
 
 type PreemptionGateState struct {
@@ -196,10 +197,10 @@ type PreemptionGateState struct {
   // +required
   Name string `json:"name"`
 
-  // state of the preemption gate. One of
+  // position of the preemption gate. One of
   // +kubebuilder:validation:Enum=Closed;Open
   // +required
-  State GateState `json:"state"`
+  Position PreemptionGatePosition `json:"position"`
 
   // lastTransitionTime is the last time the gate transitioned from one status to another.
   // +required
@@ -221,13 +222,13 @@ The `PreemptionGated` condition will be defined as follows:
 ```go
 const (
   ...
-  // WorkloadPreemptionBlocked means that the Workload attempted to reserve quota via a preemption, but was blocked.
+  // WorkloadBlockedOnPreemptionGates means that the Workload attempted to reserve quota via a preemption, but was blocked.
   // The possible reasons for this condition are:
-  // - "PreemptionGated": the workload could not preempt to acquire quota due to a preemption gate.
-  WorkloadPreemptionBlocked = "PreemptionBlocked"
+  // - "PreemptionGated": the preemptor workload could not preempt the preemption targets to acquire quota due to a preemption gate.
+  WorkloadBlockedOnPreemptionGates = "BlockedOnPreemptionGates"
 )
 
-// Reasons for the WorkloadPreemptionBlocked condition.
+// Reasons for the WorkloadBlockedOnPreemptionGates condition.
 const (
   // PreemptionGated indicates the Workload could free up quota via
   // preemption, but was prevented from doing so by a preemption gate.
@@ -259,8 +260,9 @@ This is done in anticipation of a new opt-in API in beta, in order to avoid lock
 
 ### MultiKueue Controller
 
-When a workload is submitted to MultiKueue, its remote replicas will automatically be assigned the `kueue.x-k8s.io/multikueue` preemption gate
-via its `spec`. This will prevent any of the replicas from triggering a preemption until allowed by the manager controller.
+When a workload is submitted to MultiKueue, its remote replicas in the nominated clusters (irrespective of the nomination algorithm)
+will automatically be assigned the `kueue.x-k8s.io/multikueue` preemption gate via its `spec`.
+This will prevent any of the replicas from triggering a preemption until allowed by the manager controller.
 The `status` of the remote workloads will be updated with the `PreemptionGateState` by a workload controller running on the worker clusters.
 
 A manager-level preemption orchestration controller will be responsible for ungating the replicated workloads.

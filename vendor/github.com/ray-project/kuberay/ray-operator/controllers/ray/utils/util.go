@@ -1048,3 +1048,29 @@ func GetRayHttpProxyClientFunc(mgr manager.Manager, useKubernetesProxy bool) fun
 func HasSubmitter(rayJobInstance *rayv1.RayJob) bool {
 	return rayJobInstance.Spec.SubmissionMode == rayv1.K8sJobMode || rayJobInstance.Spec.SubmissionMode == rayv1.SidecarMode
 }
+
+// IsHTTPRouteEqual checks if the existing HTTPRoute matches the desired HTTPRoute.
+func IsHTTPRouteEqual(existing, desired *gwv1.HTTPRoute) bool {
+	if len(existing.Spec.Rules) != len(desired.Spec.Rules) {
+		return false
+	}
+
+	for i := range desired.Spec.Rules {
+		if len(existing.Spec.Rules[i].BackendRefs) != len(desired.Spec.Rules[i].BackendRefs) {
+			return false
+		}
+
+		for j := range desired.Spec.Rules[i].BackendRefs {
+			existingRef := existing.Spec.Rules[i].BackendRefs[j]
+			desiredRef := desired.Spec.Rules[i].BackendRefs[j]
+
+			// Only compare the fields the controller updates.
+			if string(existingRef.Name) != string(desiredRef.Name) ||
+				ptr.Deref(existingRef.Weight, 1) != ptr.Deref(desiredRef.Weight, 1) ||
+				ptr.Deref(existingRef.Port, 0) != ptr.Deref(desiredRef.Port, 0) {
+				return false
+			}
+		}
+	}
+	return true
+}

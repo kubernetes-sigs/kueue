@@ -17,10 +17,16 @@ limitations under the License.
 package trainjob
 
 import (
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/utils/ptr"
 
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 )
+
+func IsTrainJobFinished(trainJob *trainer.TrainJob) bool {
+	return meta.IsStatusConditionTrue(trainJob.Status.Conditions, trainer.TrainJobComplete) ||
+		meta.IsStatusConditionTrue(trainJob.Status.Conditions, trainer.TrainJobFailed)
+}
 
 func RuntimeRefIsTrainingRuntime(ref trainer.RuntimeRef) bool {
 	return ptr.Equal(ref.APIGroup, &trainer.GroupVersion.Group) &&

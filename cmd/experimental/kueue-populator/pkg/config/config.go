@@ -21,13 +21,27 @@ import (
 	"os"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/yaml"
+)
+
+type LocalQueueNameMode string
+
+const (
+	LocalQueueNameModeStatic         LocalQueueNameMode = "Static"
+	LocalQueueNameModeAsClusterQueue LocalQueueNameMode = "AsClusterQueue"
 )
 
 // Configuration defines the configuration for the kueue-populator controller.
 type Configuration struct {
-	// LocalQueueName is the name of the LocalQueue to create by default.
+	// LocalQueueName is the name of the LocalQueue to create.
+	// Only used when LocalQueueNameMode is "Static" (default).
 	LocalQueueName string `json:"localQueueName,omitempty"`
+
+	// LocalQueueNameMode determines how the LocalQueue name is derived.
+	// "Static" (default): uses the value of LocalQueueName.
+	// "AsClusterQueue": uses the ClusterQueue's name as the LocalQueue name.
+	LocalQueueNameMode LocalQueueNameMode `json:"localQueueNameMode,omitempty"`
 
 	// ManagedJobsNamespaceSelector selects namespaces where the controller creates LocalQueues.
 	// It mimics the behavior of the same flag in Kueue.
@@ -50,11 +64,34 @@ func Default() Configuration {
 	}
 }
 
+// Validate checks the configuration for invalid combinations.
+func (c *Configuration) Validate() field.ErrorList {
+	var allErrs field.ErrorList
+	switch c.LocalQueueNameMode {
+	case LocalQueueNameModeStatic, "":
+	case LocalQueueNameModeAsClusterQueue:
+		if c.LocalQueueName != "" {
+			allErrs = append(allErrs, field.Invalid(
+				field.NewPath("localQueueName"),
+				c.LocalQueueName,
+				"localQueueName cannot be set when localQueueNameMode is AsClusterQueue",
+			))
+		}
+	default:
+		allErrs = append(allErrs, field.NotSupported(
+			field.NewPath("localQueueNameMode"),
+			c.LocalQueueNameMode,
+			[]string{string(LocalQueueNameModeStatic), string(LocalQueueNameModeAsClusterQueue)},
+		))
+	}
+	return allErrs
+}
+
 // Load reads the configuration from the given file path.
 // If the path is empty, it returns the default configuration.
 func Load(path string) (*Configuration, error) {
-	cfg := Default()
 	if path == "" {
+		cfg := Default()
 		return &cfg, nil
 	}
 
@@ -63,8 +100,20 @@ func Load(path string) (*Configuration, error) {
 		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
 
+	var raw Configuration
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config file %s: %w", path, err)
+	}
+	if errs := raw.Validate(); len(errs) > 0 {
+		return nil, fmt.Errorf("invalid configuration: %s", errs.ToAggregate().Error())
+	}
+
+	cfg := Default()
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config file %s: %w", path, err)
+	}
+	if cfg.LocalQueueNameMode == LocalQueueNameModeAsClusterQueue {
+		cfg.LocalQueueName = ""
 	}
 
 	return &cfg, nil

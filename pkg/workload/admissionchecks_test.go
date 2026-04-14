@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
@@ -36,7 +37,7 @@ import (
 func TestSyncAdmittedCondition(t *testing.T) {
 	testTime := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
-		enableTopologyAwareScheduling bool
+		featureGates map[featuregate.Feature]bool
 
 		admission        *kueue.Admission
 		checkStates      []kueue.AdmissionCheckState
@@ -258,7 +259,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantAdmittedTime: 2,
 		},
 		"pending delayed topology request; flip from Admitted=true": {
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -299,7 +300,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange: true,
 		},
 		"pending delayed topology request; already Admitted=false": {
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -343,7 +344,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			builder := utiltestingapi.MakeWorkload("foo", "bar").
 				Admission(tc.admission).
 				AdmissionChecks(tc.checkStates...).

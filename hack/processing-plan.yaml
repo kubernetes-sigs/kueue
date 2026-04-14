@@ -976,6 +976,7 @@ files:
     outputDir: ./charts/kueue/templates/certmanager
     removeComments: true
     excludes:
+      - certificate.yaml
       - kustomization.yaml
       - kustomizeconfig.yaml
       - common_name_transformer.yaml
@@ -996,12 +997,11 @@ files:
         key: .spec.secretName
         value: '"{{ include \"kueue.fullname\" . }}-"'
         onFileCondition: '.kind == "Certificate"'
-      - type: APPEND
-        key: .spec.issuerRef.name
-        value: '"{{ include \"kueue.fullname\" . }}-"'
-        onFileCondition: '.kind == "Certificate"'
       - type: DELETE
         key: .spec.dnsNames
+        onFileCondition: '.kind == "Certificate"'
+      - type: DELETE
+        key: .spec.issuerRef
         onFileCondition: '.kind == "Certificate"'
     postOperations:
       - type: INSERT_TEXT
@@ -1014,17 +1014,15 @@ files:
         key: .spec
         value: |
           dnsNames:
-          - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc'
-          - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
-        indentation: 2
-        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("serving-cert")'
-      - type: INSERT_TEXT
-        key: .spec
-        value: |
-          dnsNames:
           - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc'
           - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
         indentation: 2
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("metrics-cert")'
+      - type: INSERT_TEXT
+        key: .spec.commonName
+        value: |
+          issuerRef:{{ include "kueue.certManager.issuerRef" . | trim | nindent 4 }}
+        indentation: 0
         onFileCondition: '.kind == "Certificate" and .metadata.name | contains("metrics-cert")'
       - type: INSERT_TEXT
         key: .spec
@@ -1035,10 +1033,28 @@ files:
         indentation: 2
         onFileCondition: '.kind == "Certificate" and .metadata.name | contains("visibility-server-cert")'
       - type: INSERT_TEXT
+        key: .spec.commonName
+        value: |
+          issuerRef:{{ include "kueue.certManager.issuerRef" . | trim | nindent 4 }}
+        indentation: 0
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("visibility-server-cert")'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and .Values.enableCertManager (not .Values.certManager.issuerRef) }}
+        onFileCondition: '.kind == "Issuer"'
+      - type: INSERT_TEXT
         position: START
         value: |
           {{- if .Values.enableCertManager }}
+        onFileCondition: '.kind == "Certificate"'
       - type: INSERT_TEXT
         position: END
         value: |
           {{- end }}
+        onFileCondition: '.kind == "Issuer"'
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+        onFileCondition: '.kind == "Certificate"'

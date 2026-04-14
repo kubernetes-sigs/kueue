@@ -53,18 +53,22 @@ func (h *Handlers) fetchLocalQueues(ctx context.Context) (any, error) {
 		return nil, fmt.Errorf("error fetching local queues: %v", err)
 	}
 
-	type lqResult struct {
-		Namespace string                    `json:"namespace"`
-		Name      string                    `json:"name"`
-		Status    kueueapi.LocalQueueStatus `json:"status,omitempty"`
-	}
-
-	var queues []lqResult
+	var queues []map[string]any
 	for _, item := range lql.Items {
-		queues = append(queues, lqResult{
-			Namespace: item.GetNamespace(),
-			Name:      item.GetName(),
-			Status:    item.Status,
+		queues = append(queues, map[string]any{
+			"namespace": item.GetNamespace(),
+			"name":      item.GetName(),
+			"spec": map[string]any{
+				"clusterQueue": string(item.Spec.ClusterQueue),
+			},
+			"status": map[string]any{
+				"admittedWorkloads":  item.Status.AdmittedWorkloads,
+				"pendingWorkloads":   item.Status.PendingWorkloads,
+				"reservingWorkloads": item.Status.ReservingWorkloads,
+				"flavorsUsage":       convertLocalQueueFlavorsUsage(item.Status.FlavorsUsage),
+				"flavorsReservation": convertLocalQueueFlavorsUsage(item.Status.FlavorsReservation),
+				"conditions":         item.Status.Conditions,
+			},
 		})
 	}
 	return queues, nil

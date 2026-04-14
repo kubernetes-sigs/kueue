@@ -25,10 +25,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -40,9 +41,9 @@ import (
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		rayJob                        *RayJob
-		wantPodSets                   func(rayJob *RayJob) []kueue.PodSet
-		enableTopologyAwareScheduling bool
+		rayJob       *RayJob
+		wantPodSets  func(rayJob *RayJob) []kueue.PodSet
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -82,7 +83,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with required topology annotation": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -136,7 +137,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with preferred topology annotation": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -190,7 +191,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -248,7 +249,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with submitter topology annotation not specified": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -297,7 +298,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with submitter topology annotation specified": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -363,7 +364,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with NumOfHosts > 1": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -405,7 +406,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with default job submitter": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -449,7 +450,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with submitter job pod template override": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
@@ -518,12 +519,12 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotPodSets, err := tc.rayJob.PodSets(ctx)
 			if err != nil {
@@ -792,14 +793,15 @@ func TestGetCustomAnnotations(t *testing.T) {
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
 			wantCustomAnnotation: map[string]string{
-				jobframework.PodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+				raycluster.RayClusterGenerationAnnotation:         "0",
+				raycluster.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
 			},
 			wantGroupCount: 5,
 		},
 		"skip patch when annotation already matches": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":5}]`).
+				Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":5}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
 				WithEnableAutoscaling(ptr.To(true)).
@@ -807,13 +809,16 @@ func TestGetCustomAnnotations(t *testing.T) {
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
-			wantCustomAnnotation: nil,
-			wantGroupCount:       5,
+			wantCustomAnnotation: map[string]string{
+				raycluster.RayClusterGenerationAnnotation:         "0",
+				raycluster.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+			},
+			wantGroupCount: 5,
 		},
 		"annotation updated after scale-down": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":6}]`).
+				Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":6}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 4)).
 				WithEnableAutoscaling(ptr.To(true)).
@@ -822,14 +827,15 @@ func TestGetCustomAnnotations(t *testing.T) {
 				WithWorkerGroups(workerGroup("group1", 4)).
 				Obj(),
 			wantCustomAnnotation: map[string]string{
-				jobframework.PodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":4}]`,
+				raycluster.RayClusterGenerationAnnotation:         "0",
+				raycluster.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":4}]`,
 			},
 			wantGroupCount: 4,
 		},
 		"annotation updated when podset count differs from annotation length": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"group1","count":5}]`).
+				Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"group1","count":5}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
 				WithEnableAutoscaling(ptr.To(true)).
@@ -838,7 +844,8 @@ func TestGetCustomAnnotations(t *testing.T) {
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
 			wantCustomAnnotation: map[string]string{
-				jobframework.PodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+				raycluster.RayClusterGenerationAnnotation:         "0",
+				raycluster.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
 			},
 			wantGroupCount: 5,
 		},

@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -67,9 +68,9 @@ func TestPodSets(t *testing.T) {
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns")
 
 	testCases := map[string]struct {
-		sparkApp                           *sparkappv1beta2.SparkApplication
-		topologyAwareSchedulingFeatureGate bool
-		want                               []kueue.PodSet
+		sparkApp     *sparkappv1beta2.SparkApplication
+		featureGates map[featuregate.Feature]bool
+		want         []kueue.PodSet
 	}{
 		"base": {
 			sparkApp: testSparkApp.Clone().
@@ -114,7 +115,7 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with TopologyAwareScheduling": {
-			topologyAwareSchedulingFeatureGate: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").
 				DriverAnnotation(
 					kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
@@ -169,7 +170,7 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with TopologyAwareScheduling annotation but TopologyAwareScheduling feature gate disabled": {
-			topologyAwareSchedulingFeatureGate: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").
 				DriverAnnotation(
 					kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
@@ -225,7 +226,7 @@ func TestPodSets(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareSchedulingFeatureGate)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 

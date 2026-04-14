@@ -62,7 +62,7 @@ type clusterQueue struct {
 	FlavorFungibility kueue.FlavorFungibility
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
-	AdmissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
+	AdmissionChecks workload.AdmissionChecks
 	Status          metrics.ClusterQueueStatus
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
 	// deleted, or the resource groups are changed.
@@ -100,6 +100,8 @@ type clusterQueue struct {
 
 	// values extracted from K8s labels/annotations, used as custom Prometheus metric labels
 	customMetricLabelValues []string
+
+	lqMetrics *metrics.LocalQueueMetricsConfig
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
@@ -127,7 +129,13 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 
 var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.MayStopSearch, WhenCanPreempt: kueue.TryNextFlavor}
 
-func (c *clusterQueue) updateClusterQueue(log logr.Logger, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck, oldParent *cohort) error {
+func (c *clusterQueue) updateClusterQueue(
+	log logr.Logger,
+	in *kueue.ClusterQueue,
+	resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor,
+	admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck,
+	oldParent *cohort,
+) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortTreeResourcesIfNoCycle(oldParent)
@@ -492,6 +500,9 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 }
 
 func (c *clusterQueue) reportActiveWorkloads() {
+	for ancestor := range c.Parent().PathSelfToRoot() {
+		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, c.customMetricLabelValues, c.roleTracker)
+	}
 	metrics.ReportAdmittedActiveWorkloads(c.Name, c.admittedWorkloadsCount, c.customMetricLabelValues, c.roleTracker)
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), c.customMetricLabelValues, c.roleTracker)
 }
@@ -546,6 +557,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 	c.updateWorkloadTASUsage(log, wi, op)
 	if admitted {
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
+		c.Parent().updateAdmittedWorkloadsCount(op.asSignedOne())
 		c.admittedWorkloadsCount += op.asSignedOne()
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
@@ -556,7 +568,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 			lq.updateAdmittedUsage(frUsage, op)
 			lq.admittedWorkloads += op.asSignedOne()
 		}
-		if features.Enabled(features.LocalQueueMetrics) {
+		if lq.shouldExposeMetrics(c.lqMetrics) {
 			lq.reportActiveWorkloads(c.roleTracker)
 		}
 	}
@@ -604,6 +616,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue, customLabelValues []st
 		reservingWorkloads:      0,
 		totalReserved:           make(resources.FlavorResourceQuantities),
 		customMetricLabelValues: customLabelValues,
+		labels:                  q.GetLabels(),
 	}
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
 	for _, wl := range c.Workloads {
@@ -618,7 +631,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue, customLabelValues []st
 		}
 	}
 	c.localQueues[qKey] = qImpl
-	if features.Enabled(features.LocalQueueMetrics) {
+	if c.lqMetrics.ShouldExposeLocalQueueMetrics(q.GetLabels()) {
 		qImpl.reportActiveWorkloads(c.roleTracker)
 	}
 	return nil
@@ -626,7 +639,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue, customLabelValues []st
 
 func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
-	if features.Enabled(features.LocalQueueMetrics) {
+	if c.lqMetrics.IsEnabled() {
 		namespace, lqName := queue.MustParseLocalQueueReference(qKey)
 		metrics.ClearLocalQueueCacheMetrics(metrics.LocalQueueReference{
 			Name:      lqName,

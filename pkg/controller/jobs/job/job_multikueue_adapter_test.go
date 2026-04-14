@@ -263,7 +263,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 	type fields struct {
-		features map[featuregate.Feature]bool
+		featureGates map[featuregate.Feature]bool
 	}
 	type args struct {
 		localClient  client.Client
@@ -429,7 +429,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_RemoteInSync": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -458,7 +458,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_LocalIsStale": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -489,7 +489,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_WorkloadNameOnlyChange_EdgeCase": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -517,7 +517,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_RemoteOutOfSync": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -550,7 +550,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_RemoteOutOfSync_PatchFailure": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -588,9 +588,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			// Setup feature gates if any provided.
-			for featureName, enabled := range tt.fields.features {
-				features.SetFeatureGateDuringTest(t, featureName, enabled)
-			}
+			features.SetFeatureGatesDuringTest(t, tt.fields.featureGates)
 
 			adapter := &multiKueueAdapter{}
 			ctx, _ := utiltesting.ContextWithLog(t)

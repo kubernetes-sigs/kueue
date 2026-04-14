@@ -86,7 +86,7 @@ spec:
 
 ### c. 队列选择
 
-目标 [本地队列](/zh-cn/docs/concepts/local_queue) 应当在 Pod
+目标 [本地队列](/docs/concepts/local_queue) 应当在 Pod
 配置的 `metadata.labels` 部分指定。
 
 ```yaml
