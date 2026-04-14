@@ -79,14 +79,14 @@ func TestNodesCache(t *testing.T) {
 			nc := newNodesCache()
 
 			for i := range tc.nodes {
-				nc.nodes[tc.nodes[i].Name] = newNodeInfo(&tc.nodes[i])
+				nc.nodes[tc.nodes[i].Name] = newNodeInfo(&tc.nodes[i], nil)
 			}
 
 			tc.op(nc)
 
 			wantNodesMap := make(map[string]*nodeInfo, len(tc.wantNodes))
 			for i := range tc.wantNodes {
-				wantNodesMap[tc.wantNodes[i].Name] = newNodeInfo(&tc.wantNodes[i])
+				wantNodesMap[tc.wantNodes[i].Name] = newNodeInfo(&tc.wantNodes[i], nil)
 			}
 
 			if diff := cmp.Diff(wantNodesMap, nc.nodes); diff != "" {
@@ -110,7 +110,7 @@ func TestNodesCacheFind(t *testing.T) {
 	nodes := []corev1.Node{*node1, *node2, *node3, *node4}
 
 	for i := range nodes {
-		nc.nodes[nodes[i].Name] = newNodeInfo(&nodes[i])
+		nc.nodes[nodes[i].Name] = newNodeInfo(&nodes[i], nil)
 	}
 
 	testCases := map[string]struct {
@@ -120,24 +120,24 @@ func TestNodesCacheFind(t *testing.T) {
 	}{
 		"no nodeLabels and levels": {
 			wantNodes: []*nodeInfo{
-				newNodeInfo(node1),
-				newNodeInfo(node2),
-				newNodeInfo(node3),
-				newNodeInfo(node4),
+				newNodeInfo(node1, nil),
+				newNodeInfo(node2, nil),
+				newNodeInfo(node3, nil),
+				newNodeInfo(node4, nil),
 			},
 		},
 		"match labels": {
 			nodeLabels: map[string]string{"cloud.provider.com/zone": "us-east-1a"},
-			wantNodes:  []*nodeInfo{newNodeInfo(node2), newNodeInfo(node3)},
+			wantNodes:  []*nodeInfo{newNodeInfo(node2, nil), newNodeInfo(node3, nil)},
 		},
 		"match levels": {
 			levels:    []string{"cloud.provider.com/topology-block"},
-			wantNodes: []*nodeInfo{newNodeInfo(node3)},
+			wantNodes: []*nodeInfo{newNodeInfo(node3, nil)},
 		},
 		"match labels and levels": {
 			nodeLabels: map[string]string{"cloud.provider.com/zone": "us-east-1a"},
 			levels:     []string{"cloud.provider.com/topology-block"},
-			wantNodes:  []*nodeInfo{newNodeInfo(node3)},
+			wantNodes:  []*nodeInfo{newNodeInfo(node3, nil)},
 		},
 	}
 	for name, tc := range testCases {
