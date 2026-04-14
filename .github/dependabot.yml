@@ -89,3 +89,8 @@ updates:
         update-types:
           - "minor"
           - "patch"
+        exclude-patterns:
+          - "@mui/*"
+          - "vite"
+          - "@vitejs/*"
+          - "vitest"
