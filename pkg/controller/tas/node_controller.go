@@ -145,6 +145,21 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		readyCondition = utiltas.GetNodeCondition(&node, corev1.NodeReady)
 	}
 
+	// Cordoned (Unschedulable) — mark unhealthy immediately.
+	if nodeExists && node.Spec.Unschedulable {
+		log.V(3).Info("Node is cordoned (Unschedulable), marking as failed")
+		nodeSelectorPodsByWorkload, err := r.listPodsAssignedByNodeSelector(ctx, req.Name)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		affectedWorkloads, err := r.getWorkloadsOnNode(ctx, req.Name, nodeSelectorPodsByWorkload)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		_, err = r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
+		return ctrl.Result{}, err
+	}
+
 	var timerExpired bool
 	if readyCondition != nil && readyCondition.Status != corev1.ConditionTrue {
 		timeSinceNotReady := r.clock.Now().Sub(readyCondition.LastTransitionTime.Time)
@@ -212,6 +227,11 @@ func (r *nodeReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) bool {
 	oldReady := utiltas.IsNodeStatusConditionTrue(e.ObjectOld.Status.Conditions, corev1.NodeReady)
 	if oldReady != newReady {
 		r.logger().V(4).Info("Node Ready status changed, triggering reconcile", "node", klog.KObj(e.ObjectNew), "oldReady", oldReady, "newReady", newReady)
+		return true
+	}
+	// Also trigger when node is cordoned/uncordoned.
+	if e.ObjectOld.Spec.Unschedulable != e.ObjectNew.Spec.Unschedulable {
+		r.logger().V(4).Info("Node Unschedulable changed, triggering reconcile", "node", klog.KObj(e.ObjectNew), "unschedulable", e.ObjectNew.Spec.Unschedulable)
 		return true
 	}
 	if features.Enabled(features.TASReplaceNodeOnNodeTaints) && !equality.Semantic.DeepEqual(e.ObjectOld.Spec.Taints, e.ObjectNew.Spec.Taints) {
