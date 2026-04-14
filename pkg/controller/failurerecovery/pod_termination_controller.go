@@ -33,11 +33,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -123,16 +125,7 @@ func (r *TerminatingPodReconciler) Create(e event.TypedCreateEvent[*corev1.Pod])
 }
 
 func (r *TerminatingPodReconciler) Update(u event.TypedUpdateEvent[*corev1.Pod]) bool {
-	if !podEligibleForTermination(u.ObjectNew) {
-		return false
-	}
-
-	// Pod was not marked for deletion in the update
-	if !u.ObjectOld.DeletionTimestamp.IsZero() || u.ObjectNew.DeletionTimestamp.IsZero() {
-		return false
-	}
-
-	return true
+	return podEligibleForTermination(u.ObjectNew)
 }
 
 func (r *TerminatingPodReconciler) Delete(event.TypedDeleteEvent[*corev1.Pod]) bool {
@@ -228,6 +221,46 @@ func isPodPartiallyForcefullyTerminated(p *corev1.Pod) bool {
 	})
 }
 
+func (r *TerminatingPodReconciler) mapNodeToPods(ctx context.Context, node *corev1.Node) []ctrl.Request {
+	log := log.FromContext(ctx)
+
+	pods := &corev1.PodList{}
+	if err := r.client.List(ctx, pods, client.MatchingFields{indexer.PodNodeNameKey: node.Name}); err != nil {
+		log.Error(err, "Failed to list pods for node", "node", klog.KObj(node))
+		return nil
+	}
+
+	var requests []ctrl.Request
+	for _, pod := range pods.Items {
+		if podEligibleForTermination(&pod) {
+			requests = append(requests, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: pod.Namespace,
+					Name:      pod.Name,
+				},
+			})
+		}
+	}
+	return requests
+}
+
+func (r *TerminatingPodReconciler) nodeEventsPredicate() predicate.TypedPredicate[*corev1.Node] {
+	return predicate.TypedFuncs[*corev1.Node]{
+		CreateFunc: func(e event.TypedCreateEvent[*corev1.Node]) bool {
+			return utiltaints.TaintKeyExists(e.Object.Spec.Taints, corev1.TaintNodeUnreachable)
+		},
+		UpdateFunc: func(e event.TypedUpdateEvent[*corev1.Node]) bool {
+			return utiltaints.TaintKeyExists(e.ObjectNew.Spec.Taints, corev1.TaintNodeUnreachable)
+		},
+		DeleteFunc: func(e event.TypedDeleteEvent[*corev1.Node]) bool {
+			return false
+		},
+		GenericFunc: func(e event.TypedGenericEvent[*corev1.Node]) bool {
+			return false
+		},
+	}
+}
+
 const ControllerName = "failure-recovery-pod-termination-controller"
 
 func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration) (string, error) {
@@ -238,6 +271,12 @@ func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 			&corev1.Pod{},
 			&handler.TypedEnqueueRequestForObject[*corev1.Pod]{},
 			r,
+		)).
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&corev1.Node{},
+			handler.TypedEnqueueRequestsFromMapFunc(r.mapNodeToPods),
+			r.nodeEventsPredicate(),
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),

@@ -72,6 +72,39 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 		}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("triggers reconciliation when the node becomes unreachable", func() {
+		var pod *corev1.Pod
+		ginkgo.By("creating the pod on a reachable node", func() {
+			pod = matchingPodWrapper.Clone().NodeName(reachableNodeName).Obj()
+			util.MustCreate(ctx, k8sClient, pod)
+		})
+		ginkgo.By("marking the pod for deletion and verifying that it's not forcefully terminated", func() {
+			gomega.Expect(k8sClient.Delete(ctx, pod)).To(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, pod)).To(gomega.Succeed())
+			}, forcefulTerminationCheckTimeout, util.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("tainting the previously reachable node as unreachable", func() {
+			node := &corev1.Node{}
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reachableNodeName}, node)).To(gomega.Succeed())
+			node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule})
+			gomega.Expect(k8sClient.Update(ctx, node)).To(gomega.Succeed())
+		})
+		ginkgo.By("verifying that the pod is forcefully terminated after the timeout elapses", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, pod)).
+					To(utiltesting.BeNotFoundError())
+			}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
+		})
+		ginkgo.By("removing the unreachable taint from the node", func() {
+			node := &corev1.Node{}
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reachableNodeName}, node)).To(gomega.Succeed())
+			node.Spec.Taints = nil
+			gomega.Expect(k8sClient.Update(ctx, node)).To(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("does not forcefully terminate matching pods that did not opt-in or are running on healthy nodes", func() {
 		nonMatchingPod := matchingPodWrapper.
 			Clone().

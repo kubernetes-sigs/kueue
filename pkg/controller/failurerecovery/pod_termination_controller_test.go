@@ -120,7 +120,7 @@ func TestUpdateEventFilter(t *testing.T) {
 		"pod was already deleted": {
 			oldPod:     oldPod.Clone().DeletionTimestamp(now).Obj(),
 			newPod:     newPodToReconcile.Obj(),
-			wantResult: false,
+			wantResult: true,
 		},
 		"updated object is not annotated": {
 			oldPod: oldPod.Obj(),
