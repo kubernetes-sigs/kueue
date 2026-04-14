@@ -319,6 +319,19 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			}
 		}
 		for i := range workloads.Items {
+			// Finish admitted workloads to release quota before removing the
+			// finalizer. Without this, workloads whose owner was deleted with
+			// --cascade=orphan remain admitted indefinitely (#1789).
+			if workload.IsAdmitted(&workloads.Items[i]) {
+				err := workload.Finish(ctx, r.client, &workloads.Items[i],
+					kueue.WorkloadFinishedReasonOwnerNotFound,
+					"The workload's owner no longer exists",
+					r.clock)
+				if err != nil && !apierrors.IsNotFound(err) {
+					log.Error(err, "Finishing orphaned workload")
+					return ctrl.Result{}, err
+				}
+			}
 			err := workload.RemoveFinalizer(ctx, r.client, &workloads.Items[i])
 			if client.IgnoreNotFound(err) != nil {
 				log.Error(err, "Removing finalizer")
