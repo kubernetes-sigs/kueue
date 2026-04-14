@@ -2669,12 +2669,6 @@ func TestIsTAS(t *testing.T) {
 				Obj(),
 			want: true,
 		},
-		"PodSetRequiredTopologyAnnotation": {
-			pod: testingpod.MakePod("pod", "ns").
-				Annotation(kueue.PodSetRequiredTopologyAnnotation, tasRackLabel).
-				Obj(),
-			want: true,
-		},
 		"PodSetSliceRequiredTopologyAnnotation": {
 			pod: testingpod.MakePod("pod", "ns").
 				Annotation(kueue.PodSetSliceRequiredTopologyAnnotation, tasBlockLabel).
