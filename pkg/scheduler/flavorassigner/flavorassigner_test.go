@@ -4042,7 +4042,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			tasReqs := tc.assignment.WorkloadsTopologyRequests(&tc.workload, &tc.cq)
+			tasReqs := tc.assignment.WorkloadsTopologyRequests(testr.New(t), &tc.workload, &tc.cq)
 			if len(tasReqs) != 0 {
 				t.Errorf("expected no TAS requests, got: %+v", tasReqs)
 			}
@@ -4185,7 +4185,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			tasReqs := tc.assignment.WorkloadsTopologyRequests(&tc.workload, &tc.cq)
+			tasReqs := tc.assignment.WorkloadsTopologyRequests(testr.New(t), &tc.workload, &tc.cq)
 			if tc.wantErr != "" {
 				if len(tasReqs) != 0 {
 					t.Errorf("expected no TAS requests, got: %+v", tasReqs)
@@ -4440,6 +4440,100 @@ func TestAssignment_RequiresBorrowing(t *testing.T) {
 			a := &Assignment{Borrowing: tc.borrowing}
 			if got := a.RequiresBorrowing(); got != tc.want {
 				t.Errorf("RequiresBorrowing() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestWorkloadsTopologyRequests_ZeroCountPodSetSkipped verifies that count=0
+// podSets (completed/reclaimable after preemption) are skipped in TAS request
+// generation, preventing empty TopologyAssignment slices that cause CRD
+// validation errors and infinite scheduling loops.
+func TestWorkloadsTopologyRequests_ZeroCountPodSetSkipped(t *testing.T) {
+	tasFlavor := &schdcache.TASFlavorSnapshot{}
+
+	cases := map[string]struct {
+		podSets        []PodSetAssignment
+		wlPodSets      []kueue.PodSet
+		wantTASPodSets []string // names of podSets that should have TAS requests
+	}{
+		"mixed: 1 completed (count=0) + 1 running (count=1)": {
+			podSets: []PodSetAssignment{
+				{Name: "completed-job", Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 0, Status: *NewStatus()},
+				{Name: "running-job", Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 1, Status: *NewStatus()},
+			},
+			wlPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("completed-job", 1).Request(corev1.ResourceCPU, "1").RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+				*utiltestingapi.MakePodSet("running-job", 1).Request(corev1.ResourceCPU, "1").RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+			},
+			wantTASPodSets: []string{"running-job"},
+		},
+		"all completed (count=0): no TAS requests": {
+			podSets: []PodSetAssignment{
+				{Name: "sampler-0", Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 0, Status: *NewStatus()},
+				{Name: "controller", Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 0, Status: *NewStatus()},
+			},
+			wlPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("sampler-0", 1).Request(corev1.ResourceCPU, "1").RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+				*utiltestingapi.MakePodSet("controller", 1).Request(corev1.ResourceCPU, "1").RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+			},
+			wantTASPodSets: nil,
+		},
+		"3 podSets: 2 completed + 1 running": {
+			podSets: []PodSetAssignment{
+				{Name: "sampler-0", Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 0, Status: *NewStatus()},
+				{Name: "sampler-1", Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 1, Status: *NewStatus()},
+				{Name: "controller", Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 0, Status: *NewStatus()},
+			},
+			wlPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("sampler-0", 1).Request(corev1.ResourceCPU, "1").RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+				*utiltestingapi.MakePodSet("sampler-1", 1).Request(corev1.ResourceCPU, "1").RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+				*utiltestingapi.MakePodSet("controller", 1).Request(corev1.ResourceCPU, "1").RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+			},
+			wantTASPodSets: []string{"sampler-1"},
+		},
+		"all running: all get TAS requests": {
+			podSets: []PodSetAssignment{
+				{Name: "worker-0", Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 2, Status: *NewStatus()},
+				{Name: "worker-1", Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 3, Status: *NewStatus()},
+			},
+			wlPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("worker-0", 2).Request(corev1.ResourceCPU, "1").RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+				*utiltestingapi.MakePodSet("worker-1", 3).Request(corev1.ResourceCPU, "1").RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+			},
+			wantTASPodSets: []string{"worker-0", "worker-1"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cq := schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
+			}
+			assignment := Assignment{PodSets: tc.podSets}
+			wl := workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{PodSets: tc.wlPodSets},
+			})
+
+			tasReqs := assignment.WorkloadsTopologyRequests(testr.New(t), wl, &cq)
+
+			// Collect which podSets got TAS requests
+			var gotPodSets []string
+			for _, flavorReqs := range tasReqs {
+				for _, req := range flavorReqs {
+					gotPodSets = append(gotPodSets, string(req.PodSet.Name))
+				}
+			}
+
+			if diff := cmp.Diff(tc.wantTASPodSets, gotPodSets, cmpopts.SortSlices(func(a, b string) bool { return a < b }), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("TAS request podSets mismatch (-want +got):\n%s", diff)
+			}
+
+			// Verify no errors on count=0 podSets
+			for _, ps := range assignment.PodSets {
+				if ps.Count == 0 && ps.Status.IsError() {
+					t.Errorf("count=0 podSet %q should not have error, got: %v", ps.Name, ps.Status.err)
+				}
 			}
 		})
 	}

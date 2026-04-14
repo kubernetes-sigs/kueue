@@ -371,7 +371,6 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltestingapi.MakePodSetAssignment("worker").
 							Assignment(corev1.ResourceCPU, "tas-default", "0").
 							Count(0).
-							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).Obj()).
 							Obj(),
 					).
 					Obj(),

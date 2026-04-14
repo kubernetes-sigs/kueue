@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
@@ -36,13 +37,17 @@ import (
 )
 
 // WorkloadsTopologyRequests - returns the TopologyRequests of the workload
-func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) schdcache.WorkloadTASRequests {
+func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) schdcache.WorkloadTASRequests {
 	tasRequests := make(schdcache.WorkloadTASRequests)
 	for i, podSet := range wl.Obj.Spec.PodSets {
 		if isTASRequested(&podSet, cq) {
 			psAssignment := a.podSetAssignmentByName(podSet.Name)
 			if psAssignment.Status.IsError() {
 				// There is no resource quota assignment for the PodSet - no need to check TAS.
+				continue
+			}
+			if psAssignment.Count == 0 {
+				log.V(3).Info("Skipping TAS for count=0 podSet", "podSet", podSet.Name)
 				continue
 			}
 			if psAssignment.TopologyAssignment != nil && !psAssignment.HasUnhealthyNode(wl) {
