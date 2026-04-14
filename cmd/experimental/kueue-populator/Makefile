@@ -11,6 +11,9 @@ GO_FMT ?= gofmt
 ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
 BIN_DIR := $(ROOT_DIR)/bin
 
+# Use go.mod go version as a single source of truth of GO version.
+GO_VERSION := $(shell awk '/^go /{split($$2, v, "."); print v[1] "." v[2]}' $(ROOT_DIR)/go.mod|head -n1)
+
 HELM := $(BIN_DIR)/helm
 ENVTEST := $(BIN_DIR)/setup-envtest
 GINKGO := $(BIN_DIR)/ginkgo
