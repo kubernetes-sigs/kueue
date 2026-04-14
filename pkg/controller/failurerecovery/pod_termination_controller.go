@@ -250,7 +250,8 @@ func (r *TerminatingPodReconciler) nodeEventsPredicate() predicate.TypedPredicat
 			return utiltaints.TaintKeyExists(e.Object.Spec.Taints, corev1.TaintNodeUnreachable)
 		},
 		UpdateFunc: func(e event.TypedUpdateEvent[*corev1.Node]) bool {
-			return utiltaints.TaintKeyExists(e.ObjectNew.Spec.Taints, corev1.TaintNodeUnreachable)
+			return !utiltaints.TaintKeyExists(e.ObjectOld.Spec.Taints, corev1.TaintNodeUnreachable) &&
+				utiltaints.TaintKeyExists(e.ObjectNew.Spec.Taints, corev1.TaintNodeUnreachable)
 		},
 		DeleteFunc: func(e event.TypedDeleteEvent[*corev1.Node]) bool {
 			return false
