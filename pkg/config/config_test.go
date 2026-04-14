@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -66,6 +67,7 @@ func defaultControlCacheOptions(namespace string) ctrlcache.Options {
 					namespace: {},
 				},
 			},
+			objectKeyWorkload: {},
 		},
 	}
 }
@@ -384,6 +386,9 @@ objectRetentionPolicies:
 		// DefaultTransform is a function and cannot be compared with cmp.Diff;
 		// it is tested separately in TestDefaultTransformStripsManagedFields.
 		cmpopts.IgnoreFields(ctrlcache.Options{}, "DefaultTransform"),
+		// Per-object Transform functions cannot be compared with cmp.Diff;
+		// tested separately in TestTransformWorkload.
+		cmpopts.IgnoreFields(ctrlcache.ByObject{}, "Transform"),
 	}
 
 	// Ignore the controller manager section since it's side effect is checked against
@@ -788,6 +793,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				Resources: &configapi.Resources{
+					ExcludeNodeLabelPrefixes: configapi.DefaultExcludeNodeLabelPrefixes,
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceName("nvidia.com/mig-1g.5gb"),
@@ -1502,3 +1508,174 @@ namespace: kueue-system
 		})
 	}
 }
+
+func TestTransformWorkload(t *testing.T) {
+	wl := &kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-wl",
+			Namespace: "default",
+			ManagedFields: []metav1.ManagedFieldsEntry{
+				{Manager: "kubectl", Operation: metav1.ManagedFieldsOperationApply},
+			},
+		},
+		Spec: kueue.WorkloadSpec{
+			PodSets: []kueue.PodSet{
+				{
+					Name:  "main",
+					Count: 2,
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels:      map[string]string{"app": "test"},
+							Annotations: map[string]string{"note": "keep"},
+							Finalizers:  []string{"should-be-stripped"},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:    "main",
+									Image:   "busybox",
+									Command: []string{"sleep", "inf"},
+									Env: []corev1.EnvVar{
+										{Name: "FOO", Value: "bar"},
+									},
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											corev1.ResourceCPU: resourcev1.MustParse("1"),
+										},
+									},
+									Ports: []corev1.ContainerPort{{ContainerPort: 8080}},
+								},
+							},
+							InitContainers: []corev1.Container{
+								{
+									Name:  "init",
+									Image: "busybox",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											corev1.ResourceMemory: resourcev1.MustParse("64Mi"),
+										},
+									},
+								},
+							},
+							NodeSelector:     map[string]string{"zone": "us-east"},
+							Tolerations:      []corev1.Toleration{{Key: "spot"}},
+							SchedulingGates:  []corev1.PodSchedulingGate{{Name: "kueue.x-k8s.io/admission"}},
+							Affinity:         &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{}},
+							Overhead:         corev1.ResourceList{corev1.ResourceCPU: resourcev1.MustParse("100m")},
+							RuntimeClassName: ptrString("gvisor"),
+							Priority:         ptrInt32(100),
+							TopologySpreadConstraints: []corev1.TopologySpreadConstraint{
+								{TopologyKey: "zone", MaxSkew: 1},
+							},
+							// Fields that SHOULD be stripped:
+							Volumes:            []corev1.Volume{{Name: "data"}},
+							ServiceAccountName: "default",
+							HostNetwork:        true,
+							DNSPolicy:          corev1.DNSClusterFirst,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	result, err := transformWorkload(wl)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	got, ok := result.(*kueue.Workload)
+	if !ok {
+		t.Fatal("transformWorkload returned unexpected type")
+	}
+
+	// managedFields should be stripped.
+	if got.ManagedFields != nil {
+		t.Error("ManagedFields should be nil after transform")
+	}
+
+	ps := got.Spec.PodSets[0]
+
+	// Template ObjectMeta: only Labels and Annotations preserved.
+	if diff := cmp.Diff(map[string]string{"app": "test"}, ps.Template.Labels); diff != "" {
+		t.Errorf("Labels mismatch: %s", diff)
+	}
+	if diff := cmp.Diff(map[string]string{"note": "keep"}, ps.Template.Annotations); diff != "" {
+		t.Errorf("Annotations mismatch: %s", diff)
+	}
+	if ps.Template.Finalizers != nil {
+		t.Error("Template Finalizers should be stripped")
+	}
+
+	// Containers: only Name, Resources, Ports preserved.
+	if len(ps.Template.Spec.Containers) != 1 {
+		t.Fatalf("Expected 1 container, got %d", len(ps.Template.Spec.Containers))
+	}
+	c := ps.Template.Spec.Containers[0]
+	if c.Name != "main" {
+		t.Errorf("Container name mismatch: %s", c.Name)
+	}
+	if c.Image != "" {
+		t.Errorf("Container Image should be stripped, got %q", c.Image)
+	}
+	if c.Command != nil {
+		t.Error("Container Command should be stripped")
+	}
+	if c.Env != nil {
+		t.Error("Container Env should be stripped")
+	}
+	if len(c.Ports) != 1 {
+		t.Errorf("Container Ports should be preserved, got %d", len(c.Ports))
+	}
+	if c.Resources.Requests.Cpu().Cmp(resourcev1.MustParse("1")) != 0 {
+		t.Errorf("Container CPU request should be preserved")
+	}
+
+	// InitContainers: same stripping.
+	ic := ps.Template.Spec.InitContainers[0]
+	if ic.Image != "" {
+		t.Errorf("InitContainer Image should be stripped, got %q", ic.Image)
+	}
+
+	// Scheduling fields preserved.
+	if diff := cmp.Diff(map[string]string{"zone": "us-east"}, ps.Template.Spec.NodeSelector); diff != "" {
+		t.Errorf("NodeSelector mismatch: %s", diff)
+	}
+	if ps.Template.Spec.Affinity == nil {
+		t.Error("Affinity should be preserved")
+	}
+	if len(ps.Template.Spec.Tolerations) != 1 {
+		t.Error("Tolerations should be preserved")
+	}
+	if len(ps.Template.Spec.SchedulingGates) != 1 {
+		t.Error("SchedulingGates should be preserved")
+	}
+	if ps.Template.Spec.RuntimeClassName == nil || *ps.Template.Spec.RuntimeClassName != "gvisor" {
+		t.Error("RuntimeClassName should be preserved")
+	}
+	if ps.Template.Spec.Priority == nil || *ps.Template.Spec.Priority != 100 {
+		t.Error("Priority should be preserved")
+	}
+	if len(ps.Template.Spec.TopologySpreadConstraints) != 1 {
+		t.Error("TopologySpreadConstraints should be preserved")
+	}
+	if ps.Template.Spec.Overhead == nil {
+		t.Error("Overhead should be preserved")
+	}
+
+	// Stripped fields should be gone.
+	if ps.Template.Spec.Volumes != nil {
+		t.Error("Volumes should be stripped")
+	}
+	if ps.Template.Spec.ServiceAccountName != "" {
+		t.Error("ServiceAccountName should be stripped")
+	}
+	if ps.Template.Spec.HostNetwork {
+		t.Error("HostNetwork should be stripped")
+	}
+	if ps.Template.Spec.DNSPolicy != "" {
+		t.Error("DNSPolicy should be stripped")
+	}
+}
+
+func ptrString(s string) *string { return &s }
+func ptrInt32(i int32) *int32    { return &i }

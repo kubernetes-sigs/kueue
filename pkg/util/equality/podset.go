@@ -46,10 +46,27 @@ func comparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) b
 	if !opts.ignoreTolerations && !equality.Semantic.DeepEqual(a.Tolerations, b.Tolerations) {
 		return false
 	}
-	if !equality.Semantic.DeepEqual(a.InitContainers, b.InitContainers) {
+	if !compareContainerResources(a.InitContainers, b.InitContainers) {
 		return false
 	}
-	return equality.Semantic.DeepEqual(a.Containers, b.Containers)
+	return compareContainerResources(a.Containers, b.Containers)
+}
+
+// compareContainerResources returns true if both container slices have the
+// same length and each pair of containers has equal resource requests and
+// limits. Other container fields (Image, Command, Env, etc.) are ignored
+// because they don't affect scheduling and may have been stripped from the
+// informer cache.
+func compareContainerResources(a, b []corev1.Container) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !equality.Semantic.DeepEqual(a[i].Resources, b[i].Resources) {
+			return false
+		}
+	}
+	return true
 }
 
 func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {

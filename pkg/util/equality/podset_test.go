@@ -136,6 +136,21 @@ func TestComparePodSetSlices(t *testing.T) {
 			},
 			wantEquivalent: true,
 		},
+		"different images, same resources": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).InitContainers(corev1.Container{
+				Image: "img1",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{"cpu": resource.MustParse("1")},
+				},
+			}).Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).InitContainers(corev1.Container{
+				Image: "img2",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{"cpu": resource.MustParse("1")},
+				},
+			}).Obj()},
+			wantEquivalent: true,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
