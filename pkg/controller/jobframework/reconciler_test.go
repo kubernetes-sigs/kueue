@@ -34,6 +34,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -52,8 +53,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
@@ -1287,8 +1288,11 @@ func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
 		t.Fatalf("Failed to Reconcile GenericJob: %v", err)
 	}
 
-	all := testingmetrics.CollectFilteredGaugeVec(metrics.JobToWorkloadLatency, map[string]string{"job_kind": uniqueJobKind})
-	if len(all) != 1 {
-		t.Errorf("Expecting 1 metric got %d", len(all))
+	count, err := testutil.GetHistogramMetricCount(metrics.JobToWorkloadLatency.WithLabelValues(uniqueJobKind, roletracker.RoleStandalone))
+	if err != nil {
+		t.Fatalf("Failed to get histogram metric count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("Expecting 1 metric observation, got %d", count)
 	}
 }
