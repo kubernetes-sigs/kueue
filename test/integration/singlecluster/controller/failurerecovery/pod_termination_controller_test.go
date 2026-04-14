@@ -95,7 +95,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, pod)).
 					To(utiltesting.BeNotFoundError())
-			}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.By("removing the unreachable taint from the node", func() {
 			node := &corev1.Node{}
