@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -71,22 +72,28 @@ const (
 var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs"), func() {
 	var (
 		ns             *corev1.Namespace
+		unmanagedNS    *corev1.Namespace
 		childLookupKey types.NamespacedName
 	)
 
 	ginkgo.BeforeEach(func() {
+		unmanagedNsName := "unmanaged-ns-" + rand.String(8)
 		fwk.StartManager(ctx, cfg, managerSetup(
 			jobframework.WithManageJobsWithoutQueueName(true),
-			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns")),
+			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding(unmanagedNsName)),
 			jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
 		))
-		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
-		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
+		unmanagedNS = utiltesting.MakeNamespace(unmanagedNsName)
+		util.MustCreate(ctx, k8sClient, unmanagedNS)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 		childLookupKey = types.NamespacedName{Name: childJobName, Namespace: ns.Name}
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		if unmanagedNS != nil {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, unmanagedNS)).To(gomega.Succeed())
+			unmanagedNS = nil
+		}
 		fwk.StopManager(ctx)
 	})
 
@@ -305,8 +312,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 	})
 
 	ginkgo.It("Should not manage a job without a queue-name submitted to an unmanaged namespace", func() {
-		ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
-		job := testingjob.MakeJob(jobName, "unmanaged-ns").Suspend(false).Obj()
+		ginkgo.By("Creating an unsuspended job without a queue-name in the unmanaged namespace")
+		job := testingjob.MakeJob(jobName, unmanagedNS.Name).Suspend(false).Obj()
 		util.MustCreate(ctx, k8sClient, job)
 
 		ginkgo.By("The job is not suspended and a workload is not created")

@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -540,19 +541,23 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 	})
 })
 
-var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("controller:localqueue", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("controller:localqueue", "area:core"), ginkgo.ContinueOnFailure, func() {
 	var (
 		ns              *corev1.Namespace
 		clusterQueue    *kueue.ClusterQueue
 		ac              *kueue.AdmissionCheck
-		resourceFlavors = []kueue.ResourceFlavor{
-			*utiltestingapi.MakeResourceFlavor("model-c").
-				NodeLabel(resourceGPU.String(), "model-c").
-				Obj(),
-		}
+		resourceFlavors []kueue.ResourceFlavor
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
+		suffix := rand.String(8)
+		flavorName := "model-c-" + suffix
+		resourceFlavors = []kueue.ResourceFlavor{
+			*utiltestingapi.MakeResourceFlavor(flavorName).
+				NodeLabel(resourceGPU.String(), flavorName).
+				Obj(),
+		}
+
 		customCfg := &configapi.Configuration{
 			ControllerManager: configapi.ControllerManager{
 				Metrics: configapi.ControllerMetrics{
@@ -567,25 +572,18 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 				},
 			},
 		}
-
 		fwk.StartManager(ctx, cfg, managerAndControllerSetup(customCfg))
-	})
 
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-metrics-")
 
-		ac = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
+		ac = utiltestingapi.MakeAdmissionCheck("ac-metrics-" + suffix).ControllerName("ac-controller").Obj()
 		util.MustCreate(ctx, k8sClient, ac)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
-		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.metrics-test").
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-metrics-" + suffix).
 			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas("model-c").Resource(resourceGPU, "5", "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas(flavorName).Resource(resourceGPU, "5", "5").Obj(),
 			).
 			Cohort("cohort").
 			AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
@@ -601,11 +599,16 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 	})
 
 	ginkgo.AfterEach(func() {
+		if ns != nil {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			ns = nil
+		}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		for _, rf := range resourceFlavors {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
 		}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should expose metrics based on LocalQueue labels", func() {
