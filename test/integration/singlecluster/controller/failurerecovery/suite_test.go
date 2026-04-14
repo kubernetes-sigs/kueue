@@ -30,6 +30,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
+	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -66,14 +67,17 @@ var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Repo
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
-func managerSetup(_ context.Context, mgr manager.Manager) {
+func managerSetup(ctx context.Context, mgr manager.Manager) {
+	err := indexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	terminatingPodReconciler := failurerecovery.NewTerminatingPodReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.PodTerminationControllerName),
 		failurerecovery.WithForcefulTerminationGracePeriod(time.Millisecond),
 	)
 
-	_, err := terminatingPodReconciler.SetupWithManager(mgr, &configapi.Configuration{})
+	_, err = terminatingPodReconciler.SetupWithManager(mgr, &configapi.Configuration{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	failedWebhook, err := webhooks.Setup(mgr, nil)
