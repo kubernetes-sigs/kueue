@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 			Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue)
 	})
 
-	ginkgo.It("forcefully terminates pods that opt-in, scheduled on unreachable nodes", func() {
+	ginkgo.It("should forcefully terminate pods that opt-in, scheduled on unreachable nodes", func() {
 		matchingPod := matchingPodWrapper.Clone().Obj()
 		util.MustCreate(ctx, k8sClient, matchingPod)
 		gomega.Expect(k8sClient.Delete(ctx, matchingPod)).To(gomega.Succeed())
@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 		}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("triggers reconciliation when the node becomes unreachable", func() {
+	ginkgo.It("should trigger reconciliation when the node becomes unreachable", func() {
 		var pod *corev1.Pod
 		ginkgo.By("creating the pod on a reachable node", func() {
 			pod = matchingPodWrapper.Clone().NodeName(reachableNodeName).Obj()
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 		})
 	})
 
-	ginkgo.It("does not forcefully terminate matching pods that did not opt-in or are running on healthy nodes", func() {
+	ginkgo.It("should not forcefully terminate matching pods that did not opt-in or are running on healthy nodes", func() {
 		nonMatchingPod := matchingPodWrapper.
 			Clone().
 			Name("non-matching-pod").
