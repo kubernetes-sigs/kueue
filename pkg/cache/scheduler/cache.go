@@ -124,6 +124,14 @@ func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
 	}
 }
 
+// WithExcludeNodeLabelPrefixes configures the TAS node cache to strip
+// labels whose key starts with any of the given prefixes.
+func WithExcludeNodeLabelPrefixes(prefixes []string) Option {
+	return func(c *Cache) {
+		c.tasCache.nodesCache.excludeLabelPrefixes = prefixes
+	}
+}
+
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
 	sync.RWMutex

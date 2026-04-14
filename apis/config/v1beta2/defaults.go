@@ -53,6 +53,21 @@ const (
 	DefaultVisibilityBindPort                     = 8082
 )
 
+// DefaultExcludeNodeLabelPrefixes is the default set of node label key
+// prefixes excluded from the TAS node cache. These labels are set by
+// infrastructure controllers and are not used in topology-level,
+// flavor, or workload scheduling decisions.
+var DefaultExcludeNodeLabelPrefixes = []string{
+	"kubectl.kubernetes.io/",
+	"node.kubernetes.io/exclude-from-external-load-balancers",
+	"node-role.kubernetes.io/",
+	"cloud.google.com/",
+	"eks.amazonaws.com/",
+	"topology.ebs.csi.aws.com/",
+	"node.cluster.x-k8s.io/",
+	"container.googleapis.com/",
+}
+
 func getOperatorNamespace() string {
 	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
 		if ns := strings.TrimSpace(string(data)); len(ns) > 0 {
@@ -133,6 +148,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.Resources != nil {
 		for idx := range cfg.Resources.Transformations {
 			cfg.Resources.Transformations[idx].Strategy = ptr.To(cmp.Or(ptr.Deref(cfg.Resources.Transformations[idx].Strategy, ""), DefaultResourceTransformationStrategy))
+		}
+		if cfg.Resources.ExcludeNodeLabelPrefixes == nil {
+			cfg.Resources.ExcludeNodeLabelPrefixes = DefaultExcludeNodeLabelPrefixes
 		}
 	}
 }

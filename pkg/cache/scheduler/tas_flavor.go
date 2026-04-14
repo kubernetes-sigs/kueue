@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -184,13 +185,42 @@ type nodeInfo struct {
 	Allocatable corev1.ResourceList
 }
 
-func newNodeInfo(node *corev1.Node) *nodeInfo {
+// newNodeInfo creates a nodeInfo from a Node, stripping any labels whose
+// key starts with one of the excludePrefixes. This avoids caching
+// infrastructure labels (which can number in the dozens) that are never
+// used for topology, flavor, or workload scheduling decisions.
+func newNodeInfo(node *corev1.Node, excludePrefixes []string) *nodeInfo {
+	labels := node.Labels
+	if len(excludePrefixes) > 0 && len(labels) > 0 {
+		labels = filterLabelsByPrefix(labels, excludePrefixes)
+	}
 	return &nodeInfo{
 		Name:        node.Name,
-		Labels:      node.Labels,
+		Labels:      labels,
 		Taints:      node.Spec.Taints,
 		Allocatable: node.Status.Allocatable,
 	}
+}
+
+// filterLabelsByPrefix returns a new map containing all entries from src
+// except those whose key starts with one of the given prefixes.
+func filterLabelsByPrefix(src map[string]string, prefixes []string) map[string]string {
+	result := make(map[string]string, len(src))
+	for k, v := range src {
+		if !hasAnyPrefix(k, prefixes) {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (ni *nodeInfo) toNode() *corev1.Node {

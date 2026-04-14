@@ -512,6 +512,18 @@ type Resources struct {
 	// ExcludedResourcePrefixes defines which resources should be ignored by Kueue
 	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 
+	// ExcludeNodeLabelPrefixes lists label key prefixes that should be
+	// stripped from cached node objects in the Topology Aware Scheduling
+	// (TAS) node cache to reduce memory usage. Any node label whose key
+	// starts with one of these prefixes is dropped when the node is
+	// stored in the TAS cache. Labels needed for topology levels, flavor
+	// node selectors, workload node selectors, and node affinity should
+	// NOT be listed here.
+	// Defaults to a set of common infrastructure labels that are not
+	// relevant for scheduling decisions (see defaults.go).
+	// +optional
+	ExcludeNodeLabelPrefixes []string `json:"excludeNodeLabelPrefixes,omitempty"`
+
 	// Transformations defines how to transform PodSpec resources into Workload resource requests.
 	// This is intended to be a map with Input as the key (enforced by validation code)
 	Transformations []ResourceTransformation `json:"transformations,omitempty"`
