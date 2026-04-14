@@ -364,7 +364,7 @@ func TestReconciler(t *testing.T) {
 							RestartPolicy("").
 							Image("pause").
 							Obj(),
-						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
+						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							Annotations(map[string]string{"custom-worker-annotation": "worker-value"}).
 							Labels(map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}).
 							RestartPolicy("").
