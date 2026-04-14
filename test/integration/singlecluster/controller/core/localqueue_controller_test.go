@@ -541,7 +541,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 	})
 })
 
-var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("controller:localqueue", "area:core"), ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("controller:localqueue", "area:core"), ginkgo.Serial, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns              *corev1.Namespace
 		clusterQueue    *kueue.ClusterQueue
