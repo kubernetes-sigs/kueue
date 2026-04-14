@@ -156,7 +156,7 @@ test-multikueue-e2e: test-multikueue-e2e-main test-multikueue-e2e-sequential
 test-multikueue-e2e-main: setup-e2e-env test-multikueue-e2e-parallel-builds run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-sequential
-test-multikueue-e2e-sequential: setup-e2e-env run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e-sequential: setup-e2e-env test-multikueue-e2e-parallel-builds run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-helm
 test-multikueue-e2e-helm: E2E_USE_HELM=true
