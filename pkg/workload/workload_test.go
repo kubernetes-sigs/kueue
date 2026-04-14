@@ -1759,6 +1759,70 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 	}
 }
 
+func TestFinishUpdatesAccumulatedPastExecutionTimeSeconds(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	twoSecondsLater := now.Add(2 * time.Second)
+
+	cases := map[string]struct {
+		workload            *kueue.Workload
+		finishTime          time.Time
+		wantAccumulatedTime *int32
+	}{
+		"admitted workload finishes and updates accumulated time": {
+			workload: utiltestingapi.MakeWorkload("test-wl", "default").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				AdmittedAt(true, now).
+				Obj(),
+			finishTime:          twoSecondsLater,
+			wantAccumulatedTime: ptr.To(int32(2)),
+		},
+		"workload with existing accumulated time finishes and adds to it": {
+			workload: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("test-wl", "default").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+					AdmittedAt(true, now).
+					Obj()
+				wl.Status.AccumulatedPastExecutionTimeSeconds = ptr.To(int32(5))
+				return wl
+			}(),
+			finishTime:          twoSecondsLater,
+			wantAccumulatedTime: ptr.To(int32(7)),
+		},
+		"non-admitted workload finishes without updating accumulated time": {
+			workload: utiltestingapi.MakeWorkload("test-wl", "default").
+				Obj(),
+			finishTime:          twoSecondsLater,
+			wantAccumulatedTime: nil,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			fakeClock := testingclock.NewFakeClock(tc.finishTime)
+
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(tc.workload).
+				WithStatusSubresource(&kueue.Workload{}).
+				Build()
+
+			err := Finish(ctx, cl, tc.workload, "TestReason", "TestMessage", fakeClock)
+			if err != nil {
+				t.Fatalf("Finish() failed: %v", err)
+			}
+
+			var updatedWl kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.workload), &updatedWl); err != nil {
+				t.Fatalf("Failed to get updated workload: %v", err)
+			}
+
+			if diff := cmp.Diff(tc.wantAccumulatedTime, updatedWl.Status.AccumulatedPastExecutionTimeSeconds); diff != "" {
+				t.Errorf("Unexpected AccumulatedPastExecutionTimeSeconds (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
 

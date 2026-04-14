@@ -1679,7 +1679,17 @@ func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, ms
 		return nil
 	}
 	err := PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
-		return SetFinishedCondition(wl, clock.Now(), reason, msg), nil
+		// Sync Admitted condition to ensure accumulatedPastExecutionTimeSeconds is updated
+		syncChanged := SyncAdmittedCondition(wl, clock.Now())
+		// Set Finished condition
+		finishedChanged := SetFinishedCondition(wl, clock.Now(), reason, msg)
+		// Clear admission to ensure Admitted condition becomes False
+		if wl.Status.Admission != nil {
+			wl.Status.Admission = nil
+			// Re-sync Admitted condition after clearing admission
+			SyncAdmittedCondition(wl, clock.Now())
+		}
+		return syncChanged || finishedChanged, nil
 	})
 	if err != nil {
 		return err
