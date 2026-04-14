@@ -358,24 +358,18 @@ func TestReconciler(t *testing.T) {
 					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						func() kueue.PodSet {
-							ps := *utiltestingapi.MakePodSet(leaderPodSetName, 1).
-								RestartPolicy("").
-								Image("pause").
-								Obj()
-							ps.Template.Annotations = map[string]string{"custom-leader-annotation": "leader-value"}
-							ps.Template.Labels = map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}
-							return ps
-						}(),
-						func() kueue.PodSet {
-							ps := *utiltestingapi.MakePodSet(workerPodSetName, 2).
-								RestartPolicy("").
-								Image("pause").
-								Obj()
-							ps.Template.Annotations = map[string]string{"custom-worker-annotation": "worker-value"}
-							ps.Template.Labels = map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}
-							return ps
-						}(),
+						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
+							Annotations(map[string]string{"custom-leader-annotation": "leader-value"}).
+							Labels(map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
+						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
+							Annotations(map[string]string{"custom-worker-annotation": "worker-value"}).
+							Labels(map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}).
+							RestartPolicy("").
+							Image("pause").
+							Obj(),
 					).
 					Priority(0).
 					Obj(),
