@@ -112,7 +112,7 @@ const Cohorts = () => {
           exclusive
           onChange={(e, v) => v && setViewMode(v)}
           size="small"
-          sx={{ position: 'absolute', right: 0 }}
+          sx={{ width: '100%', justifyContent: 'flex-end' }}
         >
           <ToggleButton value="list"><ViewList fontSize="small" sx={{ mr: 0.5 }} />List</ToggleButton>
           <ToggleButton value="tree"><AccountTree fontSize="small" sx={{ mr: 0.5 }} />Tree</ToggleButton>
