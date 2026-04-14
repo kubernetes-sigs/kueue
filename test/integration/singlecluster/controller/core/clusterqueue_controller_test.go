@@ -1191,8 +1191,8 @@ var _ = ginkgo.Describe("ClusterQueue controller with RoleTracker", ginkgo.Label
 
 		ginkgo.By("Verifying metrics exist with replica_role=follower")
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(testingmetrics.CollectFilteredDataPoints(metrics.ClusterQueueResourceNominalQuota, followerLabels)).NotTo(gomega.BeEmpty())
-			g.Expect(testingmetrics.CollectFilteredDataPoints(metrics.ClusterQueueByStatus, followerLabels)).NotTo(gomega.BeEmpty())
+			g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, followerLabels)).NotTo(gomega.BeEmpty())
+			g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueByStatus, followerLabels)).NotTo(gomega.BeEmpty())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Triggering role transition by closing electedChan")
@@ -1215,8 +1215,8 @@ var _ = ginkgo.Describe("ClusterQueue controller with RoleTracker", ginkgo.Label
 
 		ginkgo.By("Verifying metrics with replica_role=follower are gone")
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(testingmetrics.CollectFilteredDataPoints(metrics.ClusterQueueResourceNominalQuota, followerLabels)).To(gomega.BeEmpty())
-			g.Expect(testingmetrics.CollectFilteredDataPoints(metrics.ClusterQueueByStatus, followerLabels)).To(gomega.BeEmpty())
+			g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, followerLabels)).To(gomega.BeEmpty())
+			g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueByStatus, followerLabels)).To(gomega.BeEmpty())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })

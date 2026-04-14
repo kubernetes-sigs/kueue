@@ -288,7 +288,7 @@ func TestUpdateClusterQueueLabelsUpdated(t *testing.T) {
 				t.Fatalf("Failed to update ClusterQueue: %v", err)
 			}
 
-			pendingMetrics := testingmetrics.CollectFilteredDataPoints(metrics.PendingWorkloads, map[string]string{"cluster_queue": "cq1"})
+			pendingMetrics := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{"cluster_queue": "cq1"})
 			if len(pendingMetrics) != tc.wantMetricsCount {
 				t.Errorf("Unexpected pending workload metrics count: got %d, want %d", len(pendingMetrics), tc.wantMetricsCount)
 			}

@@ -139,7 +139,7 @@ func TestCollect(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := CollectFilteredDataPoints(tc.vec, tc.labels)
+			got := CollectFilteredGaugeVec(tc.vec, tc.labels)
 			if diff := cmp.Diff(tc.want, got, cmpopts.SortSlices(func(a, b MetricDataPoint) bool { return a.Less(&b) })); len(diff) != 0 {
 				t.Errorf("Unexpected data points (-want,+got):\n%s", diff)
 			}

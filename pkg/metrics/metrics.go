@@ -187,6 +187,8 @@ var (
 	// +metricsdoc:labels=preempting_cluster_queue="the ClusterQueue executing preemption",reason="eviction or preemption reason",replica_role="one of `leader`, `follower`, or `standalone`"
 	PreemptedWorkloadsTotal *prometheus.CounterVec
 
+	// Metrics tied to the job framework
+
 	// +metricsdoc:group=health
 	// +metricsdoc:labels=job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
 	JobToWorkloadLatency *prometheus.HistogramVec

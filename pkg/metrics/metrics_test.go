@@ -34,7 +34,7 @@ func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count in
 	for i := range len(kvs) / 2 {
 		labels[kvs[i*2]] = kvs[i*2+1]
 	}
-	all := metrics.CollectFilteredDataPoints(vec, labels)
+	all := metrics.CollectFilteredGaugeVec(vec, labels)
 	if len(all) != count {
 		t.Helper()
 		t.Errorf("Expecting %d metrics got %d, matching labels %v", count, len(all), kvs)

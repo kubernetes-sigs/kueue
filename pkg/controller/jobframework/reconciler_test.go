@@ -1287,7 +1287,7 @@ func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
 		t.Fatalf("Failed to Reconcile GenericJob: %v", err)
 	}
 
-	all := testingmetrics.CollectFilteredDataPoints(metrics.JobToWorkloadLatency, map[string]string{"job_kind": uniqueJobKind})
+	all := testingmetrics.CollectFilteredGaugeVec(metrics.JobToWorkloadLatency, map[string]string{"job_kind": uniqueJobKind})
 	if len(all) != 1 {
 		t.Errorf("Expecting 1 metric got %d", len(all))
 	}
