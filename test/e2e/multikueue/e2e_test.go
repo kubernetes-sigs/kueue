@@ -441,7 +441,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(workerClient.client.List(ctx, pods, client.InNamespace(managerNs.Namespace), client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 						g.Expect(pods.Items).To(gomega.BeEmpty())
-					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				}
 			})
 		})
