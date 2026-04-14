@@ -314,9 +314,9 @@ type cqMetrics struct {
 
 func allMetricsForQueue(name string) cqMetrics {
 	return cqMetrics{
-		NominalDPs:   testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{"cluster_queue": name}),
-		BorrowingDPs: testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceBorrowingLimit, map[string]string{"cluster_queue": name}),
-		UsageDPs:     testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceReservations, map[string]string{"cluster_queue": name}),
+		NominalDPs:   testingmetrics.CollectFilteredDataPoints(metrics.ClusterQueueResourceNominalQuota, map[string]string{"cluster_queue": name}),
+		BorrowingDPs: testingmetrics.CollectFilteredDataPoints(metrics.ClusterQueueResourceBorrowingLimit, map[string]string{"cluster_queue": name}),
+		UsageDPs:     testingmetrics.CollectFilteredDataPoints(metrics.ClusterQueueResourceReservations, map[string]string{"cluster_queue": name}),
 	}
 }
 

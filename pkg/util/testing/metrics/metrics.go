@@ -58,7 +58,7 @@ func (a *MetricDataPoint) Less(b *MetricDataPoint) bool {
 	return a.Value < b.Value
 }
 
-func CollectFilteredGaugeVec(v prometheus.Collector, labels map[string]string) []MetricDataPoint {
+func CollectFilteredDataPoints(v prometheus.Collector, labels map[string]string) []MetricDataPoint {
 	if v == nil {
 		return nil
 	}
