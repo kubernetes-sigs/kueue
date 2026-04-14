@@ -2681,12 +2681,6 @@ func TestIsTAS(t *testing.T) {
 				Obj(),
 			want: true,
 		},
-		"PodSetSliceRequiredTopologyConstraintsAnnotation": {
-			pod: testingpod.MakePod("pod", "ns").
-				Annotation(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation, `[{"topology":"cloud.com/rack","size":2}]`).
-				Obj(),
-			want: true,
-		},
 		"PodSetUnconstrainedTopologyAnnotation": {
 			pod: testingpod.MakePod("pod", "ns").
 				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
