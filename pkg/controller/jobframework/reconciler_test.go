@@ -1038,6 +1038,7 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 }
 
 func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
+	metrics.JobToWorkloadLatency.Reset()
 	var (
 		testJobName        = "test-job"
 		testLocalQueueName = kueue.LocalQueueName("test-lq")
