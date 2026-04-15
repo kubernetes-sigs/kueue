@@ -19,6 +19,7 @@ package queue
 import (
 	"cmp"
 	"context"
+	"maps"
 	"slices"
 	"sync"
 
@@ -140,6 +141,18 @@ type ClusterQueue struct {
 	sw *stickyWorkload
 
 	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
+	// pendingResourcesTotal is the incremental sum of TotalRequests across workloads
+	// in heap and inadmissibleWorkloads (not inflight). Updated at each mutation site so
+	// PendingResources() is O(1) rather than O(N).
+	// Configured resources are seeded at 0 by Update() so they appear in metrics
+	// even when no workloads are pending; stale zero entries are pruned on Update().
+	pendingResourcesTotal map[corev1.ResourceName]int64
+
+	// inflightResources is a snapshot of the current inflight workload's TotalRequests,
+	// taken at Pop time under the exclusive lock before the scheduler receives the pointer.
+	// Avoids a data race with flavorassigner.assignFlavors, which writes to the same maps.
+	// Nil when no workload is inflight.
+	inflightResources map[corev1.ResourceName]int64
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
@@ -239,6 +252,8 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		afsEntryPenalties:         options.afsEntryPenalties,
 		localQueuesInClusterQueue: make(map[utilqueue.LocalQueueReference]bool),
 		sw:                        &sw,
+		pendingResourcesTotal:     make(map[corev1.ResourceName]int64),
+		inflightResources:         make(map[corev1.ResourceName]int64),
 	}
 }
 
@@ -257,6 +272,27 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = apiCQ.Spec.ConcurrentAdmissionPolicy
 	}
+
+	// Seed pendingResourcesTotal with 0 for newly configured resources so they
+	// appear in metrics even when no workloads are pending.
+	newConfigured := sets.New[corev1.ResourceName]()
+	for _, rg := range apiCQ.Spec.ResourceGroups {
+		for _, fq := range rg.Flavors {
+			for _, r := range fq.Resources {
+				newConfigured.Insert(r.Name)
+				if _, exists := c.pendingResourcesTotal[r.Name]; !exists {
+					c.pendingResourcesTotal[r.Name] = 0
+				}
+			}
+		}
+	}
+	// Prune zero entries for resources that were removed from the spec.
+	for r, v := range c.pendingResourcesTotal {
+		if v == 0 && !newConfigured.Has(r) {
+			delete(c.pendingResourcesTotal, r)
+		}
+	}
+
 	return nil
 }
 
@@ -274,6 +310,7 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 		}
 		if c.heap.PushIfNotPresent(info) {
 			added = true
+			c.addPendingResources(info)
 		}
 	}
 	for finishedWorkload := range q.finishedWorkloads {
@@ -326,20 +363,29 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 			c.inadmissibleWorkloads.insert(key, wInfo)
 			return
 		}
+		// Workload is leaving inadmissible; account for its resources before moving.
+		c.subtractPendingResources(oldInfo)
 		// otherwise move or update in place in the queue.
 		c.inadmissibleWorkloads.delete(key)
 	}
 	if c.heap.GetByKey(key) == nil && !c.backoffWaitingTimeExpired(wInfo) {
 		c.inadmissibleWorkloads.insert(key, wInfo)
+		c.addPendingResources(wInfo)
 		return
 	}
 	// Skip to inadmissible if the workload's equivalence class is already known to be NoFit
 	// (only for BestEffortFIFO; StrictFIFO preserves strict ordering).
 	if c.queueingStrategy == kueue.BestEffortFIFO && c.heap.GetByKey(key) == nil && wInfo.SchedulingHash != workload.SchedulingHashUnknown && c.noFitSchedulingHashes.Has(wInfo.SchedulingHash) {
 		c.inadmissibleWorkloads.insert(key, wInfo)
+		c.addPendingResources(wInfo)
 		return
 	}
+	// Subtract the old entry's resources before overwriting; requests may have changed.
+	if oldHeapInfo := c.heap.GetByKey(key); oldHeapInfo != nil {
+		c.subtractPendingResources(oldHeapInfo)
+	}
 	c.heap.PushOrUpdate(wInfo)
+	c.addPendingResources(wInfo)
 }
 
 func priorityBoostAnnotationChanged(oldInfo, newInfo *workload.Info) bool {
@@ -384,6 +430,32 @@ func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
 		c.clock.Now().Equal(wInfo.Obj.Status.RequeueState.RequeueAt.Time)
 }
 
+func (c *ClusterQueue) addPendingResources(wInfo *workload.Info) {
+	for _, ps := range wInfo.TotalRequests {
+		for name, q := range ps.Requests {
+			c.pendingResourcesTotal[name] += q
+		}
+	}
+}
+
+func (c *ClusterQueue) subtractPendingResources(wInfo *workload.Info) {
+	for _, ps := range wInfo.TotalRequests {
+		for name, q := range ps.Requests {
+			c.pendingResourcesTotal[name] -= q
+		}
+	}
+}
+
+func snapshotWlResources(wInfo *workload.Info) map[corev1.ResourceName]int64 {
+	result := make(map[corev1.ResourceName]int64)
+	for _, ps := range wInfo.TotalRequests {
+		for name, q := range ps.Requests {
+			result[name] += q
+		}
+	}
+	return result
+}
+
 // Delete removes the workload from ClusterQueue.
 func (c *ClusterQueue) Delete(log logr.Logger, wlKey workload.Reference) {
 	c.rwm.Lock()
@@ -393,6 +465,13 @@ func (c *ClusterQueue) Delete(log logr.Logger, wlKey workload.Reference) {
 
 // delete removes the workload from ClusterQueue without lock.
 func (c *ClusterQueue) delete(log logr.Logger, key workload.Reference) {
+	// Find where the workload lives (inadmissible or heap) and subtract its resources before deleting it.
+	// Inflight is skipped because its resources were already removed from pendingResourcesTotal at Pop time.
+	if old := c.inadmissibleWorkloads.get(key); old != nil {
+		c.subtractPendingResources(old)
+	} else if old := c.heap.GetByKey(key); old != nil {
+		c.subtractPendingResources(old)
+	}
 	c.inadmissibleWorkloads.delete(key)
 	c.heap.Delete(key)
 	c.forgetInflightByKey(key)
@@ -428,6 +507,9 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
+	// wasTracked records whether the workload is already counted in pendingResourcesTotal before inflight state is cleared.
+	// Guards addPendingResources below to prevent double-counting if the workload was concurrently re-added to the heap or inadmissible.
+	wasTracked := c.inadmissibleWorkloads.hasKey(key) || c.heap.GetByKey(key) != nil
 	c.forgetInflightByKey(key)
 
 	inadmissibleWl := c.inadmissibleWorkloads.get(key)
@@ -439,7 +521,11 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 			wInfo = inadmissibleWl
 			c.inadmissibleWorkloads.delete(key)
 		}
-		return c.heap.PushIfNotPresent(wInfo)
+		pushed := c.heap.PushIfNotPresent(wInfo)
+		if pushed && !wasTracked {
+			c.addPendingResources(wInfo)
+		}
+		return pushed
 	}
 
 	if inadmissibleWl != nil {
@@ -451,6 +537,9 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	}
 
 	c.inadmissibleWorkloads.insert(key, wInfo)
+	if !wasTracked {
+		c.addPendingResources(wInfo)
+	}
 	logMsg := "Workload couldn't be admitted."
 	if c.queueingStrategy == kueue.BestEffortFIFO {
 		logMsg += " Moving the head of this ClusterQueue to the consecutive Workload."
@@ -469,6 +558,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
 		c.inflight = nil
+		c.inflightResources = nil
 	}
 }
 
@@ -491,6 +581,19 @@ func (c *ClusterQueue) handleInadmissibleHash(hash string) int {
 		}
 	}
 	return moved
+}
+
+// PendingResources returns the total resources requested by all pending workloads,
+// aggregated by resource name. Pending workloads have not yet been assigned to flavors.
+func (c *ClusterQueue) PendingResources() map[corev1.ResourceName]int64 {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	result := make(map[corev1.ResourceName]int64, len(c.pendingResourcesTotal)+len(c.inflightResources))
+	maps.Copy(result, c.pendingResourcesTotal)
+	for name, q := range c.inflightResources {
+		result[name] += q
+	}
+	return result
 }
 
 // PendingTotal returns the total number of pending workloads.
@@ -571,9 +674,12 @@ func (c *ClusterQueue) Pop() *workload.Info {
 	c.popCycle++
 	if c.heap.Len() == 0 {
 		c.inflight = nil
+		c.inflightResources = nil
 		return nil
 	}
 	c.inflight = c.heap.Pop()
+	c.subtractPendingResources(c.inflight)
+	c.inflightResources = snapshotWlResources(c.inflight)
 	c.inflight.LastEvaluatedGeneration = c.inflight.Obj.Generation
 	return c.inflight
 }

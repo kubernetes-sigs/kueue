@@ -211,6 +211,12 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			util.ExpectLQPendingWorkloadsMetric(localQueue, 0, 5)
 			util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 0)
 
+			ginkgo.By("Checking the resource pending metrics reflect all pending workloads (cpu: 2+3+1+1+1=8, gpu: 2+3+1+1+1=8)", func() {
+				// workloads one/two/three/four/six are in this CQ; "five" uses an unknown queue
+				util.ExpectCQResourcePendingMetric(clusterQueue, string(corev1.ResourceCPU), gomega.Equal(8.0))
+				util.ExpectCQResourcePendingMetric(clusterQueue, string(resourceGPU), gomega.Equal(8.0))
+			})
+
 			ginkgo.By("Creating ResourceFlavors")
 			onDemandFlavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			util.MustCreate(ctx, k8sClient, onDemandFlavor)
@@ -303,6 +309,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 4)
 			util.ExpectLQPendingWorkloadsMetric(localQueue, 1, 0)
 			util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 4)
+
+			ginkgo.By("Checking the resource pending metrics reflect only the remaining pending workload (\"six\": cpu=1, gpu=1)", func() {
+				util.ExpectCQResourcePendingMetric(clusterQueue, string(corev1.ResourceCPU), gomega.Equal(1.0))
+				util.ExpectCQResourcePendingMetric(clusterQueue, string(resourceGPU), gomega.Equal(1.0))
+			})
 
 			ginkgo.By("Checking the resource reservation metrics are updated", func() {
 				util.ExpectCQResourceReservations(clusterQueue, flavorOnDemand, string(corev1.ResourceCPU), 6)

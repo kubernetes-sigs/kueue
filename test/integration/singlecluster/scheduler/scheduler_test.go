@@ -273,6 +273,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.MustCreate(ctx, k8sClient, prodWl2)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, prodWl2)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
+			util.ExpectCQResourcePendingMetric(prodClusterQ, string(corev1.ResourceCPU), gomega.Equal(5.0))
 
 			ginkgo.By("checking a workload with replica count 0 gets admitted")
 			emptyWl := utiltestingapi.MakeWorkload("empty-wl", ns.Name).
@@ -327,6 +328,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, prodWl2, prodWl2Admission)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
+			util.ExpectCQResourcePendingMetric(prodClusterQ, string(corev1.ResourceCPU), gomega.Equal(0.0))
 			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, "", 3)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 3)

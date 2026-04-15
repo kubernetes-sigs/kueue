@@ -50,6 +50,26 @@ func TestGenerateExponentialBuckets(t *testing.T) {
 	}
 }
 
+func TestReportAndCleanupClusterQueuePendingResources(t *testing.T) {
+	const cqName = "cq-pending"
+
+	ReportClusterQueueResourcePending("cohort", cqName, "cpu", 4, nil, nil)
+	ReportClusterQueueResourcePending("cohort", cqName, "memory", 8589934592, nil, nil)
+
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 2, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName, "resource", "cpu")
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName, "resource", "memory")
+
+	ClearClusterQueueResourcePendingMetrics(cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 0, "cluster_queue", cqName)
+
+	// Verify ClearClusterQueueMetrics (gaugeCleanupScopeClusterQueue) also clears it.
+	ReportClusterQueueResourcePending("cohort", cqName, "cpu", 2, nil, nil)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName)
+	ClearClusterQueueMetrics(cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 0, "cluster_queue", cqName)
+}
+
 func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
 	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3, nil, nil)
 	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1, nil, nil)
