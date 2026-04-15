@@ -32,8 +32,6 @@ import (
 )
 
 const (
-	unreachableNodeName             = "unreachable-node"
-	reachableNodeName               = "reachable-node"
 	forcefulTerminationCheckTimeout = 2 * time.Second
 )
 
@@ -43,26 +41,24 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 
 	ginkgo.BeforeAll(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-fr-namespace-")
-		nodes := []corev1.Node{
-			*testingnode.MakeNode(unreachableNodeName).
-				NotReady().
-				Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule}).
-				Obj(),
-			*testingnode.MakeNode(reachableNodeName).
-				Ready().
-				Obj(),
-		}
-		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		matchingPodWrapper = testingpod.MakePod("matching-pod", ns.Name).
 			StatusPhase(corev1.PodPending).
 			TerminationGracePeriod(1).
-			NodeName(unreachableNodeName).
 			Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue)
 	})
 
 	ginkgo.It("should forcefully terminate pods that opt-in, scheduled on unreachable nodes", func() {
-		matchingPod := matchingPodWrapper.Clone().Obj()
+		unreachableNode := testingnode.MakeNode("unreachable-node").
+			NotReady().
+			Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule}).
+			Obj()
+		util.MustCreate(ctx, k8sClient, unreachableNode)
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, unreachableNode, true)
+		})
+
+		matchingPod := matchingPodWrapper.Clone().NodeName(unreachableNode.Name).Obj()
 		util.MustCreate(ctx, k8sClient, matchingPod)
 		gomega.Expect(k8sClient.Delete(ctx, matchingPod)).To(gomega.Succeed())
 
@@ -73,11 +69,21 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 	})
 
 	ginkgo.It("should trigger reconciliation when the node becomes unreachable", func() {
+		thrashingNode := testingnode.MakeNode("thrashing-node").
+			Ready().
+			Obj()
+		util.MustCreate(ctx, k8sClient, thrashingNode)
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, thrashingNode, true)
+		})
+
 		var pod *corev1.Pod
+
 		ginkgo.By("creating the pod on a reachable node", func() {
-			pod = matchingPodWrapper.Clone().NodeName(reachableNodeName).Obj()
+			pod = matchingPodWrapper.Clone().NodeName(thrashingNode.Name).Obj()
 			util.MustCreate(ctx, k8sClient, pod)
 		})
+
 		ginkgo.By("marking the pod for deletion and verifying that it's not forcefully terminated", func() {
 			gomega.Expect(k8sClient.Delete(ctx, pod)).To(gomega.Succeed())
 			gomega.Consistently(func(g gomega.Gomega) {
@@ -86,35 +92,45 @@ var _ = ginkgo.Describe("Pod termination controller", ginkgo.Ordered, ginkgo.Con
 		})
 
 		ginkgo.By("tainting the previously reachable node as unreachable", func() {
-			node := &corev1.Node{}
-			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reachableNodeName}, node)).To(gomega.Succeed())
-			node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule})
-			gomega.Expect(k8sClient.Update(ctx, node)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: thrashingNode.Name}, thrashingNode)).To(gomega.Succeed())
+			thrashingNode.Spec.Taints = append(thrashingNode.Spec.Taints, corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule})
+			gomega.Expect(k8sClient.Update(ctx, thrashingNode)).To(gomega.Succeed())
 		})
+
 		ginkgo.By("verifying that the pod is forcefully terminated after the timeout elapses", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, pod)).
 					To(utiltesting.BeNotFoundError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
-		ginkgo.By("removing the unreachable taint from the node", func() {
-			node := &corev1.Node{}
-			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reachableNodeName}, node)).To(gomega.Succeed())
-			node.Spec.Taints = nil
-			gomega.Expect(k8sClient.Update(ctx, node)).To(gomega.Succeed())
-		})
 	})
 
 	ginkgo.It("should not forcefully terminate matching pods that did not opt-in or are running on healthy nodes", func() {
+		unhealthyNode := testingnode.MakeNode("unhealthy-node").
+			NotReady().
+			Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule}).
+			Obj()
+		util.MustCreate(ctx, k8sClient, unhealthyNode)
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, unhealthyNode, true)
+		})
 		nonMatchingPod := matchingPodWrapper.
 			Clone().
 			Name("non-matching-pod").
+			NodeName(unhealthyNode.Name).
 			Annotation(constants.SafeToForcefullyDeleteAnnotationKey, "false").
 			Obj()
 		util.MustCreate(ctx, k8sClient, nonMatchingPod)
 		gomega.Expect(k8sClient.Delete(ctx, nonMatchingPod)).To(gomega.Succeed())
 
-		podOnHealthyNode := matchingPodWrapper.Clone().Name("healthy-pod").NodeName(reachableNodeName).Obj()
+		healthyNode := testingnode.MakeNode("healthy-node").
+			Ready().
+			Obj()
+		util.MustCreate(ctx, k8sClient, healthyNode)
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, healthyNode, true)
+		})
+		podOnHealthyNode := matchingPodWrapper.Clone().Name("healthy-pod").NodeName(healthyNode.Name).Obj()
 		util.MustCreate(ctx, k8sClient, podOnHealthyNode)
 		gomega.Expect(k8sClient.Delete(ctx, podOnHealthyNode)).To(gomega.Succeed())
 
