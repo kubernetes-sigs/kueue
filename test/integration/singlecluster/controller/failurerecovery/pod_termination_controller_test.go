@@ -142,6 +142,44 @@ var _ = ginkgo.Describe("Pod termination controller", func() {
 		})
 	})
 
+	ginkgo.It("should resume forceful termination if the controller restarts", func() {
+		node := testingnode.MakeNode("restart-node").
+			Ready().
+			Obj()
+		util.MustCreate(ctx, k8sClient, node)
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, node, true)
+		})
+
+		pod := matchingPodWrapper.Clone().NodeName(node.Name).Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		ginkgo.By("stopping the controller manager", func() {
+			fwk.StopManager(ctx)
+		})
+
+		ginkgo.By("mutating state while the controller is down", func() {
+			// Mark pod for deletion (it will hang because there's no Kubelet)
+			gomega.Expect(k8sClient.Delete(ctx, pod)).To(gomega.Succeed())
+
+			// Taint the node as unreachable
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(gomega.Succeed())
+			node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule})
+			gomega.Expect(k8sClient.Update(ctx, node)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("restarting the controller manager", func() {
+			fwk.StartManager(ctx, cfg, managerSetup)
+		})
+
+		ginkgo.By("verifying the pod is forcefully terminated upon restart", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, pod)).
+					To(utiltesting.BeNotFoundError())
+			}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("should not forcefully terminate matching pods that did not opt-in or are running on healthy nodes", func() {
 		unhealthyNode := testingnode.MakeNode("unhealthy-node").
 			NotReady().
