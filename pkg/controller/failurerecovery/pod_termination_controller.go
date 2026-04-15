@@ -125,7 +125,7 @@ func (r *TerminatingPodReconciler) Create(e event.TypedCreateEvent[*corev1.Pod])
 }
 
 func (r *TerminatingPodReconciler) Update(u event.TypedUpdateEvent[*corev1.Pod]) bool {
-	return podEligibleForTermination(u.ObjectNew)
+	return !podEligibleForTermination(u.ObjectOld) && podEligibleForTermination(u.ObjectNew)
 }
 
 func (r *TerminatingPodReconciler) Delete(event.TypedDeleteEvent[*corev1.Pod]) bool {
