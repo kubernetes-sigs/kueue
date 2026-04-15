@@ -42,7 +42,7 @@ const (
 
 // defaultFlavorFungibility matches ClusterQueue defaulting (see apis defaulting).
 var defaultFlavorFungibility = &kueue.FlavorFungibility{
-	WhenCanBorrow:  kueue.TryNextFlavor,
+	WhenCanBorrow:  kueue.MayStopSearch,
 	WhenCanPreempt: kueue.TryNextFlavor,
 }
 

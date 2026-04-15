@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,18 +59,25 @@ const (
 )
 
 var _ = ginkgo.Describe("Job controller", func() {
-	var ns *corev1.Namespace
+	var (
+		ns          *corev1.Namespace
+		unmanagedNS *corev1.Namespace
+	)
 
 	ginkgo.BeforeEach(func() {
+		unmanagedNsName := "unmanaged-ns-" + rand.String(8)
 		fwk.StartManager(ctx, cfg, managerSetup(false, jobframework.WithManageJobsWithoutQueueName(true),
-			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
-		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
+			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding(unmanagedNsName))))
+		unmanagedNS = utiltesting.MakeNamespace(unmanagedNsName)
+		util.MustCreate(ctx, k8sClient, unmanagedNS)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ginkgo.DeferCleanup(func() {
+			fwk.StopManager(ctx)
+		})
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, unmanagedNS)).To(gomega.Succeed())
 	})
 
 	ginkgo.It("Should reconcile MPIJobs", func() {
@@ -136,9 +144,6 @@ var _ = ginkgo.Describe("Job controller", func() {
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
 		onDemandFlavor := utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
-		ginkgo.DeferCleanup(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		})
 		spotFlavor := utiltestingapi.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 		util.MustCreate(ctx, k8sClient, spotFlavor)
 		clusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue").
@@ -146,6 +151,11 @@ var _ = ginkgo.Describe("Job controller", func() {
 				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 				*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
+		})
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 			PodSets(
 				kueue.PodSetAssignment{
@@ -257,8 +267,8 @@ var _ = ginkgo.Describe("Job controller", func() {
 	})
 
 	ginkgo.It("Should not manage a job without a queue-name submitted to an unmanaged namespace", func() {
-		ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
-		job := testingmpijob.MakeMPIJob(jobName, "unmanaged-ns").
+		ginkgo.By("Creating an unsuspended job without a queue-name in the unmanaged namespace")
+		job := testingmpijob.MakeMPIJob(jobName, unmanagedNS.Name).
 			Suspend(false).
 			GenericLauncherAndWorker().Obj()
 		util.MustCreate(ctx, k8sClient, job)

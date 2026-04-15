@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -57,17 +58,22 @@ const (
 )
 
 var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jobs"), func() {
-	var ns *corev1.Namespace
+	var (
+		ns          *corev1.Namespace
+		unmanagedNS *corev1.Namespace
+	)
 
 	ginkgo.BeforeEach(func() {
+		unmanagedNsName := "unmanaged-ns-" + rand.String(8)
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
-			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
-		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
+			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding(unmanagedNsName))))
+		unmanagedNS = utiltesting.MakeNamespace(unmanagedNsName)
+		util.MustCreate(ctx, k8sClient, unmanagedNS)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, unmanagedNS)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 
@@ -268,8 +274,8 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 		})
 
 		ginkgo.It("A jobset created in an unmanaged namespace is not suspended and a workload is not created", func() {
-			ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
-			jobSet := testingjobset.MakeJobSet(jobSetName, "unmanaged-ns").ReplicatedJobs(
+			ginkgo.By("Creating an unsuspended job without a queue-name in the unmanaged namespace")
+			jobSet := testingjobset.MakeJobSet(jobSetName, unmanagedNS.Name).ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "replicated-job-1",
 					Replicas:    1,
