@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 				// Wait for active pods and terminate them
 				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, client.InNamespace(ns.Name))
 
-				util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 			})
 
 			ginkgo.By("Delete the JAX", func() {

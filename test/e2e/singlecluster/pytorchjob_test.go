@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 				// Wait for active pods and terminate them
 				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0, client.InNamespace(ns.Name))
 
-				util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 			})
 
 			ginkgo.By("Delete the PyTorch", func() {

@@ -122,7 +122,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectWorkloadToFinish(ctx, k8sClient, gKey)
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, gKey, util.LongTimeout)
 			})
 
 			ginkgo.By("Deleting finished Pods", func() {
@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 					util.MustCreate(ctx, k8sClient, p.DeepCopy())
 				}
 
-				util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"}, util.LongTimeout)
 			})
 		})
 
@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})
+			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"}, util.LongTimeout)
 		})
 
 		ginkgo.It("Unscheduled Pod which is deleted can be replaced in group", func() {
@@ -401,7 +401,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 
 			ginkgo.By("Group completes", func() {
-				util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"}, util.LongTimeout)
 			})
 			ginkgo.By("Deleting finished Pods", func() {
 				for _, p := range group {
@@ -541,7 +541,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 
 			ginkgo.By("Verify the high priority group completes", func() {
-				util.ExpectWorkloadToFinish(ctx, k8sClient, highGroupKey)
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, highGroupKey, util.LongTimeout)
 			})
 
 			ginkgo.By("Await for the replacement pods to be ungated", func() {
@@ -565,7 +565,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 
 			ginkgo.By("Verify the default priority workload is finished", func() {
-				util.ExpectWorkloadToFinish(ctx, k8sClient, defaultGroupKey)
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, defaultGroupKey, util.LongTimeout)
 			})
 		})
 
@@ -624,7 +624,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gKey := client.ObjectKey{Namespace: ns.Name, Name: "test-group"}
-				util.ExpectWorkloadToFinish(ctx, k8sClient, gKey)
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, gKey, util.LongTimeout)
 			})
 
 			ginkgo.By("Ensure the pod is deleted", func() {
