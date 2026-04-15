@@ -348,3 +348,8 @@ func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
 	j.Spec.Suspend = false
 	return j
 }
+
+func (j *JobWrapper) MaxWorkerReplicas(count int32) *JobWrapper {
+	j.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To(count)
+	return j
+}
