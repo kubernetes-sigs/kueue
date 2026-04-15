@@ -37,6 +37,10 @@ export E2E_ENFORCE_OPERATOR_UPDATE="${E2E_ENFORCE_OPERATOR_UPDATE:-false}"
 # When set to value "true", skip Kueue re-install in E2E_MODE=dev if the controller deployment already exists.
 export E2E_SKIP_REINSTALL="${E2E_SKIP_REINSTALL:-false}"
 
+# When set to a truthy value with E2E_MODE=dev, skip docker pull and kind image import for dependency images
+# when they already exist locally / on kind worker nodes. CI mode always pulls and loads.
+export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
+
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
 function e2e_is_truthy {
@@ -46,13 +50,14 @@ function e2e_is_truthy {
     esac
 }
 
-# In dev mode, skip docker pull when the image already exists locally. In CI, always pull.
+# $1 image reference
 function e2e_docker_pull_if_needed {
-    if [[ "${E2E_MODE}" == "dev" ]] && docker image inspect "$1" > /dev/null 2>&1; then
-        echo "Image '$1' already cached locally; skipping pull (E2E_MODE=dev)"
+    local image="$1"
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_SKIP_IMAGE_RELOAD:-}" && docker image inspect "$image" > /dev/null 2>&1; then
+        echo "Image '$image' already cached locally; skipping pull (E2E_MODE=dev, E2E_SKIP_IMAGE_RELOAD set)"
         return 0
     fi
-    docker pull "$1"
+    docker pull "$image"
 }
 
 function e2e_deployment_exists {
@@ -419,21 +424,22 @@ function prepare_docker_images {
 
 # $1 cluster
 function cluster_kind_load {
-    cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
-    cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE}"
+    local cluster="$1"
+    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
+    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE}"
 
     if [[ "${E2E_MODE}" == "dev" && "${E2E_SKIP_REINSTALL}" == "true" ]]; then
-        cluster_kind_load_image "$1" "$IMAGE_TAG"
+        cluster_kind_load_image "$cluster" "$IMAGE_TAG"
     else
-        # Kueue image may have been rebuilt locally with the same tag; always reload unless skipping reinstall.
-        cluster_kind_load_image_force "$1" "$IMAGE_TAG"
+        # Bypass dev-mode existence check: Kueue image may have been rebuilt locally with the same tag; always re-import unless skipping reinstall.
+        cluster_kind_load_image_impl "$cluster" "$IMAGE_TAG"
     fi
 
     if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
-        cluster_kind_load_image "$1" "${KUEUE_OLD_VERSION_IMAGE}"
+        cluster_kind_load_image "$cluster" "${KUEUE_OLD_VERSION_IMAGE}"
     fi
     if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
-        cluster_kind_load_image "$1" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
+        cluster_kind_load_image "$cluster" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
     fi
 }
 
@@ -491,10 +497,12 @@ function kind_load {
 # $1 cluster name
 # $2 image reference (must match how the image appears in ctr images ls -q on workers)
 function cluster_kind_image_exists {
+    local cluster="$1"
+    local image="$2"
     local first_worker
-    first_worker=$($KIND get nodes --name "$1" | grep -v 'control-plane' | head -1)
+    first_worker=$($KIND get nodes --name "$cluster" | grep -v 'control-plane' | head -1)
     [[ -n "$first_worker" ]] && \
-        docker exec "$first_worker" ctr --namespace=k8s.io images ls -q 2>/dev/null | grep -qF "$2"
+        docker exec "$first_worker" ctr --namespace=k8s.io images ls -q 2>/dev/null | grep -qF "$image"
 }
 
 # Save image to a temp file once, then load into all worker nodes in parallel.
@@ -547,16 +555,13 @@ function cluster_kind_load_image_impl {
 }
 
 function cluster_kind_load_image {
-    # In dev mode, skip if the image is already in the cluster
-    if [[ "${E2E_MODE}" == "dev" ]] && cluster_kind_image_exists "$1" "$2"; then
-        echo "Image '$2' already loaded in cluster '$1'; skipping (E2E_MODE=dev)"
+    local cluster="$1"
+    local image="$2"
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_SKIP_IMAGE_RELOAD:-}" && cluster_kind_image_exists "$cluster" "$image"; then
+        echo "Image '$image' already loaded in cluster '$cluster'; skipping (E2E_MODE=dev, E2E_SKIP_IMAGE_RELOAD set)"
         return 0
     fi
-    cluster_kind_load_image_impl "$1" "$2"
-}
-
-function cluster_kind_load_image_force {
-    cluster_kind_load_image_impl "$1" "$2"
+    cluster_kind_load_image_impl "$cluster" "$image"
 }
 
 # $1 kubeconfig
