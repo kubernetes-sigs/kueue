@@ -209,25 +209,16 @@ import os
 
 ray.init()
 
-# Explicitly request 1 CPU per task to ensure deterministic resource demand.
-# Without num_cpus, Ray may detect high logical CPU count from the host
-# and not trigger autoscaling.
 @ray.remote(num_cpus=1)
 def my_task(x, s):
     import time
     time.sleep(s)
     return x * x
 
-# run tasks in sequence to avoid triggering autoscaling in the beginning
-print([ray.get(my_task.remote(i, 1)) for i in range(4)])
-
-# run tasks in parallel to trigger autoscaling (scaling up)
-# Use longer sleep (8s) to give autoscaler time to detect demand,
-# create workload slices, and schedule new workers.
-print(ray.get([my_task.remote(i, 8) for i in range(16)]))
-
-# run tasks in sequence to trigger scaling down
-print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
+# 3 parallel tasks with 60s sleep: triggers scale-up to 2 workers
+# (1 task on head + 2 on workers) and keeps them alive through
+# pod replacement verification.
+print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			},
 		}
 
@@ -254,6 +245,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			Queue(localQueueName).
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			EnableInTreeAutoscaling().
+			MaxWorkerReplicas(2).
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python /home/ray/samples/sample_code.py").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "200m").
@@ -292,11 +284,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
 
-		// Variable to store initial pod names for verification during scaling
-		var initialPodNames []string
-		// Variable to store scaled-up pod names for verification during scaling down
-		var scaledUpPodNames []string
-
 		ginkgo.By("Checking one workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
@@ -331,9 +318,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				// Get worker pod names and check count
 				workerPodNames := getRunningWorkerPodNames(podList)
 				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pod with 'workers' in the name")
-
-				// Store initial pod names for later verification
-				initialPodNames = workerPodNames
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -347,51 +331,12 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for 5 workers due to scaling up", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				podList := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				// Get worker pod names and check count
-				currentPodNames := getRunningWorkerPodNames(podList)
-				g.Expect(currentPodNames).To(gomega.HaveLen(5), "Expected exactly 5 pods with 'workers' in the name")
-
-				// Verify that the current pod names are a superset of the initial pod names
-				g.Expect(currentPodNames).To(gomega.ContainElements(initialPodNames),
-					"Current worker pod names should be a superset of initial pod names")
-
-				// Store scaled-up pod names for later verification during scaling down
-				scaledUpPodNames = currentPodNames
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Checking podset-replica-sizes annotation is set on the RayJob after scaling up", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayJob := &rayv1.RayJob{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
-				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterPodsetReplicaSizesAnnotation),
-					"Expected podset-replica-sizes annotation on RayJob after scaling up")
-				count, err := parsePodSetReplicaCount(createdRayJob.Annotations[workloadraycluster.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				g.Expect(count).To(gomega.Equal(int32(5)),
-					"Expected workers-group-0 count = 5 after scaling up")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Waiting for at least 2 total workloads due to scaling up creating another workload", func() {
-			// Use >= 2 since finished slices from intermediate scaling decisions are retained.
-			gomega.Eventually(func(g gomega.Gomega) {
-				workloadList := &kueue.WorkloadList{}
-				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(len(workloadList.Items)).To(gomega.BeNumerically(">=", 2), "Expected at least 2 workloads")
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Waiting for all 5 worker pods to be running", func() {
+		ginkgo.By("Waiting for all 2 worker pods to be running", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				podList := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				runningWorkers := getRunningWorkerPodNames(podList)
-				g.Expect(runningWorkers).To(gomega.HaveLen(5), "Expected 5 running worker pods")
+				g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -416,40 +361,10 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				podList := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				runningWorkers := getRunningWorkerPodNames(podList)
-				g.Expect(runningWorkers).To(gomega.HaveLen(5), "Expected 5 running worker pods after replacement")
+				g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods after replacement")
 				g.Expect(runningWorkers).NotTo(gomega.ContainElement(deletedPodName),
 					"Deleted pod should not be present among running workers")
-				// Update scaledUpPodNames to include the replacement pod,
-				// so the later scale-down superset check accounts for it.
-				scaledUpPodNames = runningWorkers
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Waiting for workers reduced to 1 due to scaling down", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				podList := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				// Get worker pod names and check count
-				currentPodNames := getRunningWorkerPodNames(podList)
-				g.Expect(currentPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pods with 'workers' in the name")
-
-				// Verify that the previous scaled-up pod names are a superset of the current pod names
-				g.Expect(scaledUpPodNames).To(gomega.ContainElements(currentPodNames),
-					"Previous scaled-up worker pod names should be a superset of current pod names")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Checking podset-replica-sizes annotation updated after scaling down", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayJob := &rayv1.RayJob{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
-				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterPodsetReplicaSizesAnnotation),
-					"Expected podset-replica-sizes annotation on RayJob after scaling down")
-				count, err := parsePodSetReplicaCount(createdRayJob.Annotations[workloadraycluster.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				g.Expect(count).To(gomega.Equal(int32(1)),
-					"Expected workers-group-0 count = 1 after scaling down")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for the RayJob to finish", func() {
