@@ -37,15 +37,16 @@ const (
 
 var _ = ginkgo.Describe("Pod termination controller", func() {
 	var ns *corev1.Namespace
-	var matchingPodWrapper *testingpod.PodWrapper
 
-	matchingPodWrapper = testingpod.MakePod("matching-pod", ns.Name).
-		StatusPhase(corev1.PodPending).
-		TerminationGracePeriod(1).
-		Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue)
+	var matchingPodWrapper *testingpod.PodWrapper
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-fr-namespace-")
+
+		matchingPodWrapper = testingpod.MakePod("matching-pod", ns.Name).
+			StatusPhase(corev1.PodPending).
+			TerminationGracePeriod(1).
+			Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue)
 	})
 
 	ginkgo.It("should forcefully terminate pods that opt-in, scheduled on unreachable nodes", func() {
