@@ -17,7 +17,6 @@ limitations under the License.
 package failurerecovery
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -40,21 +39,17 @@ var _ = ginkgo.Describe("Pod termination controller", func() {
 	var ns *corev1.Namespace
 	var matchingPodWrapper *testingpod.PodWrapper
 
-	namespacedNodeName := func(nodeName string) string {
-		return fmt.Sprintf("%s-%s", ns.Name, nodeName)
-	}
+	matchingPodWrapper = testingpod.MakePod("matching-pod", ns.Name).
+		StatusPhase(corev1.PodPending).
+		TerminationGracePeriod(1).
+		Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-fr-namespace-")
-
-		matchingPodWrapper = testingpod.MakePod("matching-pod", ns.Name).
-			StatusPhase(corev1.PodPending).
-			TerminationGracePeriod(1).
-			Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue)
 	})
 
 	ginkgo.It("should forcefully terminate pods that opt-in, scheduled on unreachable nodes", func() {
-		unreachableNode := testingnode.MakeNode(namespacedNodeName("unreachable-node")).
+		unreachableNode := testingnode.MakeNode("unreachable-node").
 			NotReady().
 			Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule}).
 			Obj()
@@ -74,7 +69,7 @@ var _ = ginkgo.Describe("Pod termination controller", func() {
 	})
 
 	ginkgo.It("should trigger reconciliation when the node becomes unreachable", func() {
-		thrashingNode := testingnode.MakeNode(namespacedNodeName("thrashing-node")).
+		thrashingNode := testingnode.MakeNode("thrashing-node").
 			Ready().
 			Obj()
 		util.MustCreate(ctx, k8sClient, thrashingNode)
@@ -110,7 +105,7 @@ var _ = ginkgo.Describe("Pod termination controller", func() {
 		})
 	})
 	ginkgo.It("should trigger reconciliation when the node becomes unreachable", func() {
-		thrashingNode := testingnode.MakeNode(namespacedNodeName("thrashing-node")).
+		thrashingNode := testingnode.MakeNode("thrashing-node").
 			Ready().
 			Obj()
 		util.MustCreate(ctx, k8sClient, thrashingNode)
@@ -147,7 +142,7 @@ var _ = ginkgo.Describe("Pod termination controller", func() {
 	})
 
 	ginkgo.It("should not forcefully terminate matching pods that did not opt-in or are running on healthy nodes", func() {
-		unhealthyNode := testingnode.MakeNode(namespacedNodeName("unhealthy-node")).
+		unhealthyNode := testingnode.MakeNode("unhealthy-node").
 			NotReady().
 			Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule}).
 			Obj()
@@ -164,7 +159,7 @@ var _ = ginkgo.Describe("Pod termination controller", func() {
 		util.MustCreate(ctx, k8sClient, nonMatchingPod)
 		gomega.Expect(k8sClient.Delete(ctx, nonMatchingPod)).To(gomega.Succeed())
 
-		healthyNode := testingnode.MakeNode(namespacedNodeName("healthy-node")).
+		healthyNode := testingnode.MakeNode("healthy-node").
 			Ready().
 			Obj()
 		util.MustCreate(ctx, k8sClient, healthyNode)
