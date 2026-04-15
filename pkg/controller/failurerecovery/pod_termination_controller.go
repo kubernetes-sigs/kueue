@@ -242,7 +242,9 @@ func (r *TerminatingPodReconciler) mapNodeToPods(ctx context.Context, node *core
 		}
 	}
 
-	log.V(4).Info("Reconciling pods affected by unreachable node", "pod_count", len(requests))
+	if len(requests) > 0 {
+		log.V(4).Info("Reconciling pods affected by unreachable node", "pod_count", len(requests))
+	}
 
 	return requests
 }
