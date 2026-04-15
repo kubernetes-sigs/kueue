@@ -363,6 +363,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASHierarchicalUnconstrained
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: TASMultiLayerTopology
   versionedSpecs:
   - default: false

@@ -847,6 +847,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	if topologyKey == nil {
 		return nil, "topology level not specified"
 	}
+	s.log.V(3).Info("resolved topology level key", "topologyKey", *topologyKey, "unconstrained", state.unconstrained)
 	requestedLevelIdx, found := s.resolveLevelIdx(*topologyKey)
 	if !found {
 		return nil, fmt.Sprintf("no requested topology level: %s", *topologyKey)
@@ -1131,7 +1132,7 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 	case isSliceTopologyOnlyRequest(topologyRequest):
 		return new(s.highestLevel())
 	case ptr.Deref(topologyRequest.Unconstrained, false):
-		if features.Enabled(features.TASProfileMixed) {
+		if features.Enabled(features.TASHierarchicalUnconstrained) {
 			return new(s.highestLevel())
 		}
 		return new(s.lowestLevel())
