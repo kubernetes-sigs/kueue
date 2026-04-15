@@ -29,17 +29,23 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Label("controller:admissioncheck", "area:core"), func() {
+var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Label("controller:admissioncheck", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var ns *corev1.Namespace
 
-	ginkgo.BeforeEach(func() {
+	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-admissioncheck-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("one clusterQueue references admissionChecks", func() {

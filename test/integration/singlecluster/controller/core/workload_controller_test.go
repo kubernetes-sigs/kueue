@@ -42,7 +42,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload", "area:core"), func() {
+var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns                           *corev1.Namespace
 		updatedQueueWorkload         kueue.Workload
@@ -55,8 +55,15 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		updatedWorkloadPriorityClass *kueue.WorkloadPriorityClass
 	)
 
-	ginkgo.BeforeEach(func() {
+	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 	})
 
@@ -64,7 +71,6 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		clusterQueue = nil
 		localQueue = nil
 		updatedQueueWorkload = kueue.Workload{}
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("the queue is not defined in the workload", func() {
@@ -646,7 +652,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 	})
 })
 
-var _ = ginkgo.Describe("Workload controller interaction with scheduler", func() {
+var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns           *corev1.Namespace
 		clusterQueue *kueue.ClusterQueue
@@ -667,11 +673,11 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 		startManager()
 	}
 
-	ginkgo.BeforeEach(func() {
+	ginkgo.BeforeAll(func() {
 		startManager()
 	})
 
-	ginkgo.AfterEach(func() {
+	ginkgo.AfterAll(func() {
 		stopManager()
 	})
 
@@ -856,7 +862,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 	})
 })
 
-var _ = ginkgo.Describe("Workload controller with resource retention", func() {
+var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.When("manager is setup with tiny retention period", func() {
 		var (
 			ns              *corev1.Namespace
@@ -866,7 +872,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 			flavor          *kueue.ResourceFlavor
 		)
 
-		ginkgo.BeforeEach(func() {
+		ginkgo.BeforeAll(func() {
 			fwk.StartManager(
 				ctx, cfg,
 				managerAndControllerSetup(
@@ -881,6 +887,13 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 					},
 				),
 			)
+		})
+
+		ginkgo.AfterAll(func() {
+			fwk.StopManager(ctx)
+		})
+
+		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
@@ -898,7 +911,6 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("should delete the workload after retention period elapses", framework.SlowSpec, func() {
@@ -977,8 +989,15 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 			startManager()
 		}
 
-		ginkgo.BeforeEach(func() {
+		ginkgo.BeforeAll(func() {
 			startManager()
+		})
+
+		ginkgo.AfterAll(func() {
+			stopManager()
+		})
+
+		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
@@ -996,7 +1015,6 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-			stopManager()
 		})
 
 		ginkgo.It("should not delete the workload before retention period elapses", framework.SlowSpec, func() {

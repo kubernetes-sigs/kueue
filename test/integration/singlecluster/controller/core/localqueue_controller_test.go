@@ -22,7 +22,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -34,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue", "area:core"), func() {
+var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		flavorModelC = "model-c"
 		flavorModelD = "model-d"
@@ -76,8 +75,15 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		ac *kueue.AdmissionCheck
 	)
 
-	ginkgo.BeforeEach(func() {
+	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-")
 	})
 
@@ -105,7 +111,6 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
 		}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should update conditions when clusterQueues that its localQueue references are updated", framework.SlowSpec, func() {
@@ -541,23 +546,19 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 	})
 })
 
-var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("controller:localqueue", "area:core"), ginkgo.Serial, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("controller:localqueue", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns              *corev1.Namespace
 		clusterQueue    *kueue.ClusterQueue
 		ac              *kueue.AdmissionCheck
-		resourceFlavors []kueue.ResourceFlavor
-	)
-
-	ginkgo.BeforeEach(func() {
-		suffix := rand.String(8)
-		flavorName := "model-c-" + suffix
 		resourceFlavors = []kueue.ResourceFlavor{
-			*utiltestingapi.MakeResourceFlavor(flavorName).
-				NodeLabel(resourceGPU.String(), flavorName).
+			*utiltestingapi.MakeResourceFlavor("model-c").
+				NodeLabel(resourceGPU.String(), "model-c").
 				Obj(),
 		}
+	)
 
+	ginkgo.BeforeAll(func() {
 		customCfg := &configapi.Configuration{
 			ControllerManager: configapi.ControllerManager{
 				Metrics: configapi.ControllerMetrics{
@@ -572,18 +573,25 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 				},
 			},
 		}
-		fwk.StartManager(ctx, cfg, managerAndControllerSetup(customCfg))
 
+		fwk.StartManager(ctx, cfg, managerAndControllerSetup(customCfg))
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-metrics-")
 
-		ac = utiltestingapi.MakeAdmissionCheck("ac-metrics-" + suffix).ControllerName("ac-controller").Obj()
+		ac = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 		util.MustCreate(ctx, k8sClient, ac)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
-		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-metrics-" + suffix).
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.metrics-test").
 			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas(flavorName).Resource(resourceGPU, "5", "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("model-c").Resource(resourceGPU, "5", "5").Obj(),
 			).
 			Cohort("cohort").
 			AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
@@ -599,16 +607,11 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 	})
 
 	ginkgo.AfterEach(func() {
-		if ns != nil {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			ns = nil
-		}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		for _, rf := range resourceFlavors {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
 		}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should expose metrics based on LocalQueue labels", func() {
