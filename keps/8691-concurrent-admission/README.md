@@ -17,57 +17,62 @@ tags, and then generate with `hack/update-toc.sh`.
 -->
 
 <!-- toc -->
-- [KEP-8691: Concurrent Admission](#kep-8691-concurrent-admission)
-  - [Summary](#summary)
-  - [Motivation](#motivation)
-    - [Goals](#goals)
-    - [Non-Goals](#non-goals)
-  - [Proposal](#proposal)
-    - [Architecture overview](#architecture-overview)
-      - [Scheduling \& Lifecycle](#scheduling--lifecycle)
-    - [User Stories](#user-stories)
-      - [Story 1: ResourceFlavor Upgrade](#story-1-resourceflavor-upgrade)
-      - [Story 3: reservation + Homogenous Flavors](#story-3-reservation--homogenous-flavors)
-      - [Story 5: Delaying Variant creation](#story-5-delaying-variant-creation)
-      - [Story 7: Workload with multiple PodSets](#story-7-workload-with-multiple-podsets)
-    - [Workload API](#workload-api)
-      - [Naming Convention](#naming-convention)
-      - [Workload Spec](#workload-spec)
-    - [Variant Controller](#variant-controller)
-      - [Creation](#creation)
-      - [Aggregation](#aggregation)
-      - [Policy Enforcement](#policy-enforcement)
-      - [Eviction](#eviction)
-      - [Lifecycle of a Parent and its Variants](#lifecycle-of-a-parent-and-its-variants)
-    - [Observability](#observability)
-    - [Code Changes Complexity](#code-changes-complexity)
-    - [Reserving Quota for the same Workload twice](#reserving-quota-for-the-same-workload-twice)
-    - [Multiple Preemptions](#multiple-preemptions)
-    - [Ordering Variants](#ordering-variants)
-    - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-      - [Number of Variants](#number-of-variants)
-      - [StrictFIFO](#strictfifo)
-    - [Risks and Mitigations](#risks-and-mitigations)
-    - [FlavorFungibility Misinterpretation](#flavorfungibility-misinterpretation)
-    - [Misconfiguration](#misconfiguration)
-    - [Test Plan](#test-plan)
-        - [Prerequisite testing updates](#prerequisite-testing-updates)
-      - [Unit Tests](#unit-tests)
-      - [Integration tests](#integration-tests)
-    - [Graduation Criteria](#graduation-criteria)
-      - [Alpha](#alpha)
-      - [Beta](#beta)
-      - [GA](#ga)
-  - [Implementation History](#implementation-history)
-  - [Drawbacks](#drawbacks)
-    - [Increased API Object Count](#increased-api-object-count)
-  - [Alternatives](#alternatives)
-      - [Beta API](#beta-api)
-        - [ExplicitVariants API](#explicitvariants-api)
-        - [Workload Status](#workload-status)
-    - [Modify AdmissionCheck API](#modify-admissioncheck-api)
-    - [Migration within a Single Workload](#migration-within-a-single-workload)
-    - [WorkloadTypes API](#workloadtypes-api)
+- [Summary](#summary)
+- [Motivation](#motivation)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
+- [Proposal](#proposal)
+  - [Architecture overview](#architecture-overview)
+    - [Scheduling &amp; Lifecycle](#scheduling--lifecycle)
+  - [User Stories](#user-stories)
+    - [Story 1: ResourceFlavor Upgrade](#story-1-resourceflavor-upgrade)
+    - [Story 2: Upgrade only to reservation](#story-2-upgrade-only-to-reservation)
+    - [Story 3: reservation + Homogenous Flavors](#story-3-reservation--homogenous-flavors)
+    - [Story 4: Homogenous Flavors only](#story-4-homogenous-flavors-only)
+    - [Story 5: Delaying Variant creation](#story-5-delaying-variant-creation)
+    - [Story 6: Limit when migration can happen](#story-6-limit-when-migration-can-happen)
+    - [Story 7: Workload with multiple PodSets](#story-7-workload-with-multiple-podsets)
+- [Design Details](#design-details)
+  - [ClusterQueue API](#clusterqueue-api)
+  - [Workload API](#workload-api)
+    - [Naming Convention](#naming-convention)
+    - [Admission Constraints](#admission-constraints)
+  - [Variant Controller](#variant-controller)
+    - [Creation](#creation)
+    - [Aggregation](#aggregation)
+    - [Policy Enforcement](#policy-enforcement)
+    - [Eviction](#eviction)
+    - [Lifecycle of a Parent and its Variants](#lifecycle-of-a-parent-and-its-variants)
+  - [Observability](#observability)
+  - [Code Changes Complexity](#code-changes-complexity)
+  - [Reserving Quota for the same Workload twice](#reserving-quota-for-the-same-workload-twice)
+  - [Multiple Preemptions](#multiple-preemptions)
+  - [Ordering Variants](#ordering-variants)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+    - [Number of Variants](#number-of-variants)
+    - [StrictFIFO](#strictfifo)
+  - [Risks and Mitigations](#risks-and-mitigations)
+  - [FlavorFungibility Misinterpretation](#flavorfungibility-misinterpretation)
+  - [Misconfiguration](#misconfiguration)
+  - [Test Plan](#test-plan)
+      - [Prerequisite testing updates](#prerequisite-testing-updates)
+    - [Unit Tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+  - [Graduation Criteria](#graduation-criteria)
+    - [Alpha](#alpha)
+    - [Beta](#beta)
+    - [GA](#ga)
+- [Implementation History](#implementation-history)
+- [Drawbacks](#drawbacks)
+  - [Increased API Object Count](#increased-api-object-count)
+- [Alternatives](#alternatives)
+    - [Beta API](#beta-api)
+    - [Workload Spec](#workload-spec)
+      - [ExplicitVariants API](#explicitvariants-api)
+      - [Workload Status](#workload-status)
+  - [Modify AdmissionCheck API](#modify-admissioncheck-api)
+  - [Migration within a Single Workload](#migration-within-a-single-workload)
+  - [WorkloadTypes API](#workloadtypes-api)
 <!-- /toc -->
 
 ## Summary
@@ -198,6 +203,7 @@ I want my workloads to start as soon as possible, on whatever flavor. However, i
 
 To achieve that, I configure my ClusterQueue to use the UpgradeOnly mode.
 
+```yaml
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -218,6 +224,7 @@ I want my workloads to start as soon as possible, on whatever flavor. However, I
 
 To achieve that, I set the minTargetFlavor to "reservation". This ensures that a workload on "spot" will not migrate to "on-demand," only to "reservation."
 
+```yaml
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -242,6 +249,7 @@ I want my workloads to start as soon as possible. I want to migrate to "reservat
 
 By setting the minTargetFlavor to "Reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
 
+```yaml
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -258,6 +266,7 @@ As an admin, I have three homogeneous resource flavors (1a, 1b, 1c). I want my w
 
 To achieve that, I use the `NoMigration` mode.
 
+```yaml
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -277,6 +286,7 @@ I want to attempt scheduling on "reservation" exclusively for the first 2 hours 
 
 To achieve this, I use explicitVariants and set createDelaySeconds for the on-demand variant.
 
+```yaml
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -302,6 +312,7 @@ I want to avoid migrating a long-running workload if it is nearing completion. I
 
 To achieve this, I set maxDeleteDelaySeconds on the more preferred variant. After this time passes, the "reservation" variant is deactivated, preventing any further upgrades.
 
+```yaml
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -329,6 +340,7 @@ CPU:
 
 I want to allow upgrades for the GPU portion while keeping the CPU flavor constant across variants.
 
+```yaml
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -365,6 +377,7 @@ Explicit Variants API section](#explicitvariants-api).
 ### ClusterQueue API
 The ClusterQueue is extended to define the policy for concurrent attempts. This includes how to handle sibling Variants once one is admitted and how to define specific, customized Variants.
 
+```go
     ...
 
     // +optional
@@ -443,34 +456,13 @@ Example:
 job-abc-variant-bar-foohash
 ```
 
-#### Workload Spec
+#### Admission Constraints
 
-We propose to extend Workload's Spec API to have the capability to narrow the set of ResourceFlavors that can be used
+We propose to add Workload annotation `kueue.x-k8s.io/workload-allowed-resource-flavors` that will narrow the set of ResourceFlavors that can be used
 for scheduling a Workload.
 
-```
-type WorkloadSpec struct {
-    ...
-
-    // AdmissionConstraints describes the constraints Kueue scheduling algorithm takes into account
-    // when reserving quota for a Workload.
-    //
-    // +optional
-    AdmissionConstraints *AdmissionConstraints `json:"admissionConstraints,omitempty"`
-}
-
-type AdmissionConstraints struct {
-    ...
-
-    // If set, only RF from this list can be assigned to this Workload.
-    //
-    // +optional
-    AllowedResourceFlavors []ResourceFlavorReference `json:"allowedResourceFlavors,omitempty"`
-}
-
-```
-
-The API is an additional layer on top of the ResourceFlavor's taints and tolerations.
+The annotation is an additional layer on top of the ResourceFlavor's taints and tolerations.
+In Beta it will be reflected in Workload's Spec.
 
 ### Variant Controller
 
@@ -695,16 +687,20 @@ After the implementation PR is merged, add the names of the tests here.
 - Support for `MigrationConstraints.Mode=NoMigration` and `MigrationConstraints.MinTargetExplicitVariant`.
 - Introduction of `ExplicitVariants` functionality.
 - Revisit extending `ExplicitVariants` API with some additional fields.
+- Migrate `AllowedResourceFlavors` API from annotation to Workload's Spec API.
 - Minimizing number of Variants issuing preemptions to only one per Parent.
 - Revisit the idea of [introducing WorkloadType API](#workloadtypes-api).
 - Positive feedback from users.
 - Adding/updating Kueue metrics based on users' feedback.
 - Revisit the [`WorkloadStatus`](#workload-status) changes.
 - Revisit support for ClusterQueues with more than 1 `ResourceGroup`.
+- Prevent multiple preemptions coming from the same parent described above
+- Support for inter-Variant flavor fungibility
 
 #### GA
 
-Reconsider support for `StrictFIFO` queueing strategy.
+- Reconsider support for `StrictFIFO` queueing strategy.
+- Support `WorkloadSlice`
 
 <!--
 
@@ -760,10 +756,35 @@ Why should this KEP _not_ be implemented?
 Part of the proposed API will be introduced in Beta. For the sake of clarity and ease of reviewing, we place
 the API here. We'd like to reconsider below proposal when graduating to Beta.
 
+#### Workload Spec
+
+We propose to extend Workload's Spec API to have the capability to narrow the set of ResourceFlavors that can be used
+for scheduling a Workload.
+
+```go
+type WorkloadSpec struct {
+    ...
+
+    // AdmissionConstraints describes the constraints Kueue scheduling algorithm takes into account
+    // when reserving quota for a Workload.
+    //
+    // +optional
+    AdmissionConstraints *AdmissionConstraints `json:"admissionConstraints,omitempty"`
+}
+
+type AdmissionConstraints struct {
+    ...
+
+    // If set, only RF from this list can be assigned to this Workload.
+    //
+    // +optional
+    AllowedResourceFlavors []ResourceFlavorReference `json:"allowedResourceFlavors,omitempty"`
+}
+```
 
 ##### ExplicitVariants API
 
-```
+```go
 type ConcurrentAdmission struct {
     ...
 
@@ -821,7 +842,7 @@ This provides a central view of all virtual workloads without needing to query f
 
 For more detailed scheduling stats a user can check a particular Variant Workload.
 
-```
+```go
 type WorkloadVariantStatus struct {
     // name of the Variant (corresponds to the virtual workload name).
     Name string
@@ -866,7 +887,7 @@ Instead of using `kueue.x-k8s.io/parent-variant` label and owner references we c
 We might migrate to that approach but it was deferred in the first version, as it was unclear what's the semantic of this
 field and how it should be used with the existing "types" such, as WorkloadSlice, PrebuiltWorkload, etc.
 
-```
+```go
 type WorkloadType string
 const (
     Default              WorkloadType = "Default"
