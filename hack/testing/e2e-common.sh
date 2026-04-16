@@ -923,6 +923,23 @@ function install_kuberay {
     fi
     kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create -k "${KUBERAY_MANIFEST}"
     kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} wait deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
+
+     # Apply GCS fault tolerance patch
+     kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} patch deploy/"${deployment_name}" -n "${ns}" --patch-file "hack/testing/ray/kuberay-gcs-ft-patch.yaml"
+
+     # Wait for rollout to complete after patching
+     kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} rollout status deploy/"${deployment_name}" -n "${ns}" --timeout=5m
+
+     # Debug: Check if KubeRay operator has ENABLE_GCS_FT_REDIS_CLEANUP environment variable
+     echo "=== Checking KubeRay operator environment variables ==="
+     if kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} -n "${ns}" get deployment "${deployment_name}" >/dev/null 2>&1; then
+        kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} -n "${ns}" get deployment "${deployment_name}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="kuberay-operator")].env[?(@.name=="ENABLE_GCS_FT_REDIS_CLEANUP")]}' | \
+        jq -r 'if . then "ENABLE_GCS_FT_REDIS_CLEANUP=" + .value else "ENABLE_GCS_FT_REDIS_CLEANUP environment variable not found" end' 2>/dev/null || \
+        echo "ENABLE_GCS_FT_REDIS_CLEANUP environment variable not found or jq not available"
+     else
+        echo "KubeRay operator deployment not found"
+     fi
+     echo "=== End KubeRay operator environment check ==="
 }
 
 # $1 cluster name

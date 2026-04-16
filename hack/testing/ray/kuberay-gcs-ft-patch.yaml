@@ -1,0 +1,15 @@
+# hack/testing/ray/kuberay-gcs-ft-patch.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kuberay-operator
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+      - name: kuberay-operator
+        env:
+        - name: ENABLE_GCS_FT_REDIS_CLEANUP
+          value: "true"
+
