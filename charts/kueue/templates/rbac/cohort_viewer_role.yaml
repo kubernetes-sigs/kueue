@@ -23,9 +23,7 @@ metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
     rbac.kueue.x-k8s.io/batch-admin: "true"
-    rbac.authorization.k8s.io/aggregate-to-view: "true"
     rbac.authorization.k8s.io/aggregate-to-admin: "true"
-    rbac.authorization.k8s.io/aggregate-to-edit: "true"
 rules:
   - apiGroups:
       - kueue.x-k8s.io
