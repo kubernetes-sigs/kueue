@@ -197,7 +197,6 @@ I want my workloads to start as soon as possible, on whatever flavor. However, i
 
 To achieve that, I configure my ClusterQueue to use the UpgradeOnly mode.
 
-apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -218,7 +217,6 @@ I want my workloads to start as soon as possible, on whatever flavor. However, I
 
 To achieve that, I set the minTargetFlavor to "reservation". This ensures that a workload on "spot" will not migrate to "on-demand," only to "reservation."
 
-apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -243,7 +241,6 @@ I want my workloads to start as soon as possible. I want to migrate to "reservat
 
 By setting the minTargetFlavor to "Reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
 
-apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -260,7 +257,6 @@ As an admin, I have three homogeneous resource flavors (1a, 1b, 1c). I want my w
 
 To achieve that, I use the `NoMigration` mode.
 
-apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -280,7 +276,6 @@ I want to attempt scheduling on "reservation" exclusively for the first 2 hours 
 
 To achieve this, I use explicitVariants and set createDelaySeconds for the on-demand variant.
 
-apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -306,7 +301,6 @@ I want to avoid migrating a long-running workload if it is nearing completion. I
 
 To achieve this, I set maxDeleteDelaySeconds on the more preferred variant. After this time passes, the "reservation" variant is deactivated, preventing any further upgrades.
 
-apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -334,7 +328,6 @@ CPU:
 
 I want to allow upgrades for the GPU portion while keeping the CPU flavor constant across variants.
 
-apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -371,7 +364,6 @@ Explicit Variants API section](#explicitvariants-api).
 ### ClusterQueue API
 The ClusterQueue is extended to define the policy for concurrent attempts. This includes how to handle sibling Variants once one is admitted and how to define specific, customized Variants.
 
-type ClusterQueueSpec struct {
     ...
 
     // +optional
@@ -692,33 +684,22 @@ After the implementation PR is merged, add the names of the tests here.
 ### Graduation Criteria
 
 #### Alpha
-In Alpha version the feature will be gated behind the `ConcurrentAdmission` feature gate.
-
-Support for `MigrationConstraints.Mode=UpgradeOnly` and `MigrationConstraints.MinTargetFlavor` .
-
-Integration with `BestEffortFIFO` queueing strategy.
-
-Introduction of `AdmissionConstraints` field.
+- In Alpha version the feature will be gated behind the `ConcurrentAdmission` feature gate.
+- Support for `MigrationConstraints.Mode=UpgradeOnly` and `MigrationConstraints.MinTargetFlavor` .
+- Integration with `BestEffortFIFO` queueing strategy.
+- Introduction of `AdmissionConstraints` field.
 
 #### Beta
 
-Support for `MigrationConstraints.Mode=NoMigration` and `MigrationConstraints.MinTargetExplicitVariant`.
-
-Introduction of `ExplicitVariants` functionality.
-
-Revisit extending `ExplicitVariants` API with some additional fields.
-
-Minimizing number of Variants issuing preemptions to only one per Parent.
-
-Revisit the idea of [introducing WorkloadType API](#workloadtypes-api).
-
-Positive feedback from users.
-
-Adding/updating Kueue metrics based on users' feedback.
-
-Revisit the [`WorkloadStatus`](#workload-status) changes.
-
-Revisit support for ClusterQueues with more than 1 `ResourceGroup`.
+- Support for `MigrationConstraints.Mode=NoMigration` and `MigrationConstraints.MinTargetExplicitVariant`.
+- Introduction of `ExplicitVariants` functionality.
+- Revisit extending `ExplicitVariants` API with some additional fields.
+- Minimizing number of Variants issuing preemptions to only one per Parent.
+- Revisit the idea of [introducing WorkloadType API](#workloadtypes-api).
+- Positive feedback from users.
+- Adding/updating Kueue metrics based on users' feedback.
+- Revisit the [`WorkloadStatus`](#workload-status) changes.
+- Revisit support for ClusterQueues with more than 1 `ResourceGroup`.
 
 #### GA
 
