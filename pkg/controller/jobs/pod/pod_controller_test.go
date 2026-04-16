@@ -251,6 +251,17 @@ var (
 	}
 )
 
+func podWorkloadAnnotations(name string, extra map[string]string) map[string]string {
+	annotations := map[string]string{
+		controllerconsts.JobOwnerGVKAnnotation:  corev1.SchemeGroupVersion.WithKind("Pod").String(),
+		controllerconsts.JobOwnerNameAnnotation: name,
+	}
+	for key, value := range extra {
+		annotations[key] = value
+	}
+	return annotations
+}
+
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
@@ -410,6 +421,7 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
+					Annotations(podWorkloadAnnotations("pod", nil)).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -653,7 +665,9 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
-					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Annotations(podWorkloadAnnotations("pod", map[string]string{
+						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val",
+					})).
 					Obj(),
 			},
 			workloadCmpOpts: cmp.Options{
@@ -4186,6 +4200,7 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "test-uid",
 						"toCopyKey":                  "toCopyValue",
 					}).
+					Annotations(podWorkloadAnnotations("pod", nil)).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,

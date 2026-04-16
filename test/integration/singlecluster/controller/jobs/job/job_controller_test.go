@@ -920,6 +920,117 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 	})
 })
 
+var _ = ginkgo.Describe("Job controller with orphaned workload cleanup", ginkgo.Label("job:batch", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns *corev1.Namespace
+		fl *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orphan-job-")
+
+		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
+		util.MustCreate(ctx, k8sClient, fl)
+
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).
+				Resource(corev1.ResourceCPU, "1").
+				Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
+	})
+
+	ginkgo.It("should finish orphaned workload and release quota when owner Job is deleted with orphan propagation", func() {
+		ginkgo.By("creating and admitting job-a")
+		jobA := testingjob.MakeJob("job-a", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, jobA)
+
+		wlAKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(jobA.Name, jobA.UID),
+			Namespace: ns.Name,
+		}
+		util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlAKey)
+
+		ginkgo.By("verifying workload-a recorded owner metadata")
+		wlA := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlAKey, wlA)).To(gomega.Succeed())
+			g.Expect(wlA.Annotations).To(gomega.HaveKeyWithValue(constants.JobOwnerGVKAnnotation, batchv1.SchemeGroupVersion.WithKind("Job").String()))
+			g.Expect(wlA.Annotations).To(gomega.HaveKeyWithValue(constants.JobOwnerNameAnnotation, jobA.Name))
+			g.Expect(wlA.Labels).To(gomega.HaveKeyWithValue(constants.JobUIDLabel, string(jobA.UID)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("creating job-b, which should remain pending while job-a holds quota")
+		jobB := testingjob.MakeJob("job-b", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, jobB)
+
+		wlBKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(jobB.Name, jobB.UID),
+			Namespace: ns.Name,
+		}
+		wlB := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlBKey, wlB)).To(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(wlB)).To(gomega.BeFalse())
+			g.Expect(wlB.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("deleting job-a with orphan propagation")
+		gomega.Expect(k8sClient.Delete(ctx, jobA, client.PropagationPolicy(metav1.DeletePropagationOrphan))).To(gomega.Succeed())
+
+		ginkgo.By("verifying job-b still cannot use the quota before orphan cleanup runs")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlBKey, wlB)).To(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(wlB)).To(gomega.BeFalse())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+		ginkgo.By("simulating orphan propagation by removing workload-a owner references")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlAKey, wlA)).To(gomega.Succeed())
+			if len(wlA.OwnerReferences) == 0 {
+				return
+			}
+			wlA.OwnerReferences = nil
+			g.Expect(k8sClient.Update(ctx, wlA)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("asserting workload-a is finished with OwnerNotFound")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlAKey, wlA)).To(gomega.Succeed())
+			g.Expect(wlA.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOwnerNotFound))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("asserting job-b is admitted after workload-a releases quota")
+		util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlBKey)
+	})
+})
+
 var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	type podsReadyTestSpec struct {
 		beforeJobStatus *batchv1.JobStatus

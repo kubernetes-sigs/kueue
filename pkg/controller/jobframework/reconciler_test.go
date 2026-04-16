@@ -82,6 +82,8 @@ func TestReconcileGenericJob(t *testing.T) {
 		ResourceVersion("1").
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		Label(constants.JobUIDLabel, testJobName).
+		Annotation(constants.JobOwnerGVKAnnotation, testGVK.String()).
+		Annotation(constants.JobOwnerNameAnnotation, testJobName).
 		ControllerReference(testGVK, testJobName, testJobName).
 		Queue(testLocalQueueName).
 		PodSets(basePodSets...).
@@ -136,6 +138,8 @@ func TestReconcileGenericJob(t *testing.T) {
 				*baseWl.Clone().Name("job-test-job-3991b").
 					Annotations(map[string]string{
 						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						constants.JobOwnerGVKAnnotation:      testGVK.String(),
+						constants.JobOwnerNameAnnotation:     testJobName,
 						kueue.WorkloadSliceNameAnnotation:    "job-test-job-3991b",
 					}).
 					Obj(),
@@ -399,6 +403,8 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 		ResourceVersion("1").
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		Label(constants.JobUIDLabel, testJobName).
+		Annotation(constants.JobOwnerGVKAnnotation, testGVK.String()).
+		Annotation(constants.JobOwnerNameAnnotation, testJobName).
 		ControllerReference(testGVK, testJobName, testJobName).
 		Queue(testLocalQueueName).
 		PodSets(basePodSets...).

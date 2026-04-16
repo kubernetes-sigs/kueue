@@ -45,6 +45,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -2849,6 +2850,138 @@ func TestReconcile(t *testing.T) {
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadFinishedReasonOwnerNotFound,
 					Message: "The workload's owner no longer exists",
+				}).
+				Obj(),
+		},
+		"workload with fallback owner metadata and existing owner should not be finished": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FinishOrphanedWorkloads: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				JobUID("owneruid").
+				Annotation(controllerconstants.JobOwnerGVKAnnotation, batchv1.SchemeGroupVersion.WithKind("Job").String()).
+				Annotation(controllerconstants.JobOwnerNameAnnotation, "ownername").
+				Obj(),
+			additionalObjects: []client.Object{
+				&batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "ownername",
+						Namespace: "ns",
+						UID:       "owneruid",
+					},
+				},
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				JobUID("owneruid").
+				Annotation(controllerconstants.JobOwnerGVKAnnotation, batchv1.SchemeGroupVersion.WithKind("Job").String()).
+				Annotation(controllerconstants.JobOwnerNameAnnotation, "ownername").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue  doesn't exist",
+				}).
+				Obj(),
+		},
+		"workload with fallback owner metadata and deleting owner should be finished": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FinishOrphanedWorkloads: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				JobUID("owneruid").
+				Annotation(controllerconstants.JobOwnerGVKAnnotation, batchv1.SchemeGroupVersion.WithKind("Job").String()).
+				Annotation(controllerconstants.JobOwnerNameAnnotation, "ownername").
+				Obj(),
+			additionalObjects: []client.Object{
+				&batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "ownername",
+						Namespace:         "ns",
+						UID:               "owneruid",
+						Finalizers:        []string{"test-finalizer"},
+						DeletionTimestamp: ptr.To(metav1.Now()),
+					},
+				},
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				JobUID("owneruid").
+				Annotation(controllerconstants.JobOwnerGVKAnnotation, batchv1.SchemeGroupVersion.WithKind("Job").String()).
+				Annotation(controllerconstants.JobOwnerNameAnnotation, "ownername").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonOwnerNotFound,
+					Message: "The workload's owner no longer exists",
+				}).
+				Obj(),
+		},
+		"workload with fallback owner metadata and missing owner should be finished": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FinishOrphanedWorkloads: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				JobUID("gone-uid").
+				Annotation(controllerconstants.JobOwnerGVKAnnotation, batchv1.SchemeGroupVersion.WithKind("Job").String()).
+				Annotation(controllerconstants.JobOwnerNameAnnotation, "deleted-job").
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				JobUID("gone-uid").
+				Annotation(controllerconstants.JobOwnerGVKAnnotation, batchv1.SchemeGroupVersion.WithKind("Job").String()).
+				Annotation(controllerconstants.JobOwnerNameAnnotation, "deleted-job").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonOwnerNotFound,
+					Message: "The workload's owner no longer exists",
+				}).
+				Obj(),
+		},
+		"workload with fallback owner metadata and recreated owner should be finished": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FinishOrphanedWorkloads: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				JobUID("gone-uid").
+				Annotation(controllerconstants.JobOwnerGVKAnnotation, batchv1.SchemeGroupVersion.WithKind("Job").String()).
+				Annotation(controllerconstants.JobOwnerNameAnnotation, "ownername").
+				Obj(),
+			additionalObjects: []client.Object{
+				&batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "ownername",
+						Namespace: "ns",
+						UID:       "replacement-uid",
+					},
+				},
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				JobUID("gone-uid").
+				Annotation(controllerconstants.JobOwnerGVKAnnotation, batchv1.SchemeGroupVersion.WithKind("Job").String()).
+				Annotation(controllerconstants.JobOwnerNameAnnotation, "ownername").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonOwnerNotFound,
+					Message: "The workload's owner no longer exists",
+				}).
+				Obj(),
+		},
+		"workload with incomplete fallback owner metadata should not be finished": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FinishOrphanedWorkloads: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Annotation(controllerconstants.JobOwnerGVKAnnotation, batchv1.SchemeGroupVersion.WithKind("Job").String()).
+				Annotation(controllerconstants.JobOwnerNameAnnotation, "ownername").
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Annotation(controllerconstants.JobOwnerGVKAnnotation, batchv1.SchemeGroupVersion.WithKind("Job").String()).
+				Annotation(controllerconstants.JobOwnerNameAnnotation, "ownername").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue  doesn't exist",
 				}).
 				Obj(),
 		},

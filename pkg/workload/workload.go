@@ -29,8 +29,12 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	resourcehelpers "k8s.io/component-helpers/resource"
@@ -38,6 +42,7 @@ import (
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -45,6 +50,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -543,6 +549,100 @@ func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
 
 func Key(w *kueue.Workload) Reference {
 	return NewReference(w.Namespace, w.Name)
+}
+
+// SetOwnerMetadata records the owner identity so the owner can still be
+// resolved after orphan propagation removes owner references from the
+// workload.
+func SetOwnerMetadata(wl *kueue.Workload, object client.Object, c client.Client) error {
+	gvk, err := apiutil.GVKForObject(object, c.Scheme())
+	if err != nil {
+		return err
+	}
+
+	if wl.Annotations == nil {
+		wl.Annotations = make(map[string]string, 2)
+	}
+	wl.Annotations[controllerconstants.JobOwnerGVKAnnotation] = gvk.String()
+	wl.Annotations[controllerconstants.JobOwnerNameAnnotation] = object.GetName()
+
+	jobUID := string(object.GetUID())
+	if errs := content.IsLabelValue(jobUID); len(errs) == 0 {
+		if wl.Labels == nil {
+			wl.Labels = make(map[string]string, 1)
+		}
+		wl.Labels[controllerconstants.JobUIDLabel] = jobUID
+	}
+
+	return nil
+}
+
+// IsOwnerGone checks whether the workload owner still exists.
+// It first resolves the controller owner reference, then falls back to the
+// stored owner metadata when the controller owner reference is unavailable.
+func IsOwnerGone(ctx context.Context, c client.Client, wl *kueue.Workload) (bool, error) {
+	if ref := metav1.GetControllerOf(wl); ref != nil {
+		return isOwnerReferenceGone(ctx, c, wl.Namespace, ref, false)
+	}
+
+	ref, ok := ownerReferenceFromMetadata(wl)
+	if !ok {
+		return false, nil
+	}
+	return isOwnerReferenceGone(ctx, c, wl.Namespace, ref, true)
+}
+
+func ownerReferenceFromMetadata(wl *kueue.Workload) (*metav1.OwnerReference, bool) {
+	ownerGVK := wl.Annotations[controllerconstants.JobOwnerGVKAnnotation]
+	ownerName := wl.Annotations[controllerconstants.JobOwnerNameAnnotation]
+	ownerUID := wl.Labels[controllerconstants.JobUIDLabel]
+	if ownerGVK == "" || ownerName == "" || ownerUID == "" {
+		return nil, false
+	}
+
+	apiVersion, kind, ok := strings.Cut(ownerGVK, ", Kind=")
+	if !ok || kind == "" {
+		return nil, false
+	}
+
+	gv, err := schema.ParseGroupVersion(apiVersion)
+	if err != nil {
+		return nil, false
+	}
+
+	return &metav1.OwnerReference{
+		APIVersion: gv.String(),
+		Kind:       kind,
+		Name:       ownerName,
+		UID:        types.UID(ownerUID),
+	}, true
+}
+
+func isOwnerReferenceGone(ctx context.Context, c client.Client, namespace string, ref *metav1.OwnerReference, treatDeletingAsGone bool) (bool, error) {
+	obj := &metav1.PartialObjectMetadata{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: ref.APIVersion,
+			Kind:       ref.Kind,
+		},
+	}
+	key := client.ObjectKey{Namespace: namespace, Name: ref.Name}
+	if err := c.Get(ctx, key, obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	if treatDeletingAsGone && !obj.GetDeletionTimestamp().IsZero() {
+		return true, nil
+	}
+	return obj.UID != ref.UID, nil
+}
+
+func GetLocalQueue(wl *kueue.Workload) kueue.LocalQueueName {
+	if wl == nil {
+		return ""
+	}
+	return wl.Spec.QueueName
 }
 
 func reclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {

@@ -557,6 +557,17 @@ var (
 	}
 )
 
+func jobWorkloadAnnotations(name string, extra map[string]string) map[string]string {
+	annotations := map[string]string{
+		controllerconsts.JobOwnerGVKAnnotation:  batchv1.SchemeGroupVersion.WithKind("Job").String(),
+		controllerconsts.JobOwnerNameAnnotation: name,
+	}
+	for key, value := range extra {
+		annotations[key] = value
+	}
+	return annotations
+}
+
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
@@ -1105,7 +1116,9 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("job", "ns").
-					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Annotations(jobWorkloadAnnotations("job", map[string]string{
+						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val",
+					})).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localQueueName).
@@ -1152,6 +1165,7 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 						"toCopyKey":                  "toCopyValue"}).
+					Annotations(jobWorkloadAnnotations("job", nil)).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -2887,6 +2901,7 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
+					Annotations(jobWorkloadAnnotations("job", nil)).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -3066,6 +3081,7 @@ func TestReconciler(t *testing.T) {
 					Queue("test-queue").
 					Priority(0).
 					Labels(map[string]string{}).
+					Annotations(jobWorkloadAnnotations("job", nil)).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -3540,6 +3556,7 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
+					Annotations(jobWorkloadAnnotations("job", nil)).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -3589,6 +3606,7 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
+					Annotations(jobWorkloadAnnotations("job", nil)).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -3640,6 +3658,7 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
+					Annotations(jobWorkloadAnnotations("job", nil)).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -3735,6 +3754,7 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
+					Annotations(jobWorkloadAnnotations("job", nil)).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
 					Obj(),
 			},
@@ -3830,6 +3850,7 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
+					Annotations(jobWorkloadAnnotations("job", nil)).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
@@ -4192,6 +4213,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localQueueName).
 					Priority(0).
 					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
+					Annotations(jobWorkloadAnnotations("job", nil)).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -4303,6 +4325,7 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
+					Annotations(jobWorkloadAnnotations("job", nil)).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).

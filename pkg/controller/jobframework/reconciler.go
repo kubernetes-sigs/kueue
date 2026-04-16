@@ -1114,18 +1114,28 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 }
 
 func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *kueue.Workload, object client.Object) error {
+	shouldUpdate := false
+
 	if !metav1.IsControlledBy(wl, object) {
 		if err := ctrl.SetControllerReference(object, wl, c.Scheme()); err != nil {
 			return err
 		}
+		shouldUpdate = true
+	}
 
-		if errs := content.IsLabelValue(string(object.GetUID())); len(errs) == 0 {
-			if wl.Labels == nil {
-				wl.Labels = make(map[string]string, 1)
-			}
-			wl.Labels[controllerconsts.JobUIDLabel] = string(object.GetUID())
-		}
+	prevJobUID := wl.Labels[controllerconsts.JobUIDLabel]
+	prevOwnerGVK := wl.Annotations[controllerconsts.JobOwnerGVKAnnotation]
+	prevOwnerName := wl.Annotations[controllerconsts.JobOwnerNameAnnotation]
+	if err := workload.SetOwnerMetadata(wl, object, c); err != nil {
+		return err
+	}
+	if wl.Labels[controllerconsts.JobUIDLabel] != prevJobUID ||
+		wl.Annotations[controllerconsts.JobOwnerGVKAnnotation] != prevOwnerGVK ||
+		wl.Annotations[controllerconsts.JobOwnerNameAnnotation] != prevOwnerName {
+		shouldUpdate = true
+	}
 
+	if shouldUpdate {
 		if err := c.Update(ctx, wl); err != nil {
 			return err
 		}
@@ -1394,6 +1404,10 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 			"ValidationErrors", errs,
 			"LabelValue", jobUID,
 		)
+	}
+
+	if err := workload.SetOwnerMetadata(wl, object, c); err != nil {
+		return nil, err
 	}
 
 	if err := ctrl.SetControllerReference(object, wl, c.Scheme()); err != nil {
