@@ -26,6 +26,12 @@ cd "$KUBERNETES_SIGS_KUEUE_PATH"
 # shellcheck source=hack/utils.sh
 source "${KUBERNETES_SIGS_KUEUE_PATH}/hack/utils.sh"
 
+# Build the pinned yq via the `yq` make target so the script does not rely on
+# the user's environment.
+make -C "${KUBERNETES_SIGS_KUEUE_PATH}" yq >/dev/null
+YQ="${KUBERNETES_SIGS_KUEUE_PATH}/bin/yq"
+declare -r YQ
+
 KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE=${KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE:-upstream}
 KUBERNETES_SIGS_KUEUE_FORK_REMOTE=${KUBERNETES_SIGS_KUEUE_FORK_REMOTE:-origin}
 KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG=${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG:-$(get_repo_org "$(git remote get-url "$KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE")")}
@@ -343,7 +349,7 @@ function prepare_local_branch() {
     fi
     digest=$(echo "$image_details" | jq -r '.image_summary.digest')
     insert_image "$IMAGES_FILE" "$version" "$digest" "$name"
-  done < <(yq e '.[] | .name' "${IMAGES_FILE}")
+  done < <("${YQ}" e '.[] | .name' "${IMAGES_FILE}")
 
   git add .
   git commit -m "$3"
