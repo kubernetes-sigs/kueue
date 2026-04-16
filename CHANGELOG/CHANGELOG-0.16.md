@@ -1,3 +1,40 @@
+## v0.16.6
+
+Changes since `v0.16.5`:
+
+## Urgent Upgrade Notes
+
+### (No, really, you MUST read this before you upgrade)
+
+- AdmissionChecks: Add the alpha `RejectUpdatesToCQWithInvalidOnFlavors` feature gate (disabled by default) to reject updates to existing ClusterQueues with invalid `AdmissionCheckStrategy.OnFlavors` references.
+  when enabling this feature gate, fix any existing invalid `OnFlavors` references before updating the affected ClusterQueues. (#10511, @tenzen-y)
+
+## Changes by Kind
+
+### Bug or Regression
+
+- AdmissionChecks: ClusterQueue validation now checks that the flavors specified in `AdmissionCheckStrategy.OnFlavors` are listed in quota. (#10378, @ShaanveerS)
+- AdmissionChecks: fix the bug that on backoff admission checks which are spanning all ResourceFlavors, such as MultiKueue, may be missing in the Workload’s status.
+
+  For MultiKueue that manifested with a bug, when aside from the MultiKueue admission check there was another non-MultiKueue admission check. In the scenario when eviction on the management cluster happened the manager that had temporarily lost connection to a worker, the remote workload would keep running on the reconnected worker, despite the workload staying without reservation on the manager cluster. (#9359, @Singularity23x0)
+- AdmissionFairSharing: Fixed a bug in entry penalties by reducing them when workload is admitted and also clearing them up if all the resources on the admission entry penalty have value zero. (#10465, @MaysaMacedo)
+- ElasticJobs: Fix a bug where pods stay gated after scale-up by allowing finished workloads to ungate their own pods. (#10392, @sohankunkerkar)
+- FailureRecoveryPolicy: Fixed an issue where pods could remain stuck terminating if their node became unreachable only after the force-termination timeout had already elapsed. (#10501, @kshalot)
+- Fix handling of orphaned workloads which could result in the accumulation of stale workloads
+  after PodsReady timeout eviction for Deployment-owned pods. (#10274, @sebest)
+- LeaderWorkerSet integration: fix the bug that the PodTemplate metadata wasn't propagated to the Workload's PodSets. (#10444, @pajakd)
+- MultiKueue: Fixes the bug where a job, after being dispatched to a worker, would not sync correctly after being evicted there. This would also cause its workload to be incorrectly labeled as admitted.
+
+  Now the workload and the manager job instance will correctly reflect the evicted state and MultiKueue will perform a fallback, then dispatch remote workloads to all eligible workers again after being evicted from the Worker it was successfully admitted to before. An example of such a case is if the remote instance got preempted on the worker. (#9670, @Singularity23x0)
+- MultiKueue: fix the bug that when custom admission checks are configured on the manager cluster, other than
+  the MultiKueue admission check, then the Job may start running on the selected worker before the other admission
+  checks are satisfied (Ready). We fix the issue by deferring the dispatching of workload until all non-MultiKueue AdmissionChecks become Ready. (#10405, @mszadkow)
+- Observability: Fix excessive memory overhead in hot code paths by reusing the named logger in NewLogConstructor and avoiding unnecessary logger cloning. (#10394, @MatteoFari)
+- TAS: Fix empty slices for count=0 podSets causing infinite scheduling loop (#10510, @mimowo)
+- TAS: fix a bug that Pods which only contain the `kueue.x-k8s.io/podset-slice-required-topology` as the TAS annotation are not ungated. (#10445, @tg123)
+- TAS: reduce the churn on the TAS-enabled controller, called NonTasUsageReconciler, by skipping triggering
+  of the Reconcile on Pod changes which are irrelevant from the controller point-of-view. (#10507, @MatteoFari)
+
 ## v0.16.5
 
 Changes since `v0.16.4`:
