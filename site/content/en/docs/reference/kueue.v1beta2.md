@@ -2634,13 +2634,6 @@ priority will be default or zero if there is no default.</p>
 - [ProvisioningRequestConfigSpec](#kueue-x-k8s-io-v1beta2-ProvisioningRequestConfigSpec)
 
 
-<p>ProvisioningRequestConfigPodSetMergePolicy specifies the policy for merging PodSets.</p>
-<p>Valid values are:</p>
-<ul>
-<li><code>IdenticalPodTemplates</code>: Merges only identical PodTemplates.</li>
-<li><code>IdenticalWorkloadSchedulingRequirements</code>: Merges PodTemplates which have identical fields which are considered for defining the workload scheduling requirements.</li>
-</ul>
-
 
 
 
@@ -2714,6 +2707,11 @@ are used to target the provisioned nodes.</p>
 <td>
    <p>podSetMergePolicy specifies the policy for merging PodSets before being passed
 to the cluster autoscaler.</p>
+<p>The possible policies are:</p>
+<ul>
+<li><code>IdenticalPodTemplates</code>: Merges only identical PodTemplates.</li>
+<li><code>IdenticalWorkloadSchedulingRequirements</code>: Merges PodTemplates with identical fields that are considered when defining the workload scheduling requirements.</li>
+</ul>
 </td>
 </tr>
 </tbody>
