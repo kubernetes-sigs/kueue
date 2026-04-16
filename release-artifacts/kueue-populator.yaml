@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kueue-populator
+  namespace: kueue-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kueue-populator-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - clusterqueues
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - localqueues
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kueue-populator-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kueue-populator-role
+subjects:
+- kind: ServiceAccount
+  name: kueue-populator
+  namespace: kueue-system
+---
+apiVersion: v1
+data:
+  controller_manager_config.yaml: |
+    localQueueName: default
+    # managedJobsNamespaceSelector:
+    #   matchLabels:
+    #     key: value
+kind: ConfigMap
+metadata:
+  name: kueue-populator-config
+  namespace: kueue-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueue-populator
+  namespace: kueue-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: kueue-populator
+  template:
+    metadata:
+      labels:
+        control-plane: kueue-populator
+    spec:
+      containers:
+      - args:
+        - --config=/etc/kueue/controller_manager_config.yaml
+        - --zap-log-level=2
+        image: registry.k8s.io/kueue/kueue-populator:v0.17.1
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /etc/kueue
+          name: manager-config
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: kueue-populator
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - configMap:
+          name: kueue-populator-config
+        name: manager-config
