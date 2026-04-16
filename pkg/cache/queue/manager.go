@@ -381,7 +381,7 @@ func (m *Manager) IsConcurrentAdmissionParentWithoutLock(wl *kueue.Workload) boo
 	return m.ConcurrentAdmissionEnabledWithoutLock(cqName) && !concurrentadmission.IsVariant(wl)
 }
 
-func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue, specUpdated, labelsUpdated bool) error {
+func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue, specUpdated bool) error {
 	m.Lock()
 	defer m.Unlock()
 	cqName := kueue.ClusterQueueReference(cq.Name)
@@ -407,7 +407,7 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName))
 	}
 	becameActive := !oldActive && cqImpl.Active()
-	if becameActive || labelsUpdated {
+	if becameActive {
 		reportPendingWorkloads(m, cqName)
 	}
 	if becameActive {
@@ -900,18 +900,44 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 	}
 }
 
+func (m *Manager) resyncClusterQueueGaugeMetricsLocked(cq *ClusterQueue) {
+	if cq == nil {
+		return
+	}
+	reportCQPendingWorkloads(m, cq)
+	reportCQFinishedWorkloads(cq, m.roleTracker, m.customLabels)
+}
+
+func (m *Manager) ResyncClusterQueueGaugeMetrics(cqName kueue.ClusterQueueReference) {
+	m.RLock()
+	defer m.RUnlock()
+	m.resyncClusterQueueGaugeMetricsLocked(m.hm.ClusterQueue(cqName))
+}
+
+func (m *Manager) resyncLocalQueueGaugeMetricsLocked(lq *LocalQueue) {
+	if lq == nil {
+		return
+	}
+	reportLQPendingWorkloads(m, lq)
+	reportLQFinishedWorkloads(m, lq)
+}
+
+func (m *Manager) ResyncLocalQueueGaugeMetrics(lqRef queue.LocalQueueReference) {
+	m.RLock()
+	defer m.RUnlock()
+	m.resyncLocalQueueGaugeMetricsLocked(m.localQueues[lqRef])
+}
+
 // ResyncGaugeMetrics re-reports pending and finished workload gauge metrics.
 func (m *Manager) ResyncGaugeMetrics() {
 	m.RLock()
 	defer m.RUnlock()
 	for _, cq := range m.hm.ClusterQueues() {
-		reportCQPendingWorkloads(m, cq)
-		reportCQFinishedWorkloads(cq, m.roleTracker, m.customLabels)
+		m.resyncClusterQueueGaugeMetricsLocked(cq)
 	}
 	if m.lqMetrics.IsEnabled() {
 		for _, lq := range m.localQueues {
-			reportLQPendingWorkloads(m, lq)
-			reportLQFinishedWorkloads(m, lq)
+			m.resyncLocalQueueGaugeMetricsLocked(lq)
 		}
 	}
 }

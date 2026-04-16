@@ -184,14 +184,10 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	log.V(2).Info("Reconcile LocalQueue")
 
 	if features.Enabled(features.CustomMetricLabels) {
-		r.customLabels.LQStoreAndClear(utilqueue.Key(&queueObj),
+		r.customLabels.LQStore(
+			utilqueue.Key(&queueObj),
 			queueObj.GetLabels(), queueObj.GetAnnotations(),
-			func() {
-				lqRef := localQueueReferenceFromLocalQueue(&queueObj)
-				metrics.ClearLocalQueueMetrics(lqRef)
-				metrics.ClearLocalQueueCacheMetrics(lqRef)
-				metrics.ClearLocalQueueResourceMetrics(lqRef)
-			})
+		)
 	}
 
 	if ptr.Deref(queueObj.Spec.StopPolicy, kueue.None) != kueue.None {
@@ -289,15 +285,15 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	log := r.logger().WithValues("localQueue", klog.KObj(e.ObjectNew))
 	log.V(2).Info("Queue update event")
 
+	var customLabelsChanged bool
 	if features.Enabled(features.CustomMetricLabels) {
-		r.customLabels.LQStoreAndClear(utilqueue.Key(e.ObjectNew),
+		customLabelsChanged = r.customLabels.LQStore(
+			utilqueue.Key(e.ObjectNew),
 			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
-			func() {
-				clearLocalQueueMetrics(e.ObjectNew)
-			})
+		)
 	}
 
-	if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels()) {
+	if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels()) && !customLabelsChanged {
 		r.updateLocalQueueResourceMetrics(log, e.ObjectNew)
 	} else if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels()) {
 		clearLocalQueueMetrics(e.ObjectOld)
@@ -305,8 +301,11 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 
 	oldStopPolicy := ptr.Deref(e.ObjectOld.Spec.StopPolicy, kueue.None)
 	newStopPolicy := ptr.Deref(e.ObjectNew.Spec.StopPolicy, kueue.None)
+	clusterQueueChanged := e.ObjectOld.Spec.ClusterQueue != e.ObjectNew.Spec.ClusterQueue
+	stoppingQueue := oldStopPolicy != newStopPolicy && newStopPolicy != kueue.None
 
-	if newStopPolicy == oldStopPolicy {
+	switch {
+	case oldStopPolicy == newStopPolicy:
 		if newStopPolicy == kueue.None {
 			if err := r.queues.UpdateLocalQueue(log, e.ObjectNew); err != nil {
 				log.Error(err, "Failed to update queue in the queueing system")
@@ -315,18 +314,23 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 		if err := r.cache.UpdateLocalQueue(e.ObjectOld, e.ObjectNew); err != nil {
 			log.Error(err, "Failed to update localQueue in the cache")
 		}
-		return true
-	}
-
-	if newStopPolicy == kueue.None {
+	case newStopPolicy == kueue.None:
+		if customLabelsChanged || clusterQueueChanged {
+			if err := r.cache.UpdateLocalQueue(e.ObjectOld, e.ObjectNew); err != nil {
+				log.Error(err, "Failed to update localQueue in the cache")
+			}
+		}
 		ctx := logr.NewContext(context.Background(), log)
 		if err := r.queues.AddLocalQueue(ctx, e.ObjectNew); err != nil {
 			log.Error(err, "Failed to add localQueue to the queueing system")
 		}
-		return true
+	default:
+		r.queues.DeleteLocalQueue(log, e.ObjectOld)
 	}
 
-	r.queues.DeleteLocalQueue(log, e.ObjectOld)
+	if customLabelsChanged && !stoppingQueue {
+		r.resyncLocalQueueGaugeMetrics(e.ObjectNew)
+	}
 
 	return true
 }
@@ -428,6 +432,27 @@ func clearLocalQueueMetrics(lq *kueue.LocalQueue) {
 	metrics.ClearLocalQueueMetrics(lqRef)
 	metrics.ClearLocalQueueCacheMetrics(lqRef)
 	metrics.ClearLocalQueueResourceMetrics(lqRef)
+}
+
+func (r *LocalQueueReconciler) resyncLocalQueueGaugeMetrics(lq *kueue.LocalQueue) {
+	lqKey := utilqueue.Key(lq)
+	clearLocalQueueMetrics(lq)
+	r.queues.ResyncLocalQueueGaugeMetrics(lqKey)
+	r.cache.ResyncLocalQueueGaugeMetrics(lq.Spec.ClusterQueue, lqKey)
+
+	if !r.lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
+		return
+	}
+	condition := meta.FindStatusCondition(lq.Status.Conditions, kueue.LocalQueueActive)
+	if condition == nil {
+		return
+	}
+	metrics.ReportLocalQueueStatus(
+		localQueueReferenceFromLocalQueue(lq),
+		condition.Status,
+		r.customLabels.LQGet(lqKey),
+		r.roleTracker,
+	)
 }
 
 func (r *LocalQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.LocalQueue]) bool {

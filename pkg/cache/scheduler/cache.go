@@ -495,6 +495,66 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 	return nil
 }
 
+func (c *Cache) resyncClusterQueueGaugeMetricsLocked(cq *clusterQueue) {
+	if cq == nil {
+		return
+	}
+	metrics.ReportClusterQueueStatus(cq.Name, cq.Status, cq.customMetricLabelValues, c.roleTracker)
+	cq.reportActiveWorkloads()
+	if c.resourceMetricsEnabled {
+		cq.reportResourceMetrics(c.fairSharingEnabled)
+	}
+	for _, lq := range cq.localQueues {
+		c.resyncLocalQueueGaugeMetricsLocked(cq, lq)
+	}
+}
+
+func (c *Cache) ResyncClusterQueueGaugeMetrics(cqName kueue.ClusterQueueReference) {
+	c.RLock()
+	defer c.RUnlock()
+	c.resyncClusterQueueGaugeMetricsLocked(c.hm.ClusterQueue(cqName))
+}
+
+func (c *Cache) resyncLocalQueueGaugeMetricsLocked(cq *clusterQueue, lq *LocalQueue) {
+	if cq == nil || lq == nil || !lq.shouldExposeMetrics(c.lqMetrics) {
+		return
+	}
+	lq.reportActiveWorkloads(c.roleTracker)
+	lq.reportResourceMetrics(cq.resourceNode.Quotas, c.roleTracker)
+}
+
+func (c *Cache) ResyncLocalQueueGaugeMetrics(cqName kueue.ClusterQueueReference, lqRef queue.LocalQueueReference) {
+	c.RLock()
+	defer c.RUnlock()
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return
+	}
+	lq, ok := cq.localQueues[lqRef]
+	if !ok {
+		return
+	}
+	c.resyncLocalQueueGaugeMetricsLocked(cq, lq)
+}
+
+func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.CohortReference) {
+	c.RecordCohortMetrics(log, cohortName)
+	c.RLock()
+	defer c.RUnlock()
+	cohort := c.hm.Cohort(cohortName)
+	if cohort == nil || hierarchy.HasCycle(cohort) {
+		return
+	}
+	if c.fairSharingEnabled {
+		drs := dominantResourceShare(cohort, nil)
+		var customLabelValues []string
+		if features.Enabled(features.CustomMetricLabels) {
+			customLabelValues = c.customLabels.CohortGet(cohort.Name)
+		}
+		metrics.ReportCohortWeightedShare(cohort.Name, drs.PreciseWeightedShare(), customLabelValues, c.roleTracker)
+	}
+}
+
 func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	c.Lock()
 	defer c.Unlock()
@@ -1031,31 +1091,25 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue
 }
 
 // ResyncGaugeMetrics re-reports CQ/LQ status, active workload, resource, and weighted share gauge metrics.
-func (c *Cache) ResyncGaugeMetrics() {
+func (c *Cache) ResyncGaugeMetrics(log logr.Logger) {
 	c.RLock()
-	defer c.RUnlock()
-	for _, cq := range c.hm.ClusterQueues() {
-		metrics.ReportClusterQueueStatus(cq.Name, cq.Status, cq.customMetricLabelValues, c.roleTracker)
-		cq.reportActiveWorkloads()
-		if c.resourceMetricsEnabled {
-			cq.reportResourceMetrics(c.fairSharingEnabled)
-		}
-		for _, lq := range cq.localQueues {
-			if lq.shouldExposeMetrics(c.lqMetrics) {
-				lq.reportActiveWorkloads(c.roleTracker)
-				lq.reportResourceMetrics(cq.resourceNode.Quotas, c.roleTracker)
-			}
-		}
+	cqs := c.hm.ClusterQueues()
+	cqNames := make([]kueue.ClusterQueueReference, 0, len(cqs))
+	for _, cq := range cqs {
+		cqNames = append(cqNames, cq.Name)
 	}
-	if c.fairSharingEnabled {
-		for _, cohort := range c.hm.Cohorts() {
-			drs := dominantResourceShare(cohort, nil)
-			var customLabelValues []string
-			if features.Enabled(features.CustomMetricLabels) {
-				customLabelValues = c.customLabels.CohortGet(cohort.Name)
-			}
-			metrics.ReportCohortWeightedShare(cohort.Name, drs.PreciseWeightedShare(), customLabelValues, c.roleTracker)
-		}
+	cohorts := c.hm.Cohorts()
+	cohortNames := make([]kueue.CohortReference, 0, len(cohorts))
+	for _, cohort := range cohorts {
+		cohortNames = append(cohortNames, cohort.Name)
+	}
+	c.RUnlock()
+
+	for _, cqName := range cqNames {
+		c.ResyncClusterQueueGaugeMetrics(cqName)
+	}
+	for _, cohortName := range cohortNames {
+		c.ResyncCohortGaugeMetrics(log, cohortName)
 	}
 }
 

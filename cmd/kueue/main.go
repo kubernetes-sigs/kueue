@@ -366,7 +366,7 @@ func main() {
 	if roleTracker != nil {
 		roleTracker.OnElected(func() {
 			metrics.ClearGaugeMetricsForRole(roletracker.RoleFollower)
-			cCache.ResyncGaugeMetrics()
+			cCache.ResyncGaugeMetrics(setupLog)
 			queues.ResyncGaugeMetrics()
 		})
 	}

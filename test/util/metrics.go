@@ -237,14 +237,14 @@ func ExpectLQAdmissionWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string,
 	expectHistogramMetric(metrics.LocalQueueAdmissionWaitTime, gomega.Equal(count), lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
 }
 
-func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.ClusterQueueStatus) {
+func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.ClusterQueueStatus, customLabelValues ...string) {
 	ginkgo.GinkgoHelper()
 	for i, s := range metrics.CQStatuses {
 		var wantV float64
 		if metrics.CQStatuses[i] == status {
 			wantV = 1
 		}
-		lvs := []string{cq.Name, string(s), roletracker.RoleStandalone}
+		lvs := append([]string{cq.Name, string(s), roletracker.RoleStandalone}, customLabelValues...)
 		expectGaugeMetric(metrics.ClusterQueueByStatus, lvs, gomega.Equal(wantV), "cluster_queue_status with status=%s", s)
 	}
 }
