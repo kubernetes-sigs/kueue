@@ -21,6 +21,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ProvisioningRequestConfigPodSetMergePolicy specifies the policy for merging PodSets.
+//
+// Valid values are:
+// - `IdenticalPodTemplates`: Merges only identical PodTemplates.
+// - `IdenticalWorkloadSchedulingRequirements`: Merges PodTemplates which have identical fields which are considered for defining the workload scheduling requirements.
 type ProvisioningRequestConfigPodSetMergePolicy string
 
 const (
