@@ -249,22 +249,25 @@ func (r *TerminatingPodReconciler) mapNodeToPods(ctx context.Context, node *core
 	return requests
 }
 
-func (r *TerminatingPodReconciler) nodeEventsPredicate() predicate.TypedPredicate[*corev1.Node] {
-	return predicate.TypedFuncs[*corev1.Node]{
-		CreateFunc: func(e event.TypedCreateEvent[*corev1.Node]) bool {
-			return utiltaints.TaintKeyExists(e.Object.Spec.Taints, corev1.TaintNodeUnreachable)
-		},
-		UpdateFunc: func(e event.TypedUpdateEvent[*corev1.Node]) bool {
-			return !utiltaints.TaintKeyExists(e.ObjectOld.Spec.Taints, corev1.TaintNodeUnreachable) &&
-				utiltaints.TaintKeyExists(e.ObjectNew.Spec.Taints, corev1.TaintNodeUnreachable)
-		},
-		DeleteFunc: func(e event.TypedDeleteEvent[*corev1.Node]) bool {
-			return false
-		},
-		GenericFunc: func(e event.TypedGenericEvent[*corev1.Node]) bool {
-			return false
-		},
-	}
+type nodeEventsPredicate struct{}
+
+var _ predicate.TypedPredicate[*corev1.Node] = (*nodeEventsPredicate)(nil)
+
+func (p *nodeEventsPredicate) Create(e event.TypedCreateEvent[*corev1.Node]) bool {
+	return utiltaints.TaintKeyExists(e.Object.Spec.Taints, corev1.TaintNodeUnreachable)
+}
+
+func (p *nodeEventsPredicate) Update(e event.TypedUpdateEvent[*corev1.Node]) bool {
+	return !utiltaints.TaintKeyExists(e.ObjectOld.Spec.Taints, corev1.TaintNodeUnreachable) &&
+		utiltaints.TaintKeyExists(e.ObjectNew.Spec.Taints, corev1.TaintNodeUnreachable)
+}
+
+func (p *nodeEventsPredicate) Delete(event.TypedDeleteEvent[*corev1.Node]) bool {
+	return false
+}
+
+func (p *nodeEventsPredicate) Generic(event.TypedGenericEvent[*corev1.Node]) bool {
+	return false
 }
 
 const ControllerName = "failure-recovery-pod-termination-controller"
@@ -282,7 +285,7 @@ func (r *TerminatingPodReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 			mgr.GetCache(),
 			&corev1.Node{},
 			handler.TypedEnqueueRequestsFromMapFunc(r.mapNodeToPods),
-			r.nodeEventsPredicate(),
+			&nodeEventsPredicate{},
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),

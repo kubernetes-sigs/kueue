@@ -143,6 +143,141 @@ func TestUpdateEventFilter(t *testing.T) {
 	}
 }
 
+func TestNodeEventsPredicateCreate(t *testing.T) {
+	cases := map[string]struct {
+		node       *corev1.Node
+		wantResult bool
+	}{
+		"node has unreachable taint": {
+			node: testingnode.MakeNode("node").
+				Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable}).
+				Obj(),
+			wantResult: true,
+		},
+		"node has no taints": {
+			node:       testingnode.MakeNode("node").Obj(),
+			wantResult: false,
+		},
+		"node has an unrelated taint only": {
+			node: testingnode.MakeNode("node").
+				Taints(corev1.Taint{Key: corev1.TaintNodeNotReady}).
+				Obj(),
+			wantResult: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := &nodeEventsPredicate{}
+			gotResult := p.Create(event.TypedCreateEvent[*corev1.Node]{Object: tc.node})
+
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected predicate result (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestNodeEventsPredicateUpdate(t *testing.T) {
+	nodeWithoutTaint := testingnode.MakeNode("node").
+		Obj()
+	nodeWithUnreachableTaint := testingnode.MakeNode("node").
+		Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable}).
+		Obj()
+
+	cases := map[string]struct {
+		oldNode    *corev1.Node
+		newNode    *corev1.Node
+		wantResult bool
+	}{
+		"no taint to no taint": {
+			oldNode:    nodeWithoutTaint,
+			newNode:    nodeWithoutTaint,
+			wantResult: false,
+		},
+		"no taint to unreachable taint": {
+			oldNode:    nodeWithoutTaint,
+			newNode:    nodeWithUnreachableTaint,
+			wantResult: true,
+		},
+		"unreachable taint to unreachable taint": {
+			oldNode:    nodeWithUnreachableTaint,
+			newNode:    nodeWithUnreachableTaint,
+			wantResult: false,
+		},
+		"unreachable taint to no taint": {
+			oldNode:    nodeWithUnreachableTaint,
+			newNode:    nodeWithoutTaint,
+			wantResult: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := &nodeEventsPredicate{}
+			gotResult := p.Update(event.TypedUpdateEvent[*corev1.Node]{ObjectOld: tc.oldNode, ObjectNew: tc.newNode})
+
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected predicate result (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestNodeEventsPredicateDelete(t *testing.T) {
+	cases := map[string]struct {
+		node       *corev1.Node
+		wantResult bool
+	}{
+		"node has unreachable taint": {
+			node: testingnode.MakeNode("node").
+				Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable}).
+				Obj(),
+			wantResult: false,
+		},
+		"node has no taints": {
+			node:       testingnode.MakeNode("node").Obj(),
+			wantResult: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := &nodeEventsPredicate{}
+			gotResult := p.Delete(event.TypedDeleteEvent[*corev1.Node]{Object: tc.node})
+
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected predicate result (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestNodeEventsPredicateGeneric(t *testing.T) {
+	cases := map[string]struct {
+		node       *corev1.Node
+		wantResult bool
+	}{
+		"node has unreachable taint": {
+			node: testingnode.MakeNode("node").
+				Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable}).
+				Obj(),
+			wantResult: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := &nodeEventsPredicate{}
+			gotResult := p.Generic(event.TypedGenericEvent[*corev1.Node]{Object: tc.node})
+
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected predicate result (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestReconciler(t *testing.T) {
 	now := time.Now()
 	nowSecondPrecision := metav1.NewTime(now).Rfc3339Copy()
