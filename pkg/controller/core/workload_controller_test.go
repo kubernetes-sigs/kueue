@@ -38,6 +38,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -3070,6 +3071,7 @@ func TestWorkloadDeletion(t *testing.T) {
 		wlInQueueCache    *kueue.Workload
 		wlInSchedCache    *kueue.Workload
 		wantNotifications []notification
+		nonLeader bool
 	}{
 		"no workloads in either cache": {
 			wlInQueueCache:    nil,
@@ -3116,6 +3118,15 @@ func TestWorkloadDeletion(t *testing.T) {
 				},
 			},
 		},
+		"non-leader replica cleans up queue cache": {
+			wlInQueueCache: pendingWl,
+			wlInSchedCache: nil,
+			wantNotifications: []notification{{
+				Cq: "cq1",
+				Lq: "lq1",
+			}},
+			nonLeader: true,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -3129,7 +3140,9 @@ func TestWorkloadDeletion(t *testing.T) {
 
 			mockWatcher := mockWorkloadUpdateWatcher(qManager)
 
-			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder,
+				WithPreemptionExpectations(preemptexpectations.New()),
+			)
 			reconciler.watchers = []WorkloadUpdateWatcher{mockWatcher}
 
 			ctxWithLogger, log := utiltesting.ContextWithLog(t)
@@ -3169,7 +3182,29 @@ func TestWorkloadDeletion(t *testing.T) {
 				}
 			}
 
-			reconciler.deleteWorkloadFromCaches(ctx, wlNs, wlName)
+			if tc.nonLeader {
+				reconciler.Delete(event.TypedDeleteEvent[*kueue.Workload]{
+					Object: tc.wlInQueueCache.DeepCopy(),
+				})
+				nonLeaderReconciler := &leaderAwareReconciler{
+					elected:         make(chan struct{}),
+					client:          cl,
+					delegate:        reconciler,
+					object:          &kueue.Workload{},
+					requeueDuration: 15 * time.Second,
+				}
+				result, err := nonLeaderReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: types.NamespacedName{Namespace: wlNs, Name: wlName},
+				})
+				if err != nil {
+					t.Fatalf("non-leader reconciler returned error: %v", err)
+				}
+				if result.RequeueAfter != 0 {
+					t.Errorf("Expected no requeue for deleted workload, got RequeueAfter=%v", result.RequeueAfter)
+				}
+			} else {
+				reconciler.deleteWorkloadFromCaches(ctx, wlNs, wlName)
+			}
 
 			if testError := stderrors.Join(mockWatcher.testErrors...); testError != nil {
 				t.Error(testError)

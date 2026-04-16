@@ -1084,9 +1084,15 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	if !e.DeleteStateUnknown {
 		status = workload.Status(e.Object)
 	}
-	r.logger().V(2).Info("Workload delete event", "workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
-	r.preemptionExpectations.ObservedUID(r.logger(),
+	log := r.logger().WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
+	log.V(2).Info("Workload delete event")
+	r.preemptionExpectations.ObservedUID(log,
 		client.ObjectKeyFromObject(e.Object), e.Object.UID)
+
+	// Clean workload from caches in all replicas
+	ctx := ctrl.LoggerInto(context.Background(), log)
+	r.deleteWorkloadFromCaches(ctx, e.Object.Namespace, e.Object.Name)
+
 	return true
 }
 
