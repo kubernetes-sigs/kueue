@@ -18,6 +18,7 @@ HELM := $(BIN_DIR)/helm
 ENVTEST := $(BIN_DIR)/setup-envtest
 GINKGO := $(BIN_DIR)/ginkgo
 GOTESTSUM := $(BIN_DIR)/gotestsum
+KUSTOMIZE := $(BIN_DIR)/kustomize
 ARTIFACTS ?= $(ROOT_DIR)/artifacts
 ENVTEST_K8S_VERSION ?= 1.35
 KUBEBUILDER_ASSETS = $(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
@@ -59,6 +60,9 @@ $(ENVTEST):
 
 $(GINKGO):
 	cd $(ROOT_DIR) && $(MAKE) ginkgo
+
+$(KUSTOMIZE):
+	cd $(ROOT_DIR) && $(MAKE) kustomize
 
 $(HELM):
 	cd $(ROOT_DIR) && $(MAKE) helm
@@ -115,8 +119,15 @@ test-integration: compile-crd-manifests $(ENVTEST) $(GINKGO)
 	GOWORK=off $(GINKGO) -procs=$(INTEGRATION_NPROCS) -v ./test/integration/...
 
 .PHONY: test-e2e
-test-e2e: helm-verify-install
-	./run-e2e.sh
+test-e2e: helm-verify-install kind-image-build $(GINKGO) $(KUSTOMIZE)
+	mkdir -p $(ARTIFACTS)
+	cd config && $(KUSTOMIZE) edit set image \
+	    us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator=$(IMAGE_TAG)
+	$(KUSTOMIZE) build config > $(ARTIFACTS)/populator.yaml
+	KUEUE_POPULATOR_IMAGE=$(IMAGE_TAG) \
+	KUEUE_POPULATOR_MANIFEST=$(ARTIFACTS)/populator.yaml \
+	KUEUE_VERSION=$${KUEUE_VERSION:-v0.16.0} \
+	GOWORK=off $(GINKGO) -v ./test/e2e/...
 
 .PHONY: test
 test: $(GOTESTSUM) ## Run unit tests.
