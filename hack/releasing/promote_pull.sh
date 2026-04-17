@@ -122,6 +122,9 @@ if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
+echo "+++ Updating upstream remote..."
+git remote update "${KUBERNETES_K8S_IO_UPSTREAM_REMOTE}"
+
 IFS='.' read -r MAJOR MINOR _ <<< "${RELEASE_VERSION#v}"
 
 declare -r MAJOR_MINOR="$MAJOR.$MINOR"
