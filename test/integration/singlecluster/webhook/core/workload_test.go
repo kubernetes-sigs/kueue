@@ -30,6 +30,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -1698,6 +1699,142 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 			gomega.MatchError(gomega.ContainSubstring("valuesPerLevel.individual, if set, must have roots of length equal to domainCount of this TopologyAssignmentSlice")),
 		),
 	)
+})
+
+var _ = ginkgo.Describe("Workload v1beta1 CEL validation", ginkgo.Ordered, func() {
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-v1beta1-cel-")
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.Context("When updating a Workload via v1beta1 API", func() {
+		ginkgo.DescribeTable("Validate v1beta1 CEL rules for priorityClassSource",
+			func(w func() *kueue.Workload, setQuotaReservation bool, updateWl func(newWL *kueuev1beta1.Workload), matcher gomegatypes.GomegaMatcher) {
+				ginkgo.By("Creating a new Workload via v1beta2")
+				workload := w()
+				util.MustCreate(ctx, k8sClient, workload)
+				if setQuotaReservation {
+					util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
+				}
+				ginkgo.By("Updating the Workload via v1beta1")
+				gomega.Eventually(func(g gomega.Gomega) {
+					var v1beta1WL kueuev1beta1.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &v1beta1WL)).To(gomega.Succeed())
+					updateWl(&v1beta1WL)
+					g.Expect(k8sClient.Update(ctx, &v1beta1WL)).Should(matcher)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			},
+			ginkgo.Entry("can toggle active on workload without priorityClassRef when QuotaReserved=true",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				true,
+				func(newWL *kueuev1beta1.Workload) {
+					newWL.Spec.Active = ptr.To(false)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can toggle active on workload without priorityClassRef when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				false,
+				func(newWL *kueuev1beta1.Workload) {
+					newWL.Spec.Active = ptr.To(false)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can toggle active on workload with pod priorityClassRef when QuotaReserved=true",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodPriorityClassRef("default").
+						Priority(0).
+						Obj()
+				},
+				true,
+				func(newWL *kueuev1beta1.Workload) {
+					newWL.Spec.Active = ptr.To(false)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can't change priorityClassSource via v1beta1 when QuotaReserved=true",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodPriorityClassRef("default").
+						Priority(0).
+						Obj()
+				},
+				true,
+				func(newWL *kueuev1beta1.Workload) {
+					newWL.Spec.PriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
+				},
+				utiltesting.BeInvalidError(),
+			),
+			ginkgo.Entry("can change priorityClassSource via v1beta1 when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodPriorityClassRef("default").
+						Priority(0).
+						Obj()
+				},
+				false,
+				func(newWL *kueuev1beta1.Workload) {
+					newWL.Spec.PriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can toggle active on workload with workload priorityClassRef when QuotaReserved=true",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						WorkloadPriorityClassRef("default").
+						Priority(0).
+						Obj()
+				},
+				true,
+				func(newWL *kueuev1beta1.Workload) {
+					newWL.Spec.Active = ptr.To(false)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can't change priorityClassName via v1beta1 when QuotaReserved=true and source is pod priorityClass",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodPriorityClassRef("default").
+						Priority(0).
+						Obj()
+				},
+				true,
+				func(newWL *kueuev1beta1.Workload) {
+					newWL.Spec.PriorityClassName = "other"
+				},
+				utiltesting.BeInvalidError(),
+			),
+			ginkgo.Entry("can change priorityClassName via v1beta1 when QuotaReserved=true and source is workloadpriorityclass",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						WorkloadPriorityClassRef("default").
+						Priority(0).
+						Obj()
+				},
+				true,
+				func(newWL *kueuev1beta1.Workload) {
+					newWL.Spec.PriorityClassName = "other"
+				},
+				gomega.Succeed(),
+			),
+		)
+	})
 })
 
 func validSliceFor(levels []string, suffix int) kueue.TopologyAssignmentSlice {
