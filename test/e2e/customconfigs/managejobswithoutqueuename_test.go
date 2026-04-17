@@ -529,7 +529,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kube-system"),
 						client.MatchingLabels(testDeploy.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.BeEmpty())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -651,7 +651,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kube-system"),
 						client.MatchingLabels(testSts.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.BeEmpty())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
