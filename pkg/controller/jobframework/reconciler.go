@@ -1528,7 +1528,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		info.Labels[constants.PodSetLabel] = string(psAssignment.Name)
 
 		if _, exists := w.Labels[kueue.MultiKueueOriginLabel]; exists {
-			info.Labels[kueue.MultiKueueOriginLabel] = string(w.Name)
+			info.Labels[kueue.MultiKueueOriginLabel] = w.Name
 		}
 
 		if features.Enabled(features.AssignQueueLabelsForPods) {
