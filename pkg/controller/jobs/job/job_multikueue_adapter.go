@@ -105,12 +105,6 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// clear the managedBy enables the batch/Job controller to take over
 	remoteJob.Spec.ManagedBy = nil
 
-	if remoteJob.Spec.Template.Labels == nil {
-		remoteJob.Spec.Template.Labels = map[string]string{}
-	}
-
-	remoteJob.Spec.Template.Labels[kueue.MultiKueueWorkerWorkloadLabel] = "true"
-
 	return remoteClient.Create(ctx, &remoteJob)
 }
 

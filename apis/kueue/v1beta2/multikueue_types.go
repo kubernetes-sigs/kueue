@@ -35,8 +35,6 @@ const (
 	// MultiKueueControllerName is the name used by the MultiKueue
 	// admission check controller.
 	MultiKueueControllerName = "kueue.x-k8s.io/multikueue"
-
-	MultiKueueWorkerWorkloadLabel = "kueue.x-k8s.io/multikueue-worker-workload"
 )
 
 type LocationType string

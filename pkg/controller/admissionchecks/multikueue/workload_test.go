@@ -471,7 +471,6 @@ func TestWlReconcile(t *testing.T) {
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					PodLabel(kueue.MultiKueueWorkerWorkloadLabel, "true").
 					Obj(),
 			},
 
@@ -596,7 +595,6 @@ func TestWlReconcile(t *testing.T) {
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					PodLabel(kueue.MultiKueueWorkerWorkloadLabel, "true").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
