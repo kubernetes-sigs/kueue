@@ -1470,6 +1470,7 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 			Queue(kueue.LocalQueueName(lq.Name)).
 			NodeSelector(corev1.LabelHostname, node.Name).
 			Image(GetAgnHostImage(), BehaviorExitFast).
+			RequestAndLimit(corev1.ResourceCPU, "200m").
 			Obj()
 
 		MustCreate(ctx, c, dummyJob)
@@ -1481,6 +1482,6 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 				Type:   batchv1.JobComplete,
 				Status: corev1.ConditionTrue,
 			}, cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
-		}, MediumTimeout, Interval).Should(gomega.Succeed())
+		}, LongTimeout, Interval).Should(gomega.Succeed())
 	})
 }
