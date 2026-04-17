@@ -38,7 +38,6 @@ var (
 	restClient      *rest.RESTClient
 	ctx             context.Context
 	defaultKueueCfg *config.Configuration
-	kueueNS         = util.GetKueueNamespace()
 	kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
 )
 
