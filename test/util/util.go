@@ -25,6 +25,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -90,15 +91,33 @@ func init() {
 }
 
 func formatK8sObject(value any) (string, bool) {
-	obj, ok := value.(client.Object)
-	if !ok {
+	if value == nil {
 		return "", false
 	}
-	objYAML, err := yaml.Marshal(obj)
+	_, isObject := value.(runtime.Object)
+	if !isObject && !isRuntimeObjectSlice(value) {
+		return "", false
+	}
+	objYAML, err := yaml.Marshal(value)
 	if err != nil {
 		return "", false
 	}
 	return string(objYAML), true
+}
+
+func isRuntimeObjectSlice(value any) bool {
+	if value == nil {
+		return false
+	}
+	val := reflect.ValueOf(value)
+	if val.Kind() == reflect.Slice {
+		k8sInterfaceType := reflect.TypeFor[runtime.Object]()
+		sliceElemType := val.Type().Elem()
+		if sliceElemType.Implements(k8sInterfaceType) || reflect.PointerTo(sliceElemType).Implements(k8sInterfaceType) {
+			return true
+		}
+	}
+	return false
 }
 
 var SetupLogger = sync.OnceFunc(func() {
@@ -323,7 +342,7 @@ func ExpectAllPodsInNamespaceDeleted(ctx context.Context, c client.Client, ns *c
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.List(ctx, &pods, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 		g.Expect(pods.Items).Should(gomega.BeEmpty())
-	}, LongTimeout, Interval).Should(gomega.Succeed(), assertMsgObjList(fmt.Sprintf("Pods still exist in namespace %s", ns.Name), &pods))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
@@ -1290,7 +1309,7 @@ func ExpectWorkloadsInNamespace(ctx context.Context, k8sClient client.Client, na
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.List(ctx, list, client.InNamespace(namespace))).To(gomega.Succeed())
 		g.Expect(list.Items).Should(gomega.HaveLen(count))
-	}, Timeout, Interval).Should(gomega.Succeed(), assertMsgObjList(fmt.Sprintf("Expected %d workloads in namespace %q", count, namespace), list))
+	}, Timeout, Interval).Should(gomega.Succeed())
 	return list.Items
 }
 
