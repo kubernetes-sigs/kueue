@@ -201,7 +201,7 @@ As an admin I have three resource flavors in my cluster:
 
 I want my workloads to start as soon as possible, on whatever flavor. However, if a more preferable flavor releases some quota, I want to migrate to that flavor.
 
-To achieve that, I configure my ClusterQueue to use the UpgradeOnly mode.
+To achieve that, I configure my ClusterQueue to use the TryPreferredFlavors mode.
 
 ```yaml
 kind: ClusterQueue
@@ -210,8 +210,8 @@ metadata:
 spec:
   ...
   concurrentAdmissionPolicy:
-    migrationConstraints:
-      mode: UpgradeOnly
+    migration:
+      mode: TryPreferredFlavors
 ```
 
 #### Story 2: Upgrade only to reservation
@@ -222,7 +222,7 @@ As an admin I have three resource flavors in my cluster:
 
 I want my workloads to start as soon as possible, on whatever flavor. However, I only want to incur the cost of migration if it means landing on the "reservation" flavor.
 
-To achieve that, I set the minTargetFlavor to "reservation". This ensures that a workload on "spot" will not migrate to "on-demand," only to "reservation."
+To achieve that, I set the minPreferredFlavorName to "reservation". This ensures that a workload on "spot" will not migrate to "on-demand," only to "reservation."
 
 ```yaml
 kind: ClusterQueue
@@ -231,9 +231,10 @@ metadata:
 spec:
   ...
   concurrentAdmissionPolicy:
-    migrationConstraints:
-      mode: UpgradeOnly
-      minTargetFlavor: "reservation"
+    migration:
+      mode: TryPreferredFlavors
+      constraints:
+        minPreferredFlavorName: "reservation"
 ```
 
 #### Story 3: reservation + Homogenous Flavors
@@ -247,7 +248,7 @@ As an admin I have four resource flavors in my cluster:
 
 I want my workloads to start as soon as possible. I want to migrate to "reservation" if it becomes available, but I don't want to migrate between the homogeneous 2a/2b/2c flavors.
 
-By setting the minTargetFlavor to "Reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
+By setting the minPreferredFlavorName to "Reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
 
 ```yaml
 kind: ClusterQueue
@@ -256,15 +257,16 @@ metadata:
 spec:
   ...
   concurrentAdmissionPolicy:
-    migrationConstraints:
-      mode: UpgradeOnly
-      minTargetFlavor: reservation
+    migration:
+      mode: TryPreferredFlavors
+      constraints:
+        minPreferredFlavorName: reservation
 ```
 
 #### Story 4: Homogenous Flavors only
 As an admin, I have three homogeneous resource flavors (1a, 1b, 1c). I want my workloads to start as soon as possible on any flavor and stop pursuing other variants once the job is accommodated.
 
-To achieve that, I use the `NoMigration` mode.
+To achieve that, I use the `HoldFirstAdmission` mode.
 
 ```yaml
 kind: ClusterQueue
@@ -273,8 +275,8 @@ metadata:
 spec:
   ...
   concurrentAdmissionPolicy:
-    migrationConstraints:
-      mode: NoMigration
+    migration:
+      mode: HoldFirstAdmission
 ```
 
 #### Story 5: Delaying Variant creation
@@ -293,14 +295,15 @@ metadata:
 spec:
   ...
   concurrentAdmissionPolicy:
-    migrationConstraints:
-      mode: UpgradeOnly
-    explicitVariants:
-      - name: "reservation"
-        allowedResourceFlavors: ["reservation"]
-      - name: "on-demand"
-        allowedResourceFlavors: ["on-demand"]
-        createDelaySeconds: 7200
+    migration:
+      mode: TryPreferredFlavors
+      constraints:
+        explicitVariants:
+          - name: "reservation"
+            allowedResourceFlavors: ["reservation"]
+          - name: "on-demand"
+            allowedResourceFlavors: ["on-demand"]
+            createDelaySeconds: 7200
 ```
 
 #### Story 6: Limit when migration can happen
@@ -319,14 +322,15 @@ metadata:
 spec:
   ...
   concurrentAdmissionPolicy:
-    migrationConstraints:
-      mode: UpgradeOnly
-    explicitVariants:
-      - name: "reservation"
-        allowedResourceFlavors: ["reservation"]
-        maxDeleteDelaySeconds: 86400
-      - name: "on-demand"
-        allowedResourceFlavors: ["on-demand"]
+    migration:
+      mode: TryPreferredFlavors
+      constraints:
+        explicitVariants:
+          - name: "reservation"
+            allowedResourceFlavors: ["reservation"]
+            maxDeleteDelaySeconds: 86400
+          - name: "on-demand"
+            allowedResourceFlavors: ["on-demand"]
 ```
 
 #### Story 7: Workload with multiple PodSets
@@ -347,13 +351,14 @@ metadata:
 spec:
   ...
   concurrentAdmissionPolicy:
-    migrationConstraints:
-      mode: UpgradeOnly
-    explicitVariants:
-      - name: "reservation-flavor"
-        allowedResourceFlavors: ["reservation", "default-cpu"]
-      - name: "on-demand-flavor"
-        allowedResourceFlavors: ["on-demand", "default-cpu"]
+    migration:
+      mode: TryPreferredFlavors
+      constraints:
+        explicitVariants:
+          - name: "reservation-flavor"
+            allowedResourceFlavors: ["reservation", "default-cpu"]
+          - name: "on-demand-flavor"
+            allowedResourceFlavors: ["on-demand", "default-cpu"]
 ```
 
 <!--
@@ -378,43 +383,52 @@ Explicit Variants API section](#explicitvariants-api).
 The ClusterQueue is extended to define the policy for concurrent attempts. This includes how to handle sibling Variants once one is admitted and how to define specific, customized Variants.
 
 ```go
+type ClusterQueueSpec struct {
     ...
-
+    // ConcurrenetAdmissionPolicy defines policies of the Concurrent Admission.
+    //
     // +optional
     ConcurrentAdmissionPolicy *ConcurrentAdmissionPolicy `json:"concurrentAdmissionPolicy,omitempty"`
 }
 
 type ConcurrentAdmissionPolicy struct {
-    // MigrationConstraints defines the constraints of Variants' migration
+    // Migration defines the constraints of Variants' migration
     //
     // +required
-    MigrationConstraints ConcurrentAdmissionMigrationConstraints `json:"migrationConstraints"`
+    Migration ConcurrentAdmissionMigration `json:"migration"`
 }
 
-type ConcurrentAdmissionMigrationConstraints struct {
+type ConcurrentAdmissionMigration struct {
     // Mode defines the mode of Workload's migration.
     //
     // +required
     Mode ConcurrentAdmissionMigrationMode `json:"mode"`
 
-    // MinTargetFlavor defines the minimal flavor a Workload can migrate to.
+    // Constraints defines constraints on the migration. 
+    //
+    // +optional
+    Constraints *ConcurrentAdmissionConstraints `json:"constraints"`
+}
+
+type ConcurrentAdmissionConstraints struct {
+    // MinPreferredFlavorName defines the minimal flavor a Workload can migrate to.
     // The order is based on the order of flavors in ClusterQueue.
-    // It can only be used if the Mode is `UpgradeOnly` and `explicitVariants` is not specified.
-    // If the Mode is `UpgradeOnly` and MinTargetFlavor is not specified, then there's
+    // It can only be used if the Mode is `TryPreferredFlavors` and `explicitVariants` is not specified.
+    // If the Mode is `TryPreferredFlavors` and MinPreferredFlavorName is not specified, then there's
     // no constraints on what flavors a Workload can migrate to.
     //
     // +optional
-    MinTargetFlavor *ResourceFlavorReference `json:"minTargetFlavor,omitempty"`
+    MinPreferredFlavorName *ResourceFlavorReference `json:"minPreferredFlavorName,omitempty"`
 }
 
 type ConcurrentAdmissionMigrationMode string
 
 const (
     // Do not allow any kind of migration
-    NoMigration ConcurrentAdmissionMigrationMode = "NoMigration"
+    HoldFirstAdmission ConcurrentAdmissionMigrationMode = "HoldFirstAdmission"
 
     // Allow upgrades
-    UpgradeOnly ConcurrentAdmissionMigrationMode = "UpgradeOnly"
+    TryPreferredFlavors ConcurrentAdmissionMigrationMode = "TryPreferredFlavors"
 )
 ```
 
@@ -678,13 +692,13 @@ After the implementation PR is merged, add the names of the tests here.
 
 #### Alpha
 - In Alpha version the feature will be gated behind the `ConcurrentAdmission` feature gate.
-- Support for `MigrationConstraints.Mode=UpgradeOnly` and `MigrationConstraints.MinTargetFlavor` .
+- Support for `MigrationConstraints.Mode=TryPreferredFlavors` and `MigrationConstraints.MinPreferredFlavorName` .
 - Integration with `BestEffortFIFO` queueing strategy.
 - Introduction of `AdmissionConstraints` field.
 
 #### Beta
 
-- Support for `MigrationConstraints.Mode=NoMigration` and `MigrationConstraints.MinTargetExplicitVariant`.
+- Support for `MigrationConstraints.Mode=HoldFirstAdmission` and `MigrationConstraints.MinTargetExplicitVariant`.
 - Introduction of `ExplicitVariants` functionality.
 - Revisit extending `ExplicitVariants` API with some additional fields.
 - Migrate `AllowedResourceFlavors` API from annotation to Workload's Spec API.
@@ -785,7 +799,7 @@ type AdmissionConstraints struct {
 ##### ExplicitVariants API
 
 ```go
-type ConcurrentAdmission struct {
+type ConcurrentAdmissionConstraints struct {
     ...
 
     // ExplicitVariants allows for fine-grained control over which variants are created.
@@ -794,15 +808,12 @@ type ConcurrentAdmission struct {
     // +optional
     // +kubebuilder:validation:MaxItems=16
     ExplicitVariants []ConcurrentAdmissionExplicitVariant `json:"explicitVariants,omitempty"`
-}
 
-type ConcurrentAdmissionMigrationConstraints struct {
-    ...
 
     // MinTargetExplicitVariant defines the minimal Variant a Workload can migrate to.
     // The order is based on the order of variant in `ExplicitVariants`.
-    // It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is specified.
-    // If the Mode is `UpgradeOnly` and MinTargetExplicitVariant is not specified, then there's
+    // It can only be used if the Mode is `TryPreferredFlavors` and `ExplicitVariants` is specified.
+    // If the Mode is `TryPreferredFlavors` and MinTargetExplicitVariant is not specified, then there's
     // no constraints on what Variant a Workload can migrate to.
     //
     // +optional
@@ -890,9 +901,9 @@ field and how it should be used with the existing "types" such, as WorkloadSlice
 ```go
 type WorkloadType string
 const (
-    Default              WorkloadType = "Default"
+    Default               WorkloadType = "Default"
     ResourceFlavorVariant WorkloadType = "ResourceFlavorVariant"
-    Parent               WorkloadType = "Parent"
+    Parent                WorkloadType = "Parent"
     ... // possibly more like WorkloadSlice, PrebuiltWorkload
 )
 ```
