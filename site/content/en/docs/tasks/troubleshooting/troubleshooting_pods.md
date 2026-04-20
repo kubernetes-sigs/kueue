@@ -111,6 +111,6 @@ Once a Pod doesn't have any finalizers, Kubernetes will delete the Pods based on
 
 ## Why is my Pod not being scheduled if I am using external scheduling gates
 
-If you use custom [scheduling gates](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-scheduling-readiness/) , then your Pods will stay gated even if Kueue marks the 
+If you use custom [scheduling gates](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-scheduling-readiness/), then your Pods will stay gated even if Kueue marks the 
 workload as admitted and removes the scheduling gates it is managing (such as `keueu.x-k8s.io/admission` or `keueu.x-k8s.io/topology`), because Kueue only removes scheduling gates
 managed by Kueue.
