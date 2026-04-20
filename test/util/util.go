@@ -1491,7 +1491,7 @@ func ExpectNodeToBecomeReady(ctx context.Context, c client.Client, nodeName stri
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKey{Name: nodeName}, node)).To(gomega.Succeed())
 		g.Expect(utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)).To(gomega.BeTrue())
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed(), assertMsg(fmt.Sprintf("Node %s did not become Ready", nodeName), node))
 
 	waitForDummyWorkloadToRunOnNode(ctx, c, node, localQueue)
 }
@@ -1509,14 +1509,14 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 
 		MustCreate(ctx, c, dummyJob)
 
+		var createdDummyJob batchv1.Job
 		gomega.Eventually(func(g gomega.Gomega) {
-			var createdDummyJob batchv1.Job
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(dummyJob), &createdDummyJob)).To(gomega.Succeed())
 			g.Expect(createdDummyJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(batchv1.JobCondition{
 				Type:   batchv1.JobComplete,
 				Status: corev1.ConditionTrue,
 			}, cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
-		}, LongTimeout, Interval).Should(gomega.Succeed())
+		}, LongTimeout, Interval).Should(gomega.Succeed(), assertMsg(fmt.Sprintf("Dummy workload did not complete on node %s", node.Name), &createdDummyJob))
 	})
 }
 
