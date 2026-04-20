@@ -692,13 +692,14 @@ After the implementation PR is merged, add the names of the tests here.
 
 #### Alpha
 - In Alpha version the feature will be gated behind the `ConcurrentAdmission` feature gate.
-- Support for `migration.constraints.mode=TryPreferredFlavors` and `migration.constraints.minPreferredFlavorName` .
+- Support for `migration.constraints.mode=TryPreferredFlavors` and `migration.constraints.minPreferredFlavorName`.
 - Integration with `BestEffortFIFO` queueing strategy.
-- Introduction of `AdmissionConstraints` field.
+- Support for `kueue.x-k8s.io/workload-allowed-resource-flavors` annotations.
 
 #### Beta
 
 - Support for `migration.constraints.mode=HoldFirstAdmission` and `migration.constraints.MinTargetExplicitVariant`.
+- Introduction of `AdmissionConstraints` field.
 - Introduction of `ExplicitVariants` functionality.
 - Revisit extending `ExplicitVariants` API with some additional fields.
 - Migrate `AllowedResourceFlavors` API from annotation to Workload's Spec API.
