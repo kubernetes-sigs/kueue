@@ -2466,6 +2466,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
+				util.ExpectPendingWorkloadWaitTimeGauges(clusterQueue, metrics.PendingStatusActive,
+					gomega.BeNumerically(">", 0), gomega.BeNumerically(">", 0))
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 					g.Expect(clusterQueue.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
@@ -2501,6 +2503,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
 				util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+				util.ExpectNoPendingWorkloadWaitTimeMetrics(clusterQueue)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 					g.Expect(clusterQueue.Status.PendingWorkloads).Should(gomega.Equal(int32(0)))

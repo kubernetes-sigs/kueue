@@ -222,6 +222,70 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 		})
 	})
 
+	ginkgo.When("pending workload wait gauges", func() {
+		var (
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			clusterQueue = utiltestingapi.MakeClusterQueue("").
+				GeneratedName("wait-gauge-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
+				GeneratedName("wait-gauge-lq-").
+				ClusterQueue(clusterQueue.Name).
+				Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		})
+
+		ginkgo.It("should expose pending workload wait time metrics while a workload is queued", func() {
+			wl1 := utiltestingapi.MakeWorkload("wg-wl1", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 1).Obj()).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+
+			wl2 := utiltestingapi.MakeWorkload("wg-wl2", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 1).Obj()).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+
+			waitMetrics := [][]string{
+				{"kueue_pending_workload_max_wait_time_seconds", clusterQueue.Name},
+				{"kueue_pending_workload_mean_wait_time_seconds", clusterQueue.Name},
+			}
+			ginkgo.By("checking pending wait time gauges appear while the second workload is queued", func() {
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, waitMetrics)
+			})
+
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
+
+			ginkgo.By("checking pending workload wait gauges are absent when no workloads are queued", func() {
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, waitMetrics)
+			})
+		})
+	})
+
 	ginkgo.When("workload is admitted with admission checks", func() {
 		var (
 			admissionCheck  *kueue.AdmissionCheck

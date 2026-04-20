@@ -159,6 +159,23 @@ func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
 }
 
+func TestReportPendingWorkloadWaitTimesSetAndDelete(t *testing.T) {
+	cq := kueue.ClusterQueueReference("cq-wait")
+	ReportPendingWorkloadWaitTimes(cq, 10, 5, 1, 20, 15, 1, nil, nil)
+	expectFilteredMetricsCount(t, PendingWorkloadMaxWaitTimeSeconds, 1, "cluster_queue", "cq-wait", "status", PendingStatusActive)
+	expectFilteredMetricsCount(t, PendingWorkloadMaxWaitTimeSeconds, 1, "cluster_queue", "cq-wait", "status", PendingStatusInadmissible)
+	expectFilteredMetricsCount(t, PendingWorkloadMeanWaitTimeSeconds, 1, "cluster_queue", "cq-wait", "status", PendingStatusActive)
+
+	ReportPendingWorkloadWaitTimes(cq, 0, 0, 0, 20, 15, 1, nil, nil)
+	expectFilteredMetricsCount(t, PendingWorkloadMaxWaitTimeSeconds, 0, "cluster_queue", "cq-wait", "status", PendingStatusActive)
+	expectFilteredMetricsCount(t, PendingWorkloadMeanWaitTimeSeconds, 0, "cluster_queue", "cq-wait", "status", PendingStatusActive)
+	expectFilteredMetricsCount(t, PendingWorkloadMaxWaitTimeSeconds, 1, "cluster_queue", "cq-wait", "status", PendingStatusInadmissible)
+
+	ClearPendingWorkloadWaitTimes(cq)
+	expectFilteredMetricsCount(t, PendingWorkloadMaxWaitTimeSeconds, 0, "cluster_queue", "cq-wait")
+	expectFilteredMetricsCount(t, PendingWorkloadMeanWaitTimeSeconds, 0, "cluster_queue", "cq-wait")
+}
+
 func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1", nil, nil)
 	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1", nil, nil)

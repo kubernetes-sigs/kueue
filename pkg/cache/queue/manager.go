@@ -119,6 +119,13 @@ func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
 	}
 }
 
+// WithPendingWaitMetrics registers the background worker that aggregates pending workload wait gauges.
+func WithPendingWaitMetrics(w *PendingWaitMetricsWorker) Option {
+	return func(m *Manager) {
+		m.pendingWaitMetrics = w
+	}
+}
+
 // SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
 func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
 	m.draReconcileChannel = ch
@@ -171,6 +178,8 @@ type Manager struct {
 	// Once the Evicted condition is observed by scheduler the expectation
 	// can be removed - the expectation is satisfied.
 	preemptionExpectations *expectations.Store
+
+	pendingWaitMetrics *PendingWaitMetricsWorker
 }
 
 // NewManager is a factory for cache.queue.Manager. For tests,
@@ -200,8 +209,18 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		option(m)
 	}
 	m.requeuer.setManager(m)
+	if m.pendingWaitMetrics != nil {
+		m.pendingWaitMetrics.setManager(m)
+	}
 	m.cond.L = &m.RWMutex
 	return m
+}
+
+func (m *Manager) notifyPendingWaitMetrics(cqName kueue.ClusterQueueReference) {
+	if m.pendingWaitMetrics == nil {
+		return
+	}
+	m.pendingWaitMetrics.notify(cqName)
 }
 
 func (m *Manager) AddTopologyUpdateWatcher(watcher TopologyUpdateWatcher) {

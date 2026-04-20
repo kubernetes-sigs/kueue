@@ -49,6 +49,7 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 		active = 0
 	}
 	metrics.ReportPendingWorkloads(cq.name, active, inadmissible, m.customLabels.CQGet(cq.name), m.roleTracker)
+	m.notifyPendingWaitMetrics(cq.name)
 }
 
 func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
