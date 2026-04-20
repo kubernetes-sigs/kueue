@@ -42,6 +42,7 @@ export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
+# Returns 0 (true) if the input value is a common representation of "true", otherwise returns 1 (false).
 function e2e_is_truthy {
     case "${1:-}" in
         1|true|TRUE|True|yes|YES|Yes|y|Y|on|ON|On) return 1 ;;
