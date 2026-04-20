@@ -25,7 +25,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -34,8 +33,6 @@ import (
 
 var (
 	k8sClient       client.WithWatch
-	cfg             *rest.Config
-	restClient      *rest.RESTClient
 	ctx             context.Context
 	defaultKueueCfg *config.Configuration
 	kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
@@ -56,9 +53,8 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
 
 	var err error
-	k8sClient, cfg, err = util.CreateClientUsingCluster("")
+	k8sClient, _, err = util.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	restClient = util.CreateRestClient(cfg)
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
