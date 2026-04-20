@@ -81,7 +81,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck
+verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -142,6 +142,10 @@ $(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/front
 $(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
 endef
 
+define _kustomize_build_verify_recipe
+$(KUSTOMIZE) build config/alpha-enabled > /dev/null
+endef
+
 # ---- verify-* wrappers (generation prereqs + shared recipe) ---------------
 
 .PHONY: verify-ci-lint
@@ -171,6 +175,10 @@ verify-helm-unit-test: verify-tree-prereqs helm helm-unittest-plugin ## Helm uni
 .PHONY: verify-npm-depcheck
 verify-npm-depcheck: verify-tree-prereqs prepare-release-branch ## Depcheck after generation
 	$(_npm_depcheck_recipe)
+
+.PHONY: verify-kustomize-build
+verify-kustomize-build: verify-tree-prereqs kustomize ## Verify alpha-enabled manifests render after generation
+	$(_kustomize_build_verify_recipe)
 
 # ---- Standalone targets (lightweight, for local use) ----------------------
 
@@ -217,6 +225,10 @@ helm-unit-test: helm helm-unittest-plugin ## Run Helm unit tests for the kueue c
 .PHONY: npm-depcheck
 npm-depcheck: ## Verify frontend and e2e npm dependencies.
 	$(_npm_depcheck_recipe)
+
+.PHONY: kustomize-build-verify
+kustomize-build-verify: kustomize ## Validate alpha-enabled manifests render.
+	$(_kustomize_build_verify_recipe)
 
 .PHONY: i18n-verify
 i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n-verify [TARGET_LANG=zh-CN]
