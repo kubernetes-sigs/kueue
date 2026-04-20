@@ -51,7 +51,7 @@ if [[ "$1" != *"kubernetes-sigs_kueue"* ]]; then
 fi
 
 transformed_url=$(transform_url "$1")
-root_dir="$(cd "$(dirname "$0")/.." && pwd)"
+root_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 output_dir=${2:-"$root_dir/build_logs"}
 mkdir -p "$output_dir"
 gsutil -m cp -r "$transformed_url" "$output_dir"
