@@ -171,11 +171,6 @@ test-tas-e2e-helm: test-tas-e2e
 ## Label Taxonomy:
 ##   Features: admissionfairsharing, certs, failurerecoverypolicy, managejobswithoutqueuename, localqueuemetrics, objectretentionpolicies, podintegrationautoenablement, reconcile, spark, visibility, waitforpodsready
 ##
-## Examples:
-##   Run only Admission Fair Sharing tests: GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequential-baseline
-##   Run only Certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e-sequential-baseline
-##   Run only Failure Recovery Policy tests: GINKGO_ARGS="--label-filter=feature:failurerecoverypolicy" make test-e2e-sequential-baseline
-##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-customconfigs
 test-e2e-customconfigs: test-e2e-sequential-baseline test-e2e-sequential-extended
 
@@ -185,6 +180,10 @@ test-e2e-customconfigs-helm: test-e2e-sequential-baseline-helm test-e2e-sequenti
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+## Examples:
+##   Run only Admission Fair Sharing tests: GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequential-baseline
+##   Run only Certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e-sequential-baseline
+##   Run only Failure Recovery Policy tests: GINKGO_ARGS="--label-filter=feature:failurerecoverypolicy" make test-e2e-sequential-baseline
 .PHONY: test-e2e-sequential-baseline
 test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential/baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
@@ -192,7 +191,7 @@ test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential/baseline-$(E
 test-e2e-sequential-baseline-helm: E2E_USE_HELM=true
 test-e2e-sequential-baseline-helm: test-e2e-sequential-baseline
 
-
+##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-sequential-extended
 test-e2e-sequential-extended: setup-e2e-env run-test-e2e-sequential/extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
