@@ -43,7 +43,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	suiteName := "End To End Custom Configs handling Suite"
+	suiteName := "End To End Sequential Baseline Suite"
 	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
 		suiteName = fmt.Sprintf("%s: %s", suiteName, ver)
 	}
@@ -64,16 +64,8 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
-	if ginkgo.Label("feature:managejobswithoutqueuename").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
-		util.WaitForJobSetAvailability(ctx, k8sClient)
-		util.WaitForAppWrapperAvailability(ctx, k8sClient)
-		util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:spark").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
-		util.WaitForSparkOperatorAvailability(ctx, k8sClient)
-	}
 	ginkgo.GinkgoLogr.Info(
-		"Kueue and all required operators are available in the cluster",
+		"Kueue is available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
 	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
