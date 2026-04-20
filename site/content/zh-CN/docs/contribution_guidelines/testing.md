@@ -58,8 +58,8 @@ make test-integration
 make kind-image-build
 make test-e2e
 make test-tas-e2e
-make test-e2e-sequential-extended
-make test-e2e-sequential-baseline
+make test-e2e-extended
+make test-e2e-baseline
 make test-e2e-certmanager
 make test-e2e-kueueviz
 make test-multikueue-e2e
