@@ -385,7 +385,7 @@ The ClusterQueue is extended to define the policy for concurrent attempts. This 
 ```go
 type ClusterQueueSpec struct {
     ...
-    // ConcurrenetAdmissionPolicy defines policies of the Concurrent Admission.
+    // ConcurrenetAdmissionPolicy defines the policies of the Concurrent Admission.
     //
     // +optional
     ConcurrentAdmissionPolicy *ConcurrentAdmissionPolicy `json:"concurrentAdmissionPolicy,omitempty"`
