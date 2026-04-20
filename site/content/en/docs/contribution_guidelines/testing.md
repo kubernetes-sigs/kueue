@@ -58,8 +58,8 @@ For running a subset of tests, see [Running subset of tests](#running-subset-of-
 make kind-image-build
 make test-e2e
 make test-tas-e2e
-make test-e2e-extended
-make test-e2e-baseline
+make test-e2e-sequential-extended
+make test-e2e-sequential-baseline
 make test-e2e-certmanager
 make test-e2e-kueueviz
 make test-multikueue-e2e
@@ -235,10 +235,10 @@ CustomConfigs tests are labeled by feature. You can use `GINKGO_ARGS` with `--la
 **Examples:**
 ```shell
 # Run only admissionfairsharing tests (Baseline)
-GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-baseline
+GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequential-baseline
 
 # Run only spark tests (Extended)
-GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-extended
+GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 ```
 
 ### Use Ginkgo --focus arg

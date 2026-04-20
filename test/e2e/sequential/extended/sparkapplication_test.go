@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package sequentialextended
+package extended
 
 import (
 	"fmt"
@@ -139,10 +139,10 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 		ginkgo.It("should run if admitted", func() {
 			sparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapplication-simple", ns.Name).
 				DriverServiceAccount(sa.Name).
-				DriverCoreRequest("1").
+				DriverCoreRequest("0.1").
 				DriverMemoryRequest("512m"). // 512MB
 				ExecutorServiceAccount(sa.Name).
-				ExecutorCoreRequest("1").
+				ExecutorCoreRequest("0.1").
 				ExecutorMemoryRequest("512m"). // 512MB
 				ExecutorInstances(1).
 				Queue(lq.Name).
@@ -239,13 +239,13 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 					kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname,
 				).
 				DriverServiceAccount(sa.Name).
-				DriverCoreRequest("1").
+				DriverCoreRequest("0.1").
 				DriverMemoryRequest("512m"). // 512MB
 				ExecutorAnnotation(
 					kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname,
 				).
 				ExecutorServiceAccount(sa.Name).
-				ExecutorCoreRequest("1").
+				ExecutorCoreRequest("0.1").
 				ExecutorMemoryRequest("512m"). // 512MB
 				ExecutorInstances(1).
 				Queue(lq.Name).
