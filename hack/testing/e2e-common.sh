@@ -45,15 +45,15 @@ export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
 function e2e_is_truthy {
     case "${1:-}" in
-        1|true|TRUE|True|yes|YES|Yes|y|Y|on|ON|On) return 1 ;;
-        *) return 0 ;;
+        1|true|TRUE|True|yes|YES|Yes|y|Y|on|ON|On) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
 # $1 image reference
 function e2e_docker_pull_if_needed {
     local image="$1"
-    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_SKIP_IMAGE_RELOAD:-}" && docker image inspect "$image" > /dev/null 2>&1; then
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_SKIP_IMAGE_RELOAD:-}" && docker image inspect "$image" > /dev/null 2>&1; then
         echo "Image '$image' already cached locally; skipping pull (E2E_MODE=dev, E2E_SKIP_IMAGE_RELOAD=true)"
         return 0
     fi
@@ -437,7 +437,7 @@ function cluster_kind_load {
     cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
     cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE}"
 
-    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_SKIP_REINSTALL:-}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_SKIP_REINSTALL:-}"; then
         cluster_kind_load_image "$cluster" "$IMAGE_TAG"
     else
         # Bypass dev-mode existence check: Kueue image may have been rebuilt locally with the same tag; always re-import unless skipping reinstall.
@@ -566,7 +566,7 @@ function cluster_kind_load_image_impl {
 function cluster_kind_load_image {
     local cluster="$1"
     local image="$2"
-    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_SKIP_IMAGE_RELOAD:-}" && cluster_kind_image_exists "$cluster" "$image"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_SKIP_IMAGE_RELOAD:-}" && cluster_kind_image_exists "$cluster" "$image"; then
         echo "Image '$image' already loaded in cluster '$cluster'; skipping (E2E_MODE=dev, E2E_SKIP_IMAGE_RELOAD=true)"
         return 0
     fi
@@ -615,7 +615,7 @@ function cluster_kueue_deploy {
         return
     fi
 
-    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_SKIP_REINSTALL:-}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_SKIP_REINSTALL:-}"; then
         if e2e_deployment_exists "$1" "${KUEUE_NAMESPACE}" "${KUEUE_DEPLOYMENT_NAME}"; then
             echo "Kueue controller already exists in namespace '${KUEUE_NAMESPACE}', skipping reinstall"
             return
@@ -657,7 +657,7 @@ function helm_install {
       kueue "${ROOT_DIR}/charts/kueue"
 }
 
-# $1 kubeconfig 
+# $1 kubeconfig
 # $2 kustomization config
 function build_and_apply_kueue_manifests {
     local build_output
@@ -684,7 +684,7 @@ function install_appwrapper {
     local deployment_name="${APPWRAPPER_CONTROLLER_MANAGER_DEPLOYMENT:-appwrapper-controller-manager}"
     local expected_version="${APPWRAPPER_VERSION:-}"
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
             local installed_version=""
             local img=""
@@ -719,7 +719,7 @@ function install_jobset {
     local deployment_name="${JOBSET_CONTROLLER_MANAGER_DEPLOYMENT:-jobset-controller-manager}"
     local expected_version="${JOBSET_VERSION:-}"
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
             local installed_version=""
             local images=""
@@ -760,7 +760,7 @@ function install_kubeflow {
     local deployment_name="${KUBEFLOW_TRAINING_OPERATOR_DEPLOYMENT:-training-operator}"
     local expected_version="${KUBEFLOW_IMAGE_VERSION:-}"
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
             local installed_version=""
             local img=""
@@ -795,7 +795,7 @@ function install_kubeflow_trainer {
     local deployment_name="${KUBEFLOW_TRAINER_DEPLOYMENT:-kubeflow-trainer-controller-manager}"
     local expected_version="${KF_TRAINER_IMAGE_VERSION:-}"
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
             local installed_version=""
             local img=""
@@ -842,7 +842,7 @@ function install_mpi {
     local deployment_name="${KUBEFLOW_MPI_OPERATOR_DEPLOYMENT:-mpi-operator}"
     local expected_version="${KUBEFLOW_MPI_VERSION:-}"
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
             local installed_version=""
             local images=""
@@ -889,7 +889,7 @@ function install_kuberay {
         kubectl_args+=(--kubeconfig="${kubeconfig}")
     fi
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
             local installed_version=""
             local img=""
@@ -918,7 +918,7 @@ function install_kuberay {
     # "kubectl create -k" is used instead of apply (https://github.com/ray-project/kuberay/issues/504),
     # but it is not idempotent: it exits non-zero if any objects already exist.
 
-    if e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}" || e2e_is_truthy "${force_reinstall}"; then
+    if ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}" || ! e2e_is_truthy "${force_reinstall}"; then
         kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} delete -k "${KUBERAY_MANIFEST}" --ignore-not-found=true
     fi
     kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create -k "${KUBERAY_MANIFEST}"
@@ -934,7 +934,7 @@ function install_lws {
     local deployment_name="${LEADERWORKERSET_DEPLOYMENT:-lws-controller-manager}"
     local expected_version="${LEADERWORKERSET_VERSION:-}"
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
             local installed_version=""
             local images=""
@@ -980,7 +980,7 @@ function install_sparkoperator {
 
     ${HELM} repo add --force-update spark-operator https://kubeflow.github.io/spark-operator
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if helm list --namespace "${ns}" | grep -q "${helm_release_name}"; then
             local installed_version=""
             installed_version=$(helm get values --namespace="${ns}" "${helm_release_name}" -o json | jq -r '.image.tag')
@@ -1016,7 +1016,7 @@ function install_cert_manager {
     local deployment_name="${CERTMANAGER_DEPLOYMENT:-cert-manager}"
     local expected_version="${CERTMANAGER_VERSION:-}"
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
             local installed_version=""
             local img=""
@@ -1055,7 +1055,7 @@ function install_prometheus_operator {
     local deployment_name="prometheus-operator"
     local expected_version="${PROMETHEUS_OPERATOR_VERSION:-}"
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
             local installed_version=""
             local img=""
@@ -1093,7 +1093,7 @@ function deploy_kueue_prometheus_config {
 # $1 kubeconfig option
 function install_multicluster {
     local kubeconfig=${1:-}
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if e2e_crd_exists "${kubeconfig}" "clusterprofiles.multicluster.x-k8s.io"; then
             echo "ClusterProfile CRD already installed; skipping install (E2E_MODE=dev)."
             return 0
@@ -1110,7 +1110,7 @@ function install_dra_example_driver {
     local kubeconfig=${2:-}
     local expected_version="${DRA_EXAMPLE_DRIVER_VERSION:-}"
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+    if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         local installed_version=""
         local images=""
         images=$(kubectl --kubeconfig="${kubeconfig}" -n dra-example-driver get deployments \
