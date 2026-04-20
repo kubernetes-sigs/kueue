@@ -182,6 +182,9 @@ test-e2e-customconfigs: test-e2e-sequential-baseline test-e2e-sequential-extende
 .PHONY: test-e2e-customconfigs-helm
 test-e2e-customconfigs-helm: test-e2e-sequential-baseline-helm test-e2e-sequential-extended-helm
 
+.PHONY: test-e2e-certmanager
+test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
 .PHONY: test-e2e-sequential-baseline
 test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential/baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
