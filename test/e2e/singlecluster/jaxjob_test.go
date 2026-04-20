@@ -83,6 +83,7 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 				Suspend(false).
 				SetTypeMeta().
 				JAXReplicaSpecsDefault().
+				TerminationGracePeriod(kftraining.JAXJobReplicaTypeWorker, 1).
 				Parallelism(kftraining.JAXJobReplicaTypeWorker, 2).
 				Image(kftraining.JAXJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceCPU, "1").
