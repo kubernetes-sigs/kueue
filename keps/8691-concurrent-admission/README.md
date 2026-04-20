@@ -407,7 +407,7 @@ type ConcurrentAdmissionMigration struct {
     // Constraints defines constraints on the migration. 
     //
     // +optional
-    Constraints *ConcurrentAdmissionConstraints `json:"constraints"`
+    Constraints *ConcurrentAdmissionConstraints `json:"constraints,omitempty"`
 }
 
 type ConcurrentAdmissionConstraints struct {
@@ -517,7 +517,7 @@ The Parent Workload doesn't take part in scheduling cycles of Kueue scheduler.
 2. The Variant Controller picks up the Parent Workload and creates Variants based on the ClusterQueue configuration.
 3. All Variants are picked up by the Kueue scheduler.
 4. If one of the Variants is admitted, the Parent Workload gets admitted. Other Variants either get deactivated, or keep
-trying to get scheduled based on `migrationConstraints` configuration.
+trying to get scheduled based on `migration.constraints` configuration.
 5. If the admitted Variant gets evicted, the Parent Workload gets evicted and all deactivated Variants get reactivated.
 6. If the Parent Workload finishes, the `Finished` condition is propagated to all Variants.
 7. If the Parent Workload is deleted, all Variants get deleted.
@@ -692,13 +692,13 @@ After the implementation PR is merged, add the names of the tests here.
 
 #### Alpha
 - In Alpha version the feature will be gated behind the `ConcurrentAdmission` feature gate.
-- Support for `MigrationConstraints.Mode=TryPreferredFlavors` and `MigrationConstraints.MinPreferredFlavorName` .
+- Support for `migration.constraints.mode=TryPreferredFlavors` and `migration.constraints.minPreferredFlavorName` .
 - Integration with `BestEffortFIFO` queueing strategy.
 - Introduction of `AdmissionConstraints` field.
 
 #### Beta
 
-- Support for `MigrationConstraints.Mode=HoldFirstAdmission` and `MigrationConstraints.MinTargetExplicitVariant`.
+- Support for `migration.constraints.mode=HoldFirstAdmission` and `migration.constraints.MinTargetExplicitVariant`.
 - Introduction of `ExplicitVariants` functionality.
 - Revisit extending `ExplicitVariants` API with some additional fields.
 - Migrate `AllowedResourceFlavors` API from annotation to Workload's Spec API.
