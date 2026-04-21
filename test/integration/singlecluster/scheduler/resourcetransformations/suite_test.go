@@ -48,11 +48,7 @@ var (
 )
 
 func TestResourceTransformations(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"Resource Transformations Suite",
-	)
+	util.RunSuite(t, "Resource Transformations Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -65,11 +61,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 func managerAndSchedulerSetup(transformations []config.ResourceTransformation) framework.ManagerSetup {

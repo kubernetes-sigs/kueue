@@ -53,11 +53,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"MPIJob Controller Suite",
-	)
+	util.RunSuite(t, "MPIJob Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -72,11 +68,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {

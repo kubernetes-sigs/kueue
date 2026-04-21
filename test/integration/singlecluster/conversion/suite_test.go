@@ -49,11 +49,7 @@ var (
 )
 
 func TestConversion(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"Conversion Suite",
-	)
+	util.RunSuite(t, "Conversion Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -67,11 +63,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
