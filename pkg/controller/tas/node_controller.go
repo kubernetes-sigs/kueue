@@ -355,10 +355,7 @@ func (r *nodeReconciler) getWorkloadStatus(
 	}
 
 	ready := utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)
-	hasTASAssignment := false
-	//if wl.Status.Admission != nil {
-	hasTASAssignment = utiltas.HasTASAssignmentOnNode(wl.Status.Admission.PodSetAssignments, nodeName)
-	//}
+	hasTASAssignment := utiltas.HasTASAssignmentOnNode(wl.Status.Admission, nodeName)
 
 	switch {
 	case !hasTASAssignment:
