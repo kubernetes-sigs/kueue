@@ -847,6 +847,27 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
+		"Workload without admission (nil Admission status) - handled safely": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				utiltestingapi.MakeWorkload(wlName, nsName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+				testingpod.MakePod("stray-pod-on-node", nsName).
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					NodeSelector(corev1.LabelHostname, nodeName).
+					StatusPhase(corev1.PodPending).
+					Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
+			wantPatchedPods:    []string{"stray-pod-on-node"},
+		},
 		"Node NotReady, workload missing TAS assignment but has late pod -> Workload marked Healthy, pod patched": {
 			initObjs: []client.Object{
 				unassignedNode.Clone().StatusConditions(corev1.NodeCondition{

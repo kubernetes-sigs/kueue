@@ -522,6 +522,48 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		})
 	})
 
+	ginkgo.When("Workload without admission has pods with node selector", func() {
+		var (
+			node *corev1.Node
+			wl   *kueue.Workload
+			pod  *corev1.Pod
+		)
+
+		ginkgo.BeforeEach(func() {
+			node = testingnode.MakeNode("node-test").
+				Label("node-group", "tas").
+				Ready().
+				Obj()
+			util.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node})
+
+			wl = utiltestingapi.MakeWorkload("wl-pending", ns.Name).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			pod = testingpod.MakePod("pod-with-selector", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wl.Name).
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				NodeSelector(corev1.LabelHostname, "node-test").
+				StatusPhase(corev1.PodPending).
+				Obj()
+			util.MustCreate(ctx, k8sClient, pod)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, pod, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, node, true)
+		})
+
+		ginkgo.It("should not panic during node reconciliation", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				var fetchedNode corev1.Node
+				g.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: "node-test"}, &fetchedNode)).To(gomega.Succeed())
+			}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("Single TAS Resource Flavor", func() {
 		var (
 			tasFlavor    *kueue.ResourceFlavor
