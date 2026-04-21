@@ -936,7 +936,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 		if features.Enabled(features.TopologyAwareScheduling) {
 			ps := &a.wl.Obj.Spec.PodSets[psID]
 			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor, rg); message != nil {
-				log.Error(nil, *message)
+				log.V(3).Info(*message)
 				status.appendf("%s", *message)
 				return status
 			}
