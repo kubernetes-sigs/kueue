@@ -39,7 +39,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	suiteName := "End To End Custom Configs handling Suite"
+	suiteName := "End To End Sequential Extended Suite"
 	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
 		suiteName = fmt.Sprintf("%s: %s", suiteName, ver)
 	}
