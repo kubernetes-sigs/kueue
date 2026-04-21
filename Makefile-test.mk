@@ -191,6 +191,7 @@ test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential/baseline-$(E
 test-e2e-sequential-baseline-helm: E2E_USE_HELM=true
 test-e2e-sequential-baseline-helm: test-e2e-sequential-baseline
 
+## Examples:
 ##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-sequential-extended
 test-e2e-sequential-extended: setup-e2e-env run-test-e2e-sequential/extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -269,8 +270,8 @@ run-test-tas-e2e-%:
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
-run-test-e2e-sequential/baseline-%: K8S_VERSION = $(@:run-test-e2e-sequential/baseline-%=%)
-run-test-e2e-sequential/baseline-%:
+run-test-e2e-sequential-baseline-%: K8S_VERSION = $(@:run-test-e2e-sequential/baseline-%=%)
+run-test-e2e-sequential-baseline-%:
 	@echo Running sequential baseline e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
@@ -283,8 +284,8 @@ run-test-e2e-sequential/baseline-%:
 	E2E_USE_HELM=$(E2E_USE_HELM) \
 	./hack/testing/e2e-test.sh
 
-run-test-e2e-sequential/extended-%: K8S_VERSION = $(@:run-test-e2e-sequential/extended-%=%)
-run-test-e2e-sequential/extended-%:
+run-test-e2e-sequential-extended-%: K8S_VERSION = $(@:run-test-e2e-sequential/extended-%=%)
+run-test-e2e-sequential-extended-%:
 	@echo Running sequential extended e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
