@@ -181,7 +181,7 @@ var (
 	LocalQueueEvictedWorkloadsTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=clusterqueue
-	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",reason="eviction or preemption reason",detailed_reason="finer-grained eviction cause",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",reason="eviction or preemption reason",underlying_cause="root cause for eviction",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
 	EvictedWorkloadsOnceTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=clusterqueue
@@ -605,14 +605,14 @@ The label 'reason' can have the following values:
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
 - "Deactivated" means that the workload was evicted because spec.active is set to false.
-The label 'detailed_reason' can have the following values:
+The label 'underlying_cause' can have the following values:
 - "" means that the value in 'reason' label is the root cause for eviction.
 - "WaitForStart" means that the pods have not been ready since admission, or the workload is not admitted.
 - "WaitForRecovery" means that the Pods were ready since the workload admission, but some pod has failed.
 - "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
 - "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
 - "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
-		}, append([]string{"cluster_queue", "reason", "detailed_reason", "priority_class", "replica_role"}, extraLabels...),
+		}, append([]string{"cluster_queue", "reason", "underlying_cause", "priority_class", "replica_role"}, extraLabels...),
 	)
 
 	PreemptedWorkloadsTotal = prometheus.NewCounterVec(
