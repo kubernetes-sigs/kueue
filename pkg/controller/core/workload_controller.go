@@ -720,6 +720,27 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 	return 0, nil
 }
 
+// buildAdmissionChecksMessage formats a human-readable message
+// describing the list of admission checks in the given state.
+func buildAdmissionChecksMessage(checks []kueue.AdmissionCheckState, state kueue.CheckState) string {
+	slices.SortFunc(checks, func(a, b kueue.AdmissionCheckState) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	parts := make([]string, 0, len(checks))
+	for _, ac := range checks {
+		if ac.Message != "" {
+			parts = append(parts, fmt.Sprintf("%q (%s)", ac.Name, ac.Message))
+		} else {
+			parts = append(parts, fmt.Sprintf("%q", ac.Name))
+		}
+	}
+	noun := "AdmissionCheck"
+	if len(checks) > 1 {
+		noun = "AdmissionChecks"
+	}
+	return fmt.Sprintf("%s in %s state: %s", noun, state, stringsutils.Join(parts, "; "))
+}
+
 // reconcileCheckBasedEviction evicts or deactivates the given Workload if any admission checks have failed.
 // Returns true if the Workload was rejected or deactivated, and false otherwise.
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
@@ -729,23 +750,21 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Workload is evicted due to admission checks")
 	if workload.HasRejectedChecks(wl) {
-		var rejectedCheckNames []kueue.AdmissionCheckReference
-		for _, check := range workload.RejectedChecks(wl) {
-			rejectedCheckNames = append(rejectedCheckNames, check.Name)
-		}
+		rejectedChecks := workload.RejectedChecks(wl)
+		message := buildAdmissionChecksMessage(rejectedChecks, kueue.CheckStateRejected)
 		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, fmt.Sprintf("Admission check(s): %v, were rejected", stringsutils.Join(rejectedCheckNames, ","))), nil
+			return workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, message), nil
 		})
 		if err != nil {
 			return false, err
 		}
-		log.V(3).Info("Workload is evicted due to rejected admission checks", "workload", klog.KObj(wl), "rejectedChecks", rejectedCheckNames)
-		rejectedCheck := workload.RejectedChecks(wl)[0]
-		r.recorder.Eventf(wl, corev1.EventTypeWarning, "AdmissionCheckRejected", "Deactivating workload because AdmissionCheck for %v was Rejected: %s", rejectedCheck.Name, rejectedCheck.Message)
+		log.V(3).Info("Workload is deactivated due to rejected admission checks", "workload", klog.KObj(wl), "rejectedChecks", rejectedChecks)
+		r.recorder.Event(wl, corev1.EventTypeWarning, "AdmissionCheckRejected", fmt.Sprintf("Deactivated due to %s", message))
 		return true, nil
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
-	message := "At least one admission check is false"
+	retryChecks := workload.RetryChecks(wl)
+	message := fmt.Sprintf("Evicted due to %s", buildAdmissionChecksMessage(retryChecks, kueue.CheckStateRetry))
 	exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
 	if err := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByAdmissionCheck, message, "", r.clock, exposeLqMetrics, r.roleTracker, r.customLabels); err != nil {
 		return false, err

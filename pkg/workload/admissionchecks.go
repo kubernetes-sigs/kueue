@@ -139,16 +139,26 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	return true
 }
 
-// RejectedChecks returns the list of Rejected admission checks
-func RejectedChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
-	rejectedChecks := make([]kueue.AdmissionCheckState, 0, len(wl.Status.AdmissionChecks))
+// matchingChecks returns the list of admission checks in the given state.
+func matchingChecks(wl *kueue.Workload, s kueue.CheckState) []kueue.AdmissionCheckState {
+	matching := make([]kueue.AdmissionCheckState, 0, len(wl.Status.AdmissionChecks))
 	for i := range wl.Status.AdmissionChecks {
 		ac := wl.Status.AdmissionChecks[i]
-		if ac.State == kueue.CheckStateRejected {
-			rejectedChecks = append(rejectedChecks, ac)
+		if ac.State == s {
+			matching = append(matching, ac)
 		}
 	}
-	return rejectedChecks
+	return matching
+}
+
+// RejectedChecks returns the list of Rejected admission checks
+func RejectedChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
+	return matchingChecks(wl, kueue.CheckStateRejected)
+}
+
+// RetryChecks returns the list of Retry admission checks
+func RetryChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
+	return matchingChecks(wl, kueue.CheckStateRetry)
 }
 
 // HasAllChecksReady returns true if all the checks of the workload are ready.

@@ -391,7 +391,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
-					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
+					Message: `Deactivated due to AdmissionCheck in Rejected state: "check1" (check rejected)`,
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -483,7 +483,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
-					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
+					Message: `Deactivated due to AdmissionCheck in Rejected state: "check1" (check rejected)`,
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {

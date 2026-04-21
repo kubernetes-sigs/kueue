@@ -345,7 +345,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
-					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
+					Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -405,7 +405,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "AdmissionCheckRejected",
 						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
+						Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 					})
 
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -453,7 +453,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "AdmissionCheckRejected",
 						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
+						Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 					})
 
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -1074,7 +1074,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
-					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
+					Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
