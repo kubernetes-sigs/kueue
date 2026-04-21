@@ -35,6 +35,10 @@ const (
 	// MultiKueueControllerName is the name used by the MultiKueue
 	// admission check controller.
 	MultiKueueControllerName = "kueue.x-k8s.io/multikueue"
+
+	// MultiKueueWorkerWorkloadPodLabel indicates that pod is running on the MK worker
+	// cluster and has MultiKueue origin.
+	MultiKueueWorkerWorkloadPodLabel = "kueue.x-k8s.io/multikueue-worker-workload-pod"
 )
 
 type LocationType string
