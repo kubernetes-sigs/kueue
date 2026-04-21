@@ -253,7 +253,6 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		localQueuesInClusterQueue: make(map[utilqueue.LocalQueueReference]bool),
 		sw:                        &sw,
 		pendingResourcesTotal:     make(map[corev1.ResourceName]int64),
-		inflightResources:         make(map[corev1.ResourceName]int64),
 	}
 }
 

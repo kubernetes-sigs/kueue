@@ -728,7 +728,7 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 			Help:      `Reports the cluster_queue's total pending resource requests. Unlike resource_reservation, pending workloads have not yet been assigned to flavors.`,
 		}, append([]string{"cohort", "cluster_queue", "resource", "replica_role"}, extraLabels...),
 	)
-	trackGaugeVec(ClusterQueueResourcePending, gaugeCleanupScopeClusterQueue)
+	trackGaugeVec(ClusterQueueResourcePending, gaugeCleanupScopeClusterQueue, gaugeCleanupScopeClusterQueueResource)
 
 	ClusterQueueResourceUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{

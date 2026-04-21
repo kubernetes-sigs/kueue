@@ -367,6 +367,7 @@ func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testi
 	ReportClusterQueueQuotas("cohort", cqName, "flavor", "cpu", 10, 5, 3, nil, nil)
 	ReportClusterQueueResourceReservations("cohort", cqName, "flavor", "cpu", 7, nil, nil)
 	ReportClusterQueueResourceUsage("cohort", cqName, "flavor", "cpu", 6, nil, nil)
+	ReportClusterQueueResourcePending("cohort", cqName, "cpu", 4, nil, nil)
 	ReportClusterQueueStatus(cqName, CQStatusActive, nil, nil)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
@@ -374,6 +375,7 @@ func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testi
 	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
 
 	ClearClusterQueueResourceMetrics(cqName)
@@ -383,6 +385,7 @@ func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testi
 	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
 
 	ClearCacheMetrics(cqName)

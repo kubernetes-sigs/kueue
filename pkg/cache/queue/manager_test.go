@@ -29,6 +29,7 @@ import (
 	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -290,10 +291,7 @@ func TestUpdateClusterQueueLabelsUpdated(t *testing.T) {
 				t.Fatalf("Failed to update ClusterQueue: %v", err)
 			}
 
-			pendingMetrics := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{"cluster_queue": "cq1"})
-			if len(pendingMetrics) != tc.wantMetricsCount {
-				t.Errorf("Unexpected pending workload metrics count: got %d, want %d", len(pendingMetrics), tc.wantMetricsCount)
-			}
+			expectGaugeCount(t, metrics.PendingWorkloads, tc.wantMetricsCount, map[string]string{"cluster_queue": "cq1"})
 
 			watcher.ProcessRequeues(ctx)
 
@@ -336,50 +334,60 @@ func TestPendingResourceMetrics(t *testing.T) {
 	}
 
 	metrics.ClusterQueueResourcePending.Reset()
+	pendingLabels := map[string]string{"cluster_queue": "cq1", "resource": "cpu"}
 
 	// Add wl1 — expect 1 series for cpu with value corresponding to 2 cores.
 	if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
 		t.Fatalf("Failed adding wl1: %v", err)
 	}
-	pendingMetrics := testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourcePending, map[string]string{"cluster_queue": "cq1", "resource": "cpu"})
-	if len(pendingMetrics) != 1 {
-		t.Fatalf("expected 1 pending resource series after adding wl1, got %d", len(pendingMetrics))
-	}
-	wl1CPUValue := pendingMetrics[0].Value
+	expectGaugeCount(t, metrics.ClusterQueueResourcePending, 1, pendingLabels)
+	wl1CPUValue := getGaugeValue(t, metrics.ClusterQueueResourcePending, pendingLabels)
 
 	// Add wl2 — cpu value should increase.
 	if err := manager.AddOrUpdateWorkload(log, wl2); err != nil {
 		t.Fatalf("Failed adding wl2: %v", err)
 	}
-	pendingMetrics = testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourcePending, map[string]string{"cluster_queue": "cq1", "resource": "cpu"})
-	if len(pendingMetrics) != 1 {
-		t.Fatalf("expected 1 pending resource series after adding wl2, got %d", len(pendingMetrics))
-	}
-	if pendingMetrics[0].Value <= wl1CPUValue {
-		t.Errorf("expected cpu pending to increase after adding wl2: before=%v after=%v", wl1CPUValue, pendingMetrics[0].Value)
+	if got := getGaugeValue(t, metrics.ClusterQueueResourcePending, pendingLabels); got <= wl1CPUValue {
+		t.Errorf("expected cpu pending to increase after adding wl2: before=%v after=%v", wl1CPUValue, got)
 	}
 
 	// Delete wl2 — cpu value should return to wl1-only level.
 	manager.DeleteWorkload(log, workload.Key(wl2))
-	pendingMetrics = testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourcePending, map[string]string{"cluster_queue": "cq1", "resource": "cpu"})
-	if len(pendingMetrics) != 1 {
-		t.Fatalf("expected 1 pending resource series after deleting wl2, got %d", len(pendingMetrics))
-	}
-	if pendingMetrics[0].Value != wl1CPUValue {
-		t.Errorf("expected cpu pending to revert to wl1-only value after deleting wl2: want=%v got=%v", wl1CPUValue, pendingMetrics[0].Value)
-	}
+	expectGaugeValue(t, metrics.ClusterQueueResourcePending, pendingLabels, wl1CPUValue)
 
 	// Delete wl1 — no pending workloads remain, but cpu is in configuredResources
 	// so the series stays at 0 (like resource_reservation reports 0 for configured
 	// resources with no active reservations).
 	manager.DeleteWorkload(log, workload.Key(wl1))
-	pendingMetrics = testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourcePending, map[string]string{"cluster_queue": "cq1", "resource": "cpu"})
-	if len(pendingMetrics) != 1 {
-		t.Fatalf("expected 1 pending resource series (at 0) after deleting all workloads, got %d", len(pendingMetrics))
+	expectGaugeValue(t, metrics.ClusterQueueResourcePending, pendingLabels, 0)
+}
+
+func expectGaugeCount(t *testing.T, collector prometheus.Collector, want int, labels map[string]string) {
+	t.Helper()
+	got := len(testingmetrics.CollectFilteredGaugeVec(collector, labels))
+	if got != want {
+		t.Fatalf("unexpected metric count for labels %v: got=%d want=%d", labels, got, want)
 	}
-	if pendingMetrics[0].Value != 0 {
-		t.Errorf("expected cpu pending to be 0 after deleting all workloads, got %v", pendingMetrics[0].Value)
+}
+
+func expectGaugeValue(t *testing.T, collector prometheus.Collector, labels map[string]string, want float64) {
+	t.Helper()
+	dps := testingmetrics.CollectFilteredGaugeVec(collector, labels)
+	if len(dps) != 1 {
+		t.Fatalf("expected exactly one metric for labels %v, got=%d", labels, len(dps))
 	}
+	if dps[0].Value != want {
+		t.Fatalf("unexpected metric value for labels %v: got=%v want=%v", labels, dps[0].Value, want)
+	}
+}
+
+func getGaugeValue(t *testing.T, collector prometheus.Collector, labels map[string]string) float64 {
+	t.Helper()
+	dps := testingmetrics.CollectFilteredGaugeVec(collector, labels)
+	if len(dps) != 1 {
+		t.Fatalf("expected exactly one metric for labels %v, got=%d", labels, len(dps))
+	}
+	return dps[0].Value
 }
 
 func TestRequeueWorkloadsCohortCycle(t *testing.T) {
