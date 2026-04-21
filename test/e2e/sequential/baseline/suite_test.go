@@ -18,7 +18,6 @@ package baseline
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -43,14 +42,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	suiteName := "End To End Sequential Baseline Suite"
-	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
-		suiteName = fmt.Sprintf("%s: %s", suiteName, ver)
-	}
-	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t,
-		suiteName,
-	)
+	util.RunE2ESuite(t, "End To End Sequential Baseline Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -73,9 +65,4 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })

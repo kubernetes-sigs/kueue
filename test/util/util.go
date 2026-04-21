@@ -29,6 +29,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -90,6 +91,19 @@ func init() {
 	format.RegisterCustomFormatter(formatK8sObject)
 }
 
+func RunSuite(t *testing.T, suiteName string) {
+	ginkgo.ReportAfterSuite("Generate JUnit Report", ConfigureSuiteReporting)
+	gomega.RegisterFailHandler(ginkgo.Fail)
+	ginkgo.RunSpecs(t, suiteName)
+}
+
+func RunE2ESuite(t *testing.T, suiteName string) {
+	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
+		suiteName = fmt.Sprintf("%s: %s", suiteName, ver)
+	}
+	RunSuite(t, suiteName)
+}
+
 func formatK8sObject(value any) (string, bool) {
 	if value == nil {
 		return "", false
@@ -130,21 +144,21 @@ var SetupLoggerGetObservedLogs = sync.OnceValue(func() *observer.ObservedLogs {
 	return observedLogs
 })
 
-func ConfigureSuiteReporting(report ginkgo.Report) error {
+func ConfigureSuiteReporting(report ginkgo.Report) {
 	junitConfig := reporters.JunitReportConfig{
 		OmitFailureMessageAttr: true,
 	}
 	suiteName := uniqueSuiteName(report.SuitePath)
 	reportDir := cmp.Or(os.Getenv("ARTIFACTS"), ArtifactsDir)
 	if err := os.MkdirAll(reportDir, 0o755); err != nil {
-		return fmt.Errorf("cannot create suite report directory %q: %w", reportDir, err)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "cannot create suite report directory %q", reportDir)
 	}
 	reportPath := filepath.Join(reportDir, "junit-"+suiteName+".xml")
 	ginkgo.GinkgoLogr.Info(
 		"Generating JUnit report",
 		"path", reportPath,
 	)
-	return reporters.GenerateJUnitReportWithConfig(report, reportPath, junitConfig)
+	gomega.Expect(reporters.GenerateJUnitReportWithConfig(report, reportPath, junitConfig)).To(gomega.Succeed())
 }
 
 func uniqueSuiteName(suitePath string) string {

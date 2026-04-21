@@ -40,17 +40,8 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"Setup Controllers Suite",
-	)
+	util.RunSuite(t, "Setup Controllers Suite")
 }
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-})
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {

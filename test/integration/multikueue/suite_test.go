@@ -92,11 +92,7 @@ var (
 )
 
 func TestMultiKueue(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"MultiKueue Suite",
-	)
+	util.RunSuite(t, "MultiKueue Suite")
 }
 
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
@@ -416,9 +412,4 @@ var _ = ginkgo.AfterSuite(func() {
 	managerTestCluster.fwk.Teardown()
 	worker1TestCluster.fwk.Teardown()
 	worker2TestCluster.fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })

@@ -56,11 +56,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"TopologyAwareScheduling Suite",
-	)
+	util.RunSuite(t, "TopologyAwareScheduling Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -76,11 +72,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 func managerSetup(resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager) {
