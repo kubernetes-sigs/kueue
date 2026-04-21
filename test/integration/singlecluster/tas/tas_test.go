@@ -531,7 +531,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 		ginkgo.BeforeEach(func() {
 			node = testingnode.MakeNode("node-test").
-				Label("node-group", "tas").
 				Ready().
 				Obj()
 			util.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node})
@@ -556,11 +555,22 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, node, true)
 		})
 
-		ginkgo.It("should not panic during node reconciliation", func() {
-			gomega.Consistently(func(g gomega.Gomega) {
-				var fetchedNode corev1.Node
-				g.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: "node-test"}, &fetchedNode)).To(gomega.Succeed())
-			}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		ginkgo.It("should mark stray pods as failed during node reconciliation", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(node), node)).To(gomega.Succeed())
+				node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{
+					Key:    "trigger-reconcile",
+					Value:  "true",
+					Effect: corev1.TaintEffectNoSchedule,
+				})
+				g.Expect(k8sClient.Update(ctx, node)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var fetchedPod corev1.Pod
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), &fetchedPod)).To(gomega.Succeed())
+				g.Expect(fetchedPod.Status.Phase).To(gomega.Equal(corev1.PodFailed))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
