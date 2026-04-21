@@ -267,6 +267,10 @@ var (
 	// +metricsdoc:group=cohort
 	// +metricsdoc:labels=cohort="the name of the Cohort",replica_role="one of `leader`, `follower`, or `standalone`"
 	CohortSubtreeAdmittedActiveWorkloads *prometheus.GaugeVec
+
+	// +metricsdoc:group=tas
+	// +metricsdoc:labels=flavor="the resource flavor name",domain="the topology level key (e.g. kubernetes.io/hostname)",domain_id="the topology domain identifier",resource="the resource name"
+	TASDomainUsage *prometheus.GaugeVec
 )
 
 type gaugeCleanupScope uint8
@@ -807,6 +811,15 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, append([]string{"cohort", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(CohortSubtreeAdmittedActiveWorkloads)
+
+	TASDomainUsage = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "tas_domain_usage",
+			Help:      "The usage of resources in a topology domain as seen by Kueue (includes QuotaReserved workloads).",
+		},
+		[]string{"flavor", "domain", "domain_id", "resource"},
+	)
 }
 
 func init() {
@@ -1222,6 +1235,14 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 	ClusterQueueResourceReservations.DeletePartialMatch(lbls)
 }
 
+func ReportTASDomainUsage(flavor, domain, domainID, resource string, value float64) {
+	TASDomainUsage.WithLabelValues(flavor, domain, domainID, resource).Set(value)
+}
+
+func ClearTASDomainUsageForFlavor(flavor string) {
+	TASDomainUsage.DeletePartialMatch(prometheus.Labels{"flavor": flavor})
+}
+
 func Register() {
 	metrics.Registry.MustRegister(
 		buildInfo,
@@ -1257,6 +1278,9 @@ func Register() {
 		CohortSubtreeResourceReservations,
 		CohortSubtreeAdmittedActiveWorkloads,
 	)
+	if features.Enabled(features.TopologyAwareScheduling) {
+		metrics.Registry.MustRegister(TASDomainUsage)
+	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
 	}

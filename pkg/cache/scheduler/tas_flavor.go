@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -26,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -89,6 +91,11 @@ type TASFlavorCache struct {
 	// nonTasUsageCache maintains the usage coming from non-TAS pods,
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
+
+	// nodesCache is used to resolve hostname-only domain IDs to full-path domain
+	// IDs when reporting multi-level metrics for topologies where the lowest level
+	// is kubernetes.io/hostname.
+	nodesCache *nodesCache
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
@@ -100,6 +107,7 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 		usage:            make(map[utiltas.TopologyDomainID]resources.Requests),
 		wlUsage:          make(map[workload.Reference][]workload.TopologyDomainRequests),
 		nonTasUsageCache: t.nonTasUsageCache,
+		nodesCache:       t.nodesCache,
 	}
 }
 
@@ -168,6 +176,114 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 			c.usage[domainID].Add(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
 		}
 	}
+}
+
+// reportDomainMetrics clears and re-reports kueue_tas_domain_usage for every
+// topology level.  For each level the leaf-domain usage values are aggregated
+// into that level's domains so operators can observe both host-level and
+// rack/block-level totals.
+func (c *TASFlavorCache) reportDomainMetrics(flavorName kueue.ResourceFlavorReference) {
+	if len(c.topology.Levels) == 0 {
+		return
+	}
+	c.RLock()
+	defer c.RUnlock()
+	metrics.ClearTASDomainUsageForFlavor(string(flavorName))
+	// When the lowest topology level is kubernetes.io/hostname, buildAssignment
+	// stores only the hostname value in the workload's TopologyAssignment, so
+	// the usage map keys are hostname-only (e.g. "host-1" instead of
+	// "rack-1,host-1").  Resolve them to full-path IDs before aggregating.
+	fullPathUsage := c.resolveFullPathUsage()
+	for levelIdx, levelKey := range c.topology.Levels {
+		levelUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
+		for fullPathID, requests := range fullPathUsage {
+			levelDomainID := domainIDPrefix(fullPathID, levelIdx+1)
+			if _, ok := levelUsage[levelDomainID]; !ok {
+				levelUsage[levelDomainID] = requests.Clone()
+			} else {
+				levelUsage[levelDomainID].Add(requests)
+			}
+		}
+		for domainID, reqs := range levelUsage {
+			for resourceName, quantity := range reqs {
+				if resourceName == corev1.ResourcePods {
+					continue
+				}
+				metrics.ReportTASDomainUsage(string(flavorName), levelKey, string(domainID), string(resourceName), resourceFloat(resourceName, quantity))
+			}
+		}
+	}
+}
+
+// resolveFullPathUsage returns a merged usage map keyed by full-path domain IDs,
+// combining TAS workload usage with non-TAS pod usage (DaemonSets, static pods).
+// For topologies where buildAssignment stores only the hostname, the keys in
+// c.usage are hostname-only; buildNodeToFullPath resolves them to the full path.
+// Non-TAS usage is keyed by node name and is only included for nodes that match
+// this flavor's node labels (mirroring how snapshot.go filters non-TAS usage).
+func (c *TASFlavorCache) resolveFullPathUsage() map[utiltas.TopologyDomainID]resources.Requests {
+	nodeToFullPath := c.buildNodeToFullPath()
+	result := make(map[utiltas.TopologyDomainID]resources.Requests, len(c.usage))
+
+	for domainID, requests := range c.usage {
+		fullPathID := domainID
+		if len(strings.Split(string(domainID), ",")) < len(c.topology.Levels) {
+			if full, ok := nodeToFullPath[string(domainID)]; ok {
+				fullPathID = full
+			}
+		}
+		if existing, ok := result[fullPathID]; ok {
+			existing.Add(requests)
+		} else {
+			result[fullPathID] = requests.Clone()
+		}
+	}
+
+	for nodeName, requests := range c.nonTasUsageCache.usagePerNode() {
+		if fullPathID, ok := nodeToFullPath[nodeName]; ok {
+			if existing, ok := result[fullPathID]; ok {
+				existing.Add(requests)
+			} else {
+				result[fullPathID] = requests.Clone()
+			}
+		}
+	}
+
+	return result
+}
+
+// buildNodeToFullPath queries the nodesCache for nodes matching this flavor and
+// returns a map from node identifier to the full comma-joined topology path.
+// Both the node name (used by nonTasUsageCache) and the kubernetes.io/hostname
+// label value (used as the domain ID key in c.usage) are stored as keys.
+func (c *TASFlavorCache) buildNodeToFullPath() map[string]utiltas.TopologyDomainID {
+	if c.nodesCache == nil {
+		return nil
+	}
+	nodes := c.nodesCache.find(c.flavor.NodeLabels, c.topology.Levels)
+	mapping := make(map[string]utiltas.TopologyDomainID, len(nodes)*2)
+	for _, node := range nodes {
+		levelValues := make([]string, len(c.topology.Levels))
+		for i, level := range c.topology.Levels {
+			levelValues[i] = node.Labels[level]
+		}
+		fullPathID := utiltas.DomainID(levelValues)
+		mapping[node.Name] = fullPathID
+		if hostname := node.Labels[corev1.LabelHostname]; hostname != "" {
+			mapping[hostname] = fullPathID
+		}
+	}
+	return mapping
+}
+
+// domainIDPrefix returns the first n comma-separated components of a domain ID.
+// For example, domainIDPrefix("rack-1,host-2", 1) returns "rack-1".
+func domainIDPrefix(domainID utiltas.TopologyDomainID, n int) utiltas.TopologyDomainID {
+	parts := strings.SplitN(string(domainID), ",", n+1)
+	if len(parts) <= n {
+		return domainID
+	}
+	return utiltas.TopologyDomainID(strings.Join(parts[:n], ","))
 }
 
 type nodeInfo struct {

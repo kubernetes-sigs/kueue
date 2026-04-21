@@ -124,10 +124,20 @@ func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 // delete a terminated pod.
 func (t *tasCache) Update(pod *corev1.Pod, log logr.Logger) {
 	t.nonTasUsageCache.update(pod, log)
+	t.reportAllFlavorMetrics()
 }
 
 func (t *tasCache) DeletePodByKey(key client.ObjectKey) {
 	t.nonTasUsageCache.delete(key)
+	t.reportAllFlavorMetrics()
+}
+
+func (t *tasCache) reportAllFlavorMetrics() {
+	t.RLock()
+	defer t.RUnlock()
+	for flavorName, flavorCache := range t.flavorCache {
+		flavorCache.reportDomainMetrics(flavorName)
+	}
 }
 
 func (t *tasCache) SyncNode(node *corev1.Node) {

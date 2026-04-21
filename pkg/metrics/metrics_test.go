@@ -414,6 +414,71 @@ func TestCohortMetrics(t *testing.T) {
 	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 0, "cohort", "cohort_two")
 }
 
+func TestReportAndCleanupTASDomainUsage(t *testing.T) {
+	const (
+		flavor1   = "gpu-flavor"
+		flavor2   = "cpu-flavor"
+		domain    = "kubernetes.io/hostname"
+		domainID1 = "host-1"
+		domainID2 = "host-2"
+		resource  = "nvidia.com/gpu"
+	)
+
+	// Report usage for two domains under flavor1 and one domain under flavor2.
+	ReportTASDomainUsage(flavor1, domain, domainID1, resource, 8)
+	ReportTASDomainUsage(flavor1, domain, domainID2, resource, 4)
+	ReportTASDomainUsage(flavor2, domain, domainID1, resource, 2)
+
+	expectFilteredMetricsCount(t, TASDomainUsage, 2, "flavor", flavor1)
+	expectFilteredMetricsCount(t, TASDomainUsage, 1, "flavor", flavor2)
+	expectFilteredMetricsCount(t, TASDomainUsage, 1, "flavor", flavor1, "domain_id", domainID1)
+	expectFilteredMetricsCount(t, TASDomainUsage, 1, "flavor", flavor1, "domain_id", domainID2)
+
+	// Clearing flavor1 should leave flavor2 intact.
+	ClearTASDomainUsageForFlavor(flavor1)
+
+	expectFilteredMetricsCount(t, TASDomainUsage, 0, "flavor", flavor1)
+	expectFilteredMetricsCount(t, TASDomainUsage, 1, "flavor", flavor2)
+
+	ClearTASDomainUsageForFlavor(flavor2)
+	expectFilteredMetricsCount(t, TASDomainUsage, 0, "flavor", flavor2)
+}
+
+// TestReportAndCleanupTASDomainUsageMultiLevel verifies that multi-level topology
+// domain IDs (rack,host) are reported correctly.  Each rack contains two hosts, and
+// the leaf-level label key ("kubernetes.io/hostname") is used as the domain label.
+func TestReportAndCleanupTASDomainUsageMultiLevel(t *testing.T) {
+	const (
+		flavor      = "gpu-flavor-ml"
+		leafDomain  = "kubernetes.io/hostname"
+		gpuResource = "nvidia.com/gpu"
+	)
+	// domain_id encodes the full path: "<rack>,<host>"
+	domains := map[string]float64{
+		"rack-1,host-1": 8,
+		"rack-1,host-2": 8,
+		"rack-2,host-3": 4,
+		"rack-2,host-4": 4,
+	}
+	for domainID, usage := range domains {
+		ReportTASDomainUsage(flavor, leafDomain, domainID, gpuResource, usage)
+	}
+
+	// All four leaf domains should be present.
+	expectFilteredMetricsCount(t, TASDomainUsage, 4, "flavor", flavor)
+
+	// Rack-1 hosts are individually addressable.
+	expectFilteredMetricsCount(t, TASDomainUsage, 1, "flavor", flavor, "domain_id", "rack-1,host-1")
+	expectFilteredMetricsCount(t, TASDomainUsage, 1, "flavor", flavor, "domain_id", "rack-1,host-2")
+
+	// Rack-2 hosts are individually addressable.
+	expectFilteredMetricsCount(t, TASDomainUsage, 1, "flavor", flavor, "domain_id", "rack-2,host-3")
+	expectFilteredMetricsCount(t, TASDomainUsage, 1, "flavor", flavor, "domain_id", "rack-2,host-4")
+
+	ClearTASDomainUsageForFlavor(flavor)
+	expectFilteredMetricsCount(t, TASDomainUsage, 0, "flavor", flavor)
+}
+
 func TestClearCohortMetricsOnlyClearsScopedGauges(t *testing.T) {
 	const cohortName = "cohort-scope"
 

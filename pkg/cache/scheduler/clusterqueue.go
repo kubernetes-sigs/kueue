@@ -592,8 +592,10 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 			log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
 		case op == add:
 			tasFlvCache.addUsage(key, tasUsage)
+			tasFlvCache.reportDomainMetrics(tasFlavor)
 		case op == subtract:
 			tasFlvCache.removeUsage(key)
+			tasFlvCache.reportDomainMetrics(tasFlavor)
 		}
 	}
 }

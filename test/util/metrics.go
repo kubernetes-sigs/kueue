@@ -336,3 +336,9 @@ func ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric(cohortName kueue.Coho
 	lvs := []string{string(cohortName), roletracker.RoleStandalone}
 	expectGaugeMetric(metrics.CohortSubtreeAdmittedActiveWorkloads, lvs, gomega.Equal(count))
 }
+
+func ExpectTASDomainUsageMetric(flavor, domain, domainID, resource string, value float64) {
+	ginkgo.GinkgoHelper()
+	lvs := []string{flavor, domain, domainID, resource}
+	expectGaugeMetric(metrics.TASDomainUsage, lvs, gomega.Equal(value))
+}
