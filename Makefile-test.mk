@@ -185,7 +185,7 @@ test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:
 ##   Run only Certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e-sequential-baseline
 ##   Run only Failure Recovery Policy tests: GINKGO_ARGS="--label-filter=feature:failurerecoverypolicy" make test-e2e-sequential-baseline
 .PHONY: test-e2e-sequential-baseline
-test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential/baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-sequential-baseline-helm
 test-e2e-sequential-baseline-helm: E2E_USE_HELM=true
@@ -194,7 +194,7 @@ test-e2e-sequential-baseline-helm: test-e2e-sequential-baseline
 ## Examples:
 ##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-sequential-extended
-test-e2e-sequential-extended: setup-e2e-env run-test-e2e-sequential/extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-sequential-extended: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-sequential-extended-helm
 test-e2e-sequential-extended-helm: E2E_USE_HELM=true
@@ -270,7 +270,7 @@ run-test-tas-e2e-%:
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
-run-test-e2e-sequential-baseline-%: K8S_VERSION = $(@:run-test-e2e-sequential/baseline-%=%)
+run-test-e2e-sequential-baseline-%: K8S_VERSION = $(@:run-test-e2e-sequential-baseline-%=%)
 run-test-e2e-sequential-baseline-%:
 	@echo Running sequential baseline e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
@@ -278,13 +278,13 @@ run-test-e2e-sequential-baseline-%:
 	E2E_MODE=$(E2E_MODE) \
 	E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 	E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential/baseline" \
+	KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential-baseline" \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 	E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 	E2E_USE_HELM=$(E2E_USE_HELM) \
 	./hack/testing/e2e-test.sh
 
-run-test-e2e-sequential-extended-%: K8S_VERSION = $(@:run-test-e2e-sequential/extended-%=%)
+run-test-e2e-sequential-extended-%: K8S_VERSION = $(@:run-test-e2e-sequential-extended-%=%)
 run-test-e2e-sequential-extended-%:
 	@echo Running sequential extended e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
@@ -292,7 +292,7 @@ run-test-e2e-sequential-extended-%:
 	E2E_MODE=$(E2E_MODE) \
 	E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 	E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential/extended" \
+	KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential-extended" \
 	JOBSET_VERSION=$(JOBSET_VERSION) APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
 	LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
 	SPARKOPERATOR_VERSION=$(SPARKOPERATOR_VERSION) \
