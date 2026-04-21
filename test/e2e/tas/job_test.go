@@ -44,7 +44,7 @@ const (
 	extraResource     = "example.com/gpu"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label("feature:job"), func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-job-")

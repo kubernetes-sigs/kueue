@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", ginkgo.Label("feature:statefulset"), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology

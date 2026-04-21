@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("feature:jobset"), func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-jobset-")

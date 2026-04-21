@@ -94,7 +94,7 @@ if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|manag
     export APPWRAPPER_IMAGE=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION}
 fi
 
-if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename|hotswap) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml"
     export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
     export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
@@ -386,7 +386,7 @@ function prepare_docker_images {
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${APPWRAPPER_IMAGE}"
     fi
-    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename|hotswap) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         docker pull "${JOBSET_IMAGE}"
     fi
     if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -441,7 +441,7 @@ function kind_load {
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_appwrapper "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename|hotswap) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_jobset "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then

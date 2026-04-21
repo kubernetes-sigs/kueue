@@ -64,12 +64,28 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
-	util.WaitForJobSetAvailability(ctx, k8sClient)
-	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
-	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sClient)
-	util.WaitForAppWrapperAvailability(ctx, k8sClient)
-	util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
-	util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
+	labelFilter := ginkgo.GinkgoLabelFilter()
+	if ginkgo.Label("feature:jobset").MatchesLabelFilter(labelFilter) {
+		util.WaitForJobSetAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:pytorchjob").MatchesLabelFilter(labelFilter) {
+		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:trainjob").MatchesLabelFilter(labelFilter) {
+		util.WaitForKubeFlowTrainnerControllerManagerAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:mpijob").MatchesLabelFilter(labelFilter) {
+		util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:appwrapper").MatchesLabelFilter(labelFilter) {
+		util.WaitForAppWrapperAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:leaderworkerset").MatchesLabelFilter(labelFilter) {
+		util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:kuberay").MatchesLabelFilter(labelFilter) {
+		util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
+	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),

@@ -161,6 +161,11 @@ test-multikueue-e2e-sequential: setup-e2e-env test-multikueue-e2e-parallel-build
 test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
 
+# TAS e2e label taxonomy:
+# - Features: job,jobset,pytorchjob,mpijob,kuberay,appwrapper,leaderworkerset,statefulset,pod,trainjob,hotswap
+# Examples:
+#   GINKGO_ARGS="--label-filter=feature:pytorchjob" make test-tas-e2e
+#   GINKGO_ARGS="--label-filter=feature:jobset" make test-tas-e2e
 .PHONY: test-tas-e2e
 test-tas-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 

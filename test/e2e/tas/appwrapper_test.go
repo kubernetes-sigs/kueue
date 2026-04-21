@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", ginkgo.Label("feature:appwrapper"), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology

@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", ginkgo.Label("feature:pytorchjob"), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
