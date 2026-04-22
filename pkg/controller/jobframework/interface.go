@@ -193,6 +193,14 @@ type TopLevelJob interface {
 	IsTopLevel() bool
 }
 
+// JobWithSchedulingGateDetection should be implemented by Jobs that need
+// to detect missing scheduling gates after ensureOneWorkload().
+type JobWithSchedulingGateDetection interface {
+	// DetectMissingSchedulingGates detects missing scheduling gates.
+	// Returns true if gates are missing and an error if detection fails.
+	DetectMissingSchedulingGates(ctx context.Context, c client.Client) (bool, error)
+}
+
 func QueueName(job GenericJob) kueue.LocalQueueName {
 	return QueueNameForObject(job.Object())
 }
