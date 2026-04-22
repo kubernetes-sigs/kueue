@@ -526,7 +526,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					},
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
-					info, err := kueueClientset.VisibilityV1beta2().LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueB.Name, metav1.GetOptions{})
+					info, err := kueueClientset.VisibilityV1beta2().LocalQueues(nsB.Name).GetPendingWorkloadsSummary(ctx, localQueueB.Name, metav1.GetOptions{})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(info.Items).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
