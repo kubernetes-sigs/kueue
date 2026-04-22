@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -1125,6 +1126,36 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			ginkgo.By("Verifying one workload from lq-b and one from lq-c to be admitted")
 			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, lqBWls...)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlC)
+		})
+
+		ginkgo.It("should update consumed resources and subtract entry penalties on workload admission", func() {
+			lqAKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lqA.Name))
+
+			ginkgo.By("Admitting a workload on lq-a to trigger updateAfsConsumedUsage")
+			wlA1 := createWorkload("lq-a", "4")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1)
+
+			ginkgo.By("Verifying consumed resources for lq-a are non-zero after admission")
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 0)
+
+			ginkgo.By("Verifying no entry penalty exists after workload admission")
+			gomega.Eventually(func(g gomega.Gomega) {
+				penalty := qManager.AfsEntryPenalties.HasPendingFor(lqAKey)
+				g.Expect(penalty).To(gomega.BeFalse(), "entry penalty should be absent for lq-a")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Saturating the CQ with a second lq-a workload")
+			wlA2 := createWorkload("lq-a", "4")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA2)
+
+			ginkgo.By("Verifying lq-a consumed resources increased after second admission")
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 3_900)
+
+			ginkgo.By("Verifying no entry penalty exists after second admission")
+			gomega.Eventually(func(g gomega.Gomega) {
+				penalty := qManager.AfsEntryPenalties.HasPendingFor(lqAKey)
+				g.Expect(penalty).To(gomega.BeFalse(), "entry penalty should be absent for lq-a")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

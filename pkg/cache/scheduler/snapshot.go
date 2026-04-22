@@ -216,7 +216,12 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 // snapshotClusterQueue creates a copy of ClusterQueue that includes
 // references to immutable objects and deep copies of changing ones.
-func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (*ClusterQueueSnapshot, error) {
+func (c *Cache) snapshotClusterQueue(
+	ctx context.Context,
+	cq *clusterQueue,
+	afsEntryPenalties *queueafs.AfsEntryPenalties,
+	afsConsumedResources *queueafs.AfsConsumedResources,
+) (*ClusterQueueSnapshot, error) {
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
 		Name:                          cq.Name,

@@ -195,7 +195,11 @@ func validateCreateForMaxExecTime(job GenericJob) field.ErrorList {
 
 func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 	if !newJob.IsSuspended() || !oldJob.IsSuspended() {
-		return apivalidation.ValidateImmutableField(newJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel], oldJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel], maxExecTimeLabelPath)
+		return apivalidation.ValidateImmutableField(
+			newJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel],
+			oldJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel],
+			maxExecTimeLabelPath,
+		)
 	}
 	return nil
 }

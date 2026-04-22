@@ -9,6 +9,13 @@ description: >
   Talks and presentations showcasing Kueue
 ---
 
+# 2026
+
+* KubeCon EU, March, Amsterdam<br>
+  Instrumenting Kueue Scheduling for ML Training<br>
+  Amy Chen, CoreWeave & Gabe Saba, Google<br>
+  [talk details](https://sched.co/2CW0P) | [video](https://youtu.be/rcrl8-CudVw)<br>
+
 # 2025
 
 * KubeCon NA, November, Atlanta<br>

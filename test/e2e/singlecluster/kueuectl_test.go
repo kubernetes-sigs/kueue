@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package e2e
+package singlecluster
 
 import (
 	"os/exec"
@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Label("area:singlecluster", "feature:kueuectl"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Label("area:singlecluster", "feature:kueuectl"), func() {
 	var (
 		ns *corev1.Namespace
 		cq *kueue.ClusterQueue

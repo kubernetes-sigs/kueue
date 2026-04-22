@@ -443,7 +443,8 @@ The fields above do the following:
     priority.
 
 - `borrowWithinCohort` determines whether a pending Workload can preempt
-  Workloads from other ClusterQueues if the workload requires borrowing.
+  Workloads from other ClusterQueues that are using more than their nominal
+  quota, if the workload requires borrowing.
   May only be configured with Classical Preemption, and __not__ with Fair Sharing.
   This field requires to specify `policy` sub-field with possible values:
   - `Never` (default): do not preempt Workloads in the cohort if borrowing is required.

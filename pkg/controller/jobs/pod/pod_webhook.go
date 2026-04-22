@@ -167,7 +167,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 	}
 
 	if suspend {
-		if !features.Enabled(features.SkipFinalizersForPodsSuspendedByParent) || !suspendByParent {
+		if !suspendByParent {
 			controllerutil.AddFinalizer(pod.Object(), podconstants.PodFinalizer)
 		}
 

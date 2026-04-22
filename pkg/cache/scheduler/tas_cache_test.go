@@ -5682,20 +5682,22 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Obj(),
 			},
 			levels: defaultThreeLevels,
-			podSets: []PodSetTestCase{{
-				topologyRequest: &kueue.PodSetTopologyRequest{
-					Required: ptr.To(tasBlockLabel),
-					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
-						{Topology: tasRackLabel, Size: 6},
-						{Topology: corev1.LabelHostname, Size: 2},
+			podSets: []PodSetTestCase{
+				{
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasBlockLabel),
+						PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+							{Topology: tasRackLabel, Size: 6},
+							{Topology: corev1.LabelHostname, Size: 2},
+						},
 					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count:      6,
+					wantReason: `topology "default" doesn't allow to fit; 0/1 slice(s) fit on level cloud.com/topology-rack; 2/3 slice(s) fit on level kubernetes.io/hostname. Total nodes: 3; excluded: resource "cpu": 1`,
 				},
-				requests: resources.Requests{
-					corev1.ResourceCPU: 1000,
-				},
-				count:      6,
-				wantReason: `topology "default" doesn't allow to fit; 0/1 slice(s) fit on level cloud.com/topology-rack; 2/3 slice(s) fit on level kubernetes.io/hostname. Total nodes: 3; excluded: resource "cpu": 1`,
-			}},
+			},
 		},
 		"multi-layer topology: small host kills rack slices despite enough total capacity": {
 			// block → rack → hostname
@@ -5928,21 +5930,23 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Obj(),
 			},
 			levels: append([]string{tasDataCenterLabel}, defaultThreeLevels...),
-			podSets: []PodSetTestCase{{
-				topologyRequest: &kueue.PodSetTopologyRequest{
-					Required: ptr.To(tasDataCenterLabel),
-					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
-						{Topology: tasBlockLabel, Size: 12},
-						{Topology: tasRackLabel, Size: 6},
-						{Topology: corev1.LabelHostname, Size: 3},
+			podSets: []PodSetTestCase{
+				{
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasDataCenterLabel),
+						PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+							{Topology: tasBlockLabel, Size: 12},
+							{Topology: tasRackLabel, Size: 6},
+							{Topology: corev1.LabelHostname, Size: 3},
+						},
 					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count:      24,
+					wantReason: `topology "default" doesn't allow to fit; 1/2 slice(s) fit on level cloud.com/topology-block; 3/4 slice(s) fit on level cloud.com/topology-rack; 6/8 slice(s) fit on level kubernetes.io/hostname`,
 				},
-				requests: resources.Requests{
-					corev1.ResourceCPU: 1000,
-				},
-				count:      24,
-				wantReason: `topology "default" doesn't allow to fit; 1/2 slice(s) fit on level cloud.com/topology-block; 3/4 slice(s) fit on level cloud.com/topology-rack; 6/8 slice(s) fit on level kubernetes.io/hostname`,
-			}},
+			},
 		},
 	}
 	for name, tc := range cases {

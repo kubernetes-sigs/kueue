@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package multikueue
+package tas
 
 import (
 	"context"
@@ -37,9 +37,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -436,137 +434,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 			for _, node := range worker2Nodes {
 				util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, &node, true)
 			}
-		})
-
-		ginkgo.It("should admit workload when nodes are provisioned", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueWaitForWorkloadAdmitted, false)
-
-			job := testingjob.MakeJob("job", managerNs.Name).
-				ManagedBy(kueue.MultiKueueControllerName).
-				Queue(kueue.LocalQueueName(managerLq.Name)).
-				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			ginkgo.By("creating a job which requires block", func() {
-				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
-			})
-
-			wl := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
-
-			ginkgo.By("verify the workload reserves the quota", func() {
-				util.ExpectQuotaReservedWorkloadsTotalMetric(managerCq, "", 1)
-				util.ExpectReservingActiveWorkloadsMetric(managerCq, 1)
-			})
-
-			ginkgo.By("provision the nodes on both workers", func() {
-				worker1Nodes = []corev1.Node{
-					*testingnode.MakeNode("x1").
-						Label("node-group", "tas").
-						Label(corev1.LabelHostname, "x1").
-						StatusAllocatable(corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-							corev1.ResourcePods:   resource.MustParse("10"),
-						}).
-						Ready().
-						Obj(),
-				}
-				worker2Nodes = []corev1.Node{
-					*testingnode.MakeNode("x1").
-						Label("node-group", "tas").
-						Label(corev1.LabelHostname, "x1").
-						StatusAllocatable(corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-							corev1.ResourcePods:   resource.MustParse("10"),
-						}).
-						Ready().
-						Obj(),
-				}
-				util.CreateNodesWithStatus(worker1TestCluster.ctx, worker1TestCluster.client, worker1Nodes)
-				util.CreateNodesWithStatus(worker2TestCluster.ctx, worker2TestCluster.client, worker2Nodes)
-			})
-
-			var assignedWorkerCluster client.Client
-			var assignedWorkerCtx context.Context
-			var assignedClusterName string
-			var assignedAcName string
-			ginkgo.By("checking which worker cluster was assigned", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					managerWl := &kueue.Workload{}
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-					g.Expect(managerWl.Status.ClusterName).NotTo(gomega.BeNil())
-
-					assignedClusterName = *managerWl.Status.ClusterName
-					g.Expect(assignedClusterName).To(gomega.Or(gomega.Equal(workerCluster1.Name), gomega.Equal(workerCluster2.Name)))
-					if assignedClusterName == workerCluster1.Name {
-						assignedWorkerCluster = worker1TestCluster.client
-						assignedWorkerCtx = worker1TestCluster.ctx
-						assignedAcName = worker1Ac.Name
-					} else {
-						assignedWorkerCluster = worker2TestCluster.client
-						assignedWorkerCtx = worker2TestCluster.ctx
-						assignedAcName = worker2Ac.Name
-					}
-
-					g.Expect(assignedWorkerCluster.Get(assignedWorkerCtx, wlLookupKey, wl)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			provReqKey := types.NamespacedName{
-				Namespace: wlLookupKey.Namespace,
-				Name:      provisioning.ProvisioningRequestName(wlLookupKey.Name, kueue.AdmissionCheckReference(assignedAcName), 1),
-			}
-
-			ginkgo.By("set the ProvisioningRequest as Provisioned in the assigned worker cluster", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(assignedWorkerCluster.Get(assignedWorkerCtx, provReqKey, &createdRequest)).Should(gomega.Succeed())
-					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
-						Type:   autoscaling.Provisioned,
-						Status: metav1.ConditionTrue,
-						Reason: autoscaling.Provisioned,
-					})
-					g.Expect(assignedWorkerCluster.Status().Update(assignedWorkerCtx, &createdRequest)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("verify the workload is admitted in the assigned worker cluster", func() {
-				util.ExpectWorkloadsToBeAdmitted(assignedWorkerCtx, assignedWorkerCluster, wl)
-			})
-
-			ginkgo.By("verify TopologyAssignment for the workload in the assigned worker cluster", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(assignedWorkerCluster.Get(assignedWorkerCtx, wlLookupKey, wl)).To(gomega.Succeed())
-					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
-					g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-					g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-						tas.V1Beta2From(&tas.TopologyAssignment{
-							Levels: []string{
-								corev1.LabelHostname,
-							},
-							Domains: []tas.TopologyDomainAssignment{
-								{
-									Count: 1,
-									Values: []string{
-										"x1",
-									},
-								},
-							},
-						}),
-					))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("verify DelayedTopologyRequest is marked Ready on manager", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					managerWl := &kueue.Workload{}
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-					g.Expect(managerWl.Status.Admission).NotTo(gomega.BeNil())
-					g.Expect(managerWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
-					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].DelayedTopologyRequest).To(gomega.Equal(ptr.To(kueue.DelayedTopologyRequestStateReady)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
 		})
 	})
 })

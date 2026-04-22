@@ -86,7 +86,13 @@ const runtimePatchManagerName = "kueue.x-k8s.io/manager"
 var reconciler trainJobReconciler
 var _ jobframework.JobReconcilerInterface = (*trainJobReconciler)(nil)
 
-func NewReconciler(ctx context.Context, client client.Client, indexer client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewReconciler(
+	ctx context.Context,
+	client client.Client,
+	indexer client.FieldIndexer,
+	eventRecorder record.EventRecorder,
+	opts ...jobframework.Option,
+) (jobframework.JobReconcilerInterface, error) {
 	_, err := kftrainerruntimecore.New(ctx, client, indexer, nil)
 	if err != nil {
 		return nil, err

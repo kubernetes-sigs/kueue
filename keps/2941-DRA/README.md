@@ -53,6 +53,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Late DeviceClass Creation](#late-deviceclass-creation)
   - [Architecture Details](#architecture-details)
     - [Queue Manager Extensions](#queue-manager-extensions)
+  - [Integration with Admission Fair Sharing](#integration-with-admission-fair-sharing)
   - [MultiKueue Integration](#multikueue-integration)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -826,6 +827,33 @@ Processing Flow:
 
 This architecture separates concerns between DRA processing (controller) and queue management (scheduler), enabling robust error handling and retry logic for DRA-specific operations.
 
+### Integration with Admission Fair Sharing
+
+DRA logical resources participate in Admission Fair Sharing (AFS) when both DRA and AFS are enabled.
+The logical resource from `deviceClassMappings.name` lands in the workload's admitted `ResourceUsage`,
+and the AFS penalty accounting mechanism applies weights to all resources without filtering for DRA. This means
+the existing `AdmissionFairSharing.ResourceWeights` configuration handles DRA resources naturally
+without any additional API fields.
+
+**Configuration Example:**
+```yaml
+admissionFairSharing:
+  usageHalfLifeTime: 10m
+  usageSamplingInterval: 5m
+  resourceWeights:
+    whole-gpus: 5.0  # GPUs are weighted 5x compared to default resources
+resources:
+  deviceClassMappings:
+  - name: whole-gpus
+    deviceClassNames:
+    - gpu.example.com
+```
+
+When a workload with DRA resources is admitted, the logical resource usage (e.g., `whole-gpus`) is
+tracked in `LocalQueue.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources` and factored
+into admission ordering decisions. Administrators can use `resourceWeights` to express that GPU time
+is more valuable than CPU time for fair sharing purposes.
+
 ### MultiKueue Integration
 
 DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism. ResourceClaimTemplates must be deployed on worker clusters by users; they are not automatically synced.
@@ -928,6 +956,8 @@ Use existing dra-example-driver or Kubernetes test driver for e2e testing.
 - Alpha implementation completed: December 2024
 - KEP updated to reflect actual implementation: September 2025 by @alaypatel07
 - Extended Resources implementation: January 2026
+- Integration with Admission Fair Sharing: April 2026 — added integration tests and documentation
+  confirming DRA logical resources work with existing `AdmissionFairSharing.ResourceWeights`
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution

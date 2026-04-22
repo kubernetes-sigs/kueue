@@ -96,28 +96,9 @@ func TestDefault(t *testing.T) {
 		want                         *corev1.Pod
 		wantErr                      error
 	}{
-		"pod with suspend by parent annotation shouldn't skip finalizer when SkipFinalizersForPodsSuspendedByParent disabled": {
+		"pod with suspend by parent annotation should skip finalizer": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:                false,
-				features.SkipFinalizersForPodsSuspendedByParent: false,
-			},
-			initObjects: []client.Object{defaultNamespace},
-			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				SuspendedByParent("test").
-				Queue("test-queue").
-				Obj(),
-			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
-				SuspendedByParent("test").
-				Queue("test-queue").
-				KueueSchedulingGate().
-				KueueFinalizer().
-				RoleHash("a9f06f3a").
-				Obj(),
-		},
-		"pod with suspend by parent annotation should skip finalizer when SkipFinalizersForPodsSuspendedByParent enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:                false,
-				features.SkipFinalizersForPodsSuspendedByParent: true,
+				features.TopologyAwareScheduling: false,
 			},
 			initObjects: []client.Object{defaultNamespace},
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).

@@ -57,6 +57,10 @@ type ProvisioningRequestConfigSpecApplyConfiguration struct {
 	PodSetUpdates *ProvisioningRequestPodSetUpdatesApplyConfiguration `json:"podSetUpdates,omitempty"`
 	// podSetMergePolicy specifies the policy for merging PodSets before being passed
 	// to the cluster autoscaler.
+	//
+	// The possible policies are:
+	// - `IdenticalPodTemplates`: Merges only identical PodTemplates.
+	// - `IdenticalWorkloadSchedulingRequirements`: Merges PodTemplates with identical fields that are considered when defining the workload scheduling requirements.
 	PodSetMergePolicy *kueuev1beta1.ProvisioningRequestConfigPodSetMergePolicy `json:"podSetMergePolicy,omitempty"`
 }
 

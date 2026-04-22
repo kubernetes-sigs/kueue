@@ -87,7 +87,7 @@ func (c *Cohort[CQ, C]) hasChildren() bool {
 	return c.childCqs.Len()+c.childCohorts.Len() > 0
 }
 
-func (c *Cohort[CQ, C]) isExplicit() bool {
+func (c *Cohort[CQ, C]) IsExplicit() bool {
 	return c.explicit
 }
 

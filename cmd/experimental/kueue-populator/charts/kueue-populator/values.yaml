@@ -14,8 +14,12 @@ kueuePopulator:
   config:
     # -- Configuration for the default LocalQueue
     localQueue:
-      # -- Name of the default LocalQueue to create in namespaces
+      # -- Name of the default LocalQueue to create in namespaces.
+      # Only used when nameMode is "Static" (default).
       name: "default"
+      # -- How to derive LocalQueue names. "Static" uses the name above;
+      # "AsClusterQueue" uses each ClusterQueue's name.
+      # nameMode: "Static"
     # -- Configuration for the default ClusterQueue
     # If not set, the ClusterQueue will not be created.
     clusterQueue:

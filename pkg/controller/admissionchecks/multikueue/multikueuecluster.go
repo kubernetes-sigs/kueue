@@ -693,7 +693,16 @@ func (c *clustersReconciler) getRemoteClients() []*remoteClient {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
-func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string, fsWatcher *KubeConfigFSWatcher, adapters map[string]jobframework.MultiKueueAdapter, cpCreds clusterProfileCreds, roleTracker *roletracker.RoleTracker) *clustersReconciler {
+func newClustersReconciler(
+	c client.Client,
+	namespace string,
+	gcInterval time.Duration,
+	origin string,
+	fsWatcher *KubeConfigFSWatcher,
+	adapters map[string]jobframework.MultiKueueAdapter,
+	cpCreds clusterProfileCreds,
+	roleTracker *roletracker.RoleTracker,
+) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:         c,
 		configNamespace:     namespace,

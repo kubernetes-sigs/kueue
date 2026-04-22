@@ -29,6 +29,7 @@ As a batch administrator, you can learn how to:
 - As a batch administrator, you can learn how to [run a Kueue managed Jobs with a custom WorkloadPriority](manage/run_job_with_workload_priority).
 - As a batch administrator, you can learn how to [setup a MultiKueue environment](manage/setup_multikueue).
 - As a batch administrator, you can learn how to [use third-party certificate authority with Kueue](manage/productization/cert_manager).
+- As a batch administrator, you can learn how to [set up Dynamic Resource Allocation](manage/setup_dra) for DRA device quota management.
 
 ### Batch user
 
@@ -46,6 +47,7 @@ As a batch user, you can learn how to:
 - [Submit Kueue jobs from Python](run/python_jobs).
 - [Run a Kueue managed plain Pod](run/plain_pods).
 - [Run a Kueue managed JobSet](run/jobsets).
+- [Run workloads with DRA devices](run/dra).
 - [Submit jobs to MultiKueue](run/multikueue).
 - [Run external workloads](run/external_workloads).
   Kueue allows one to use built-in integrations (such as Pods or Jobs) to run external workloads.

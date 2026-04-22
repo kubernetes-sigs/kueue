@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package e2e
+package singlecluster
 
 import (
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -83,6 +83,7 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 				Suspend(false).
 				SetTypeMeta().
 				JAXReplicaSpecsDefault().
+				TerminationGracePeriod(kftraining.JAXJobReplicaTypeWorker, 1).
 				Parallelism(kftraining.JAXJobReplicaTypeWorker, 2).
 				Image(kftraining.JAXJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceCPU, "1").
@@ -135,7 +136,7 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 				// Wait for active pods and terminate them
 				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, client.InNamespace(ns.Name))
 
-				util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 			})
 
 			ginkgo.By("Delete the JAX", func() {

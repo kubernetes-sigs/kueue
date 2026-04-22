@@ -218,6 +218,11 @@ func (j *JAXJobWrapper) SetTypeMeta() *JAXJobWrapper {
 	return j
 }
 
+func (j *JAXJobWrapper) TerminationGracePeriod(replicaType kftraining.ReplicaType, seconds int64) *JAXJobWrapper {
+	j.Spec.JAXReplicaSpecs[replicaType].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	return j
+}
+
 // ManagedBy adds a ManagedBy.
 func (j *JAXJobWrapper) ManagedBy(c string) *JAXJobWrapper {
 	j.Spec.RunPolicy.ManagedBy = &c

@@ -133,7 +133,11 @@ func TestValidateCreate(t *testing.T) {
 				Indexed(true).
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "completions"), ptr.To[int32](6), fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation)),
+				field.Invalid(
+					field.NewPath("spec", "completions"),
+					ptr.To[int32](6),
+					fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation),
+				),
 			},
 		},
 		{

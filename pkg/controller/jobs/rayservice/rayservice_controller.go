@@ -91,7 +91,13 @@ func setup(b *builder.Builder, c client.Client) *builder.Builder {
 
 var reconciler rayServiceReconciler
 
-func NewReconciler(ctx context.Context, client client.Client, indexer client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewReconciler(
+	ctx context.Context,
+	client client.Client,
+	indexer client.FieldIndexer,
+	eventRecorder record.EventRecorder,
+	opts ...jobframework.Option,
+) (jobframework.JobReconcilerInterface, error) {
 	reconciler = rayServiceReconciler{
 		jr:     jobframework.NewReconciler(client, eventRecorder, opts...),
 		client: client,

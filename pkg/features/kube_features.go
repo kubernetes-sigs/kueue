@@ -352,6 +352,21 @@ const (
 	// Pod integration's IsActive() check, allowing quota to be released immediately
 	// when preempted pods begin terminating rather than waiting for the grace period.
 	FastQuotaReleaseInPodIntegration featuregate.Feature = "FastQuotaReleaseInPodIntegration"
+
+	// owner: @ShaanveerS
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/7259
+	// Enables rejecting updates to ClusterQueues with invalid
+	// AdmissionCheckStrategy.OnFlavors references.
+	RejectUpdatesToCQWithInvalidOnFlavors featuregate.Feature = "RejectUpdatesToCQWithInvalidOnFlavors"
+
+	// owner: @sebest
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/1789
+	// Finish workloads whose controller owner no longer exists, preventing
+	// stale workload accumulation (e.g., after PodsReady timeout eviction
+	// deletes a Deployment-owned pod).
+	FinishOrphanedWorkloads featuregate.Feature = "FinishOrphanedWorkloads"
 )
 
 func init() {
@@ -490,10 +505,12 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	SkipFinalizersForPodsSuspendedByParent: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	MultiKueueWaitForWorkloadAdmitted: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	MultiKueueRedoAdmissionOnEvictionInWorker: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
@@ -542,6 +559,13 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FastQuotaReleaseInPodIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	RejectUpdatesToCQWithInvalidOnFlavors: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	FinishOrphanedWorkloads: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
