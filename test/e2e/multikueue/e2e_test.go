@@ -1389,17 +1389,17 @@ app = HelloWorld.bind()`,
 			ginkgo.By("Checking that the workload is created and admitted in the manager cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(managerWl)).To(gomega.BeTrue())
+					g.Expect(workload.IsAdmitted(managerWl)).To(gomega.BeTrue(), util.AssertMsg("Workload not admitted in manager", managerWl))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the workload is created on worker1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
+					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue(), util.AssertMsg("Workload not admitted in worker1", workerWorkload))
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 
-					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError(), util.AssertMsg("Workload present in worker2", workerWorkload))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1434,17 +1434,17 @@ app = HelloWorld.bind()`,
 			ginkgo.By("Checking that the workload is re-admitted in worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
-					g.Expect(managerWl.Status.ClusterName).To(gomega.HaveValue(gomega.Equal(workerCluster2.Name)))
+					g.Expect(managerWl.Status.ClusterName).To(gomega.HaveValue(gomega.Equal(workerCluster2.Name)), util.AssertMsg("Manager Workload is not admitted in worker2", managerWl))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the workload is created in worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
+					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue(), util.AssertMsg("Worklaod not Admitted in worker2", workerWorkload))
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 
-					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError(), util.AssertMsg("Worklaod present in worker1", workerWorkload))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
