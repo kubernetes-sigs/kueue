@@ -19,7 +19,6 @@ package mke2e
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -207,14 +206,7 @@ func cleanMultiKueueSecret(ctx context.Context, c client.Client, namespace strin
 }
 
 func TestAPIs(t *testing.T) {
-	suiteName := "End To End MultiKueue Suite"
-	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
-		suiteName = fmt.Sprintf("%s: %s", suiteName, ver)
-	}
-	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t,
-		suiteName,
-	)
+	util.RunE2ESuite(t, "End To End MultiKueue Sequential Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -267,9 +259,4 @@ var _ = ginkgo.AfterSuite(func() {
 
 	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
 	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
