@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("DRA + Admission Fair Sharing", ginkgo.Label("feature:fairsharing", "feature:admissionfairsharing"), func() {
+var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature:fairsharing", "feature:admissionfairsharing"), func() {
 	ginkgo.When("Using AdmissionFairSharing with DRA resources", ginkgo.Ordered, func() {
 		var (
 			defaultFlavor *kueue.ResourceFlavor
@@ -167,16 +167,16 @@ var _ = ginkgo.Describe("DRA + Admission Fair Sharing", ginkgo.Label("feature:fa
 			ginkgo.By("Waiting for all initial workloads to be admitted")
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1, wlA2, wlBInit)
 
-			ginkgo.By("Finishing all initial workloads to build AFS history")
-			util.FinishWorkloads(ctx, k8sClient, wlA1, wlA2, wlBInit)
-
-			ginkgo.By("Waiting for AFS ConsumedResources to reflect phase-1 usage and invariant to hold")
+			ginkgo.By("Waiting for AFS ConsumedResources to reflect the admitted workloads")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var lqAObj, lqBObj kueue.LocalQueue
+
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), &lqAObj)).To(gomega.Succeed())
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqB), &lqBObj)).To(gomega.Succeed())
+
 				g.Expect(lqAObj.Status.FairSharing).NotTo(gomega.BeNil())
 				g.Expect(lqBObj.Status.FairSharing).NotTo(gomega.BeNil())
+
 				g.Expect(lqAObj.Status.FairSharing.AdmissionFairSharingStatus).NotTo(gomega.BeNil())
 				g.Expect(lqBObj.Status.FairSharing.AdmissionFairSharingStatus).NotTo(gomega.BeNil())
 
@@ -190,12 +190,49 @@ var _ = ginkgo.Describe("DRA + Admission Fair Sharing", ginkgo.Label("feature:fa
 				lqACPU := lqAConsumed[corev1.ResourceCPU]
 				lqAGPU := lqAConsumed["whole-gpus"]
 				lqBCPU := lqBConsumed[corev1.ResourceCPU]
-				lqATotal := lqACPU.AsApproximateFloat64() +
-					lqAGPU.AsApproximateFloat64()
+
+				lqATotal := lqACPU.AsApproximateFloat64() + lqAGPU.AsApproximateFloat64()
 				lqBTotal := lqBCPU.AsApproximateFloat64()
+
 				g.Expect(lqATotal).To(gomega.BeNumerically(">", lqBTotal),
-					"expected lq-a usage (CPU+GPU=%v) > lq-b usage (CPU=%v) before phase 2", lqATotal, lqBTotal)
+					"expected lq-a usage (CPU+GPU=%v) > lq-b usage (CPU=%v) before phase 2",
+					lqATotal, lqBTotal,
+				)
 			}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing all initial workloads")
+			util.FinishWorkloads(ctx, k8sClient, wlA1, wlA2, wlBInit)
+
+			ginkgo.By("Verify the usage remains positive after a while since the workloads are finished")
+			gomega.Consistently(func(g gomega.Gomega) {
+				var lqAObj, lqBObj kueue.LocalQueue
+
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), &lqAObj)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqB), &lqBObj)).To(gomega.Succeed())
+
+				g.Expect(lqAObj.Status.FairSharing).NotTo(gomega.BeNil())
+				g.Expect(lqBObj.Status.FairSharing).NotTo(gomega.BeNil())
+
+				g.Expect(lqAObj.Status.FairSharing.AdmissionFairSharingStatus).NotTo(gomega.BeNil())
+				g.Expect(lqBObj.Status.FairSharing.AdmissionFairSharingStatus).NotTo(gomega.BeNil())
+
+				lqAConsumed := lqAObj.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
+				lqBConsumed := lqBObj.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
+
+				g.Expect(lqAConsumed).To(gomega.HaveKey(corev1.ResourceCPU))
+				g.Expect(lqAConsumed).To(gomega.HaveKey(corev1.ResourceName("whole-gpus")))
+				g.Expect(lqBConsumed).To(gomega.HaveKey(corev1.ResourceCPU))
+
+				lqACPU := lqAConsumed[corev1.ResourceCPU]
+				lqAGPU := lqAConsumed["whole-gpus"]
+				lqBCPU := lqBConsumed[corev1.ResourceCPU]
+
+				lqATotal := lqACPU.AsApproximateFloat64() + lqAGPU.AsApproximateFloat64()
+				lqBTotal := lqBCPU.AsApproximateFloat64()
+
+				g.Expect(lqATotal).To(gomega.BeNumerically(">", 0))
+				g.Expect(lqBTotal).To(gomega.BeNumerically(">", 0))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			// With DRA counted: lq-a=CPU(2)+GPU(2)=4 > lq-b=CPU(3) → lq-b admitted first.
 			// Without DRA: lq-a=CPU(2) < lq-b=CPU(3) → lq-a admitted first (wrong).
