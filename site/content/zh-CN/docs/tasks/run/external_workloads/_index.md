@@ -19,3 +19,4 @@ description: >
 - [使用 Job 集成运行 Flux Minicluster](/zh-CN/docs/tasks/run/external_workloads/flux_miniclusters)。
 - [使用 Pod 集成运行 Argo Workflow](/zh-CN/docs/tasks/run/external_workloads/argo_workflow)。
 - [使用 Pod 集成运行 Tekton CD Pipeline](/zh-CN/docs/tasks/run/external_workloads/tektoncd)。
+- [使用 Pod 集成运行 Sandbox](/zh-CN/docs/tasks/run/external_workloads/sandbox)。
