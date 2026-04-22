@@ -14,6 +14,7 @@ description: >
   - [Install by Helm](#install-by-helm)
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
   - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
+  - [Upgrade policy](#upgrade-policy)
   - [Uninstall](#uninstall)
 - [Install a custom-configured released version](#install-a-custom-configured-released-version)
 - [Install the latest development version](#install-the-latest-development-version)
@@ -103,6 +104,17 @@ For more detailed setup instructions and optional metrics configuration, see the
 ### Add API Priority and Fairness configuration for the visibility API
 
 See [Configure API Priority and Fairness](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#configure-api-priority-and-fairness) for more details.
+
+### Upgrade policy
+
+When upgrading Kueue, review the following release notes:
+
+- **Minor releases:** The `.0` release notes for each new minor version you cross.
+- **Patch releases:** The patch release notes up to and including your target version, but only within your target minor release line.
+
+**Note:** You do not need to review patch notes from previous minor versions, as those changes are covered in the next `.0` release notes.
+
+{{< upgrade-policy-example >}}
 
 ### Uninstall
 
