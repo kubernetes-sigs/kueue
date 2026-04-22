@@ -209,6 +209,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.16"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.18"
 - name: MultiKueueWaitForWorkloadAdmitted
   versionedSpecs:
   - default: true
