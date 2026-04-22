@@ -1444,7 +1444,7 @@ app = HelloWorld.bind()`,
 					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue(), util.AssertMsg("Workload not Admitted in worker2", workerWorkload))
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 
-					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError(), util.AssertMsg("Worklaod present in worker1", workerWorkload))
+					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError(), util.AssertMsg("Workload present in worker1", workerWorkload))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
