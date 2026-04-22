@@ -364,54 +364,14 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		preemptionTargets, oldWorkloadSlice := workloadslicing.FindReplacedSliceTarget(e.Obj, e.preemptionTargets)
 
 		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
-			// If preemptions are issued, the next attempt should try all the flavors.
-			e.LastAssignment = nil
-			preempted, errors, err := s.preemptor.IssuePreemptions(ctx, s.cache, &e.Info, preemptionTargets, e.clusterQueueSnapshot)
-			if err != nil {
-				log.Error(err, "Failed to preempt workloads")
-			}
-			if preempted != 0 {
-				e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
-				e.requeueReason = qcache.RequeueReasonPendingPreemption
-			} else if errors > 0 {
-				e.inadmissibleMsg += fmt.Sprintf(". Preempting %d workload(s) failed, will retry.", errors)
-				e.requeueReason = qcache.RequeueReasonPreemptionFailed
-			}
+			s.issuePreemptions(ctx, log, e, preemptionTargets)
 			continue
 		}
 
-		if !s.cache.PodsReadyForAllAdmittedWorkloads(log) {
-			log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
-			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
-			// Block admission until all currently admitted workloads are in
-			// PodsReady condition if the waitForPodsReady is enabled
-			wl := e.Obj.DeepCopy()
-			if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-				return workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
-			}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
-				log.Error(err, "Could not update Workload status")
-			}
-			s.cache.WaitForPodsReady(ctx)
-			log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
-		}
+		s.waitForPodsReadyIfBlocked(ctx, log, e)
 
-		// Evict the old workload slice if present.
-		// oldWorkloadSlice is non-nil only when workload slicing is enabled
-		// and there is an existing slice to evict.
-		//
-		// Copy the clusterName value from the old workload into the new workload
-		// to ensure consistent placement in a MultiKueue context.
-		// This status update will be persisted during the workload admission step below.
-		//
-		// If the admission step fails, we may end up in a state where:
-		// - the old workload is marked Finished, and
-		// - the new workload is not admitted.
-		// In a single-cluster context, this should lead to Job suspension.
-		// In a MultiKueue context, this should also trigger removal of remote workload/Job objects.
 		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
-			e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
-			if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
-				log.Error(err, "Failed to replace workload slice")
+			if err := s.replaceOldWorkloadSlice(ctx, log, e, oldWorkloadSlice); err != nil {
 				continue
 			}
 		}
@@ -446,6 +406,54 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		return wait.SlowDown
 	}
 	return wait.KeepGoing
+}
+
+func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *entry, preemptionTargets []*preemption.Target) {
+	// If preemptions are issued, the next attempt should try all the flavors.
+	e.LastAssignment = nil
+	preempted, errors, err := s.preemptor.IssuePreemptions(ctx, s.cache, &e.Info, preemptionTargets, e.clusterQueueSnapshot)
+	if err != nil {
+		log.Error(err, "Failed to preempt workloads")
+	}
+	if preempted != 0 {
+		e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
+		e.requeueReason = qcache.RequeueReasonPendingPreemption
+	} else if errors > 0 {
+		e.inadmissibleMsg += fmt.Sprintf(". Preempting %d workload(s) failed, will retry.", errors)
+		e.requeueReason = qcache.RequeueReasonPreemptionFailed
+	}
+}
+
+// waitForPodsReadyIfBlocked blocks admission until all currently admitted
+// workloads are in the PodsReady condition. Active only when WaitForPodsReady
+// is enabled with BlockAdmission=true.
+func (s *Scheduler) waitForPodsReadyIfBlocked(ctx context.Context, log logr.Logger, e *entry) {
+	if s.cache.PodsReadyForAllAdmittedWorkloads(log) {
+		return
+	}
+	log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
+	wl := e.Obj.DeepCopy()
+	if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+		return workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
+	}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
+		log.Error(err, "Could not update Workload status")
+	}
+	s.cache.WaitForPodsReady(ctx)
+	log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
+}
+
+// replaceOldWorkloadSlice deactivates the old slice and finalizes its status.
+// The new slice's clusterName is copied from the old one so that MultiKueue
+// placement stays consistent across the replacement. If the subsequent admit
+// fails, the old slice may end up Finished while the new one is not admitted;
+// downstream controllers handle suspension/eviction.
+func (s *Scheduler) replaceOldWorkloadSlice(ctx context.Context, log logr.Logger, e *entry, oldWorkloadSlice *preemption.Target) error {
+	e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
+	if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
+		log.Error(err, "Failed to replace workload slice")
+		return err
+	}
+	return nil
 }
 
 type entryStatus string
