@@ -302,10 +302,16 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(podList.Items).To(gomega.HaveLen(3), "Expected exactly 3 pods in rayjob namespace")
-				// Get worker pod names and check count
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for exactly 1 worker pod", func() {
+			podList := &corev1.PodList{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				workerPodNames := getRunningWorkerPodNames(podList)
 				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pod with 'workers' in the name")
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Unexpected pod set in rayjob namespace", podList))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 worker pod", podList))
 		})
 
 		// RayJob is top level job, the submitter job created by RayJob will not create its own workload, there will be only 1 workload
@@ -315,7 +321,7 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected exactly 1 workload")
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 workload", workloadList))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for all 2 worker pods to be running", func() {
@@ -497,10 +503,16 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(podList.Items).To(gomega.HaveLen(3), "Expected exactly 3 pods in rayjob namespace")
-				// Get worker pod names and check count
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for exactly 1 worker pod", func() {
+			podList := &corev1.PodList{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				workerPodNames := getRunningWorkerPodNames(podList)
 				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pod with 'workers' in the name")
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Unexpected pod set in rayjob namespace", podList))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 worker pod", podList))
 		})
 
 		// RayJob is top level job, the submitter job created by RayJob will not create its own workload, there will be only 1 workload
@@ -510,7 +522,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected exactly 1 workload")
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 workload", workloadList))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for second scale-up to 5 workers due to high parallelism tasks", func() {
