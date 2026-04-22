@@ -1,842 +1,937 @@
 ---
-title: Kueue Configuration API
+title: Kueue Configuration v1beta1 API
 content_type: tool-reference
-package: /v1beta1
+package: config.kueue.x-k8s.io/v1beta1
 auto_generated: true
-description: Generated API reference documentation for Kueue Configuration.
+description: 为 config.kueue.x-k8s.io/v1beta1 生成的 API 参考文档。
 ---
 
+## 资源类型
 
-## Resource Types 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
-
-- [Configuration](#Configuration)
-  
+## `Configuration`     {#config-kueue-x-k8s-io-v1beta1-Configuration}
     
-    
-
-## `AdmissionFairSharing`     {#AdmissionFairSharing}
-    
-
-**Appears in:**
-
-
-
+<p>Configuration 是 kueueconfigurations API 的 Schema</p>
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
-<tr><td><code>usageHalfLifeTime</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
-</td>
-<td>
-   <p>usageHalfLifeTime indicates the time after which the current usage will decay by a half
-If set to 0, usage will be reset to 0 immediately.</p>
-</td>
-</tr>
-<tr><td><code>usageSamplingInterval</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
-</td>
-<td>
-   <p>usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus
-Defaults to 5min.</p>
-</td>
-</tr>
-<tr><td><code>resourceWeights</code> <B>[Required]</B><br/>
-<code>map[ResourceName]float64</code>
-</td>
-<td>
-   <p>resourceWeights assigns weights to resources which then are used to calculate LocalQueue's
-resource usage and order Workloads.
-Defaults to 1.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
-## `ClientConnection`     {#ClientConnection}
+<tr><td><code>apiVersion</code><br/>string</td><td><code>config.kueue.x-k8s.io/v1beta1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>Configuration</code></td></tr>
     
-
-**Appears in:**
-
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>qps</code> <B>[Required]</B><br/>
-<code>float32</code>
-</td>
-<td>
-   <p>QPS controls the number of queries per second allowed for K8S api server
-connection.</p>
-</td>
-</tr>
-<tr><td><code>burst</code> <B>[Required]</B><br/>
-<code>int32</code>
-</td>
-<td>
-   <p>Burst allows extra queries to accumulate when a client is exceeding its rate.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
-## `ClusterQueueVisibility`     {#ClusterQueueVisibility}
-    
-
-**Appears in:**
-
-- [QueueVisibility](#QueueVisibility)
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>maxCount</code> <B>[Required]</B><br/>
-<code>int32</code>
-</td>
-<td>
-   <p>MaxCount indicates the maximal number of pending workloads exposed in the
-cluster queue status.  When the value is set to 0, then ClusterQueue
-visibility updates are disabled.
-The maximal value is 4000.
-Defaults to 10.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
-## `Configuration`     {#Configuration}
-    
-
-
-<p>Configuration is the Schema for the kueueconfigurations API</p>
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>namespace</code> <B>[Required]</B><br/>
+<tr><td><code>namespace</code> <B>[必需]</B><br/>
 <code>string</code>
 </td>
 <td>
-   <p>Namespace is the namespace in which kueue is deployed. It is used as part of DNSName of the webhook Service.
-If not set, the value is set from the file /var/run/secrets/kubernetes.io/serviceaccount/namespace
-If the file doesn't exist, default value is kueue-system.</p>
+   <p>Namespace 是 Kueue 部署的命名空间。它用作 Webhook Service 的 DNSName 的一部分。
+如果未设置，该值将从文件 /var/run/secrets/kubernetes.io/serviceaccount/namespace 中设置
+如果文件不存在，默认值为 kueue-system。</p>
 </td>
 </tr>
-<tr><td><code>ControllerManager</code> <B>[Required]</B><br/>
-<a href="#ControllerManager"><code>ControllerManager</code></a>
+<tr><td><code>ControllerManager</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-ControllerManager"><code>ControllerManager</code></a>
 </td>
-<td>(Members of <code>ControllerManager</code> are embedded into this type.)
-   <p>ControllerManager returns the configurations for controllers</p>
+<td>(包含 <code>ControllerManager</code> 的成员。)
+   <p>ControllerManager 返回控制器的配置</p>
 </td>
 </tr>
-<tr><td><code>manageJobsWithoutQueueName</code> <B>[Required]</B><br/>
+<tr><td><code>manageJobsWithoutQueueName</code> <B>[必需]</B><br/>
 <code>bool</code>
 </td>
 <td>
-   <p>ManageJobsWithoutQueueName controls whether or not Kueue reconciles
-jobs that don't set the label kueue.x-k8s.io/queue-name.
-If set to true, then those jobs will be suspended and never started unless
-they are assigned a queue and eventually admitted. This also applies to
-jobs created before starting the kueue controller.
-Defaults to false; therefore, those jobs are not managed and if they are created
-unsuspended, they will start immediately.</p>
+   <p>ManageJobsWithoutQueueName 控制 Kueue 是否协调
+未设置标签 kueue.x-k8s.io/queue-name 的作业。
+如果设置为 true，则这些作业将被挂起，除非
+它们被分配队列并最终被准入，否则永远不会启动。这也适用于
+在启动 kueue 控制器之前创建的作业。
+默认为 false；因此，这些作业不受管理，如果它们被创建
+未挂起，它们将立即开始。</p>
 </td>
 </tr>
-<tr><td><code>managedJobsNamespaceSelector</code> <B>[Required]</B><br/>
+<tr><td><code>managedJobsNamespaceSelector</code> <B>[必需]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
 </td>
 <td>
-   <p>ManagedJobsNamespaceSelector provides a namespace-based mechanism to exempt jobs
-from management by Kueue.</p>
-<p>It provides a strong exemption for the Pod-based integrations (pod, deployment, statefulset, etc.),
-For Pod-based integrations, only jobs whose namespaces match ManagedJobsNamespaceSelector are
-eligible to be managed by Kueue.  Pods, deployments, etc. in non-matching namespaces will
-never be managed by Kueue, even if they have a kueue.x-k8s.io/queue-name label.
-This strong exemption ensures that Kueue will not interfere with the basic operation
-of system namespace.</p>
-<p>For all other integrations, ManagedJobsNamespaceSelector provides a weaker exemption
-by only modulating the effects of ManageJobsWithoutQueueName.  For these integrations,
-a job that has a kueue.x-k8s.io/queue-name label will always be managed by Kueue. Jobs without
-a kueue.x-k8s.io/queue-name label will be managed by Kueue only when ManageJobsWithoutQueueName is
-true and the job's namespace matches ManagedJobsNamespaceSelector.</p>
+   <p>ManagedJobsNamespaceSelector 提供了一种基于命名空间的机制，用于豁免作业
+不受 Kueue 管理。</p>
+<p>它为基于 Pod 的集成（pod、deployment、statefulset 等）提供了强大的豁免，
+对于基于 Pod 的集成，只有其命名空间与 ManagedJobsNamespaceSelector 匹配的作业才
+有资格由 Kueue 管理。非匹配命名空间中的 Pod、deployment 等将
+永远不会由 Kueue 管理，即使它们有 kueue.x-k8s.io/queue-name 标签。
+这种强大的豁免确保 Kueue 不会干扰系统命名空间的基本操作。</p>
+<p>对于所有其他集成，ManagedJobsNamespaceSelector 通过仅调节 ManageJobsWithoutQueueName 的效果来提供较弱的豁免。对于这些集成，
+具有 kueue.x-k8s.io/queue-name 标签的作业将始终由 Kueue 管理。没有
+kueue.x-k8s.io/queue-name 标签的作业只有在 ManageJobsWithoutQueueName 为 true 且作业的命名空间与 ManagedJobsNamespaceSelector 匹配时才会由 Kueue 管理。</p>
 </td>
 </tr>
-<tr><td><code>internalCertManagement</code> <B>[Required]</B><br/>
-<a href="#InternalCertManagement"><code>InternalCertManagement</code></a>
+<tr><td><code>internalCertManagement</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-InternalCertManagement"><code>InternalCertManagement</code></a>
 </td>
 <td>
-   <p>InternalCertManagement is configuration for internalCertManagement</p>
+   <p>InternalCertManagement 是 internalCertManagement 的配置</p>
 </td>
 </tr>
-<tr><td><code>waitForPodsReady</code> <B>[Required]</B><br/>
-<a href="#WaitForPodsReady"><code>WaitForPodsReady</code></a>
+<tr><td><code>waitForPodsReady</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-WaitForPodsReady"><code>WaitForPodsReady</code></a>
 </td>
 <td>
-   <p>WaitForPodsReady is configuration to provide a time-based all-or-nothing
-scheduling semantics for Jobs, by ensuring all pods are ready (running
-and passing the readiness probe) within the specified time. If the timeout
-is exceeded, then the workload is evicted.</p>
+   <p>WaitForPodsReady 是配置，为 Job 提供基于时间的全有或全无
+调度语义，通过确保所有 pod 在指定时间内准备就绪（运行
+并通过就绪探针）。如果超过超时，则工作负载被驱逐。</p>
 </td>
 </tr>
-<tr><td><code>clientConnection</code> <B>[Required]</B><br/>
-<a href="#ClientConnection"><code>ClientConnection</code></a>
+<tr><td><code>clientConnection</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-ClientConnection"><code>ClientConnection</code></a>
 </td>
 <td>
-   <p>ClientConnection provides additional configuration options for Kubernetes
-API server client.</p>
+   <p>ClientConnection 为 Kubernetes 提供额外的配置选项
+API 服务器客户端。</p>
 </td>
 </tr>
-<tr><td><code>integrations</code> <B>[Required]</B><br/>
-<a href="#Integrations"><code>Integrations</code></a>
+<tr><td><code>integrations</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-Integrations"><code>Integrations</code></a>
 </td>
 <td>
-   <p>Integrations provide configuration options for AI/ML/Batch frameworks
-integrations (including K8S job).</p>
+   <p>Integrations 为 AI/ML/Batch 框架提供配置选项
+集成（包括 K8S job）。</p>
 </td>
 </tr>
-<tr><td><code>queueVisibility</code> <B>[Required]</B><br/>
-<a href="#QueueVisibility"><code>QueueVisibility</code></a>
+<tr><td><code>queueVisibility</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-QueueVisibility"><code>QueueVisibility</code></a>
 </td>
 <td>
-   <p>QueueVisibility is configuration to expose the information about the top
-pending workloads.
-Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
+   <p>QueueVisibility 是配置，用于暴露有关顶部的信息
+待处理工作负载。</p>
+<p>已弃用：此字段将在 v1beta2 中移除，使用 VisibilityOnDemand
 (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
-instead.</p>
+代替。</p>
 </td>
 </tr>
-<tr><td><code>multiKueue</code> <B>[Required]</B><br/>
-<a href="#MultiKueue"><code>MultiKueue</code></a>
+<tr><td><code>multiKueue</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-MultiKueue"><code>MultiKueue</code></a>
 </td>
 <td>
-   <p>MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.</p>
+   <p>MultiKueue 控制 MultiKueue AdmissionCheck 控制器的行为。</p>
 </td>
 </tr>
-<tr><td><code>fairSharing</code> <B>[Required]</B><br/>
-<a href="#FairSharing"><code>FairSharing</code></a>
+<tr><td><code>fairSharing</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-FairSharing"><code>FairSharing</code></a>
 </td>
 <td>
-   <p>FairSharing controls the Fair Sharing semantics across the cluster.</p>
+   <p>FairSharing 控制集群中的公平共享语义。</p>
 </td>
 </tr>
-<tr><td><code>admissionFairSharing</code> <B>[Required]</B><br/>
-<a href="#AdmissionFairSharing"><code>AdmissionFairSharing</code></a>
+<tr><td><code>admissionFairSharing</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-AdmissionFairSharing"><code>AdmissionFairSharing</code></a>
 </td>
 <td>
-   <p>admissionFairSharing indicates configuration of FairSharing with the <code>AdmissionTime</code> mode on</p>
+   <p>admissionFairSharing 表示在 <code>AdmissionTime</code> 模式下的 FairSharing 配置</p>
 </td>
 </tr>
-<tr><td><code>resources</code> <B>[Required]</B><br/>
-<a href="#Resources"><code>Resources</code></a>
+<tr><td><code>resources</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-Resources"><code>Resources</code></a>
 </td>
 <td>
-   <p>Resources provides additional configuration options for handling the resources.</p>
+   <p>Resources 为处理资源提供额外的配置选项。</p>
 </td>
 </tr>
-<tr><td><code>featureGates</code> <B>[Required]</B><br/>
+<tr><td><code>featureGates</code> <B>[必需]</B><br/>
 <code>map[string]bool</code>
 </td>
 <td>
-   <p>FeatureGates is a map of feature names to bools that allows to override the
-default enablement status of a feature. The map cannot be used in conjunction
-with passing the list of features via the command line argument &quot;--feature-gates&quot;
-for the Kueue Deployment.</p>
+   <p>FeatureGates 是特性名称到布尔值的映射，允许覆盖
+特性的默认启用状态。该映射不能与通过命令行参数 "--feature-gates" 传递特性列表一起使用
+用于 Kueue 部署。</p>
 </td>
 </tr>
 <tr><td><code>objectRetentionPolicies</code><br/>
-<a href="#ObjectRetentionPolicies"><code>ObjectRetentionPolicies</code></a>
+<a href="#config-kueue-x-k8s-io-v1beta1-ObjectRetentionPolicies"><code>ObjectRetentionPolicies</code></a>
 </td>
 <td>
-   <p>ObjectRetentionPolicies provides configuration options for automatic deletion
-of Kueue-managed objects. A nil value disables all automatic deletions.</p>
+   <p>ObjectRetentionPolicies 为 Kueue 管理的对象的自动删除提供配置选项。nil 值禁用所有自动删除。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `ControllerConfigurationSpec`     {#ControllerConfigurationSpec}
+## `AdmissionFairSharing`     {#config-kueue-x-k8s-io-v1beta1-AdmissionFairSharing}
     
+**出现于：**
 
-**Appears in:**
-
-- [ControllerManager](#ControllerManager)
-
-
-<p>ControllerConfigurationSpec defines the global configuration for
-controllers registered with the manager.</p>
-
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
+<tr><td><code>usageHalfLifeTime</code> <B>[必需]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>usageHalfLifeTime 表示当前使用量衰减一半的时间
+如果设置为 0，使用量将立即重置为 0。</p>
+</td>
+</tr>
+<tr><td><code>usageSamplingInterval</code> <B>[必需]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>usageSamplingInterval 表示 Kueue 更新 FairSharingStatus 中 consumedResources 的频率
+默认为 5 分钟。</p>
+</td>
+</tr>
+<tr><td><code>resourceWeights</code> <B>[必需]</B><br/>
+<code>map[ResourceName]float64</code>
+</td>
+<td>
+   <p>resourceWeights 为资源分配权重，这些权重用于计算 LocalQueue 的
+资源使用情况和工作负载顺序。
+默认为 1。</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ClientConnection`     {#config-kueue-x-k8s-io-v1beta1-ClientConnection}
+    
+**出现于：**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
+
+<table class="table">
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
+<tbody>
+    
+<tr><td><code>qps</code> <B>[必需]</B><br/>
+<code>float32</code>
+</td>
+<td>
+   <p>QPS 控制 K8S api 服务器允许的每秒查询数
+连接。</p>
+<p>将此设置为负值将禁用客户端侧速率限制。</p>
+</td>
+</tr>
+<tr><td><code>burst</code> <B>[必需]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>Burst 允许客户端超出其速率时积累额外查询。</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ClusterQueueVisibility`     {#config-kueue-x-k8s-io-v1beta1-ClusterQueueVisibility}
+    
+**出现于：**
+
+- [QueueVisibility](#config-kueue-x-k8s-io-v1beta1-QueueVisibility)
+
+<table class="table">
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
+<tbody>
+    
+<tr><td><code>maxCount</code> <B>[必需]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>MaxCount 表示在集群队列状态中暴露的待处理工作负载的最大数量。
+当值设置为 0 时，ClusterQueue 可见性更新被禁用。
+最大值为 4000。
+默认为 10。</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ControllerConfigurationSpec`     {#config-kueue-x-k8s-io-v1beta1-ControllerConfigurationSpec}
+    
+**出现于：**
+
+- [ControllerManager](#config-kueue-x-k8s-io-v1beta1-ControllerManager)
+
+<p>ControllerConfigurationSpec 定义了全局配置
+向管理器注册的控制器。</p>
+
+<table class="table">
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
+<tbody>
   
 <tr><td><code>groupKindConcurrency</code><br/>
 <code>map[string]int</code>
 </td>
 <td>
-   <p>GroupKindConcurrency is a map from a Kind to the number of concurrent reconciliation
-allowed for that controller.</p>
-<p>When a controller is registered within this manager using the builder utilities,
-users have to specify the type the controller reconciles in the For(...) call.
-If the object's kind passed matches one of the keys in this map, the concurrency
-for that controller is set to the number specified.</p>
-<p>The key is expected to be consistent in form with GroupKind.String(),
-e.g. ReplicaSet in apps group (regardless of version) would be <code>ReplicaSet.apps</code>.</p>
+   <p>GroupKindConcurrency 是从 Kind 到并发协调数的映射
+该控制器允许。</p>
+<p>当使用构建器实用程序在该管理器中注册控制器时，
+用户必须在 For(...) 调用中指定控制器协调的类型。
+如果传递的对象的 kind 与该映射中的键之一匹配，则该控制器的并发
+设置为指定的数字。</p>
+<p>键的格式应与 GroupKind.String() 一致，
+例如 apps 组中的 ReplicaSet（无论版本）将是 <code>ReplicaSet.apps</code>。</p>
 </td>
 </tr>
 <tr><td><code>cacheSyncTimeout</code><br/>
 <a href="https://pkg.go.dev/time#Duration"><code>time.Duration</code></a>
 </td>
 <td>
-   <p>CacheSyncTimeout refers to the time limit set to wait for syncing caches.
-Defaults to 2 minutes if not set.</p>
+   <p>CacheSyncTimeout 指的是等待同步缓存的时间限制。
+如果未设置，默认为 2 分钟。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `ControllerHealth`     {#ControllerHealth}
+## `ControllerHealth`     {#config-kueue-x-k8s-io-v1beta1-ControllerHealth}
     
+**出现于：**
 
-**Appears in:**
+- [ControllerManager](#config-kueue-x-k8s-io-v1beta1-ControllerManager)
 
-- [ControllerManager](#ControllerManager)
-
-
-<p>ControllerHealth defines the health configs.</p>
-
+<p>ControllerHealth 定义了健康配置。</p>
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
-    
   
 <tr><td><code>healthProbeBindAddress</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>HealthProbeBindAddress is the TCP address that the controller should bind to
-for serving health probes
-It can be set to &quot;0&quot; or &quot;&quot; to disable serving the health probe.</p>
+   <p>HealthProbeBindAddress 是控制器应绑定的 TCP 地址
+用于提供健康探针
+可以设置为 "0" 或 "" 以禁用健康探针的提供。</p>
 </td>
 </tr>
 <tr><td><code>readinessEndpointName</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>ReadinessEndpointName, defaults to &quot;readyz&quot;</p>
+   <p>ReadinessEndpointName，默认为 "readyz"</p>
 </td>
 </tr>
 <tr><td><code>livenessEndpointName</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>LivenessEndpointName, defaults to &quot;healthz&quot;</p>
+   <p>LivenessEndpointName，默认为 "healthz"</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `ControllerManager`     {#ControllerManager}
-    
+## `ControllerManager`     {#config-kueue-x-k8s-io-v1beta1-ControllerManager}
 
-**Appears in:**
+**出现于：**
 
-
-
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
 <tr><td><code>webhook</code><br/>
-<a href="#ControllerWebhook"><code>ControllerWebhook</code></a>
+<a href="#config-kueue-x-k8s-io-v1beta1-ControllerWebhook"><code>ControllerWebhook</code></a>
 </td>
 <td>
-   <p>Webhook contains the controllers webhook configuration</p>
+   <p>Webhook 包含控制器的 webhook 配置</p>
 </td>
 </tr>
 <tr><td><code>leaderElection</code><br/>
 <a href="https://pkg.go.dev/k8s.io/component-base/config/v1alpha1#LeaderElectionConfiguration"><code>k8s.io/component-base/config/v1alpha1.LeaderElectionConfiguration</code></a>
 </td>
 <td>
-   <p>LeaderElection is the LeaderElection config to be used when configuring
-the manager.Manager leader election</p>
+   <p>LeaderElection 是配置管理器时使用的 LeaderElection 配置
+manager.Manager 领导者选举</p>
 </td>
 </tr>
 <tr><td><code>metrics</code><br/>
-<a href="#ControllerMetrics"><code>ControllerMetrics</code></a>
+<a href="#config-kueue-x-k8s-io-v1beta1-ControllerMetrics"><code>ControllerMetrics</code></a>
 </td>
 <td>
-   <p>Metrics contains the controller metrics configuration</p>
+   <p>Metrics 包含控制器指标配置</p>
 </td>
 </tr>
 <tr><td><code>health</code><br/>
-<a href="#ControllerHealth"><code>ControllerHealth</code></a>
+<a href="#config-kueue-x-k8s-io-v1beta1-ControllerHealth"><code>ControllerHealth</code></a>
 </td>
 <td>
-   <p>Health contains the controller health configuration</p>
+   <p>Health 包含控制器健康配置</p>
 </td>
 </tr>
 <tr><td><code>pprofBindAddress</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>PprofBindAddress is the TCP address that the controller should bind to
-for serving pprof.
-It can be set to &quot;&quot; or &quot;0&quot; to disable the pprof serving.
-Since pprof may contain sensitive information, make sure to protect it
-before exposing it to public.</p>
+   <p>PprofBindAddress 是控制器应绑定的 TCP 地址
+用于提供 pprof。
+可以设置为 "" 或 "0" 以禁用 pprof 服务。
+由于 pprof 可能包含敏感信息，在将其暴露给公众之前请确保对其进行保护。</p>
 </td>
 </tr>
 <tr><td><code>controller</code><br/>
-<a href="#ControllerConfigurationSpec"><code>ControllerConfigurationSpec</code></a>
+<a href="#config-kueue-x-k8s-io-v1beta1-ControllerConfigurationSpec"><code>ControllerConfigurationSpec</code></a>
 </td>
 <td>
-   <p>Controller contains global configuration options for controllers
-registered within this manager.</p>
+   <p>Controller 包含控制器的全局配置选项
+在此管理器中注册。</p>
+</td>
+</tr>
+<tr><td><code>tls</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-TLSOptions"><code>TLSOptions</code></a>
+</td>
+<td>
+   <p>TLS 包含所有 Kueue API 服务器的 TLS 安全设置
+(webhooks、metrics 和 visibility)。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `ControllerMetrics`     {#ControllerMetrics}
+## `ControllerMetrics`     {#config-kueue-x-k8s-io-v1beta1-ControllerMetrics}
     
+**出现于：**
 
-**Appears in:**
+- [ControllerManager](#config-kueue-x-k8s-io-v1beta1-ControllerManager)
 
-- [ControllerManager](#ControllerManager)
-
-
-<p>ControllerMetrics defines the metrics configs.</p>
-
+<p>ControllerMetrics 定义了指标配置。</p>
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
 <tr><td><code>bindAddress</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>BindAddress is the TCP address that the controller should bind to
-for serving prometheus metrics.
-It can be set to &quot;0&quot; to disable the metrics serving.</p>
+<p>
+BindAddress 是控制器应绑定的 TCP 地址用于提供 prometheus 指标。
+可以设置为 "0" 以禁用指标服务。
+</p>
 </td>
 </tr>
 <tr><td><code>enableClusterQueueResources</code><br/>
 <code>bool</code>
 </td>
 <td>
-   <p>EnableClusterQueueResources, if true the cluster queue resource usage and quotas
-metrics will be reported.</p>
+   <p>EnableClusterQueueResources，如果为 true，将报告集群队列资源使用情况和配额指标。</p>
+</td>
+</tr>
+<tr><td><code>customLabels</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-ControllerMetricsCustomLabel"><code>[]ControllerMetricsCustomLabel</code></a>
+</td>
+<td>
+   <p>CustomLabels 是一个条目列表，其值将作为额外的
+ClusterQueue、LocalQueue 和 Cohort 指标上的 Prometheus 标签。
+需要 CustomMetricLabels 特性门控。</p>
+</td>
+</tr>
+<tr><td><code>localQueueMetrics</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-LocalQueueMetrics"><code>LocalQueueMetrics</code></a>
+</td>
+<td>
+   <p>LocalQueueMetrics 是提供 LocalQueue 指标选项的配置。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `ControllerWebhook`     {#ControllerWebhook}
-    
+## `ControllerMetricsCustomLabel`     {#config-kueue-x-k8s-io-v1beta1-ControllerMetricsCustomLabel}
 
-**Appears in:**
+**出现于：**
 
-- [ControllerManager](#ControllerManager)
+- [ControllerMetrics](#config-kueue-x-k8s-io-v1beta1-ControllerMetrics)
 
-
-<p>ControllerWebhook defines the webhook server for the controller.</p>
-
+<p>ControllerMetricsCustomLabel 定义了一个 Kubernetes 标签或注解，用于提升
+作为带有 "custom_" 前缀的 Prometheus 指标标签。</p>
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
+<tr><td><code>name</code> <B>[必需]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name 用作构建 Prometheus 标签的后缀：Kueue
+自动添加 "custom_" 前缀（例如，name: "team" 变为标签 "custom_team"）。
+必须遵循 Prometheus 标签命名约定：[a-zA-Z_][a-zA-Z0-9_]*。</p>
+</td>
+</tr>
+<tr><td><code>sourceLabelKey</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>SourceLabelKey 是从中读取值的 Kubernetes 标签键。
+必须是有效的 Kubernetes 限定名称。
+与 SourceAnnotationKey 互斥。
+如果均未指定，默认为 Name。</p>
+</td>
+</tr>
+<tr><td><code>sourceAnnotationKey</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>SourceAnnotationKey 是从中读取值的 Kubernetes 注解键。
+必须是有效的 Kubernetes 限定名称。
+与 SourceLabelKey 互斥。</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ControllerWebhook`     {#config-kueue-x-k8s-io-v1beta1-ControllerWebhook}
+    
+**出现于：**
+
+- [ControllerManager](#config-kueue-x-k8s-io-v1beta1-ControllerManager)
+
+<p>ControllerWebhook 定义了控制器的 webhook 服务器。</p>
+
+<table class="table">
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
+<tbody>
+    
 <tr><td><code>port</code><br/>
 <code>int</code>
 </td>
 <td>
-   <p>Port is the port that the webhook server serves at.
-It is used to set webhook.Server.Port.</p>
+   <p>Port 是 webhook 服务器服务的端口。
+用于设置 webhook.Server.Port。</p>
 </td>
 </tr>
 <tr><td><code>host</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>Host is the hostname that the webhook server binds to.
-It is used to set webhook.Server.Host.</p>
+   <p>Host 是 webhook 服务器绑定的主机名。
+用于设置 webhook.Server.Host。</p>
 </td>
 </tr>
 <tr><td><code>certDir</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>CertDir is the directory that contains the server key and certificate.
-if not set, webhook server would look up the server key and certificate in
-{TempDir}/k8s-webhook-server/serving-certs. The server key and certificate
-must be named tls.key and tls.crt, respectively.</p>
+   <p>CertDir 是包含服务器密钥和证书的目录。
+如果未设置，webhook 服务器将在 {TempDir}/k8s-webhook-server/serving-certs 中查找服务器密钥和证书。服务器密钥和证书
+必须分别命名为 tls.key 和 tls.crt。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `FairSharing`     {#FairSharing}
+## `DeviceClassMapping`     {#config-kueue-x-k8s-io-v1beta1-DeviceClassMapping}
     
+**出现于：**
 
-**Appears in:**
+- [Resources](#config-kueue-x-k8s-io-v1beta1-Resources)
 
-
-
+<p>DeviceClassMapping 保存设备类到逻辑资源的映射
+用于动态资源分配支持。</p>
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
+<tbody>
+     
+<tr><td><code>name</code> <B>[必需]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>Name 在 ClusterQueue.nominalQuota 和 Workload 状态中引用。
+必须是有效的完全限定名称，由可选的 DNS 子域前缀组成
+后跟斜杠和 DNS 标签，或仅 DNS 标签。
+DNS 标签由小写字母数字字符或连字符组成，
+并且必须以字母数字字符开头和结尾。
+DNS 子域前缀遵循与 DNS 标签相同的规则，但可以包含句点。
+总长度不得超过 253 个字符。</p>
+</td>
+</tr>
+<tr><td><code>deviceClassNames</code> <B>[必需]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>DeviceClassNames 枚举由此资源名称表示的 DeviceClasses。
+每个设备类名称必须是有效的限定名称，由可选的 DNS 子域前缀组成
+后跟斜杠和 DNS 标签，或仅 DNS 标签。
+DNS 标签由小写字母数字字符或连字符组成，
+并且必须以字母数字字符开头和结尾。
+DNS 子域前缀遵循与 DNS 标签相同的规则，但可以包含句点。
+每个名称的总长度不得超过 253 个字符。</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `FairSharing`     {#config-kueue-x-k8s-io-v1beta1-FairSharing}
+
+**出现于：**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
+
+<table class="table">
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
-<tr><td><code>enable</code> <B>[Required]</B><br/>
+<tr><td><code>enable</code> <B>[必需]</B><br/>
 <code>bool</code>
 </td>
 <td>
-   <p>enable indicates whether to enable Fair Sharing for all cohorts.
-Defaults to false.</p>
+   <p>enable 表示是否为所有队列启用公平共享。
+默认为 false。</p>
 </td>
 </tr>
-<tr><td><code>preemptionStrategies</code> <B>[Required]</B><br/>
-<a href="#PreemptionStrategy"><code>[]PreemptionStrategy</code></a>
+<tr><td><code>preemptionStrategies</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-PreemptionStrategy"><code>[]PreemptionStrategy</code></a>
 </td>
 <td>
-   <p>preemptionStrategies indicates which constraints should a preemption satisfy.
-The preemption algorithm will only use the next strategy in the list if the
-incoming workload (preemptor) doesn't fit after using the previous strategies.
-Possible values are:</p>
+   <p>preemptionStrategies 表示抢占应满足哪些约束。
+抢占算法只会在使用先前策略后传入工作负载（抢占者）不适合时才使用列表中的下一个策略。
+可能的值为：</p>
 <ul>
-<li>LessThanOrEqualToFinalShare: Only preempt a workload if the share of the preemptor CQ
-with the preemptor workload is less than or equal to the share of the preemptee CQ
-without the workload to be preempted.
-This strategy might favor preemption of smaller workloads in the preemptee CQ,
-regardless of priority or start time, in an effort to keep the share of the CQ
-as high as possible.</li>
-<li>LessThanInitialShare: Only preempt a workload if the share of the preemptor CQ
-with the incoming workload is strictly less than the share of the preemptee CQ.
-This strategy doesn't depend on the share usage of the workload being preempted.
-As a result, the strategy chooses to preempt workloads with the lowest priority and
-newest start time first.
-The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;].</li>
+<li>LessThanOrEqualToFinalShare: 只有当抢占者 CQ 的份额
+包含抢占者工作负载时小于或等于被抢占者 CQ 的份额
+不包含要被抢占的工作负载。
+此策略可能倾向于抢占被抢占者 CQ 中的较小工作负载，
+无论优先级或开始时间如何，以努力保持 CQ 的份额
+尽可能高。</li>
+<li>LessThanInitialShare: 只有当抢占者 CQ 的份额
+包含传入工作负载时严格小于被抢占者 CQ 的份额。
+此策略不依赖于被抢占工作负载的份额使用情况。
+因此，该策略选择首先抢占优先级最低和
+开始时间最新的工作负载。
+默认策略是 ["LessThanOrEqualToFinalShare", "LessThanInitialShare"]。</li>
 </ul>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `Integrations`     {#Integrations}
+## `Integrations`     {#config-kueue-x-k8s-io-v1beta1-Integrations}
     
+**出现于：**
 
-**Appears in:**
-
-
-
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
-    
   
-<tr><td><code>frameworks</code> <B>[Required]</B><br/>
+<tr><td><code>frameworks</code> <B>[必需]</B><br/>
 <code>[]string</code>
 </td>
 <td>
-   <p>List of framework names to be enabled.
-Possible options:</p>
+   <p>要启用的框架名称列表。
+可能的选项：</p>
 <ul>
-<li>&quot;batch/job&quot;</li>
-<li>&quot;kubeflow.org/mpijob&quot;</li>
-<li>&quot;ray.io/rayjob&quot;</li>
-<li>&quot;ray.io/raycluster&quot;</li>
-<li>&quot;jobset.x-k8s.io/jobset&quot;</li>
-<li>&quot;kubeflow.org/paddlejob&quot;</li>
-<li>&quot;kubeflow.org/pytorchjob&quot;</li>
-<li>&quot;kubeflow.org/tfjob&quot;</li>
-<li>&quot;kubeflow.org/xgboostjob&quot;</li>
-<li>&quot;kubeflow.org/jaxjob&quot;</li>
-<li>&quot;workload.codeflare.dev/appwrapper&quot;</li>
-<li>&quot;pod&quot;</li>
-<li>&quot;deployment&quot;</li>
-<li>&quot;statefulset&quot;</li>
-<li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot;</li>
+<li>"batch/job"</li>
+<li>"kubeflow.org/mpijob"</li>
+<li>"ray.io/rayjob"</li>
+<li>"ray.io/rayservice"</li>
+<li>"ray.io/raycluster"</li>
+<li>"jobset.x-k8s.io/jobset"</li>
+<li>"kubeflow.org/paddlejob"</li>
+<li>"kubeflow.org/pytorchjob"</li>
+<li>"kubeflow.org/tfjob"</li>
+<li>"kubeflow.org/xgboostjob"</li>
+<li>"kubeflow.org/jaxjob"</li>
+<li>"trainer.kubeflow.org/trainjob"</li>
+<li>"workload.codeflare.dev/appwrapper"</li>
+<li>"sparkoperator.k8s.io/sparkapplication"</li>
+<li>"pod"</li>
+<li>"deployment"</li>
+<li>"statefulset"</li>
+<li>"leaderworkerset.x-k8s.io/leaderworkerset"</li>
 </ul>
 </td>
 </tr>
-<tr><td><code>externalFrameworks</code> <B>[Required]</B><br/>
+<tr><td><code>externalFrameworks</code> <B>[必需]</B><br/>
 <code>[]string</code>
 </td>
 <td>
-   <p>List of GroupVersionKinds that are managed for Kueue by external controllers;
-the expected format is <code>Kind.version.group.com</code>.</p>
+   <p>由外部控制器为 Kueue 管理的 GroupVersionKinds 列表；
+预期格式为 <code>Kind.version.group.com</code>。</p>
 </td>
 </tr>
-<tr><td><code>podOptions</code> <B>[Required]</B><br/>
-<a href="#PodIntegrationOptions"><code>PodIntegrationOptions</code></a>
+<tr><td><code>podOptions</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-PodIntegrationOptions"><code>PodIntegrationOptions</code></a>
 </td>
 <td>
-   <p>PodOptions defines kueue controller behaviour for pod objects
-Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
+   <p>PodOptions 定义了 kueue 控制器对 pod 对象的行为</p>
+<p>已弃用：此字段将在 v1beta2 中移除，使用 ManagedJobsNamespaceSelector
 (https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
-instead.</p>
+代替。</p>
 </td>
 </tr>
-<tr><td><code>labelKeysToCopy</code> <B>[Required]</B><br/>
+<tr><td><code>labelKeysToCopy</code> <B>[必需]</B><br/>
 <code>[]string</code>
 </td>
 <td>
-   <p>labelKeysToCopy is a list of label keys that should be copied from the job into the
-workload object. It is not required for the job to have all the labels from this
-list. If a job does not have some label with the given key from this list, the
-constructed workload object will be created without this label. In the case
-of creating a workload from a composable job (pod group), if multiple objects
-have labels with some key from the list, the values of these labels must
-match or otherwise the workload creation would fail. The labels are copied only
-during the workload creation and are not updated even if the labels of the
-underlying job are changed.</p>
+   <p>labelKeysToCopy 是应从作业复制到工作负载对象的标签键列表。作业不需要拥有此列表中的所有标签。如果作业没有此列表中具有给定键的某些标签，则构造的工作负载对象将在没有此标签的情况下创建。在从可组合作业（pod group）创建工作负载的情况下，如果多个对象具有此列表中某个键的标签，则这些标签的值必须匹配，否则工作负载创建将失败。标签仅在工作负载创建期间复制，即使基础作业的标签更改也不会更新。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `InternalCertManagement`     {#InternalCertManagement}
-    
+## `InternalCertManagement`     {#config-kueue-x-k8s-io-v1beta1-InternalCertManagement}
 
-**Appears in:**
+**出现于：**
 
-
-
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
-<tr><td><code>enable</code> <B>[Required]</B><br/>
+<tr><td><code>enable</code> <B>[必需]</B><br/>
 <code>bool</code>
 </td>
 <td>
-   <p>Enable controls the use of internal cert management for the webhook
-and metrics endpoints.
-When enabled Kueue is using libraries to generate and
-self-sign the certificates.
-When disabled, you need to provide the certificates for
-the webhooks and metrics through a third party certificate
-This secret is mounted to the kueue controller manager pod. The mount
-path for webhooks is /tmp/k8s-webhook-server/serving-certs, whereas for
-metrics endpoint the expected path is <code>/etc/kueue/metrics/certs</code>.
-The keys and certs are named tls.key and tls.crt.</p>
+   <p>Enable 控制 webhook 的内部证书管理的使用，
+指标和可见性端点。
+启用时，Kueue 使用库生成和
+自签名证书。
+禁用时，您需要为 webhooks、metrics 和 visibility 提供证书
+通过第三方证书
+此 secret 被挂载到 kueue 控制器管理器 pod。webhooks 的挂载路径是 /tmp/k8s-webhook-server/serving-certs，
+metrics 端点的预期路径是 <code>/etc/kueue/metrics/certs</code>，visibility 端点的预期路径是 <code>/visibility</code>。
+密钥和证书分别命名为 tls.key 和 tls.crt。</p>
 </td>
 </tr>
-<tr><td><code>webhookServiceName</code> <B>[Required]</B><br/>
+<tr><td><code>webhookServiceName</code> <B>[必需]</B><br/>
 <code>string</code>
 </td>
 <td>
-   <p>WebhookServiceName is the name of the Service used as part of the DNSName.
-Defaults to kueue-webhook-service.</p>
+   <p>WebhookServiceName 是用作 DNSName 一部分的 Service 的名称。
+默认为 kueue-webhook-service。</p>
 </td>
 </tr>
-<tr><td><code>webhookSecretName</code> <B>[Required]</B><br/>
+<tr><td><code>webhookSecretName</code> <B>[必需]</B><br/>
 <code>string</code>
 </td>
 <td>
-   <p>WebhookSecretName is the name of the Secret used to store CA and server certs.
-Defaults to kueue-webhook-server-cert.</p>
+   <p>WebhookSecretName 是用于存储 CA 和服务器证书的 Secret 的名称。
+默认为 kueue-webhook-server-cert。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `MultiKueue`     {#MultiKueue}
-    
+## `LocalQueueMetrics`     {#config-kueue-x-k8s-io-v1beta1-LocalQueueMetrics}
 
-**Appears in:**
+**出现于：**
 
+- [ControllerMetrics](#config-kueue-x-k8s-io-v1beta1-ControllerMetrics)
 
-
+<p>LocalQueueMetrics 定义了本地队列指标的配置选项。
+如果留空，则指标将暴露所有命名空间中的所有本地队列。</p>
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
+<tr><td><code>enable</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>Enable 是一个旋钮，允许为本地队列暴露指标。默认为 true。</p>
+</td>
+</tr>
+<tr><td><code>localQueueSelector</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>LocalQueueSelector 可用于选择需要收集指标的本地队列。</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueue`     {#config-kueue-x-k8s-io-v1beta1-MultiKueue}
+    
+**出现于：**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
+
+<table class="table">
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
+<tbody>
+    
 <tr><td><code>gcInterval</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>GCInterval defines the time interval between two consecutive garbage collection runs.
-Defaults to 1min. If 0, the garbage collection is disabled.</p>
+   <p>GCInterval 定义两次连续垃圾回收运行之间的时间间隔。
+默认为 1 分钟。如果为 0，则禁用垃圾回收。</p>
 </td>
 </tr>
 <tr><td><code>origin</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>Origin defines a label value used to track the creator of workloads in the worker
-clusters.
-This is used by multikueue in components like its garbage collector to identify
-remote objects that ware created by this multikueue manager cluster and delete
-them if their local counterpart no longer exists.</p>
+   <p>Origin 定义一个标签值，用于跟踪工作集群中工作负载的创建者。
+这被 multikueue 在其垃圾收集器等组件中使用，以识别
+由该 multikueue 管理器集群创建的远程对象，并在其本地对应物不再存在时删除它们。</p>
 </td>
 </tr>
 <tr><td><code>workerLostTimeout</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>WorkerLostTimeout defines the time a local workload's multikueue admission check state is kept Ready
-if the connection with its reserving worker cluster is lost.</p>
-<p>Defaults to 15 minutes.</p>
+   <p>WorkerLostTimeout 定义如果与保留工作负载的工作集群的连接丢失，本地工作负载的 multikueue 准入检查状态保持 Ready 的时间。</p>
+<p>默认为 15 分钟。</p>
+</td>
+</tr>
+<tr><td><code>dispatcherName</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>DispatcherName 定义负责选择工作集群来处理工作负载的调度器。</p>
+<ul>
+<li>如果指定，工作负载将由命名的调度器处理。</li>
+<li>如果未指定，工作负载将由默认（"kueue.x-k8s.io/multikueue-dispatcher-all-at-once"）调度器处理。</li>
+</ul>
+</td>
+</tr>
+<tr><td><code>externalFrameworks</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-MultiKueueExternalFramework"><code>[]MultiKueueExternalFramework</code></a>
+</td>
+<td>
+   <p>ExternalFrameworks 定义了应由通用 MultiKueue 适配器支持的外部框架列表。每个条目定义如何处理 MultiKueue 操作的特定 GroupVersionKind (GVK)。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `ObjectRetentionPolicies`     {#ObjectRetentionPolicies}
-    
+## `MultiKueueExternalFramework`     {#config-kueue-x-k8s-io-v1beta1-MultiKueueExternalFramework} 
 
-**Appears in:**
+**出现于：**
 
+- [MultiKueue](#config-kueue-x-k8s-io-v1beta1-MultiKueue)
 
-
-<p>ObjectRetentionPolicies holds retention settings for different object types.</p>
-
+<p>MultiKueueExternalFramework 定义了一个非内置的框架。</p>
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
+<tbody>
+  
+<tr><td><code>name</code> <B>[必需]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name 是由外部控制器管理的资源的 GVK
+预期格式为 <code>kind.version.group</code>。</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ObjectRetentionPolicies`     {#config-kueue-x-k8s-io-v1beta1-ObjectRetentionPolicies}
+    
+**出现于：**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
+
+<p>ObjectRetentionPolicies 保存不同对象类型的保留设置。</p>
+
+<table class="table">
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
 <tr><td><code>workloads</code><br/>
-<a href="#WorkloadRetentionPolicy"><code>WorkloadRetentionPolicy</code></a>
+<a href="#config-kueue-x-k8s-io-v1beta1-WorkloadRetentionPolicy"><code>WorkloadRetentionPolicy</code></a>
 </td>
 <td>
-   <p>Workloads configures retention for Workloads.
-A nil value disables automatic deletion of Workloads.</p>
+   <p>Workloads 配置 Workloads 的保留。
+nil 值禁用 Workloads 的自动删除。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `PodIntegrationOptions`     {#PodIntegrationOptions}
+## `PodIntegrationOptions`     {#config-kueue-x-k8s-io-v1beta1-PodIntegrationOptions}
     
+**出现于：**
 
-**Appears in:**
-
-- [Integrations](#Integrations)
-
-
+- [Integrations](#config-kueue-x-k8s-io-v1beta1-Integrations)
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
-<tr><td><code>namespaceSelector</code> <B>[Required]</B><br/>
+<tr><td><code>namespaceSelector</code> <B>[必需]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
 </td>
 <td>
-   <p>NamespaceSelector can be used to omit some namespaces from pod reconciliation</p>
+   <p>NamespaceSelector 可用于从 pod 协调中省略某些命名空间</p>
 </td>
 </tr>
-<tr><td><code>podSelector</code> <B>[Required]</B><br/>
+<tr><td><code>podSelector</code> <B>[必需]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
 </td>
 <td>
-   <p>PodSelector can be used to choose what pods to reconcile</p>
+   <p>PodSelector 可用于选择要协调的 pod</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `PreemptionStrategy`     {#PreemptionStrategy}
+## `PreemptionStrategy`     {#config-kueue-x-k8s-io-v1beta1-PreemptionStrategy}
     
-(Alias of `string`)
+（`string` 的别名）
 
-**Appears in:**
+**出现于：**
 
-- [FairSharing](#FairSharing)
+- [FairSharing](#config-kueue-x-k8s-io-v1beta1-FairSharing)
 
-
-
-
-
-## `QueueVisibility`     {#QueueVisibility}
+## `QueueVisibility`     {#config-kueue-x-k8s-io-v1beta1-QueueVisibility}
     
+**出现于：**
 
-**Appears in:**
-
-
-
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
-<tr><td><code>clusterQueues</code> <B>[Required]</B><br/>
-<a href="#ClusterQueueVisibility"><code>ClusterQueueVisibility</code></a>
+<tr><td><code>clusterQueues</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-ClusterQueueVisibility"><code>ClusterQueueVisibility</code></a>
 </td>
 <td>
-   <p>ClusterQueues is configuration to expose the information
-about the top pending workloads in the cluster queue.</p>
+   <p>ClusterQueues 是配置，用于暴露集群队列中顶部待处理工作负载的信息。</p>
 </td>
 </tr>
-<tr><td><code>updateIntervalSeconds</code> <B>[Required]</B><br/>
+<tr><td><code>updateIntervalSeconds</code> <B>[必需]</B><br/>
 <code>int32</code>
 </td>
 <td>
-   <p>UpdateIntervalSeconds specifies the time interval for updates to the structure
-of the top pending workloads in the queues.
-The minimum value is 1.
-Defaults to 5.</p>
+   <p>UpdateIntervalSeconds 指定队列中顶部待处理工作负载结构更新的时间间隔。
+最小值为 1。
+默认为 5。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `RequeuingStrategy`     {#RequeuingStrategy}
+## `RequeuingStrategy`     {#config-kueue-x-k8s-io-v1beta1-RequeuingStrategy}
     
+**出现于：**
 
-**Appears in:**
-
-- [WaitForPodsReady](#WaitForPodsReady)
-
-
+- [WaitForPodsReady](#config-kueue-x-k8s-io-v1beta1-WaitForPodsReady)
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
 <tr><td><code>timestamp</code><br/>
-<a href="#RequeuingTimestamp"><code>RequeuingTimestamp</code></a>
+<a href="#config-kueue-x-k8s-io-v1beta1-RequeuingTimestamp"><code>RequeuingTimestamp</code></a>
 </td>
 <td>
-   <p>Timestamp defines the timestamp used for re-queuing a Workload
-that was evicted due to Pod readiness. The possible values are:</p>
+   <p>Timestamp 定义用于重新排队因 Pod 就绪性而被驱逐的 Workload 的时间戳。可能的值为：</p>
 <ul>
-<li><code>Eviction</code> (default) indicates from Workload <code>Evicted</code> condition with <code>PodsReadyTimeout</code> reason.</li>
-<li><code>Creation</code> indicates from Workload .metadata.creationTimestamp.</li>
+<li><code>Eviction</code>（默认）表示来自具有 <code>PodsReadyTimeout</code> 原因的 Workload <code>Evicted</code> 条件。</li>
+<li><code>Creation</code> 表示来自 Workload .metadata.creationTimestamp。</li>
 </ul>
 </td>
 </tr>
@@ -844,242 +939,267 @@ that was evicted due to Pod readiness. The possible values are:</p>
 <code>int32</code>
 </td>
 <td>
-   <p>BackoffLimitCount defines the maximum number of re-queuing retries.
-Once the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).
-When it is null, the workloads will repeatedly and endless re-queueing.</p>
-<p>Every backoff duration is about &quot;b*2^(n-1)+Rand&quot; where:</p>
+   <p>BackoffLimitCount 定义重新排队重试的最大次数。
+一旦达到该次数，工作负载将被停用（<code>.spec.activate</code>=<code>false</code>）。
+当它为 null 时，工作负载将重复且无限制地重新排队。</p>
+<p>每次退避持续时间约为 "b*2^(n-1)+Rand"，其中：</p>
 <ul>
-<li>&quot;b&quot; represents the base set by &quot;BackoffBaseSeconds&quot; parameter,</li>
-<li>&quot;n&quot; represents the &quot;workloadStatus.requeueState.count&quot;,</li>
-<li>&quot;Rand&quot; represents the random jitter.
-During this time, the workload is taken as an inadmissible and
-other workloads will have a chance to be admitted.
-By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).</li>
+<li>"b" 表示由 "BackoffBaseSeconds" 参数设置的基数，</li>
+<li>"n" 表示 "workloadStatus.requeueState.count"，</li>
+<li>"Rand" 表示随机抖动。
+在此期间，工作负载被视为不可准入，
+其他工作负载将有机会被准入。
+默认情况下，连续的重新排队延迟约为：(60s, 120s, 240s, ...)。</li>
 </ul>
-<p>Defaults to null.</p>
+<p>默认为 null。</p>
 </td>
 </tr>
 <tr><td><code>backoffBaseSeconds</code><br/>
 <code>int32</code>
 </td>
 <td>
-   <p>BackoffBaseSeconds defines the base for the exponential backoff for
-re-queuing an evicted workload.</p>
-<p>Defaults to 60.</p>
+   <p>BackoffBaseSeconds 定义被驱逐工作负载重新排队的指数退避基数。</p>
+<p>默认为 60。</p>
 </td>
 </tr>
 <tr><td><code>backoffMaxSeconds</code><br/>
 <code>int32</code>
 </td>
 <td>
-   <p>BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.</p>
-<p>Defaults to 3600.</p>
+   <p>BackoffMaxSeconds 定义重新排队被驱逐工作负载的最大退避时间。</p>
+<p>默认为 3600。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `RequeuingTimestamp`     {#RequeuingTimestamp}
+## `RequeuingTimestamp`     {#config-kueue-x-k8s-io-v1beta1-RequeuingTimestamp}
     
-(Alias of `string`)
+（`string` 的别名）
 
-**Appears in:**
+**出现于：**
 
-- [RequeuingStrategy](#RequeuingStrategy)
+- [RequeuingStrategy](#config-kueue-x-k8s-io-v1beta1-RequeuingStrategy)
 
-
-
-
-
-## `ResourceTransformation`     {#ResourceTransformation}
+## `ResourceTransformation`     {#config-kueue-x-k8s-io-v1beta1-ResourceTransformation}
     
+**出现于：**
 
-**Appears in:**
-
-- [Resources](#Resources)
-
-
+- [Resources](#config-kueue-x-k8s-io-v1beta1-Resources)
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
-<tr><td><code>input</code> <B>[Required]</B><br/>
+<tr><td><code>input</code> <B>[必需]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
 </td>
 <td>
-   <p>Input is the name of the input resource.</p>
+   <p>Input 是输入资源的名称。</p>
 </td>
 </tr>
-<tr><td><code>strategy</code> <B>[Required]</B><br/>
-<a href="#ResourceTransformationStrategy"><code>ResourceTransformationStrategy</code></a>
+<tr><td><code>strategy</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-ResourceTransformationStrategy"><code>ResourceTransformationStrategy</code></a>
 </td>
 <td>
-   <p>Strategy specifies if the input resource should be replaced or retained.
-Defaults to Retain</p>
+   <p>Strategy 指定输入资源是应该被替换还是保留。
+默认为 Retain</p>
 </td>
 </tr>
-<tr><td><code>outputs</code> <B>[Required]</B><br/>
+<tr><td><code>multiplyBy</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>MultiplyBy 表示工作负载请求的资源名称，如果
+指定。
+资源的请求量用于乘以
+由 "input" 字段指示的资源的请求量。</p>
+</td>
+</tr>
+<tr><td><code>outputs</code> <B>[必需]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
 </td>
 <td>
-   <p>Outputs specifies the output resources and quantities per unit of input resource.
-An empty Outputs combined with a <code>Replace</code> Strategy causes the Input resource to be ignored by Kueue.</p>
+   <p>Outputs 指定每单位输入资源的输出资源和数量。
+与 <code>Replace</code> 策略组合的空 Outputs 会导致 Kueue 忽略 Input 资源。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `ResourceTransformationStrategy`     {#ResourceTransformationStrategy}
+## `ResourceTransformationStrategy`     {#config-kueue-x-k8s-io-v1beta1-ResourceTransformationStrategy}
     
-(Alias of `string`)
+（`string` 的别名）
 
-**Appears in:**
+**出现于：**
 
-- [ResourceTransformation](#ResourceTransformation)
+- [ResourceTransformation](#config-kueue-x-k8s-io-v1beta1-ResourceTransformation)
 
-
-
-
-
-## `Resources`     {#Resources}
+## `Resources`     {#config-kueue-x-k8s-io-v1beta1-Resources}
     
 
-**Appears in:**
+**出现于：**
 
-
-
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
-<tr><td><code>excludeResourcePrefixes</code> <B>[Required]</B><br/>
+<tr><td><code>excludeResourcePrefixes</code> <B>[必需]</B><br/>
 <code>[]string</code>
 </td>
 <td>
-   <p>ExcludedResourcePrefixes defines which resources should be ignored by Kueue</p>
+   <p>ExcludedResourcePrefixes 定义哪些资源应被 Kueue 忽略</p>
 </td>
 </tr>
-<tr><td><code>transformations</code> <B>[Required]</B><br/>
-<a href="#ResourceTransformation"><code>[]ResourceTransformation</code></a>
+<tr><td><code>transformations</code> <B>[必需]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-ResourceTransformation"><code>[]ResourceTransformation</code></a>
 </td>
 <td>
-   <p>Transformations defines how to transform PodSpec resources into Workload resource requests.
-This is intended to be a map with Input as the key (enforced by validation code)</p>
+   <p>Transformations 定义如何将 PodSpec 资源转换为 Workload 资源请求。
+这旨在成为一个以 Input 为键的映射（由验证代码强制执行）</p>
+</td>
+</tr>
+<tr><td><code>deviceClassMappings</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-DeviceClassMapping"><code>[]DeviceClassMapping</code></a>
+</td>
+<td>
+   <p>DeviceClassMappings 定义从设备类到逻辑资源的映射
+用于动态资源分配支持。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `WaitForPodsReady`     {#WaitForPodsReady}
+## `TLSOptions`     {#config-kueue-x-k8s-io-v1beta1-TLSOptions}
     
+**出现于：**
 
-**Appears in:**
+- [ControllerManager](#config-kueue-x-k8s-io-v1beta1-ControllerManager)
 
-
-
-<p>WaitForPodsReady defines configuration for the Wait For Pods Ready feature,
-which is used to ensure that all Pods are ready within the specified time.</p>
-
+<p>TLSOptions 定义 Kueue 服务器的 TLS 安全设置</p>
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
-<tr><td><code>enable</code> <B>[Required]</B><br/>
+<tr><td><code>minVersion</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>minVersion 是支持的最低 TLS 版本。
+值来自 tls 包常量 (https://golang.org/pkg/crypto/tls/#pkg-constants)。
+此字段仅在 TLSOptions 设置为 true 时有效。
+默认值是不设置此值并继承 golang 设置。</p>
+</td>
+</tr>
+<tr><td><code>cipherSuites</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>cipherSuites 是服务器允许的密码套件列表。
+请注意，TLS 1.3 密码套件不可配置。
+值来自 tls 包常量 (https://golang.org/pkg/crypto/tls/#pkg-constants)。
+默认值是不设置此值并继承 golang 设置。</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `WaitForPodsReady`     {#config-kueue-x-k8s-io-v1beta1-WaitForPodsReady}
+    
+**出现于：**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
+
+
+<p>WaitForPodsReady 定义 Wait For Pods Ready 特性的配置，
+用于确保所有 Pod 在指定时间内准备就绪。</p>
+
+<table class="table">
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
+<tbody>
+    
+<tr><td><code>enable</code> <B>[必需]</B><br/>
 <code>bool</code>
 </td>
 <td>
-   <p>Enable indicates whether to enable wait for pods ready feature.
-Defaults to false.</p>
+   <p>Enable 表示是否启用等待 pods 就绪特性。
+默认为 false。</p>
 </td>
 </tr>
 <tr><td><code>timeout</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>Timeout defines the time for an admitted workload to reach the
-PodsReady=true condition. When the timeout is exceeded, the workload
-evicted and requeued in the same cluster queue.
-Defaults to 5min.</p>
+   <p>Timeout 定义已准入工作负载达到
+PodsReady=true 条件的时间。当超过超时时，工作负载
+被驱逐并重新排队到同一个集群队列中。
+默认为 5 分钟。</p>
 </td>
 </tr>
-<tr><td><code>blockAdmission</code> <B>[Required]</B><br/>
+<tr><td><code>blockAdmission</code> <B>[必需]</B><br/>
 <code>bool</code>
 </td>
 <td>
-   <p>BlockAdmission when true, cluster queue will block admissions for all
-subsequent jobs until the jobs reach the PodsReady=true condition.
-This setting is only honored when <code>Enable</code> is set to true.</p>
+   <p>BlockAdmission 为 true 时，集群队列将阻止所有后续作业的准入，直到作业达到 PodsReady=true 条件。
+此设置仅在 <code>Enable</code> 设置为 true 时生效。</p>
 </td>
 </tr>
 <tr><td><code>requeuingStrategy</code><br/>
-<a href="#RequeuingStrategy"><code>RequeuingStrategy</code></a>
+<a href="#config-kueue-x-k8s-io-v1beta1-RequeuingStrategy"><code>RequeuingStrategy</code></a>
 </td>
 <td>
-   <p>RequeuingStrategy defines the strategy for requeuing a Workload.</p>
+   <p>RequeuingStrategy 定义工作负载重新排队的策略。</p>
 </td>
 </tr>
 <tr><td><code>recoveryTimeout</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>RecoveryTimeout defines an opt-in timeout, measured since the
-last transition to the PodsReady=false condition after a Workload is Admitted and running.
-Such a transition may happen when a Pod failed and the replacement Pod
-is awaited to be scheduled.
-After exceeding the timeout the corresponding job gets suspended again
-and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-If not set, there is no timeout.</p>
+   <p>RecoveryTimeout 定义一个超时，从工作负载被准入并运行后最后一次转换到 PodsReady=false 条件开始测量。
+这种转换可能发生在 Pod 失败且等待替换 Pod 被调度时。
+超过超时后，相应的作业会再次被挂起
+并在退避延迟后重新排队。只有当 waitForPodsReady.enable=true 时，才会强制执行超时。
+默认为 timeout 的值。设置为 "0s" 禁用恢复超时检查。</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `WorkloadRetentionPolicy`     {#WorkloadRetentionPolicy}
-    
+## `WorkloadRetentionPolicy`     {#config-kueue-x-k8s-io-v1beta1-WorkloadRetentionPolicy}
 
-**Appears in:**
+**出现于：**
 
-- [ObjectRetentionPolicies](#ObjectRetentionPolicies)
+- [ObjectRetentionPolicies](#config-kueue-x-k8s-io-v1beta1-ObjectRetentionPolicies)
 
-
-<p>WorkloadRetentionPolicy defines the policies for when Workloads should be deleted.</p>
-
+<p>WorkloadRetentionPolicy 定义了工作负载应何时被删除的策略。</p>
 
 <table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<thead><tr><th width="30%">字段</th><th>描述</th></tr></thead>
 <tbody>
     
-  
 <tr><td><code>afterFinished</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>AfterFinished is the duration to wait after a Workload finishes
-before deleting it.
-A duration of 0 will delete immediately.
-A nil value disables automatic deletion.
-Represented using metav1.Duration (e.g. &quot;10m&quot;, &quot;1h30m&quot;).</p>
+   <p>AfterFinished 是工作负载完成后等待的持续时间
+在删除它之前。
+持续时间为 0 将立即删除。
+nil 值禁用自动删除。
+使用 metav1.Duration 表示（例如 "10m"、"1h30m"）。</p>
 </td>
 </tr>
 <tr><td><code>afterDeactivatedByKueue</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>AfterDeactivatedByKueue is the duration to wait after <em>any</em> Kueue-managed Workload
-(such as a Job, JobSet, or other custom workload types) has been marked
-as deactivated by Kueue before automatically deleting it.
-Deletion of deactivated workloads may cascade to objects not created by
-Kueue, since deleting the parent Workload owner (e.g. JobSet) can trigger
-garbage-collection of dependent resources.
-A duration of 0 will delete immediately.
-A nil value disables automatic deletion.
-Represented using metav1.Duration (e.g. &quot;10m&quot;, &quot;1h30m&quot;).</p>
+   <p>AfterDeactivatedByKueue 是等待任何 Kueue 管理的工作负载（如 Job、JobSet 或其他自定义工作负载类型）被 Kueue 标记为停用后自动删除它的持续时间。
+停用工作负载的删除可能会级联到 Kueue 未创建的对象，因为删除父工作负载所有者（如 JobSet）可能会触发依赖资源的垃圾回收。
+持续时间为 0 将立即删除。
+nil 值禁用自动删除。
+使用 metav1.Duration 表示（例如 "10m"、"1h30m"）。</p>
 </td>
 </tr>
 </tbody>
