@@ -1441,7 +1441,7 @@ app = HelloWorld.bind()`,
 			ginkgo.By("Checking that the workload is created in worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue(), util.AssertMsg("Worklaod not Admitted in worker2", workerWorkload))
+					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue(), util.AssertMsg("Workload not Admitted in worker2", workerWorkload))
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError(), util.AssertMsg("Worklaod present in worker1", workerWorkload))
