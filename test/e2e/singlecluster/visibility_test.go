@@ -439,6 +439,75 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("Should fetch information about the position of pending workloads with the same localQueue name in different namespaces", func() {
+			const localQueueName = "local-queue"
+
+			ginkgo.By("Create a LocalQueue", func() {
+				lqA := utiltestingapi.MakeLocalQueue(localQueueName, nsA.Name).ClusterQueue(clusterQueue.Name).Obj()
+				util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqA)
+			})
+
+			ginkgo.By("Create a LocalQueue with the same name in a different Namespace", func() {
+				lqB := utiltestingapi.MakeLocalQueue(localQueueName, nsB.Name).ClusterQueue(clusterQueue.Name).Obj()
+				util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqB)
+			})
+
+			ginkgo.By("Schedule different jobs in different Namespaces", func() {
+				jobCases := []struct {
+					name     string
+					ns       string
+					priority string
+				}{
+					{name: "job-a", ns: nsA.Name, priority: midPriorityClass.Name},
+					{name: "job-b", ns: nsB.Name, priority: lowPriorityClass.Name},
+				}
+				for _, jobCase := range jobCases {
+					job := testingjob.MakeJob(jobCase.name, jobCase.ns).
+						Queue(localQueueName).
+						Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+						RequestAndLimit(corev1.ResourceCPU, "2").
+						PriorityClass(jobCase.priority).
+						Obj()
+					util.MustCreate(ctx, k8sClient, job)
+				}
+			})
+
+			ginkgo.By("Verify their positions and priorities in Namespace 'a'", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					info, err := kueueClientset.VisibilityV1beta2().LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueName, metav1.GetOptions{})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.BeComparableTo([]visibility.PendingWorkload{{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace:       nsA.Name,
+							OwnerReferences: defaultOwnerReferenceForJob("job-a"),
+						},
+						Priority:               midPriorityClass.Value,
+						PositionInLocalQueue:   0,
+						PositionInClusterQueue: 0,
+						LocalQueueName:         localQueueName,
+					}}, pendingWorkloadsCmpOpts...))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify their positions and priorities in Namespace 'b'", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					info, err := kueueClientset.VisibilityV1beta2().LocalQueues(nsB.Name).GetPendingWorkloadsSummary(ctx, localQueueName, metav1.GetOptions{})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.BeComparableTo([]visibility.PendingWorkload{{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace:       nsB.Name,
+							OwnerReferences: defaultOwnerReferenceForJob("job-b"),
+						},
+						Priority:               lowPriorityClass.Value,
+						PositionInLocalQueue:   0,
+						PositionInClusterQueue: 1,
+						LocalQueueName:         localQueueName,
+					}}, pendingWorkloadsCmpOpts...))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.It("Should allow fetching information about position of pending workloads from different LocalQueues from different Namespaces", func() {
 			ginkgo.By("Create a LocalQueue in a different Namespace", func() {
 				localQueueB = utiltestingapi.MakeLocalQueue("b", nsB.Name).ClusterQueue(clusterQueue.Name).Obj()
