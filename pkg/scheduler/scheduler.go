@@ -286,73 +286,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	preemptedWorkloads := make(preemption.PreemptedWorkloads)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
 	for iterator.hasNext() {
-		e := iterator.pop()
-
-		cq := snapshot.ClusterQueue(e.ClusterQueue)
-		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
-		if cq.HasParent() {
-			log = log.WithValues("parentCohort", klog.KRef("", string(cq.Parent().GetName())), "rootCohort", klog.KRef("", string(cq.Parent().Root().GetName())))
-		}
-		ctx := ctrl.LoggerInto(ctx, log)
-		log.V(2).Info("Attempting to schedule workload")
-
-		mode := e.assignment.RepresentativeMode()
-
-		if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
-			s.handleFailedTASReplacement(ctx, log, e)
-			continue
-		}
-
-		if mode == flavorassigner.NoFit {
-			log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
-			continue
-		}
-
-		if mode == flavorassigner.Preempt && !s.checkPreemptPreconditions(log, e, cq) {
-			continue
-		}
-
-		// We skip multiple-preemptions per cohort if any of the targets are overlapping
-		if preemptedWorkloads.HasAny(e.preemptionTargets) {
-			setSkipped(e, "Workload has overlapping preemption targets with another workload")
-			skippedPreemptions[cq.Name]++
-			continue
-		}
-
-		usage := e.assignmentUsage()
-		if !fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets) {
-			setSkipped(e, "Workload no longer fits after processing another workload")
-			if mode == flavorassigner.Preempt {
-				skippedPreemptions[cq.Name]++
-			}
-			continue
-		}
-		preemptedWorkloads.Insert(e.preemptionTargets)
-		cq.AddUsage(usage)
-
-		// Filter out the old workload slice from the preemption targets.
-		// The old workload slice is initially included in the preemption targets because it is treated
-		// as a preemptible target during flavor assignment. However, it should be evicted rather than preempted.
-		// Note: it is valid for either or both preemptionTargets and oldWorkloadSlice to be nil.
-		preemptionTargets, oldWorkloadSlice := workloadslicing.FindReplacedSliceTarget(e.Obj, e.preemptionTargets)
-
-		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
-			s.issuePreemptions(ctx, log, e, preemptionTargets)
-			continue
-		}
-
-		s.waitForPodsReadyIfBlocked(ctx, log, e)
-
-		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
-			if err := s.replaceOldWorkloadSlice(ctx, log, e, oldWorkloadSlice); err != nil {
-				continue
-			}
-		}
-
-		e.status = nominated
-		if err := s.admit(ctx, e, cq); err != nil {
-			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
-		}
+		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions)
 	}
 
 	// 6. Requeue the heads that were not scheduled.
@@ -379,6 +313,84 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		return wait.SlowDown
 	}
 	return wait.KeepGoing
+}
+
+// processEntry runs the admission pipeline for a single entry: TAS replacement,
+// preempt-mode pre-checks, fits/overlap checks, preemption issuance, pods-ready
+// gating, workload-slice replacement, and admission. State (entry status,
+// preempted set, skipped-preemption counters, snapshot usage) is mutated in place.
+func (s *Scheduler) processEntry(
+	ctx context.Context,
+	e *entry,
+	snapshot *schdcache.Snapshot,
+	preemptedWorkloads preemption.PreemptedWorkloads,
+	skippedPreemptions map[kueue.ClusterQueueReference]int,
+) {
+	cq := snapshot.ClusterQueue(e.ClusterQueue)
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
+	if cq.HasParent() {
+		log = log.WithValues("parentCohort", klog.KRef("", string(cq.Parent().GetName())), "rootCohort", klog.KRef("", string(cq.Parent().Root().GetName())))
+	}
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(2).Info("Attempting to schedule workload")
+
+	mode := e.assignment.RepresentativeMode()
+
+	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
+		s.handleFailedTASReplacement(ctx, log, e)
+		return
+	}
+
+	if mode == flavorassigner.NoFit {
+		log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
+		return
+	}
+
+	if mode == flavorassigner.Preempt && !s.checkPreemptPreconditions(log, e, cq) {
+		return
+	}
+
+	// We skip multiple-preemptions per cohort if any of the targets are overlapping
+	if preemptedWorkloads.HasAny(e.preemptionTargets) {
+		setSkipped(e, "Workload has overlapping preemption targets with another workload")
+		skippedPreemptions[cq.Name]++
+		return
+	}
+
+	usage := e.assignmentUsage()
+	if !fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets) {
+		setSkipped(e, "Workload no longer fits after processing another workload")
+		if mode == flavorassigner.Preempt {
+			skippedPreemptions[cq.Name]++
+		}
+		return
+	}
+	preemptedWorkloads.Insert(e.preemptionTargets)
+	cq.AddUsage(usage)
+
+	// Filter out the old workload slice from the preemption targets.
+	// The old workload slice is initially included in the preemption targets because it is treated
+	// as a preemptible target during flavor assignment. However, it should be evicted rather than preempted.
+	// Note: it is valid for either or both preemptionTargets and oldWorkloadSlice to be nil.
+	preemptionTargets, oldWorkloadSlice := workloadslicing.FindReplacedSliceTarget(e.Obj, e.preemptionTargets)
+
+	if mode == flavorassigner.Preempt {
+		s.issuePreemptions(ctx, log, e, preemptionTargets)
+		return
+	}
+
+	s.waitForPodsReadyIfBlocked(ctx, log, e)
+
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
+		if err := s.replaceOldWorkloadSlice(ctx, log, e, oldWorkloadSlice); err != nil {
+			return
+		}
+	}
+
+	e.status = nominated
+	if err := s.admit(ctx, e, cq); err != nil {
+		e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
+	}
 }
 
 func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry) {
