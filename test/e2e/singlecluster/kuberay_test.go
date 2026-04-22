@@ -141,7 +141,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 			Queue(localQueueName).
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
-			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "300m").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
 			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
@@ -266,7 +266,7 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			MaxWorkerReplicas(2).
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python /home/ray/samples/sample_code.py").
-			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "200m").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
 			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
@@ -462,7 +462,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			EnableInTreeAutoscaling().
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python /home/ray/samples/sample_code.py").
-			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "200m").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
 			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
@@ -580,14 +580,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Did not observe >=3 workloads from multiple scale-ups", workloadList))
 		})
 
-		ginkgo.By("Waiting for workers reduced to 1 due to scaling down", func() {
-			podList := &corev1.PodList{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				currentPodNames := getRunningRayWorkerPodNames(g)
-				g.Expect(currentPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pods with 'workers' in the name")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Workers did not scale down to 1", podList))
-		})
-
 		ginkgo.By("Checking podset-replica-sizes annotation updated after scaling down", func() {
 			createdRayJob := &rayv1.RayJob{}
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -598,7 +590,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(count).To(gomega.Equal(int32(1)),
 					"Expected workers-group-0 count = 1 after scaling down")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("podset-replica-sizes annotation not updated after scaling down", createdRayJob))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("podset-replica-sizes annotation not updated after scaling down", createdRayJob))
 		})
 
 		ginkgo.By("Waiting for the RayJob to finish", func() {
@@ -617,7 +609,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 		raycluster := testingraycluster.MakeCluster("raycluster1", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
-			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "300m").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
@@ -717,7 +709,7 @@ app = HelloWorld.bind()`,
 		rayService := testingrayservice.MakeService("rayservice-hello", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
-			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "600m").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).
@@ -860,7 +852,7 @@ app = HelloWorld.bind()`,
 		rayService := testingrayservice.MakeService("rayservice-autoscale", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
-			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "400m").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).

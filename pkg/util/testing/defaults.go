@@ -38,9 +38,10 @@ func MakeNamespaceWithGenerateName(prefix string) *corev1.Namespace {
 }
 
 // TestRayVersion retrieves the Ray version from the "RAY_VERSION" environment variable.
-// If the environment variable is not set, it returns the default Ray version ("2.41.0").
+// If the environment variable is not set, it returns the default Ray version ("2.53.0").
+// Keep in sync with RAY_VERSION in Makefile.
 func TestRayVersion() string {
-	const defaultVersion = "2.41.0" // Default Ray version
+	const defaultVersion = "2.53.0" // Default Ray version
 	ver, found := os.LookupEnv("RAY_VERSION")
 	if found {
 		return ver
