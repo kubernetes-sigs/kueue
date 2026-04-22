@@ -253,6 +253,7 @@ GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequenti
 
 # Run only spark tests (Extended)
 GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
+```
 
 ### Use Ginkgo --focus arg
 ```shell
