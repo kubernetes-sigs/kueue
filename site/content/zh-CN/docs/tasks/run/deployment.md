@@ -39,7 +39,7 @@ description: >
    
    对于 Kueue v0.14 及更早版本，必须显式启用 `"pod"` 集成。
    
-   有关配置详情，请参阅运行普通 Pod。
+   有关配置详情，请参阅[运行普通 Pod](/docs/tasks/run/plain_pods/#before-you-begin)。
    {{% /alert %}}
 
 3. 查看[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
@@ -90,6 +90,7 @@ metadata:
 {{< include "examples/serving-workloads/sample-deployment.yaml" "yaml" >}}
 
 您可以使用以下命令创建 Deployment：
+
 ```sh
-kubectl create -f sample-deployment.yaml
+kubectl create -f https://kueue.sigs.k8s.io/examples/serving-workloads/sample-deployment.yaml
 ```
