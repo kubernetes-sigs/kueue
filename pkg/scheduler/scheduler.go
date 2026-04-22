@@ -299,12 +299,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		mode := e.assignment.RepresentativeMode()
 
 		if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
-			// evict workload we couldn't find the replacement for
-			if err := s.evictWorkloadAfterFailedTASReplacement(ctx, log, e.Obj.DeepCopy()); client.IgnoreNotFound(err) != nil {
-				log.V(2).Error(err, "Failed to evict workload")
-				continue
-			}
-			e.status = evicted
+			s.handleFailedTASReplacement(ctx, log, e)
 			continue
 		}
 
@@ -313,30 +308,8 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			continue
 		}
 
-		if mode == flavorassigner.Preempt {
-			if len(e.preemptionTargets) == 0 {
-				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
-				// we reserve capacity if we are uncertain
-				// whether we can reclaim the capacity
-				// later. Otherwise, we allow other workloads
-				// in the Cohort to borrow this capacity,
-				// confident we can reclaim it later.
-				if !preemption.CanAlwaysReclaim(cq) {
-					// reserve capacity up to the
-					// borrowing limit, so that
-					// lower-priority workloads in another
-					// Cohort cannot admit before us.
-					cq.AddUsage(resourcesToReserve(e, cq))
-				}
-				continue
-			}
-
-			if features.Enabled(features.MultiKueueOrchestratedPreemption) && workload.HasClosedPreemptionGate(e.Obj) {
-				gatedMsg := "Workload requires preemption, but it's gated"
-				log.V(3).Info(gatedMsg)
-				setPreemptionGated(e, gatedMsg)
-				continue
-			}
+		if mode == flavorassigner.Preempt && !s.checkPreemptPreconditions(log, e, cq) {
+			continue
 		}
 
 		// We skip multiple-preemptions per cohort if any of the targets are overlapping
@@ -406,6 +379,42 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		return wait.SlowDown
 	}
 	return wait.KeepGoing
+}
+
+func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry) {
+	if err := s.evictWorkloadAfterFailedTASReplacement(ctx, log, e.Obj.DeepCopy()); client.IgnoreNotFound(err) != nil {
+		log.V(2).Error(err, "Failed to evict workload")
+		return
+	}
+	e.status = evicted
+}
+
+// checkPreemptPreconditions handles the two early-exit cases for an entry whose
+// representative mode is Preempt: no candidate targets (optionally reserving
+// capacity), and a closed MultiKueue preemption gate. Returns false when the
+// caller should stop processing this entry.
+func (s *Scheduler) checkPreemptPreconditions(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot) bool {
+	if len(e.preemptionTargets) == 0 {
+		log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
+		// We reserve capacity if we are uncertain whether we can reclaim
+		// the capacity later. Otherwise, we allow other workloads in the
+		// Cohort to borrow this capacity, confident we can reclaim it later.
+		if !preemption.CanAlwaysReclaim(cq) {
+			// Reserve capacity up to the borrowing limit, so that
+			// lower-priority workloads in another Cohort cannot admit
+			// before us.
+			cq.AddUsage(resourcesToReserve(e, cq))
+		}
+		return false
+	}
+
+	if features.Enabled(features.MultiKueueOrchestratedPreemption) && workload.HasClosedPreemptionGate(e.Obj) {
+		gatedMsg := "Workload requires preemption, but it's gated"
+		log.V(3).Info(gatedMsg)
+		setPreemptionGated(e, gatedMsg)
+		return false
+	}
+	return true
 }
 
 func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *entry, preemptionTargets []*preemption.Target) {
