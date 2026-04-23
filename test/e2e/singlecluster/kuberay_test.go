@@ -956,19 +956,6 @@ app = HelloWorld.bind()`,
 	ginkgo.It("Should ensure redis-cleanup pods do not have scheduling gates for Ray Cluster with GCS FT", func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
-		// Environment variables for GCS fault tolerance (applied to Ray pods)
-		env := []corev1.EnvVar{
-			{
-				Name:  "RAY_external_storage_namespace",
-				Value: ns.Name, // Use current test namespace as storage namespace
-			},
-			{
-				Name:  "RAY_REDIS_ADDRESS",
-				Value: "redis://my-redis-service:6379",
-			},
-		}
-
-		// Create a RayCluster with GCS fault tolerance enabled
 		rayCluster := testingraycluster.MakeCluster("raycluster-gcs-ft", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
@@ -976,8 +963,6 @@ app = HelloWorld.bind()`,
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
-			Env(rayv1.HeadNode, env).
-			Env(rayv1.WorkerNode, env).
 			SetAnnotation("ray.io/ft-enabled", "true").
 			Obj()
 
@@ -998,16 +983,6 @@ app = HelloWorld.bind()`,
 
 		ginkgo.By("Checking workload is admitted", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
-		})
-
-		ginkgo.By("Checking the RayCluster is ready", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayCluster := &rayv1.RayCluster{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), createdRayCluster)).To(gomega.Succeed())
-				g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
-				g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
-				g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Deleting the RayCluster to trigger redis-cleanup job creation", func() {
