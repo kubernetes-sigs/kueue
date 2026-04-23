@@ -128,6 +128,32 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 	return bestMatchCond, bestMatchRemote
 }
 
+// finishedRemotePastAdmittedTime returns the execution time to copy to the manager workload.
+// It includes the time already accumulated by the remote workload and, when the remote
+// workload is still admitted, the current interval from its Admitted condition to its
+// Finished condition. It returns nil when the inputs are missing or the remote workload
+// has no accumulated time and no admitted interval to derive from.
+func finishedRemotePastAdmittedTime(remoteWl *kueue.Workload, remoteFinishedCond *metav1.Condition) *int32 {
+	if remoteWl == nil || remoteFinishedCond == nil {
+		return nil
+	}
+
+	pastAdmittedTime := ptr.Deref(remoteWl.Status.AccumulatedPastExecutionTimeSeconds, 0)
+	hasPastAdmittedTime := remoteWl.Status.AccumulatedPastExecutionTimeSeconds != nil
+
+	if remoteAdmittedCond := apimeta.FindStatusCondition(remoteWl.Status.Conditions, kueue.WorkloadAdmitted); remoteAdmittedCond != nil && remoteAdmittedCond.Status == metav1.ConditionTrue {
+		currentAdmittedTime := max(int32(0), int32(remoteFinishedCond.LastTransitionTime.Sub(remoteAdmittedCond.LastTransitionTime.Time).Seconds()))
+		pastAdmittedTime += currentAdmittedTime
+		hasPastAdmittedTime = true
+	}
+
+	if !hasPastAdmittedTime {
+		return nil
+	}
+
+	return new(pastAdmittedTime)
+}
+
 // RemoveRemoteObjects deletes the remote controller object and workload for a cluster.
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
@@ -363,6 +389,18 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		} else {
 			log.V(3).Info("Group with no adapter, skip owner status copy", "workerCluster", remote)
+		}
+
+		if remotePastAdmittedTime := finishedRemotePastAdmittedTime(group.remotes[remote], remoteFinishedCond); remotePastAdmittedTime != nil {
+			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+				if wl.Status.AccumulatedPastExecutionTimeSeconds != nil && *wl.Status.AccumulatedPastExecutionTimeSeconds == *remotePastAdmittedTime {
+					return false, nil
+				}
+				wl.Status.AccumulatedPastExecutionTimeSeconds = new(*remotePastAdmittedTime)
+				return true, nil
+			}); err != nil {
+				return reconcile.Result{}, err
+			}
 		}
 
 		// finish workload and copy the status to the local one

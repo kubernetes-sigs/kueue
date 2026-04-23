@@ -228,6 +228,18 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("waiting until the worker workload has admitted time to report", func() {
+			util.ExpectWorkloadsToBeAdmittedByKeys(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey)
+			gomega.Eventually(func(g gomega.Gomega) {
+				workerWl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
+				admittedCond := apimeta.FindStatusCondition(workerWl.Status.Conditions, kueue.WorkloadAdmitted)
+				g.Expect(admittedCond).NotTo(gomega.BeNil())
+				g.Expect(admittedCond.Status).To(gomega.Equal(metav1.ConditionTrue))
+				g.Expect(time.Since(admittedCond.LastTransitionTime.Time)).To(gomega.BeNumerically(">=", time.Second))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("finishing the worker job", func() {
 			reachedPodsReason := "Reached expected number of succeeded pods"
 			finishJobReason := "Job finished successfully"
@@ -261,6 +273,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerWl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				g.Expect(managerWl.Status.AccumulatedPastExecutionTimeSeconds).NotTo(gomega.BeNil())
+				g.Expect(*managerWl.Status.AccumulatedPastExecutionTimeSeconds).To(gomega.BeNumerically(">", 0))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			// Assert job complete condition.
 			localJob := &batchv1.Job{}
