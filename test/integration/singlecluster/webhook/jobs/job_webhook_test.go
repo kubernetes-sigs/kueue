@@ -78,7 +78,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 		createdJob := &batchv1.Job{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 		createdJob := &batchv1.Job{}
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 		createdJob.Labels = map[string]string{constants.QueueLabel: "queue"}
-		createdJob.Spec.Suspend = ptr.To(false)
+		createdJob.Spec.Suspend = new(false)
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 	})
 })
@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		createdJob := &batchv1.Job{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -143,7 +143,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		createdJob := &batchv1.Job{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -156,7 +156,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 		createdJob.Labels[constants.QueueLabel] = "queue2"
-		createdJob.Spec.Suspend = ptr.To(false)
+		createdJob.Spec.Suspend = new(false)
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 	})
 
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 		createdJob.Spec.Parallelism = ptr.To[int32](4)
-		createdJob.Spec.Suspend = ptr.To(false)
+		createdJob.Spec.Suspend = new(false)
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 	})
 
@@ -195,7 +195,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 		createdJob.Spec.Parallelism = ptr.To[int32](3)
-		createdJob.Spec.Suspend = ptr.To(false)
+		createdJob.Spec.Suspend = new(false)
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 	})
 

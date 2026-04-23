@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -352,7 +351,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 								{
 									Name:           corev1.ResourceCPU,
 									NominalQuota:   resource.MustParse("1"),
-									BorrowingLimit: ptr.To(resource.MustParse("2")),
+									BorrowingLimit: new(resource.MustParse("2")),
 								},
 							},
 						},
@@ -412,7 +411,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
-				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].BorrowingLimit = ptr.To(resource.MustParse("1"))
+				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].BorrowingLimit = new(resource.MustParse("1"))
 				ret.Status.FlavorsReservation[0].Resources[0].Total = resource.MustParse("3")
 				return ret
 			}(),

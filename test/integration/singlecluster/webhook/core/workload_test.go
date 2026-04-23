@@ -1340,7 +1340,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 				},
 				func(wl *kueue.Workload) {
 					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker2")
+					wl.Status.ClusterName = new("worker2")
 				},
 				gomega.Succeed(),
 				gomega.Succeed(),
@@ -1352,7 +1352,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 				},
 				func(wl *kueue.Workload) {
 					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker3")
+					wl.Status.ClusterName = new("worker3")
 				},
 				gomega.Succeed(),
 				utiltesting.BeForbiddenError(),
@@ -1363,7 +1363,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 					wl.Status.ClusterName = nil
 				},
 				func(wl *kueue.Workload) {
-					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.ClusterName = new("worker1")
 					wl.Status.NominatedClusterNames = nil
 				},
 				gomega.Succeed(),
@@ -1372,7 +1372,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 			ginkgo.Entry("Invalid: ClusterName and NominatedClusters are mutually exclusive",
 				func(wl *kueue.Workload) {},
 				func(wl *kueue.Workload) {
-					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.ClusterName = new("worker1")
 					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
 				},
 				gomega.Succeed(),
@@ -1448,7 +1448,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 				},
 				func(wl *kueue.Workload) {
 					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker2")
+					wl.Status.ClusterName = new("worker2")
 				},
 				gomega.Succeed(),
 				gomega.Succeed(),
@@ -1460,7 +1460,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 				},
 				func(wl *kueue.Workload) {
 					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker3")
+					wl.Status.ClusterName = new("worker3")
 				},
 				gomega.Succeed(),
 				utiltesting.BeForbiddenError(),
@@ -1468,11 +1468,11 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 			ginkgo.Entry("Invalid: ClusterName is changed",
 				func(wl *kueue.Workload) {
 					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.ClusterName = new("worker1")
 				},
 				func(wl *kueue.Workload) {
 					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker2")
+					wl.Status.ClusterName = new("worker2")
 				},
 				utiltesting.BeForbiddenError(),
 				utiltesting.BeForbiddenError(),
@@ -1483,7 +1483,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 					wl.Status.ClusterName = nil
 				},
 				func(wl *kueue.Workload) {
-					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.ClusterName = new("worker1")
 					wl.Status.NominatedClusterNames = nil
 				},
 				gomega.Succeed(),
@@ -1492,7 +1492,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 			ginkgo.Entry("Invalid: ClusterName and NominatedClusters are mutually exclusive",
 				func(wl *kueue.Workload) {},
 				func(wl *kueue.Workload) {
-					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.ClusterName = new("worker1")
 					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
 				},
 				gomega.Succeed(),
@@ -1529,7 +1529,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 						Assignment(corev1.ResourceCPU, "default", "1").
 						Obj()).
 					Obj()
-				wl.Status.ClusterName = ptr.To("worker1")
+				wl.Status.ClusterName = new("worker1")
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -1578,7 +1578,7 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 						PodSetAssignments: []kueue.PodSetAssignment{
 							{
 								Name:               "ps1",
-								TopologyAssignment: ptr.To(tasAssignment),
+								TopologyAssignment: new(tasAssignment),
 							},
 						},
 					},
@@ -1596,16 +1596,16 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 					{
 						DomainCount: 3,
 						ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-							{Universal: ptr.To("block-1")},
+							{Universal: new("block-1")},
 							{
 								Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-									Prefix: ptr.To("rack-1-"),
+									Prefix: new("rack-1-"),
 									Roots:  []string{"1", "2", "3"},
 								},
 							},
 						},
 						PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-							Universal: ptr.To(int32(1)),
+							Universal: new(int32(1)),
 						},
 					},
 					{
@@ -1613,9 +1613,9 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 						ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 							{
 								Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-									Prefix: ptr.To("block"),
+									Prefix: new("block"),
 									Roots:  []string{"-", "-", "-", "-"},
-									Suffix: ptr.To("2"),
+									Suffix: new("2"),
 								},
 							},
 							{
@@ -1642,11 +1642,11 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 					{
 						DomainCount: 1,
 						ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-							{Universal: ptr.To("block-2")},
+							{Universal: new("block-2")},
 							// error - missing rack
 						},
 						PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-							Universal: ptr.To(int32(1)),
+							Universal: new(int32(1)),
 						},
 					},
 					validSliceFor(twoLevels, 3),
@@ -1662,8 +1662,8 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 					{
 						DomainCount: 3,
 						ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-							{Universal: ptr.To("block-2")},
-							{Universal: ptr.To("rack-2")},
+							{Universal: new("block-2")},
+							{Universal: new("rack-2")},
 						},
 						PodCounts: kueue.TopologyAssignmentSlicePodCounts{
 							Individual: []int32{10, 20},
@@ -1682,7 +1682,7 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 					{
 						DomainCount: 3,
 						ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-							{Universal: ptr.To("block-2")},
+							{Universal: new("block-2")},
 							{
 								Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
 									Roots: []string{"rack2-1", "rack2-2"},
@@ -1741,7 +1741,7 @@ var _ = ginkgo.Describe("Workload v1beta1 CEL validation", ginkgo.Ordered, func(
 				},
 				true,
 				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.Active = ptr.To(false)
+					newWL.Spec.Active = new(false)
 				},
 				gomega.Succeed(),
 			),
@@ -1751,7 +1751,7 @@ var _ = ginkgo.Describe("Workload v1beta1 CEL validation", ginkgo.Ordered, func(
 				},
 				false,
 				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.Active = ptr.To(false)
+					newWL.Spec.Active = new(false)
 				},
 				gomega.Succeed(),
 			),
@@ -1764,7 +1764,7 @@ var _ = ginkgo.Describe("Workload v1beta1 CEL validation", ginkgo.Ordered, func(
 				},
 				true,
 				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.Active = ptr.To(false)
+					newWL.Spec.Active = new(false)
 				},
 				gomega.Succeed(),
 			),
@@ -1803,7 +1803,7 @@ var _ = ginkgo.Describe("Workload v1beta1 CEL validation", ginkgo.Ordered, func(
 				},
 				true,
 				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.Active = ptr.To(false)
+					newWL.Spec.Active = new(false)
 				},
 				gomega.Succeed(),
 			),
@@ -1841,12 +1841,12 @@ func validSliceFor(levels []string, suffix int) kueue.TopologyAssignmentSlice {
 	res := kueue.TopologyAssignmentSlice{
 		DomainCount: int32(1),
 		PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-			Universal: ptr.To(int32(1)),
+			Universal: new(int32(1)),
 		},
 	}
 	for _, level := range levels {
 		res.ValuesPerLevel = append(res.ValuesPerLevel, kueue.TopologyAssignmentSliceLevelValues{
-			Universal: ptr.To(fmt.Sprintf("%s-%d", level, suffix)),
+			Universal: new(fmt.Sprintf("%s-%d", level, suffix)),
 		})
 	}
 	return res

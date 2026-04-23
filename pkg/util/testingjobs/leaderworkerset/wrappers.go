@@ -159,7 +159,7 @@ func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecAnnotation(k, v string) *Lead
 
 // Replicas sets the number of replicas of the LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) Replicas(n int32) *LeaderWorkerSetWrapper {
-	w.Spec.Replicas = ptr.To[int32](n)
+	w.Spec.Replicas = new(n)
 	return w
 }
 
@@ -171,7 +171,7 @@ func (w *LeaderWorkerSetWrapper) ReadyReplicas(n int32) *LeaderWorkerSetWrapper 
 
 // Size sets the size of the LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) Size(n int32) *LeaderWorkerSetWrapper {
-	w.Spec.LeaderWorkerTemplate.Size = ptr.To[int32](n)
+	w.Spec.LeaderWorkerTemplate.Size = new(n)
 	return w
 }
 

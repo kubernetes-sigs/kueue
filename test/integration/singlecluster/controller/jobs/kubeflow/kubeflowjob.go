@@ -332,7 +332,7 @@ func CreatePodSetAssignment(createdWorkload *kueue.Workload, podSetsResource []P
 			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: psr.ResourceCPU,
 			},
-			Count: ptr.To(createdWorkload.Spec.PodSets[i].Count),
+			Count: new(createdWorkload.Spec.PodSets[i].Count),
 		}
 	}
 	return pda

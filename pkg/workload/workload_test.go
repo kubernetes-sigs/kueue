@@ -2360,7 +2360,7 @@ func TestSetRequeueState(t *testing.T) {
 			waitUntil:      metav1.NewTime(futureTime),
 			incrementCount: false,
 			wantUpdated:    true,
-			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantRequeueAt:  new(metav1.NewTime(futureTime)),
 			wantCount:      nil,
 		},
 		"should initialize and set time and count when requeue state is nil with increment": {
@@ -2372,14 +2372,14 @@ func TestSetRequeueState(t *testing.T) {
 			waitUntil:      metav1.NewTime(futureTime),
 			incrementCount: true,
 			wantUpdated:    true,
-			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantRequeueAt:  new(metav1.NewTime(futureTime)),
 			wantCount:      ptr.To[int32](1),
 		},
 		"should update time when existing requeue time is earlier": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
-						RequeueAt: ptr.To(metav1.NewTime(pastTime)),
+						RequeueAt: new(metav1.NewTime(pastTime)),
 						Count:     ptr.To[int32](2),
 					},
 				},
@@ -2387,14 +2387,14 @@ func TestSetRequeueState(t *testing.T) {
 			waitUntil:      metav1.NewTime(futureTime),
 			incrementCount: false,
 			wantUpdated:    true,
-			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantRequeueAt:  new(metav1.NewTime(futureTime)),
 			wantCount:      ptr.To[int32](2),
 		},
 		"should not update time when existing requeue time is later": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
-						RequeueAt: ptr.To(metav1.NewTime(evenMoreFutureTime)),
+						RequeueAt: new(metav1.NewTime(evenMoreFutureTime)),
 						Count:     ptr.To[int32](3),
 					},
 				},
@@ -2402,14 +2402,14 @@ func TestSetRequeueState(t *testing.T) {
 			waitUntil:      metav1.NewTime(futureTime),
 			incrementCount: false,
 			wantUpdated:    false,
-			wantRequeueAt:  ptr.To(metav1.NewTime(evenMoreFutureTime)),
+			wantRequeueAt:  new(metav1.NewTime(evenMoreFutureTime)),
 			wantCount:      ptr.To[int32](3),
 		},
 		"should increment count but keep later requeue time": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
-						RequeueAt: ptr.To(metav1.NewTime(evenMoreFutureTime)),
+						RequeueAt: new(metav1.NewTime(evenMoreFutureTime)),
 						Count:     ptr.To[int32](3),
 					},
 				},
@@ -2417,14 +2417,14 @@ func TestSetRequeueState(t *testing.T) {
 			waitUntil:      metav1.NewTime(futureTime),
 			incrementCount: true,
 			wantUpdated:    true,
-			wantRequeueAt:  ptr.To(metav1.NewTime(evenMoreFutureTime)),
+			wantRequeueAt:  new(metav1.NewTime(evenMoreFutureTime)),
 			wantCount:      ptr.To[int32](4),
 		},
 		"should increment count when requeue time is same": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
-						RequeueAt: ptr.To(metav1.NewTime(futureTime)),
+						RequeueAt: new(metav1.NewTime(futureTime)),
 						Count:     ptr.To[int32](1),
 					},
 				},
@@ -2432,14 +2432,14 @@ func TestSetRequeueState(t *testing.T) {
 			waitUntil:      metav1.NewTime(futureTime),
 			incrementCount: true,
 			wantUpdated:    true,
-			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantRequeueAt:  new(metav1.NewTime(futureTime)),
 			wantCount:      ptr.To[int32](2),
 		},
 		"should increment from zero count": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
-						RequeueAt: ptr.To(metav1.NewTime(pastTime)),
+						RequeueAt: new(metav1.NewTime(pastTime)),
 						Count:     ptr.To[int32](0),
 					},
 				},
@@ -2447,14 +2447,14 @@ func TestSetRequeueState(t *testing.T) {
 			waitUntil:      metav1.NewTime(futureTime),
 			incrementCount: true,
 			wantUpdated:    true,
-			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantRequeueAt:  new(metav1.NewTime(futureTime)),
 			wantCount:      ptr.To[int32](1),
 		},
 		"should handle zero time in requeue state": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
-						RequeueAt: ptr.To(metav1.NewTime(time.Time{})),
+						RequeueAt: new(metav1.NewTime(time.Time{})),
 						Count:     ptr.To[int32](0),
 					},
 				},
@@ -2462,7 +2462,7 @@ func TestSetRequeueState(t *testing.T) {
 			waitUntil:      metav1.NewTime(futureTime),
 			incrementCount: true,
 			wantUpdated:    true,
-			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantRequeueAt:  new(metav1.NewTime(futureTime)),
 			wantCount:      ptr.To[int32](1),
 		},
 	}
@@ -2806,7 +2806,7 @@ func TestUsedNodes(t *testing.T) {
 										{
 											DomainCount: 1,
 											ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-												{Universal: ptr.To("zone-1")},
+												{Universal: new("zone-1")},
 												{Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
 													Roots: []string{"node-1"},
 												}},
@@ -2837,7 +2837,7 @@ func TestUsedNodes(t *testing.T) {
 										{
 											DomainCount: 1,
 											ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-												{Universal: ptr.To("zone-1")},
+												{Universal: new("zone-1")},
 												{Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
 													Roots: []string{"node-1"},
 												}},
@@ -2879,7 +2879,7 @@ func TestUsedNodes(t *testing.T) {
 										{
 											DomainCount: 2,
 											ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-												{Universal: ptr.To("zone-1")},
+												{Universal: new("zone-1")},
 												{Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
 													Roots: []string{"node-1", "node-2"},
 												}},
@@ -2910,7 +2910,7 @@ func TestUsedNodes(t *testing.T) {
 										{
 											DomainCount: 1,
 											ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-												{Universal: ptr.To("zone-1")},
+												{Universal: new("zone-1")},
 												{Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
 													Roots: []string{"node-1"},
 												}},
@@ -2929,7 +2929,7 @@ func TestUsedNodes(t *testing.T) {
 										{
 											DomainCount: 2,
 											ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-												{Universal: ptr.To("zone-1")},
+												{Universal: new("zone-1")},
 												{Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
 													Roots: []string{"node-1", "node-2"},
 												}},
@@ -2960,7 +2960,7 @@ func TestUsedNodes(t *testing.T) {
 										{
 											DomainCount: 1,
 											ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-												{Universal: ptr.To("zone-1")},
+												{Universal: new("zone-1")},
 												{Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
 													Roots: []string{"node-1"},
 												}},
@@ -2994,8 +2994,8 @@ func TestUsedNodes(t *testing.T) {
 										{
 											DomainCount: 1,
 											ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-												{Universal: ptr.To("zone-1")},
-												{Universal: ptr.To("rack-1")},
+												{Universal: new("zone-1")},
+												{Universal: new("rack-1")},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
 												Universal: ptr.To[int32](1),

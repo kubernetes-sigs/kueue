@@ -67,13 +67,13 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 
 	ginkgo.It("should delete the Workload after enabling the ObjectRetentionPolicies feature gate", func() {
 		waitForPodsReady := &configapi.WaitForPodsReady{
-			BlockAdmission:  ptr.To(true),
+			BlockAdmission:  new(true),
 			Timeout:         metav1.Duration{Duration: util.TinyTimeout},
 			RecoveryTimeout: nil,
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
-				BackoffBaseSeconds: ptr.To(int32(1)),
-				BackoffLimitCount:  ptr.To(int32(1)),
+				BackoffBaseSeconds: new(int32(1)),
+				BackoffLimitCount:  new(int32(1)),
 			},
 		}
 
@@ -101,7 +101,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 		ginkgo.By("Waiting for the Workload to be deactivated", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-				g.Expect(wl.Spec.Active).To(gomega.Equal(ptr.To(false)))
+				g.Expect(wl.Spec.Active).To(gomega.Equal(new(false)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -281,13 +281,13 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 				},
 			}
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
-				BlockAdmission:  ptr.To(true),
+				BlockAdmission:  new(true),
 				Timeout:         metav1.Duration{Duration: util.TinyTimeout},
 				RecoveryTimeout: nil,
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          ptr.To(configapi.EvictionTimestamp),
-					BackoffBaseSeconds: ptr.To(int32(1)),
-					BackoffLimitCount:  ptr.To(int32(1)),
+					BackoffBaseSeconds: new(int32(1)),
+					BackoffLimitCount:  new(int32(1)),
 				},
 			}
 		})

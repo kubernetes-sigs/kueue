@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 					g.Expect(*job.Spec.Suspend).To(gomega.BeFalse())
 					g.Expect(job.Status.Active).To(gomega.Equal(int32(1)))
-					g.Expect(job.Status.Ready).To(gomega.Equal(ptr.To(int32(1))))
+					g.Expect(job.Status.Ready).To(gomega.Equal(new(int32(1))))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

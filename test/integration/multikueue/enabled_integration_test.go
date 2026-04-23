@@ -30,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -183,8 +182,8 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 					},
 				)
 				createdJob.Status.Succeeded = 1
-				createdJob.Status.StartTime = ptr.To(now)
-				createdJob.Status.CompletionTime = ptr.To(now)
+				createdJob.Status.StartTime = new(now)
+				createdJob.Status.CompletionTime = new(now)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

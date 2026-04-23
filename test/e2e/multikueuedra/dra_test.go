@@ -434,7 +434,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				g.Expect(workerWl.Status.Admission).NotTo(gomega.BeNil())
 
 				assignment := workerWl.Status.Admission.PodSetAssignments[0]
-				g.Expect(assignment.Count).To(gomega.Equal(ptr.To(int32(2))))
+				g.Expect(assignment.Count).To(gomega.Equal(new(int32(2))))
 				g.Expect(assignment.ResourceUsage["gpu"]).To(gomega.Equal(resource.MustParse("2")))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 

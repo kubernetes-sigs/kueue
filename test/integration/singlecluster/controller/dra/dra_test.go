@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{Name: "device", ResourceClaimName: ptr.To("test-rc")},
+				{Name: "device", ResourceClaimName: new("test-rc")},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
 				{Name: "device"},
@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{Name: "device", ResourceClaimName: ptr.To("test-rc-large")},
+				{Name: "device", ResourceClaimName: new("test-rc-large")},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
 				{Name: "device"},
@@ -183,7 +183,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl1.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("quota-template-1"),
+					ResourceClaimTemplateName: new("quota-template-1"),
 				},
 			}
 			wl1.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -198,7 +198,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl2.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("quota-template-2"),
+					ResourceClaimTemplateName: new("quota-template-2"),
 				},
 			}
 			wl2.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -250,7 +250,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("device-template"),
+					ResourceClaimTemplateName: new("device-template"),
 				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -291,7 +291,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl1.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("device-template-1"),
+					ResourceClaimTemplateName: new("device-template-1"),
 				},
 			}
 			wl1.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -306,7 +306,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl2.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("device-template-2"),
+					ResourceClaimTemplateName: new("device-template-2"),
 				},
 			}
 			wl2.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -358,7 +358,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("device-template-large"),
+					ResourceClaimTemplateName: new("device-template-large"),
 				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -388,7 +388,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("unmapped-template"),
+					ResourceClaimTemplateName: new("unmapped-template"),
 				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -459,7 +459,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("multi-pod-template"),
+					ResourceClaimTemplateName: new("multi-pod-template"),
 				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -477,7 +477,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 
-				g.Expect(assignment.Count).To(gomega.Equal(ptr.To(int32(3))))
+				g.Expect(assignment.Count).To(gomega.Equal(new(int32(3))))
 
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("foo")))
 				g.Expect(assignment.ResourceUsage["foo"]).To(gomega.Equal(resource.MustParse("3")))
@@ -505,7 +505,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("all-mode-template"),
+					ResourceClaimTemplateName: new("all-mode-template"),
 				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -543,7 +543,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("cel-selector-template"),
+					ResourceClaimTemplateName: new("cel-selector-template"),
 				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -582,7 +582,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("constraint-template"),
+					ResourceClaimTemplateName: new("constraint-template"),
 				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -629,7 +629,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("admin-access-template"),
+					ResourceClaimTemplateName: new("admin-access-template"),
 				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -667,7 +667,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("device-config-template"),
+					ResourceClaimTemplateName: new("device-config-template"),
 				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -704,7 +704,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("first-available-template"),
+					ResourceClaimTemplateName: new("first-available-template"),
 				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
@@ -743,7 +743,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("empty-mode-template"),
+					ResourceClaimTemplateName: new("empty-mode-template"),
 				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{

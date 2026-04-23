@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -88,11 +87,11 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissio
 
 			lqA = utiltestingapi.MakeLocalQueue("lq-a", ns.Name).
 				ClusterQueue(cq.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				Obj()
 			lqB = utiltestingapi.MakeLocalQueue("lq-b", ns.Name).
 				ClusterQueue(cq.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqA, lqB)
 		})
@@ -165,7 +164,7 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissio
 			ginkgo.By("Verifying lq-a job3 remains pending", func() {
 				var job batchv1.Job
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job3), &job)).Should(gomega.Succeed())
-				gomega.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+				gomega.Expect(job.Spec.Suspend).Should(gomega.Equal(new(true)))
 			})
 		})
 	})
@@ -207,11 +206,11 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissio
 
 			lq1A = utiltestingapi.MakeLocalQueue("lq1-a", ns.Name).
 				ClusterQueue(cq1.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				Obj()
 			lq2A = utiltestingapi.MakeLocalQueue("lq2-a", ns.Name).
 				ClusterQueue(cq2.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq1A, lq2A)
 		})

@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 				Obj()
 			testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
 			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
-				APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
+				APIGroup: new(kftrainerapi.GroupVersion.Group),
 				Name:     "test",
 				Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 			}).
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 				Obj()
 			testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
 			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
-				APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
+				APIGroup: new(kftrainerapi.GroupVersion.Group),
 				Name:     "test",
 				Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 			}).

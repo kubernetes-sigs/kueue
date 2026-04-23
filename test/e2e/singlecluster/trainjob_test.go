@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 			ginkgo.By("Waiting for the trainjob to be unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
-					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(false)))
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 			ginkgo.By("Waiting for the trainjob to be unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
-					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(false)))
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -208,7 +208,7 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 			ginkgo.By("Waiting for the TrainJob to be suspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
-					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(true)))
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(new(true)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("JobSet", ginkgo.Label("area:singlecluster", "feature:jo
 				jobKey := client.ObjectKeyFromObject(jobSet)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, jobSet)).To(gomega.Succeed())
-					g.Expect(jobSet.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(false)))
+					g.Expect(jobSet.Spec.Suspend).Should(gomega.BeEquivalentTo(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -205,7 +205,7 @@ var _ = ginkgo.Describe("JobSet", ginkgo.Label("area:singlecluster", "feature:jo
 				jobKey := client.ObjectKeyFromObject(jobSet)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, jobSet)).To(gomega.Succeed())
-					g.Expect(jobSet.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(true)))
+					g.Expect(jobSet.Spec.Suspend).Should(gomega.BeEquivalentTo(new(true)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

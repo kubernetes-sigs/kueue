@@ -469,8 +469,8 @@ func TestReconcile(t *testing.T) {
 				features.DynamicResourceAllocation:        true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
-			wantDRAResourceTotal: ptr.To(int64(1)),
-			wantWorkloadsInQueue: ptr.To(1),
+			wantDRAResourceTotal: new(int64(1)),
+			wantWorkloadsInQueue: new(1),
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -507,8 +507,8 @@ func TestReconcile(t *testing.T) {
 				features.DynamicResourceAllocation:        true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
-			wantDRAResourceTotal: ptr.To(int64(6)),
-			wantWorkloadsInQueue: ptr.To(1),
+			wantDRAResourceTotal: new(int64(6)),
+			wantWorkloadsInQueue: new(1),
 			workload: utiltestingapi.MakeWorkload("wlMultiPodDRA", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
@@ -582,7 +582,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj()
 				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
-					Name: "gpu", ResourceClaimTemplateName: ptr.To("gpu-template"),
+					Name: "gpu", ResourceClaimTemplateName: new("gpu-template"),
 				}}
 				if len(wl.Spec.PodSets[0].Template.Spec.Containers) > 0 {
 					wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{{Name: "gpu"}}
@@ -949,7 +949,7 @@ func TestReconcile(t *testing.T) {
 						Name:       "check-2",
 						State:      kueue.CheckStatePending,
 						Message:    "Reset to Pending after eviction. Previously: Retry",
-						RetryCount: ptr.To(int32(1)),
+						RetryCount: new(int32(1)),
 					},
 				).
 				Conditions(
@@ -990,7 +990,7 @@ func TestReconcile(t *testing.T) {
 						Name:       "check-2",
 						State:      kueue.CheckStatePending,
 						Message:    "Reset to Pending after eviction. Previously: Retry",
-						RetryCount: ptr.To(int32(1)),
+						RetryCount: new(int32(1)),
 					},
 				).
 				Conditions(
@@ -1037,7 +1037,7 @@ func TestReconcile(t *testing.T) {
 					Name:       "check-1",
 					State:      kueue.CheckStatePending,
 					Message:    "Reset to Pending after eviction. Previously: Retry",
-					RetryCount: ptr.To(int32(1)),
+					RetryCount: new(int32(1)),
 				}, kueue.AdmissionCheckState{
 					Name:    "check-2",
 					State:   kueue.CheckStatePending,
@@ -1093,7 +1093,7 @@ func TestReconcile(t *testing.T) {
 					Name:       "check-1",
 					State:      kueue.CheckStatePending,
 					Message:    "Reset to Pending after eviction. Previously: Retry",
-					RetryCount: ptr.To(int32(1)),
+					RetryCount: new(int32(1)),
 				}, kueue.AdmissionCheckState{
 					Name:    "check-2",
 					State:   kueue.CheckStatePending,
@@ -1128,7 +1128,7 @@ func TestReconcile(t *testing.T) {
 					Name:       "check-1",
 					State:      kueue.CheckStatePending,
 					Message:    "Reset to Pending after eviction. Previously: Retry",
-					RetryCount: ptr.To(int32(1)),
+					RetryCount: new(int32(1)),
 				}, kueue.AdmissionCheckState{
 					Name:    "check-2",
 					State:   kueue.CheckStatePending,
@@ -1188,7 +1188,7 @@ func TestReconcile(t *testing.T) {
 					Name:       "check-1",
 					State:      kueue.CheckStatePending,
 					Message:    "Reset to Pending after eviction. Previously: Retry",
-					RetryCount: ptr.To(int32(1)),
+					RetryCount: new(int32(1)),
 				}, kueue.AdmissionCheckState{
 					Name:    "check-2",
 					State:   kueue.CheckStatePending,
@@ -1197,7 +1197,7 @@ func TestReconcile(t *testing.T) {
 					Name:       "check-3",
 					State:      kueue.CheckStatePending,
 					Message:    "Reset to Pending after eviction. Previously: Retry",
-					RetryCount: ptr.To(int32(1)),
+					RetryCount: new(int32(1)),
 				}).
 				Condition(metav1.Condition{
 					Type:    "Evicted",
@@ -1279,7 +1279,7 @@ func TestReconcile(t *testing.T) {
 					ObservedGeneration: 1,
 				}).
 				// 10s * 2^(4-1) = 80s
-				RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(now.Add(80*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](4), new(metav1.NewTime(now.Add(80*time.Second).Truncate(time.Second)))).
 				// check EvictionState mergeStrategy
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
@@ -1327,7 +1327,7 @@ func TestReconcile(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				AdmittedAt(true, now).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(-1*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(-1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
@@ -1342,7 +1342,7 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadRequeuingLimitExceeded,
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(1*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
 		},
 		"wait time should be limited to backoffMaxSeconds": {
@@ -1370,7 +1370,7 @@ func TestReconcile(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				AdmittedAt(true, now).
-				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(now.Add(-1*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](10), new(metav1.NewTime(now.Add(-1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
@@ -1389,7 +1389,7 @@ func TestReconcile(t *testing.T) {
 					ObservedGeneration: 1,
 				}).
 				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
-				RequeueState(ptr.To[int32](11), ptr.To(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](11), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -1465,7 +1465,7 @@ func TestReconcile(t *testing.T) {
 					Message:            "At least one pod has failed, waiting for recovery",
 				}).
 				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -1543,7 +1543,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				AdmittedAt(true, now).
 				UnhealthyNodes("xyz").
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -1576,7 +1576,7 @@ func TestReconcile(t *testing.T) {
 					Message:            "At least one pod has failed, waiting for recovery",
 				}).
 				AdmittedAt(true, now).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -1623,7 +1623,7 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 					Message: "Exceeded the PodsReady timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -1633,7 +1633,7 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 					Message: "Exceeded the PodsReady timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantResult: reconcile.Result{RequeueAfter: time.Minute},
 		},
@@ -1666,7 +1666,7 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
 					Message: "Exceeded the AdmissionCheck timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -1676,7 +1676,7 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
 					Message: "Exceeded the AdmissionCheck timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantResult: reconcile.Result{RequeueAfter: time.Minute},
 		},
@@ -1715,7 +1715,7 @@ func TestReconcile(t *testing.T) {
 					Reason:  "JobFinished",
 					Message: "Job finished successfully",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -1731,7 +1731,7 @@ func TestReconcile(t *testing.T) {
 					Reason:  "JobFinished",
 					Message: "Job finished successfully",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Truncate(time.Second)))).
 				Obj(),
 		},
 		"should set the WorkloadRequeued condition to true on ClusterQueue started": {
@@ -2744,29 +2744,29 @@ func TestReconcile(t *testing.T) {
 		},
 		"should update requeueState.requeueAt when admission check sets a delay": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(nil, ptr.To(metav1.NewTime(now.Add(5*time.Second)))).
+				RequeueState(nil, new(metav1.NewTime(now.Add(5*time.Second)))).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(10)),
+					RequeueAfterSeconds: new(int32(10)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(nil, ptr.To(metav1.NewTime(now.Add(10*time.Second)))).
+				RequeueState(nil, new(metav1.NewTime(now.Add(10*time.Second)))).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(10)),
+					RequeueAfterSeconds: new(int32(10)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),
 			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(nil, ptr.To(metav1.NewTime(now.Add(10*time.Second)))).
+				RequeueState(nil, new(metav1.NewTime(now.Add(10*time.Second)))).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(10)),
+					RequeueAfterSeconds: new(int32(10)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),
@@ -2774,29 +2774,29 @@ func TestReconcile(t *testing.T) {
 		},
 		"should not update requeueState.requeueAt when admission check delay is smaller": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(nil, ptr.To(metav1.NewTime(now.Add(10*time.Second)))).
+				RequeueState(nil, new(metav1.NewTime(now.Add(10*time.Second)))).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(5)),
+					RequeueAfterSeconds: new(int32(5)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(nil, ptr.To(metav1.NewTime(now.Add(10*time.Second)))).
+				RequeueState(nil, new(metav1.NewTime(now.Add(10*time.Second)))).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(5)),
+					RequeueAfterSeconds: new(int32(5)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),
 			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(nil, ptr.To(metav1.NewTime(now.Add(10*time.Second)))).
+				RequeueState(nil, new(metav1.NewTime(now.Add(10*time.Second)))).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(5)),
+					RequeueAfterSeconds: new(int32(5)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),
@@ -2807,43 +2807,43 @@ func TestReconcile(t *testing.T) {
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(5)),
+					RequeueAfterSeconds: new(int32(5)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(7)),
+					RequeueAfterSeconds: new(int32(7)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(nil, ptr.To(metav1.NewTime(now.Add(10*time.Second)))).
+				RequeueState(nil, new(metav1.NewTime(now.Add(10*time.Second)))).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(5)),
+					RequeueAfterSeconds: new(int32(5)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(7)),
+					RequeueAfterSeconds: new(int32(7)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),
 			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(nil, ptr.To(metav1.NewTime(now.Add(10*time.Second)))).
+				RequeueState(nil, new(metav1.NewTime(now.Add(10*time.Second)))).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(5)),
+					RequeueAfterSeconds: new(int32(5)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(7)),
+					RequeueAfterSeconds: new(int32(7)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),
@@ -2854,43 +2854,43 @@ func TestReconcile(t *testing.T) {
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(5)),
+					RequeueAfterSeconds: new(int32(5)),
 					LastTransitionTime:  metav1.NewTime(now.Add(10 * time.Second)),
 				}).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(10)),
+					RequeueAfterSeconds: new(int32(10)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(nil, ptr.To(metav1.NewTime(now.Add(15*time.Second)))).
+				RequeueState(nil, new(metav1.NewTime(now.Add(15*time.Second)))).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(5)),
+					RequeueAfterSeconds: new(int32(5)),
 					LastTransitionTime:  metav1.NewTime(now.Add(10 * time.Second)),
 				}).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(10)),
+					RequeueAfterSeconds: new(int32(10)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),
 			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(nil, ptr.To(metav1.NewTime(now.Add(15*time.Second)))).
+				RequeueState(nil, new(metav1.NewTime(now.Add(15*time.Second)))).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(5)),
+					RequeueAfterSeconds: new(int32(5)),
 					LastTransitionTime:  metav1.NewTime(now.Add(10 * time.Second)),
 				}).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
-					RequeueAfterSeconds: ptr.To(int32(10)),
+					RequeueAfterSeconds: new(int32(10)),
 					LastTransitionTime:  metav1.NewTime(now),
 				}).
 				Obj(),

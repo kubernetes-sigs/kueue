@@ -145,7 +145,7 @@ func (a *Assignment) podSetAssignmentByName(psName kueue.PodSetReference) *PodSe
 func (a *Assignment) updateMode(psName kueue.PodSetReference, mode FlavorAssignmentMode) {
 	if psAssignment := a.podSetAssignmentByName(psName); psAssignment != nil {
 		psAssignment.updateMode(mode)
-		a.representativeMode = ptr.To(mode)
+		a.representativeMode = new(mode)
 	}
 }
 
@@ -337,7 +337,7 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 		Name:                   psa.Name,
 		Flavors:                flavors,
 		ResourceUsage:          resourceUsage,
-		Count:                  ptr.To(psa.Count),
+		Count:                  new(psa.Count),
 		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment),
 		DelayedTopologyRequest: psa.DelayedTopologyRequest,
 	}
@@ -625,7 +625,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				}
 			}
 			if podSet.DelayedTopologyRequest != nil {
-				psAssignment.DelayedTopologyRequest = ptr.To(*podSet.DelayedTopologyRequest)
+				psAssignment.DelayedTopologyRequest = new(*podSet.DelayedTopologyRequest)
 			}
 			if podSet.TopologyRequest != nil {
 				psAssignment.TopologyAssignment = tas.InternalFrom(a.wl.Obj.Status.Admission.PodSetAssignments[i].TopologyAssignment)

@@ -292,7 +292,7 @@ func (p *PodTemplateWrapper) RequiredDuringSchedulingIgnoredDuringExecution(node
 }
 
 func (p *PodTemplateWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *PodTemplateWrapper {
-	AppendOwnerReference(&p.PodTemplate, gvk, name, uid, ptr.To(true), ptr.To(true))
+	AppendOwnerReference(&p.PodTemplate, gvk, name, uid, new(true), new(true))
 	return p
 }
 
@@ -427,7 +427,7 @@ func (b *ResourceClaimSpecBuilder) WithAdminAccess(enabled bool) *ResourceClaimS
 	if len(b.spec.Devices.Requests) > 0 {
 		lastIdx := len(b.spec.Devices.Requests) - 1
 		if b.spec.Devices.Requests[lastIdx].Exactly != nil {
-			b.spec.Devices.Requests[lastIdx].Exactly.AdminAccess = ptr.To(enabled)
+			b.spec.Devices.Requests[lastIdx].Exactly.AdminAccess = new(enabled)
 		}
 	}
 	return b
@@ -437,7 +437,7 @@ func (b *ResourceClaimSpecBuilder) WithAdminAccess(enabled bool) *ResourceClaimS
 func (b *ResourceClaimSpecBuilder) WithDeviceConstraints(requestNames []string, matchAttribute string) *ResourceClaimSpecBuilder {
 	constraint := resourcev1.DeviceConstraint{
 		Requests:       requestNames,
-		MatchAttribute: ptr.To(resourcev1.FullyQualifiedName(matchAttribute)),
+		MatchAttribute: new(resourcev1.FullyQualifiedName(matchAttribute)),
 	}
 	b.spec.Devices.Constraints = append(b.spec.Devices.Constraints, constraint)
 	return b

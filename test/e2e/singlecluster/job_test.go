@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cronJob), cronJob)).To(gomega.Succeed())
 					nextSchedule := cronJob.CreationTimestamp.Add(-2 * time.Minute)
-					cronJob.Status.LastScheduleTime = ptr.To(metav1.Time{Time: nextSchedule})
+					cronJob.Status.LastScheduleTime = new(metav1.Time{Time: nextSchedule})
 					g.Expect(k8sClient.Status().Update(ctx, cronJob)).Should(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -761,7 +761,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				jobKey := client.ObjectKeyFromObject(sampleJob)
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
@@ -823,7 +823,7 @@ func expectJobUnsuspended(key types.NamespacedName) {
 	job := &batchv1.Job{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
-		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+		g.Expect(job.Spec.Suspend).Should(gomega.Equal(new(false)))
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 

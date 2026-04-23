@@ -130,9 +130,9 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 			createdWorkload := &kueue.Workload{}
 			ginkgo.By("creating a non suspended trainjob and its corresponding child jobset", func() {
 				trainJob = testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
-					APIGroup: ptr.To("trainer.kubeflow.org"),
+					APIGroup: new("trainer.kubeflow.org"),
 					Name:     "test",
-					Kind:     ptr.To("ClusterTrainingRuntime"),
+					Kind:     new("ClusterTrainingRuntime"),
 				}).
 					TrainerNumNodes(2).
 					Suspend(false).
@@ -206,9 +206,9 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 		ginkgo.It("A trainjob created in an unmanaged namespace is not suspended and a workload is not created", framework.SlowSpec, func() {
 			ginkgo.By("Creating an unsuspended trainjob without a queue-name in unmanaged-ns", func() {
 				trainJob := testingtrainjob.MakeTrainJob("trainjob-test", "unmanaged-ns").RuntimeRef(kftrainerapi.RuntimeRef{
-					APIGroup: ptr.To("trainer.kubeflow.org"),
+					APIGroup: new("trainer.kubeflow.org"),
 					Name:     "test",
-					Kind:     ptr.To("ClusterTrainingRuntime"),
+					Kind:     new("ClusterTrainingRuntime"),
 				}).
 					Suspend(false).
 					Obj()
@@ -228,9 +228,9 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 
 		ginkgo.It("Should finish the preemption when the trainjob becomes inactive", framework.SlowSpec, func() {
 			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
-				APIGroup: ptr.To("trainer.kubeflow.org"),
+				APIGroup: new("trainer.kubeflow.org"),
 				Name:     "test",
-				Kind:     ptr.To("ClusterTrainingRuntime"),
+				Kind:     new("ClusterTrainingRuntime"),
 			}).
 				Suspend(false).
 				Queue(localQueue.Name).
@@ -305,7 +305,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("mark the trainjob as inactive", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
-					trainJob.Status.JobsStatus[0].Active = ptr.To(int32(0))
+					trainJob.Status.JobsStatus[0].Active = new(int32(0))
 					g.Expect(k8sClient.Status().Update(ctx, trainJob)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -345,7 +345,7 @@ var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with q
 			Obj()
 		testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
-			APIGroup: ptr.To("trainer.kubeflow.org"),
+			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "test",
 			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 		}).
@@ -372,7 +372,7 @@ var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with q
 		} else {
 			createdTrainJob.Labels[constants.QueueLabel] = jobQueueName
 		}
-		createdTrainJob.Spec.Suspend = ptr.To(true)
+		createdTrainJob.Spec.Suspend = new(true)
 		gomega.Expect(k8sClient.Update(ctx, createdTrainJob)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -444,7 +444,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 			Obj()
 		testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
-			APIGroup: ptr.To("trainer.kubeflow.org"),
+			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "test",
 			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 		}).
@@ -495,7 +495,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 			Obj()
 		testTr1 := testingtrainjob.MakeTrainingRuntime("tr-1", ns.Name, testJobset1.Spec)
 		trainJob1 := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
-			APIGroup: ptr.To("trainer.kubeflow.org"),
+			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "tr-1",
 			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 		}).
@@ -534,7 +534,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 
 		testTr2 := testingtrainjob.MakeTrainingRuntime("tr-2", ns.Name, testJobset2.Spec)
 		trainJob2 := testingtrainjob.MakeTrainJob("trainjob-test-2", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
-			APIGroup: ptr.To("trainer.kubeflow.org"),
+			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "tr-2",
 			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 		}).
@@ -683,7 +683,7 @@ var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", gink
 			Obj()
 		testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
-			APIGroup: ptr.To("trainer.kubeflow.org"),
+			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "test",
 			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 		}).

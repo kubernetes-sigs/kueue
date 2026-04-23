@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -127,7 +126,7 @@ func (ss *StatefulSetWrapper) UID(uid string) *StatefulSetWrapper {
 
 // OwnerReference adds a ownerReference to the StatefulSet.
 func (ss *StatefulSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *StatefulSetWrapper {
-	utiltesting.AppendOwnerReference(&ss.StatefulSet, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&ss.StatefulSet, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return ss
 }
 

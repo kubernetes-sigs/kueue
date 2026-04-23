@@ -98,7 +98,7 @@ func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
 		var retryCount *int32
 		if checks[i].State == kueue.CheckStateRetry {
 			tmpRetryCount := ptr.Deref(checks[i].RetryCount, 0) + 1
-			retryCount = ptr.To(tmpRetryCount)
+			retryCount = new(tmpRetryCount)
 		}
 		checks[i] = kueue.AdmissionCheckState{
 			Name:                checks[i].Name,
@@ -273,5 +273,5 @@ func UpdateAdmissionCheckRequeueState(acState *kueue.AdmissionCheckState, backof
 	backoff := wait.NewBackoff(time.Duration(backoffBaseSeconds)*time.Second, time.Duration(backoffMaxSeconds)*time.Second, 2, 0.0001)
 	waitDuration := backoff.WaitTime(int(requeuingCount))
 
-	acState.RequeueAfterSeconds = ptr.To(int32(waitDuration.Truncate(time.Second).Seconds()))
+	acState.RequeueAfterSeconds = new(int32(waitDuration.Truncate(time.Second).Seconds()))
 }

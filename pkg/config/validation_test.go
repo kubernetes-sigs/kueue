@@ -306,7 +306,7 @@ func TestValidate(t *testing.T) {
 					RecoveryTimeout: &metav1.Duration{
 						Duration: 3,
 					},
-					BlockAdmission: ptr.To(false),
+					BlockAdmission: new(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
 						BackoffLimitCount:  ptr.To[int32](10),
@@ -403,7 +403,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					Origin: ptr.To("=]"),
+					Origin: new("=]"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -420,7 +420,7 @@ func TestValidate(t *testing.T) {
 					GCInterval: &metav1.Duration{
 						Duration: time.Second,
 					},
-					Origin: ptr.To("valid"),
+					Origin: new("valid"),
 					WorkerLostTimeout: &metav1.Duration{
 						Duration: 2 * time.Second,
 					},
@@ -699,8 +699,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:            ptr.To(true),
-					WebhookSecretName: ptr.To(":)"),
+					Enable:            new(true),
+					WebhookSecretName: new(":)"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -714,8 +714,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
-					WebhookServiceName: ptr.To("0-invalid"),
+					Enable:             new(true),
+					WebhookServiceName: new("0-invalid"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -729,8 +729,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(false),
-					WebhookServiceName: ptr.To("0-invalid"),
+					Enable:             new(false),
+					WebhookServiceName: new("0-invalid"),
 				},
 			},
 		},
@@ -738,9 +738,9 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
-					WebhookServiceName: ptr.To("webhook-svc"),
-					WebhookSecretName:  ptr.To("webhook-sec"),
+					Enable:             new(true),
+					WebhookServiceName: new("webhook-svc"),
+					WebhookSecretName:  new("webhook-sec"),
 				},
 			},
 		},
@@ -814,7 +814,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: -1}),
+						AfterFinished: new(metav1.Duration{Duration: -1}),
 					},
 				},
 			},
@@ -830,7 +830,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: 0}),
+						AfterFinished: new(metav1.Duration{Duration: 0}),
 					},
 				},
 			},
@@ -840,7 +840,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: 1}),
+						AfterFinished: new(metav1.Duration{Duration: 1}),
 					},
 				},
 			},
@@ -850,7 +850,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: -1}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: -1}),
 					},
 				},
 			},
@@ -866,7 +866,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 0}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: 0}),
 					},
 				},
 			},
@@ -876,7 +876,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 1}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: 1}),
 					},
 				},
 			},
@@ -965,7 +965,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
-					BindAddress: ptr.To("invalid"),
+					BindAddress: new("invalid"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -979,7 +979,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
-					BindAddress: ptr.To("127.0.0.1"),
+					BindAddress: new("127.0.0.1"),
 				},
 			},
 		},

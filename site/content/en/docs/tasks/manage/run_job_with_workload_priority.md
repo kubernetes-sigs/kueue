@@ -62,8 +62,14 @@ spec:
 Kueue generates the following `Workload` for the Job above.
 The priority of workloads is utilized in queuing, preemption, and other scheduling processes in Kueue.
 This priority doesn't affect pod's priority.  
-Workload's `Priority` field is always mutable because it might be useful for the preemption.
-Workload's `PriorityClassSource` and `PriorityClassName` fields are immutable.
+The `kueue.x-k8s.io/priority-class` label on the Job can be changed while the Job is suspended.
+When updated, Kueue reconciles the Workload's priority fields accordingly.
+On the Workload, `Priority` is always mutable.
+`priorityClassRef` (and its `group`/`kind`) is mutable while the Workload is pending,
+and becomes immutable once the `QuotaReserved` condition is `True`.
+`priorityClassRef.name` follows the same rule, except when `priorityClassRef.kind` is
+`WorkloadPriorityClass`. In that case, `.priorityClassRef.name` can still be updated
+after the `QuotaReserved` condition is `True`.
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2

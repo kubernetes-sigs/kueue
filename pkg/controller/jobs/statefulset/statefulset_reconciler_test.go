@@ -286,7 +286,7 @@ func TestReconciler(t *testing.T) {
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
 						},
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To("cloud.com/block"),
+							Required:      new("cloud.com/block"),
 							PodIndexLabel: ptr.To(appsv1.PodIndexLabel),
 						},
 					}).

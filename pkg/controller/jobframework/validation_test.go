@@ -217,7 +217,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 		},
 		"change runtimeClassName": {
 			oldPodSpec: &corev1.PodSpec{
-				RuntimeClassName: ptr.To("new"),
+				RuntimeClassName: new("new"),
 			},
 			newPodSpec: &corev1.PodSpec{},
 			wantErr: field.ErrorList{

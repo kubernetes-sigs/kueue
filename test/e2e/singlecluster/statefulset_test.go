@@ -671,7 +671,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 			ginkgo.By("Deactivate the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					createdWorkload.Spec.Active = ptr.To(false)
+					createdWorkload.Spec.Active = new(false)
 					g.Expect(k8sClient.Update(ctx, createdWorkload)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -680,7 +680,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.UID).Should(gomega.Equal(createdWorkloadUID))
-					g.Expect(createdWorkload.Spec.Active).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(createdWorkload.Spec.Active).Should(gomega.Equal(new(false)))
 					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -696,7 +696,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 			ginkgo.By("Re-activate the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					createdWorkload.Spec.Active = ptr.To(true)
+					createdWorkload.Spec.Active = new(true)
 					g.Expect(k8sClient.Update(ctx, createdWorkload)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

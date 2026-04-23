@@ -141,7 +141,7 @@ func (w *WorkloadWrapper) Queue(q kueue.LocalQueueName) *WorkloadWrapper {
 }
 
 func (w *WorkloadWrapper) Active(a bool) *WorkloadWrapper {
-	w.Spec.Active = ptr.To(a)
+	w.Spec.Active = new(a)
 	return w
 }
 
@@ -156,7 +156,7 @@ func (w *WorkloadWrapper) SimpleReserveQuota(cq, flavor string, now time.Time) *
 		resReq[res] = val
 		flavors[res] = kueue.ResourceFlavorReference(flavor)
 	}
-	admission.PodSetAssignments[0].Count = ptr.To(w.Spec.PodSets[0].Count)
+	admission.PodSetAssignments[0].Count = new(w.Spec.PodSets[0].Count)
 	admission.PodSetAssignments[0].Flavors = flavors
 	admission.PodSetAssignments[0].ResourceUsage = resReq
 
@@ -328,7 +328,7 @@ func (w *WorkloadWrapper) Conditions(conditions ...metav1.Condition) *WorkloadWr
 }
 
 func (w *WorkloadWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
-	AppendOwnerReference(&w.Workload, gvk, name, uid, ptr.To(true), ptr.To(true))
+	AppendOwnerReference(&w.Workload, gvk, name, uid, new(true), new(true))
 	return w
 }
 
@@ -351,7 +351,7 @@ func (w *WorkloadWrapper) UnhealthyNodes(nodeNames ...string) *WorkloadWrapper {
 
 // DeletionTimestamp sets a deletion timestamp for the workload.
 func (w *WorkloadWrapper) DeletionTimestamp(t time.Time) *WorkloadWrapper {
-	w.Workload.DeletionTimestamp = ptr.To(metav1.NewTime(t).Rfc3339Copy())
+	w.Workload.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
 	return w
 }
 
@@ -522,7 +522,7 @@ func (p *PodSetWrapper) UnconstrainedTopologyRequest() *PodSetWrapper {
 	if p.TopologyRequest == nil {
 		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
 	}
-	p.TopologyRequest.Unconstrained = ptr.To(true)
+	p.TopologyRequest.Unconstrained = new(true)
 	return p
 }
 
@@ -646,7 +646,7 @@ func (p *PodSetWrapper) PodOverHead(resources corev1.ResourceList) *PodSetWrappe
 func (p *PodSetWrapper) ResourceClaimTemplate(claimName, templateName string) *PodSetWrapper {
 	p.Template.Spec.ResourceClaims = append(p.Template.Spec.ResourceClaims, corev1.PodResourceClaim{
 		Name:                      claimName,
-		ResourceClaimTemplateName: ptr.To(templateName),
+		ResourceClaimTemplateName: new(templateName),
 	})
 	if len(p.Template.Spec.Containers) > 0 {
 		p.Template.Spec.Containers[0].Resources.Claims = append(
@@ -660,7 +660,7 @@ func (p *PodSetWrapper) ResourceClaimTemplate(claimName, templateName string) *P
 func (p *PodSetWrapper) ResourceClaim(claimName, resourceClaimName string) *PodSetWrapper {
 	p.Template.Spec.ResourceClaims = append(p.Template.Spec.ResourceClaims, corev1.PodResourceClaim{
 		Name:              claimName,
-		ResourceClaimName: ptr.To(resourceClaimName),
+		ResourceClaimName: new(resourceClaimName),
 	})
 	if len(p.Template.Spec.Containers) > 0 {
 		p.Template.Spec.Containers[0].Resources.Claims = append(
@@ -1014,7 +1014,7 @@ func (c *ClusterQueueWrapper) StopPolicy(p kueue.StopPolicy) *ClusterQueueWrappe
 
 // DeletionTimestamp sets a deletion timestamp for the cluster queue.
 func (c *ClusterQueueWrapper) DeletionTimestamp(t time.Time) *ClusterQueueWrapper {
-	c.ClusterQueue.DeletionTimestamp = ptr.To(metav1.NewTime(t).Rfc3339Copy())
+	c.ClusterQueue.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
 	return c
 }
 
@@ -1130,12 +1130,12 @@ func (rq *ResourceQuotaWrapper) NominalQuota(quantity string) *ResourceQuotaWrap
 }
 
 func (rq *ResourceQuotaWrapper) BorrowingLimit(quantity string) *ResourceQuotaWrapper {
-	rq.ResourceQuota.BorrowingLimit = ptr.To(resource.MustParse(quantity))
+	rq.ResourceQuota.BorrowingLimit = new(resource.MustParse(quantity))
 	return rq
 }
 
 func (rq *ResourceQuotaWrapper) LendingLimit(quantity string) *ResourceQuotaWrapper {
-	rq.ResourceQuota.LendingLimit = ptr.To(resource.MustParse(quantity))
+	rq.ResourceQuota.LendingLimit = new(resource.MustParse(quantity))
 	return rq
 }
 
@@ -1173,7 +1173,7 @@ func (rf *ResourceFlavorWrapper) GeneratedName(name string) *ResourceFlavorWrapp
 
 // TopologyName sets the topology name
 func (rf *ResourceFlavorWrapper) TopologyName(name string) *ResourceFlavorWrapper {
-	rf.Spec.TopologyName = ptr.To(kueue.TopologyReference(name))
+	rf.Spec.TopologyName = new(kueue.TopologyReference(name))
 	return rf
 }
 
@@ -1330,7 +1330,7 @@ func (p *PodSetAssignmentWrapper) ResourceUsage(resourceName corev1.ResourceName
 }
 
 func (p *PodSetAssignmentWrapper) Count(count int32) *PodSetAssignmentWrapper {
-	p.PodSetAssignment.Count = ptr.To(count)
+	p.PodSetAssignment.Count = new(count)
 	return p
 }
 
@@ -1340,7 +1340,7 @@ func (p *PodSetAssignmentWrapper) TopologyAssignment(ta *kueue.TopologyAssignmen
 }
 
 func (p *PodSetAssignmentWrapper) DelayedTopologyRequest(state kueue.DelayedTopologyRequestState) *PodSetAssignmentWrapper {
-	p.PodSetAssignment.DelayedTopologyRequest = ptr.To(state)
+	p.PodSetAssignment.DelayedTopologyRequest = new(state)
 	return p
 }
 

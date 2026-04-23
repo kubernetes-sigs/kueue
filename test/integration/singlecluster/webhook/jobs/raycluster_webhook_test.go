@@ -22,7 +22,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -175,7 +174,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			childClusterKey := client.ObjectKeyFromObject(childCluster)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).To(gomega.Succeed())
-				g.Expect(childCluster.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
+				g.Expect(childCluster.Spec.Suspend).To(gomega.Equal(new(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

@@ -1287,7 +1287,7 @@ app = HelloWorld.bind()`,
 					gomega.Eventually(func(g gomega.Gomega) {
 						createdRayService := &rayv1.RayService{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-						g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(ptr.To(false)))
+						g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
 						g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
@@ -1799,14 +1799,14 @@ app = HelloWorld.bind()`,
 			ginkgo.By("Checking that the workload was updated on worker", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
-					g.Expect(managerWl.Spec.Priority).To(gomega.Equal(ptr.To(managerLowWPC.Value)))
+					g.Expect(managerWl.Spec.Priority).To(gomega.Equal(new(managerLowWPC.Value)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the workload was updated on worker", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWl)).To(gomega.Succeed())
-					g.Expect(workerWl.Spec.Priority).To(gomega.Equal(ptr.To(managerLowWPC.Value)))
+					g.Expect(workerWl.Spec.Priority).To(gomega.Equal(new(managerLowWPC.Value)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1817,7 +1817,7 @@ app = HelloWorld.bind()`,
 			ginkgo.By("Checking that the workload still have low priority value", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWl)).To(gomega.Succeed())
-					g.Expect(workerWl.Spec.Priority).To(gomega.Equal(ptr.To(managerLowWPC.Value)))
+					g.Expect(workerWl.Spec.Priority).To(gomega.Equal(new(managerLowWPC.Value)))
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 

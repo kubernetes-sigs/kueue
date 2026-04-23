@@ -644,7 +644,7 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			}
 		}
 		if features.Enabled(features.TopologyAwareScheduling) && psa.DelayedTopologyRequest != nil {
-			setRes.DelayedTopologyRequest = ptr.To(*psa.DelayedTopologyRequest)
+			setRes.DelayedTopologyRequest = new(*psa.DelayedTopologyRequest)
 		}
 
 		// If countAfterReclaim is lower then the admission count indicates that
@@ -806,7 +806,7 @@ func workloadsWithPodsReadyToEvictedTime(wl *kueue.Workload) *time.Duration {
 		return nil
 	}
 
-	return ptr.To(evicted.Sub(*podsReady))
+	return new(evicted.Sub(*podsReady))
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that

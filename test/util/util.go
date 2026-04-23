@@ -1073,7 +1073,7 @@ func ExpectJobUnsuspended(ctx context.Context, c client.Client, key types.Namesp
 	job := &batchv1.Job{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, key, job)).To(gomega.Succeed())
-		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+		g.Expect(job.Spec.Suspend).Should(gomega.Equal(new(false)))
 	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Job was not unsuspended", job))
 }
 
@@ -1261,7 +1261,7 @@ func DeactivateWorkload(ctx context.Context, c client.Client, key client.ObjectK
 	wl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, key, wl)).To(gomega.Succeed())
-		wl.Spec.Active = ptr.To(false)
+		wl.Spec.Active = new(false)
 		g.Expect(c.Update(ctx, wl)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to deactivate workload", wl))
 }

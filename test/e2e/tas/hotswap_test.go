@@ -29,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -157,7 +156,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			ginkgo.By("JobSet is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -235,7 +234,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			ginkgo.By("JobSet is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -320,7 +319,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				ginkgo.By("Job is unsuspended", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -409,7 +408,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				ginkgo.By("Job is unsuspended", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -498,7 +497,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				ginkgo.By("Job is unsuspended", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -634,7 +633,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				ginkgo.By("Job is unsuspended", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 

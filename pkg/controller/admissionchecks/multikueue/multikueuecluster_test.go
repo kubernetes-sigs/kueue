@@ -37,7 +37,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -460,7 +459,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{
-				makeTestSecret("worker1", testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+				makeTestSecret("worker1", testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -480,7 +479,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{
-				makeTestSecret("worker1", testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+				makeTestSecret("worker1", testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
 			},
 			remoteClients: map[string]*remoteClient{
 				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, cancelCalled),
@@ -505,7 +504,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{
-				makeTestSecret("worker1", testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+				makeTestSecret("worker1", testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -517,7 +516,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": {
 					config: &clientConfig{
-						Kubeconfig: []byte(testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+						Kubeconfig: []byte(testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
 					},
 				},
 			},

@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -178,7 +177,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 				Obj(),
 			label:   "label",
 			max:     math.MaxInt,
-			wantVal: ptr.To(1000),
+			wantVal: new(1000),
 		},
 		"invalid label value": {
 			obj: basePod.Clone().

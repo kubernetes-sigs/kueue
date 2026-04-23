@@ -80,13 +80,13 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 
 		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
-				BlockAdmission:  ptr.To(true),
+				BlockAdmission:  new(true),
 				Timeout:         metav1.Duration{Duration: util.TinyTimeout},
 				RecoveryTimeout: nil,
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          ptr.To(configapi.EvictionTimestamp),
-					BackoffBaseSeconds: ptr.To(int32(10)),
-					BackoffLimitCount:  ptr.To(int32(1)),
+					BackoffBaseSeconds: new(int32(10)),
+					BackoffLimitCount:  new(int32(1)),
 				},
 			}
 		})
@@ -237,14 +237,14 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
-				BlockAdmission:  ptr.To(true),
+				BlockAdmission:  new(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.TinyTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          ptr.To(configapi.EvictionTimestamp),
-					BackoffBaseSeconds: ptr.To(int32(1)),
+					BackoffBaseSeconds: new(int32(1)),
 					// Allow at least one requeue cycle before deactivation so the test
 					// can verify the requeue behavior.
-					BackoffLimitCount: ptr.To(int32(2)),
+					BackoffLimitCount: new(int32(2)),
 				},
 			}
 		})
@@ -383,12 +383,12 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
-				BlockAdmission:  ptr.To(true),
+				BlockAdmission:  new(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.MediumTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          ptr.To(configapi.EvictionTimestamp),
-					BackoffBaseSeconds: ptr.To(int32(1)),
-					BackoffLimitCount:  ptr.To(int32(1)),
+					BackoffBaseSeconds: new(int32(1)),
+					BackoffLimitCount:  new(int32(1)),
 				},
 			}
 		})

@@ -40,7 +40,7 @@ func MakeTFJob(name, ns string) *TFJobWrapper {
 		},
 		Spec: kftraining.TFJobSpec{
 			RunPolicy: kftraining.RunPolicy{
-				Suspend: ptr.To(true),
+				Suspend: new(true),
 			},
 			TFReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{},
 		},
@@ -58,7 +58,7 @@ type TFReplicaSpecRequirement struct {
 func (j *TFJobWrapper) TFReplicaSpecs(replicaSpecs ...TFReplicaSpecRequirement) *TFJobWrapper {
 	j.TFReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
-		j.Spec.TFReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.TFReplicaSpecs[rs.ReplicaType].Replicas = new(rs.ReplicaCount)
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "tensorflow"
@@ -183,8 +183,8 @@ func (j *TFJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.Reso
 
 // Parallelism updates job parallelism.
 func (j *TFJobWrapper) Parallelism(workerParallelism, psParallelism int32) *TFJobWrapper {
-	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Replicas = ptr.To(workerParallelism)
-	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Replicas = ptr.To(psParallelism)
+	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Replicas = new(workerParallelism)
+	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Replicas = new(psParallelism)
 	return j
 }
 

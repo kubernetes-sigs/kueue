@@ -40,7 +40,7 @@ func MakePaddleJob(name, ns string) *PaddleJobWrapper {
 		},
 		Spec: kftraining.PaddleJobSpec{
 			RunPolicy: kftraining.RunPolicy{
-				Suspend: ptr.To(true),
+				Suspend: new(true),
 			},
 			PaddleReplicaSpecs: make(map[kftraining.ReplicaType]*kftraining.ReplicaSpec),
 		},
@@ -58,7 +58,7 @@ type PaddleReplicaSpecRequirement struct {
 func (j *PaddleJobWrapper) PaddleReplicaSpecs(replicaSpecs ...PaddleReplicaSpecRequirement) *PaddleJobWrapper {
 	j.PaddleReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
-		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Replicas = new(rs.ReplicaCount)
 		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
 		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "paddle"
@@ -170,7 +170,7 @@ func (j *PaddleJobWrapper) Args(args []string) *PaddleJobWrapper {
 
 // Parallelism updates job parallelism.
 func (j *PaddleJobWrapper) Parallelism(p int32) *PaddleJobWrapper {
-	j.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Replicas = ptr.To(p)
+	j.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Replicas = new(p)
 	return j
 }
 

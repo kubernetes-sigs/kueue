@@ -178,7 +178,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
 		rc.failedConnAttempts++
-		return ptr.To(retryAfter(rc.failedConnAttempts)), err
+		return new(retryAfter(rc.failedConnAttempts)), err
 	}
 
 	// add a watch for all the adapters implementing multiKueueWatcher
@@ -193,7 +193,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to start the watcher", "kind", kind)
 			// however let's not accept this for now.
 			rc.failedConnAttempts++
-			return ptr.To(retryAfter(rc.failedConnAttempts)), err
+			return new(retryAfter(rc.failedConnAttempts)), err
 		}
 	}
 

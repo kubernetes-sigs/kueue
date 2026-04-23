@@ -82,7 +82,7 @@ func MakeCluster(name, ns string) *ClusterWrapper {
 					},
 				},
 			},
-			Suspend: ptr.To(true),
+			Suspend: new(true),
 		},
 	}}
 }

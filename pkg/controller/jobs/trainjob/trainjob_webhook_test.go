@@ -56,7 +56,7 @@ func TestValidateCreate(t *testing.T) {
 				Completions: 1,
 			}).Obj().Spec)
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
-		APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
+		APIGroup: new(kftrainerapi.GroupVersion.Group),
 		Name:     "testCtr",
 		Kind:     ptr.To(kftrainerapi.ClusterTrainingRuntimeKind),
 	}).Suspend(false)

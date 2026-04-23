@@ -634,7 +634,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		for i := len(constraints) - 1; i >= 0; i-- {
 			if tr.Count%constraints[i].Size == 0 {
 				effectiveSliceSize = constraints[i].Size
-				effectiveSliceTopology = ptr.To(constraints[i].Topology)
+				effectiveSliceTopology = new(constraints[i].Topology)
 				break
 			}
 		}
@@ -642,7 +642,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		// PodSetSliceSize is only read when PodSetSliceRequiredTopology is also set,
 		// so both must be configured for the slice grouping to take effect.
 		trCopy.PodSet.TopologyRequest.PodSetSliceRequiredTopology = effectiveSliceTopology
-		trCopy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(effectiveSliceSize)
+		trCopy.PodSet.TopologyRequest.PodSetSliceSize = new(effectiveSliceSize)
 	}
 	replacementAssignment, reason := s.findTopologyAssignment(trCopy, nil, assumedUsage, false, requiredReplacementDomain)
 	if reason != "" {
@@ -821,7 +821,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	requirements.requests.Add(resources.Requests{corev1.ResourcePods: 1})
 
 	if leaderTasPodSetRequests != nil {
-		requirements.leaderRequests = ptr.To(leaderTasPodSetRequests.SinglePodRequests.Clone())
+		requirements.leaderRequests = new(leaderTasPodSetRequests.SinglePodRequests.Clone())
 		requirements.leaderRequests.Add(resources.Requests{corev1.ResourcePods: 1})
 		state.leaderCount = 1
 	}
@@ -1114,7 +1114,7 @@ func (s *TASFlavorSnapshot) levelKeyWithImpliedFallback(tasRequests *TASPodSetRe
 		return key
 	}
 	if tasRequests.Implied {
-		return ptr.To(s.lowestLevel())
+		return new(s.lowestLevel())
 	}
 	return nil
 }
@@ -1129,9 +1129,9 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 	case topologyRequest.Preferred != nil:
 		return topologyRequest.Preferred
 	case isSliceTopologyOnlyRequest(topologyRequest):
-		return ptr.To(s.highestLevel())
+		return new(s.highestLevel())
 	case ptr.Deref(topologyRequest.Unconstrained, false):
-		return ptr.To(s.lowestLevel())
+		return new(s.lowestLevel())
 	default:
 		return nil
 	}

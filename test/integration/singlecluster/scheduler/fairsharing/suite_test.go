@@ -24,7 +24,6 @@ import (
 	"github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -100,7 +99,7 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing,
 		qManager = queues
 
 		configuration := &config.Configuration{
-			Namespace:            ptr.To("kueue-system"),
+			Namespace:            new("kueue-system"),
 			FairSharing:          fairSharing,
 			AdmissionFairSharing: admissionFairSharing,
 		}

@@ -33,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -955,12 +954,12 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 								{
 									Name:         corev1.ResourceCPU,
 									NominalQuota: resource.MustParse("10"),
-									LendingLimit: ptr.To(resource.MustParse("8")),
+									LendingLimit: new(resource.MustParse("8")),
 								},
 								{
 									Name:         corev1.ResourceMemory,
 									NominalQuota: resource.MustParse("10Gi"),
-									LendingLimit: ptr.To(resource.MustParse("8Gi")),
+									LendingLimit: new(resource.MustParse("8Gi")),
 								},
 							},
 						},
@@ -970,12 +969,12 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 								{
 									Name:         corev1.ResourceCPU,
 									NominalQuota: resource.MustParse("20"),
-									LendingLimit: ptr.To(resource.MustParse("20")),
+									LendingLimit: new(resource.MustParse("20")),
 								},
 								{
 									Name:         corev1.ResourceMemory,
 									NominalQuota: resource.MustParse("20Gi"),
-									LendingLimit: ptr.To(resource.MustParse("20Gi")),
+									LendingLimit: new(resource.MustParse("20Gi")),
 								},
 							},
 						},
@@ -987,7 +986,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 								{
 									Name:         "license",
 									NominalQuota: resource.MustParse("8"),
-									LendingLimit: ptr.To(resource.MustParse("4")),
+									LendingLimit: new(resource.MustParse("4")),
 								},
 							},
 						},

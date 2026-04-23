@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -249,7 +248,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			ginkgo.By("Job is unsuspended, and has all Pods active and ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
@@ -257,7 +256,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](int32(numPods))))
+					g.Expect(sampleJob.Status.Ready).Should(gomega.Equal(new(int32(numPods))))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -305,7 +304,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			ginkgo.By("Job is unsuspended, and has all Pods active and ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
@@ -313,7 +312,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](int32(numPods))))
+					g.Expect(sampleJob.Status.Ready).Should(gomega.Equal(new(int32(numPods))))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

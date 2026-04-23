@@ -24,7 +24,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -228,7 +227,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				jobSetKey := client.ObjectKeyFromObject(jobSet)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobSetKey, jobSet)).To(gomega.Succeed())
-					g.Expect(jobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(jobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -511,7 +510,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				trainjobKey := client.ObjectKeyFromObject(trainjob)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, trainjobKey, trainjob)).To(gomega.Succeed())
-					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -634,7 +633,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 			ginkgo.By("scale up the job parallelism", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					sampleJob.Spec.Parallelism = ptr.To(scaledParallelism)
+					sampleJob.Spec.Parallelism = new(scaledParallelism)
 					g.Expect(k8sClient.Update(ctx, sampleJob)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

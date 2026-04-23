@@ -240,9 +240,9 @@ func TestUpdatePodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
 			},
 			object: testingrayutil.MakeCluster("raycluster", "ns").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
-			enableInTreeAutoscaling: ptr.To(true),
+			enableInTreeAutoscaling: new(true),
 			rayClusterName:          "raycluster",
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
@@ -256,9 +256,9 @@ func TestUpdatePodSets(t *testing.T) {
 			},
 			object: testingrayutil.MakeCluster("raycluster", "ns").
 				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
-				WithEnableAutoscaling(ptr.To(false)).
+				WithEnableAutoscaling(new(false)).
 				Obj(),
-			enableInTreeAutoscaling: ptr.To(false),
+			enableInTreeAutoscaling: new(false),
 			rayClusterName:          "raycluster",
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
@@ -272,9 +272,9 @@ func TestUpdatePodSets(t *testing.T) {
 			},
 			object: testingrayutil.MakeCluster("raycluster", "ns").
 				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
-			enableInTreeAutoscaling: ptr.To(true),
+			enableInTreeAutoscaling: new(true),
 			rayClusterName:          "",
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
@@ -288,9 +288,9 @@ func TestUpdatePodSets(t *testing.T) {
 			},
 			object: testingrayutil.MakeCluster("raycluster", "ns").
 				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
-			enableInTreeAutoscaling: ptr.To(true),
+			enableInTreeAutoscaling: new(true),
 			rayClusterName:          "nonexistent-raycluster",
 			rayClusterInClient:      nil,
 			wantPodSets: []kueue.PodSet{
@@ -305,9 +305,9 @@ func TestUpdatePodSets(t *testing.T) {
 			},
 			object: testingrayutil.MakeCluster("raycluster", "ns").
 				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
-			enableInTreeAutoscaling: ptr.To(true),
+			enableInTreeAutoscaling: new(true),
 			rayClusterName:          "target-raycluster",
 			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
 				ScaleFirstWorkerGroup(5).
@@ -324,9 +324,9 @@ func TestUpdatePodSets(t *testing.T) {
 			},
 			object: testingrayutil.MakeCluster("raycluster", "ns").
 				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
-			enableInTreeAutoscaling: ptr.To(true),
+			enableInTreeAutoscaling: new(true),
 			rayClusterName:          "target-raycluster",
 			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
 				ScaleFirstWorkerGroup(4).
@@ -344,9 +344,9 @@ func TestUpdatePodSets(t *testing.T) {
 			},
 			object: testingrayutil.MakeCluster("raycluster", "ns").
 				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
-			enableInTreeAutoscaling: ptr.To(true),
+			enableInTreeAutoscaling: new(true),
 			rayClusterName:          "target-raycluster",
 			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
 				ScaleFirstWorkerGroup(5).
@@ -773,10 +773,10 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 		},
 		"autoscaling enabled without workload slicing": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
-				EnableInTreeAutoscaling: ptr.To(true),
+				EnableInTreeAutoscaling: new(true),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{},
 				},
@@ -785,16 +785,16 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				},
 			},
 			wantErrors: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
+				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
 			},
 		},
 		"autoscaling enabled with workload slicing": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").
 				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
-				EnableInTreeAutoscaling: ptr.To(true),
+				EnableInTreeAutoscaling: new(true),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{},
 				},
@@ -841,10 +841,10 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 		},
 		"multiple errors": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
-				EnableInTreeAutoscaling: ptr.To(true),
+				EnableInTreeAutoscaling: new(true),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{},
 				},
@@ -860,7 +860,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				},
 			},
 			wantErrors: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
+				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
 				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 8, 7),
 				field.Forbidden(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			},
@@ -909,10 +909,10 @@ func TestUpdatePodSetsFayCluster_GetError(t *testing.T) {
 
 	object := testingrayutil.MakeCluster("raycluster", "ns").
 		SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
-		WithEnableAutoscaling(ptr.To(true)).
+		WithEnableAutoscaling(new(true)).
 		Obj()
 
-	_, err := UpdatePodSets(t.Context(), podSets, c, object, ptr.To(true), "target-raycluster")
+	_, err := UpdatePodSets(t.Context(), podSets, c, object, new(true), "target-raycluster")
 
 	if err == nil {
 		t.Error("Expected error but got none")

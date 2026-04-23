@@ -25,7 +25,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -119,7 +118,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 			ginkgo.By("MPIJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(mpijob), mpijob)).To(gomega.Succeed())
-					g.Expect(mpijob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(mpijob.Spec.RunPolicy.Suspend).Should(gomega.Equal(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -204,7 +203,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 			ginkgo.By("MPIJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(mpijob), mpijob)).To(gomega.Succeed())
-					g.Expect(mpijob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(mpijob.Spec.RunPolicy.Suspend).Should(gomega.Equal(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -283,7 +282,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 			ginkgo.By("MPIJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(mpiJob), mpiJob)).To(gomega.Succeed())
-					g.Expect(mpiJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(mpiJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

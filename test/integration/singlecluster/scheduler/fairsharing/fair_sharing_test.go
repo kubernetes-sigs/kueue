@@ -968,13 +968,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.MustCreate(ctx, k8sClient, cq1)
 
 			lqA = utiltestingapi.MakeLocalQueue("lq-a", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq1.Name).Obj()
 			lqB = utiltestingapi.MakeLocalQueue("lq-b", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq1.Name).Obj()
 			lqC = utiltestingapi.MakeLocalQueue("lq-c", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq1.Name).Obj()
 			lqs = append(lqs, lqA)
 			lqs = append(lqs, lqB)
@@ -1367,13 +1367,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			cqs = append(cqs, cq2)
 
 			lqA = utiltestingapi.MakeLocalQueue("lq-a", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq1.Name).Obj()
 			lqB = utiltestingapi.MakeLocalQueue("lq-b", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq1.Name).Obj()
 			lqC = utiltestingapi.MakeLocalQueue("lq-c", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq2.Name).Obj()
 			lqs = append(lqs, lqA)
 			lqs = append(lqs, lqB)
@@ -1495,7 +1495,7 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 			cqs = append(cqs, cq1)
 
 			lqA = utiltestingapi.MakeLocalQueue("lq-a", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq1.Name).Obj()
 			lqs = append(lqs, lqA)
 			util.MustCreate(ctx, k8sClient, lqA)

@@ -1058,7 +1058,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0] = kueue.ResourceQuota{
 					Name:           corev1.ResourceCPU,
 					NominalQuota:   resource.MustParse("6"),
-					BorrowingLimit: ptr.To(resource.MustParse("0")),
+					BorrowingLimit: new(resource.MustParse("0")),
 				}
 				g.Expect(k8sClient.Update(ctx, updatedCq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1907,7 +1907,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				devCQ.Spec.ResourceGroups[0].Flavors[0].Resources[0] = kueue.ResourceQuota{
 					Name:         corev1.ResourceCPU,
 					NominalQuota: resource.MustParse("5"),
-					LendingLimit: ptr.To(resource.MustParse("5")),
+					LendingLimit: new(resource.MustParse("5")),
 				}
 				g.Expect(k8sClient.Update(ctx, devCQ)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

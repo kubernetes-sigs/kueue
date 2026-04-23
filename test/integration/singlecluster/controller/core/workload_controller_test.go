@@ -184,7 +184,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedQueueWorkload)).To(gomega.Succeed())
 					requeueAt := metav1.NewTime(time.Now().Add(30 * time.Second))
 					updatedQueueWorkload.Status.RequeueState = &kueue.RequeueState{
-						Count:     ptr.To(int32(2)),
+						Count:     new(int32(2)),
 						RequeueAt: &requeueAt,
 					}
 					g.Expect(k8sClient.Status().Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
@@ -201,7 +201,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			ginkgo.By("deactivating the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedQueueWorkload)).To(gomega.Succeed())
-					updatedQueueWorkload.Spec.Active = ptr.To(false)
+					updatedQueueWorkload.Spec.Active = new(false)
 					g.Expect(k8sClient.Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -620,7 +620,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			ginkgo.By("setting the accumulated admission time closer to maximum", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
-					wl.Status.AccumulatedPastExecutionTimeSeconds = ptr.To(*wl.Spec.MaximumExecutionTimeSeconds - 1)
+					wl.Status.AccumulatedPastExecutionTimeSeconds = new(*wl.Spec.MaximumExecutionTimeSeconds - 1)
 					g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

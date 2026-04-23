@@ -80,8 +80,8 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 		jt := jobsetutil.MakeJobTemplate("", "").PodSpec(TestPodSpec).Obj()
 		jt.Labels = req.Labels
 		jt.Annotations = req.Annotations
-		jt.Spec.Parallelism = ptr.To(req.Parallelism)
-		jt.Spec.Completions = ptr.To(req.Completions)
+		jt.Spec.Parallelism = new(req.Parallelism)
+		jt.Spec.Completions = new(req.Completions)
 		jt.Spec.Template.Annotations = req.PodAnnotations
 		if len(req.Image) > 0 {
 			jt.Spec.BackoffLimit = ptr.To[int32](0)
@@ -108,7 +108,7 @@ func (j *JobSetWrapper) UID(uid string) *JobSetWrapper {
 
 // Suspend updates the suspend status of the JobSet.
 func (j *JobSetWrapper) Suspend(s bool) *JobSetWrapper {
-	j.Spec.Suspend = ptr.To(s)
+	j.Spec.Suspend = new(s)
 	return j
 }
 
@@ -206,6 +206,6 @@ func (j *JobSetWrapper) ManagedBy(c string) *JobSetWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (j *JobSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobSetWrapper {
-	utiltesting.AppendOwnerReference(j, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(j, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return j
 }

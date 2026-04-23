@@ -40,7 +40,7 @@ func MakeJAXJob(name, ns string) *JAXJobWrapper {
 		},
 		Spec: kftraining.JAXJobSpec{
 			RunPolicy: kftraining.RunPolicy{
-				Suspend: ptr.To(true),
+				Suspend: new(true),
 			},
 			JAXReplicaSpecs: make(map[kftraining.ReplicaType]*kftraining.ReplicaSpec),
 		},
@@ -60,7 +60,7 @@ type JAXReplicaSpecRequirement struct {
 func (j *JAXJobWrapper) JAXReplicaSpecs(replicaSpecs ...JAXReplicaSpecRequirement) *JAXJobWrapper {
 	j.JAXReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
-		j.Spec.JAXReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.JAXReplicaSpecs[rs.ReplicaType].Replicas = new(rs.ReplicaCount)
 		j.Spec.JAXReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.JAXReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
 		j.Spec.JAXReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "jax"
@@ -160,7 +160,7 @@ func (j *JAXJobWrapper) Limit(replicaType kftraining.ReplicaType, r corev1.Resou
 
 // Parallelism updates job parallelism.
 func (j *JAXJobWrapper) Parallelism(replicaType kftraining.ReplicaType, p int32) *JAXJobWrapper {
-	j.Spec.JAXReplicaSpecs[replicaType].Replicas = ptr.To(p)
+	j.Spec.JAXReplicaSpecs[replicaType].Replicas = new(p)
 	return j
 }
 
@@ -219,7 +219,7 @@ func (j *JAXJobWrapper) SetTypeMeta() *JAXJobWrapper {
 }
 
 func (j *JAXJobWrapper) TerminationGracePeriod(replicaType kftraining.ReplicaType, seconds int64) *JAXJobWrapper {
-	j.Spec.JAXReplicaSpecs[replicaType].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	j.Spec.JAXReplicaSpecs[replicaType].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	return j
 }
 

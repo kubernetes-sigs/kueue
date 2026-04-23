@@ -154,7 +154,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			createdJob := &batchv1.Job{}
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying workload does not get admitted")
@@ -315,7 +315,7 @@ var _ = ginkgo.Describe("DRA", func() {
 
 				assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
 				// Verify pod count is 2
-				g.Expect(assignment.Count).To(gomega.Equal(ptr.To(int32(2))))
+				g.Expect(assignment.Count).To(gomega.Equal(new(int32(2))))
 				// Verify total GPU usage is 2 (1 GPU per pod * 2 pods)
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu")))
 				g.Expect(assignment.ResourceUsage["gpu"]).To(gomega.Equal(resource.MustParse("2")))
@@ -456,7 +456,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			createdJob := &batchv1.Job{}
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying workload does not get admitted")

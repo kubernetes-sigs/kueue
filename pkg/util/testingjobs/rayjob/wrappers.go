@@ -316,9 +316,9 @@ func (j *JobWrapper) VolumeMounts(rayType rayv1.RayNodeType, volumeMounts []core
 }
 
 func (j *JobWrapper) TerminationGracePeriodSeconds(seconds int64) *JobWrapper {
-	j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	for i := range len(j.Spec.RayClusterSpec.WorkerGroupSpecs) {
-		j.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	}
 	return j
 }
@@ -351,6 +351,6 @@ func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
 }
 
 func (j *JobWrapper) MaxWorkerReplicas(count int32) *JobWrapper {
-	j.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To(count)
+	j.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = new(count)
 	return j
 }

@@ -80,7 +80,7 @@ func Test_PushOrUpdate(t *testing.T) {
 		},
 		"workload is still under the backoff waiting time": {
 			workload: wlBase.Clone().
-				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteLater))).
+				RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteLater))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -93,7 +93,7 @@ func Test_PushOrUpdate(t *testing.T) {
 			wantInAdmissibleWorkloads: inadmissibleWorkloads{
 				"default/workload-1": workload.NewInfo(wlBase.Clone().
 					ResourceVersion("1").
-					RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteLater))).
+					RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteLater))).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -259,7 +259,7 @@ func TestPushOrUpdateGenerationChanged(t *testing.T) {
 		"stays inadmissible when generation changed but backoff unexpired": {
 			updatedWorkload: utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
 				Creation(now).Generation(2).ResourceVersion("2").Priority(300).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(time.Hour)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(time.Hour)))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadRequeued,
 					Status: metav1.ConditionFalse,
@@ -379,11 +379,11 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 			},
 			inadmissibleWorkloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-3")).
-					RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(backoffUntil))).
+					RequeueState(ptr.To[int32](1), new(metav1.NewTime(backoffUntil))).
 					Condition(metav1.Condition{Type: kueue.WorkloadRequeued, Status: metav1.ConditionFalse}).
 					Obj(),
 				utiltestingapi.MakeWorkload("wl4", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-4")).
-					RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(backoffUntil))).
+					RequeueState(ptr.To[int32](1), new(metav1.NewTime(backoffUntil))).
 					Condition(metav1.Condition{Type: kueue.WorkloadRequeued, Status: metav1.ConditionFalse}).
 					Obj(),
 			},
@@ -417,9 +417,9 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 
 	builder := utiltesting.NewClientBuilder().WithObjects(
 		utiltestingapi.MakeLocalQueue("lq1", defaultNamespace).
-			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).Obj(),
+			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).Obj(),
 		utiltestingapi.MakeLocalQueue("lq2", defaultNamespace).
-			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).Obj(),
+			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).Obj(),
 	)
 
 	afsConsumedResources := queueafs.NewAfsConsumedResources()
@@ -531,7 +531,7 @@ func TestClusterQueueImpl(t *testing.T) {
 		utiltestingapi.MakeWorkload("w2", "ns2").Queue("q2").Obj(),
 		utiltestingapi.MakeWorkload("w3", "ns3").Queue("q3").Obj(),
 		utiltestingapi.MakeWorkload("w4-requeue-state", "ns1").
-			RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(minuteLater))).
+			RequeueState(ptr.To[int32](1), new(metav1.NewTime(minuteLater))).
 			Queue("q1").
 			Condition(metav1.Condition{
 				Type:   kueue.WorkloadEvicted,
@@ -780,7 +780,7 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 		},
 		"now already has exceeded requeueAt": {
 			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteAgo))).
+				RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteAgo))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Status: metav1.ConditionTrue,
@@ -790,7 +790,7 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 		},
 		"now hasn't yet exceeded requeueAt": {
 			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteLater))).
+				RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteLater))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Status: metav1.ConditionTrue,
@@ -1138,12 +1138,12 @@ func TestFsAdmission(t *testing.T) {
 			lqs: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).
 					Obj(),
 				*utiltestingapi.MakeLocalQueue("lqB", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{},
@@ -1164,12 +1164,12 @@ func TestFsAdmission(t *testing.T) {
 			lqs: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).
 					Obj(),
 				*utiltestingapi.MakeLocalQueue("lqB", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{
@@ -1195,12 +1195,12 @@ func TestFsAdmission(t *testing.T) {
 			lqs: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).
 					Obj(),
 				*utiltestingapi.MakeLocalQueue("lqB", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("2")),
+						Weight: new(resource.MustParse("2")),
 					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{},
@@ -1221,7 +1221,7 @@ func TestFsAdmission(t *testing.T) {
 			lqs: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{},

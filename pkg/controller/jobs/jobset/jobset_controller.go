@@ -100,7 +100,7 @@ func (j *JobSet) IsActive() bool {
 }
 
 func (j *JobSet) Suspend() {
-	j.Spec.Suspend = ptr.To(true)
+	j.Spec.Suspend = new(true)
 }
 
 func (j *JobSet) GVK() schema.GroupVersionKind {
@@ -124,7 +124,7 @@ func (j *JobSet) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 				&replicatedJob.Template.Spec.Template.ObjectMeta).PodIndexLabel(
 				ptr.To(batchv1.JobCompletionIndexAnnotation)).SubGroup(
 				ptr.To(jobsetapi.JobIndexKey),
-				ptr.To(replicatedJob.Replicas)).Build()
+				new(replicatedJob.Replicas)).Build()
 			if err != nil {
 				return nil, err
 			}
@@ -135,7 +135,7 @@ func (j *JobSet) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 }
 
 func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
-	j.Spec.Suspend = ptr.To(false)
+	j.Spec.Suspend = new(false)
 	if len(podSetsInfo) != len(j.Spec.ReplicatedJobs) {
 		return podset.BadPodSetsInfoLenError(len(j.Spec.ReplicatedJobs), len(podSetsInfo))
 	}

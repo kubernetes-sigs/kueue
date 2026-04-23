@@ -356,7 +356,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 			ginkgo.By("Checking that the JobSet is created and unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobSetKey, createdJobSet)).Should(gomega.Succeed())
-					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -390,7 +390,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 			ginkgo.By("Verifying that the JobSet gets suspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).To(gomega.Succeed())
-					g.Expect(createdJobSet.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
+					g.Expect(createdJobSet.Spec.Suspend).To(gomega.Equal(new(true)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -408,7 +408,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 			ginkgo.By("Checking that the JobSet is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).Should(gomega.Succeed())
-					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1033,7 +1033,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 			ginkgo.By("Checking that the JobSet is created and unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobSetKey, createdJobSet)).Should(gomega.Succeed())
-					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

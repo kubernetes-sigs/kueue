@@ -1690,14 +1690,14 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Count: ptr.To(wl.Spec.PodSets[0].Count),
+							Count: new(wl.Spec.PodSets[0].Count),
 						},
 						kueue.PodSetAssignment{
 							Name: "worker",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Count: ptr.To(wl.Spec.PodSets[0].Count),
+							Count: new(wl.Spec.PodSets[0].Count),
 						},
 					).Obj()
 					util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
@@ -2672,7 +2672,7 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 	ginkgo.BeforeAll(func() {
 		waitForPodsReady := &configapi.WaitForPodsReady{
 			Timeout:        metav1.Duration{Duration: 3 * time.Second},
-			BlockAdmission: ptr.To(false),
+			BlockAdmission: new(false),
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
 				BackoffBaseSeconds: ptr.To[int32](1),

@@ -1,6 +1,6 @@
 module kueueviz
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/bep/debounce v1.2.1

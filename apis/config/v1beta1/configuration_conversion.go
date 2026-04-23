@@ -19,7 +19,6 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	conversionapi "k8s.io/apimachinery/pkg/conversion"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/conversion"
 
 	"sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -80,7 +79,7 @@ func Convert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in *WaitForPod
 		return err
 	}
 	if in.BlockAdmission == nil {
-		out.BlockAdmission = ptr.To(true)
+		out.BlockAdmission = new(true)
 	}
 	return nil
 }
@@ -91,7 +90,7 @@ func Convert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in *v1beta2.Wa
 		return err
 	}
 	if in.BlockAdmission == nil {
-		out.BlockAdmission = ptr.To(false)
+		out.BlockAdmission = new(false)
 	}
 	return nil
 }

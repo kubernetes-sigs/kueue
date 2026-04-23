@@ -255,11 +255,14 @@ GINKGO_ARGS="--label-filter=feature:deployment" make test-e2e-helm
 GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
 ```
 
-### Use label filters for e2e customconfigs tests
-CustomConfigs tests are labeled by feature. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
+### Use label filters for e2e sequential tests
+Sequential tests (Baseline and Extended) are labeled by feature. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
 
-**Label Taxonomy:**
-- Features: `admissionfairsharing, certs, failurerecoverypolicy, managejobswithoutqueuename, localqueuemetrics, objectretentionpolicies, podintegrationautoenablement, reconcile, spark, visibility, waitforpodsready`
+**Label Taxonomy (Baseline):**
+- Features: `admissionfairsharing, certs, failurerecoverypolicy, localqueuemetrics, objectretentionpolicies, podintegrationautoenablement, reconcile, visibility, waitforpodsready`
+
+**Label Taxonomy (Extended):**
+- Features: `managejobswithoutqueuename, spark`
 
 **Examples:**
 ```shell

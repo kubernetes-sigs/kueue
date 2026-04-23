@@ -1,6 +1,6 @@
 module sigs.k8s.io/kueue/hack/tools
 
-go 1.25.0
+go 1.26.0
 
 tool (
 	github.com/gohugoio/hugo

@@ -26,7 +26,6 @@ import (
 	resourceapi "k8s.io/api/resource/v1beta2"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -150,10 +149,10 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			util.MustCreate(ctx, k8sClient, cq)
 
 			lqA := utiltestingapi.MakeLocalQueue("lq-a", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq.Name).Obj()
 			lqB := utiltestingapi.MakeLocalQueue("lq-b", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq.Name).Obj()
 			lqs = append(lqs, lqA, lqB)
 			util.MustCreate(ctx, k8sClient, lqA)
@@ -268,7 +267,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			util.MustCreate(ctx, k8sClient, cq)
 
 			lqA := utiltestingapi.MakeLocalQueue("lq-consumed", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq.Name).Obj()
 			lqs = append(lqs, lqA)
 			util.MustCreate(ctx, k8sClient, lqA)
@@ -383,10 +382,10 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			util.MustCreate(ctx, k8sClient, cq)
 
 			lqA := utiltestingapi.MakeLocalQueue("lq-a", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq.Name).Obj()
 			lqB := utiltestingapi.MakeLocalQueue("lq-b", ns.Name).
-				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq.Name).Obj()
 			lqs = append(lqs, lqA, lqB)
 			util.MustCreate(ctx, k8sClient, lqA)

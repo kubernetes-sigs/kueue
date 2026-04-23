@@ -237,14 +237,14 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						},
-						Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
+						Count: new(createdWorkload.Spec.PodSets[0].Count),
 					},
 					kueue.PodSetAssignment{
 						Name: "replicated-job-2",
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: kueue.ResourceFlavorReference(spotFlavor.Name),
 						},
-						Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
+						Count: new(createdWorkload.Spec.PodSets[1].Count),
 					},
 				).
 				Obj()
@@ -423,16 +423,16 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 					g.Expect(createdWorkload.Spec.PodSets).To(gomega.ContainElements(
 						gomega.BeComparableTo(
 							*utiltestingapi.MakePodSet("replicated-job-1", 4).
-								PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
-								SubGroupIndexLabel(ptr.To("jobset.sigs.k8s.io/job-index")).
+								PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+								SubGroupIndexLabel(new("jobset.sigs.k8s.io/job-index")).
 								SubGroupCount(ptr.To[int32](2)).
 								Obj(),
 							checkPSOpts,
 						),
 						gomega.BeComparableTo(
 							*utiltestingapi.MakePodSet("replicated-job-2-empty", 0).
-								PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
-								SubGroupIndexLabel(ptr.To("jobset.sigs.k8s.io/job-index")).
+								PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+								SubGroupIndexLabel(new("jobset.sigs.k8s.io/job-index")).
 								SubGroupCount(ptr.To[int32](1)).
 								Obj(),
 							checkPSOpts,
@@ -828,7 +828,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 			ginkgo.By("Await for the JobSet to be unsuspended")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lookupKey, createdJobSet)).Should(gomega.Succeed())
-				g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+				g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			if podsReadyTestSpec.beforeJobSetStatus != nil {

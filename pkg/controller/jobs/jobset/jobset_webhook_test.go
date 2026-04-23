@@ -527,7 +527,7 @@ func TestDefault(t *testing.T) {
 			name: "TestDefault_UserSpecifiedManagedBy",
 			jobSet: &jobset.JobSet{
 				Spec: jobset.JobSetSpec{
-					ManagedBy: ptr.To("example.com/foo"),
+					ManagedBy: new("example.com/foo"),
 				},
 				ObjectMeta: ctrl.ObjectMeta{
 					Labels: map[string]string{
@@ -551,7 +551,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To("example.com/foo"),
+			wantManagedBy: new("example.com/foo"),
 		},
 		{
 			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",

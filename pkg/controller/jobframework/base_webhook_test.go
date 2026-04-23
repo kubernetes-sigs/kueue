@@ -159,7 +159,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 			mj.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
 			mj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
 			mj.MockGenericJob.EXPECT().Suspend().Do(func() {
-				tc.job.Spec.Suspend = ptr.To(true)
+				tc.job.Spec.Suspend = new(true)
 			}).AnyTimes()
 
 			mj.MockJobWithManagedBy.EXPECT().ManagedBy().Return(tc.job.Spec.ManagedBy).AnyTimes()

@@ -24,7 +24,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -105,7 +104,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 
 		// Controllers configuration
 		controllersCfg := &config.Configuration{
-			Namespace: ptr.To("kueue-system"),
+			Namespace: new("kueue-system"),
 			Resources: &config.Resources{
 				DeviceClassMappings: mappings,
 			},

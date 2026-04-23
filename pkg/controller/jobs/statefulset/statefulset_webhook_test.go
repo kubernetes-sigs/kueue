@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -385,7 +384,7 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				},
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
+					Replicas: new(int32(3)),
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
 							Labels: map[string]string{
@@ -403,7 +402,7 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				},
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
+					Replicas: new(int32(3)),
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
 							Labels: map[string]string{
@@ -647,24 +646,24 @@ func TestValidateUpdate(t *testing.T) {
 		"change in replicas (scale down to zero)": {
 			oldObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
+					Replicas: new(int32(3)),
 				},
 			},
 			newObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(0)),
+					Replicas: new(int32(0)),
 				},
 			},
 		},
 		"change in replicas (scale up from zero)": {
 			oldObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(0)),
+					Replicas: new(int32(0)),
 				},
 			},
 			newObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
+					Replicas: new(int32(3)),
 				},
 			},
 		},

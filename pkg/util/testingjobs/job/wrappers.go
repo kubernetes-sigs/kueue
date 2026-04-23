@@ -45,7 +45,7 @@ func MakeJob(name, ns string) *JobWrapper {
 		},
 		Spec: batchv1.JobSpec{
 			Parallelism: ptr.To[int32](1),
-			Suspend:     ptr.To(true),
+			Suspend:     new(true),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
@@ -87,12 +87,12 @@ func (j *JobWrapper) GeneratedName(name string) *JobWrapper {
 }
 
 func (j *JobWrapper) BackoffLimit(limit int32) *JobWrapper {
-	j.Spec.BackoffLimit = ptr.To(limit)
+	j.Spec.BackoffLimit = new(limit)
 	return j
 }
 
 func (j *JobWrapper) BackoffLimitPerIndex(limit int32) *JobWrapper {
-	j.Spec.BackoffLimitPerIndex = ptr.To(limit)
+	j.Spec.BackoffLimitPerIndex = new(limit)
 	return j
 }
 
@@ -102,25 +102,25 @@ func (j *JobWrapper) CompletionMode(mode batchv1.CompletionMode) *JobWrapper {
 }
 
 func (j *JobWrapper) TerminationGracePeriod(seconds int64) *JobWrapper {
-	j.Spec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	j.Spec.Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	return j
 }
 
 // Suspend updates the suspend status of the job
 func (j *JobWrapper) Suspend(s bool) *JobWrapper {
-	j.Spec.Suspend = ptr.To(s)
+	j.Spec.Suspend = new(s)
 	return j
 }
 
 // Parallelism updates job parallelism.
 func (j *JobWrapper) Parallelism(p int32) *JobWrapper {
-	j.Spec.Parallelism = ptr.To(p)
+	j.Spec.Parallelism = new(p)
 	return j
 }
 
 // Completions updates job completions.
 func (j *JobWrapper) Completions(p int32) *JobWrapper {
-	j.Spec.Completions = ptr.To(p)
+	j.Spec.Completions = new(p)
 	return j
 }
 
@@ -237,7 +237,7 @@ func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobWrapper {
-	utiltesting.AppendOwnerReference(&j.Job, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&j.Job, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return j
 }
 
@@ -326,7 +326,7 @@ func (j *JobWrapper) ResourceClaimTemplate(claimName, templateName string) *JobW
 	j.Spec.Template.Spec.ResourceClaims = append(j.Spec.Template.Spec.ResourceClaims,
 		corev1.PodResourceClaim{
 			Name:                      claimName,
-			ResourceClaimTemplateName: ptr.To(templateName),
+			ResourceClaimTemplateName: new(templateName),
 		})
 	if len(j.Spec.Template.Spec.Containers) > 0 {
 		j.Spec.Template.Spec.Containers[0].Resources.Claims = append(

@@ -21,7 +21,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -40,7 +39,7 @@ func MakeTrainJob(name, ns string) *TrainJobWrapper {
 			Namespace: ns,
 		},
 		Spec: kftrainerapi.TrainJobSpec{
-			Suspend: ptr.To(true),
+			Suspend: new(true),
 			Trainer: &kftrainerapi.Trainer{
 				ResourcesPerNode: &corev1.ResourceRequirements{
 					Requests: map[corev1.ResourceName]resource.Quantity{},
@@ -84,7 +83,7 @@ func (t *TrainJobWrapper) TrainerImage(image string, cmd, args []string) *TrainJ
 
 // TrainerNumNodes sets a the number of nodes that will be used in the Trainer job
 func (t *TrainJobWrapper) TrainerNumNodes(numNodes int32) *TrainJobWrapper {
-	t.Spec.Trainer.NumNodes = ptr.To(numNodes)
+	t.Spec.Trainer.NumNodes = new(numNodes)
 	return t
 }
 
@@ -141,13 +140,13 @@ func (t *TrainJobWrapper) Queue(queue string) *TrainJobWrapper {
 
 // ManagedBy sets the managedby field of the TrainJob.
 func (t *TrainJobWrapper) ManagedBy(managedBy string) *TrainJobWrapper {
-	t.Spec.ManagedBy = ptr.To(managedBy)
+	t.Spec.ManagedBy = new(managedBy)
 	return t
 }
 
 // Suspend updates the suspend status of the TrainJob.
 func (t *TrainJobWrapper) Suspend(s bool) *TrainJobWrapper {
-	t.Spec.Suspend = ptr.To(s)
+	t.Spec.Suspend = new(s)
 	return t
 }
 
@@ -386,26 +385,26 @@ type JobStatusWrapper struct{ kftrainerapi.JobStatus }
 func MakeJobStatus(name string) *JobStatusWrapper {
 	return &JobStatusWrapper{kftrainerapi.JobStatus{
 		Name:      name,
-		Ready:     ptr.To(int32(0)),
-		Succeeded: ptr.To(int32(0)),
-		Failed:    ptr.To(int32(0)),
-		Active:    ptr.To(int32(0)),
-		Suspended: ptr.To(int32(0)),
+		Ready:     new(int32(0)),
+		Succeeded: new(int32(0)),
+		Failed:    new(int32(0)),
+		Active:    new(int32(0)),
+		Suspended: new(int32(0)),
 	}}
 }
 
 func (s *JobStatusWrapper) Active(v int32) *JobStatusWrapper {
-	s.JobStatus.Active = ptr.To(v)
+	s.JobStatus.Active = new(v)
 	return s
 }
 
 func (s *JobStatusWrapper) Ready(v int32) *JobStatusWrapper {
-	s.JobStatus.Ready = ptr.To(v)
+	s.JobStatus.Ready = new(v)
 	return s
 }
 
 func (s *JobStatusWrapper) Succeeded(v int32) *JobStatusWrapper {
-	s.JobStatus.Succeeded = ptr.To(v)
+	s.JobStatus.Succeeded = new(v)
 	return s
 }
 

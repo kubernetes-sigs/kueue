@@ -107,7 +107,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 				RequestAndLimit("node", extraResource, "1").Obj().Spec)
 
 			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainer.RuntimeRef{
-				APIGroup: ptr.To(kftrainer.GroupVersion.Group),
+				APIGroup: new(kftrainer.GroupVersion.Group),
 				Name:     "test-trainingruntime",
 				Kind:     ptr.To(kftrainer.TrainingRuntimeKind),
 			}).
@@ -120,7 +120,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
-					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -179,7 +179,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 				RequestAndLimit("node", extraResource, "1").Obj().Spec)
 
 			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainer.RuntimeRef{
-				APIGroup: ptr.To(kftrainer.GroupVersion.Group),
+				APIGroup: new(kftrainer.GroupVersion.Group),
 				Name:     "test-trainingruntime",
 				Kind:     ptr.To(kftrainer.TrainingRuntimeKind),
 			}).
@@ -192,7 +192,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
-					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -250,7 +250,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 				RequestAndLimit("node", extraResource, "1").Obj().Spec)
 
 			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainer.RuntimeRef{
-				APIGroup: ptr.To(kftrainer.GroupVersion.Group),
+				APIGroup: new(kftrainer.GroupVersion.Group),
 				Name:     "test-trainingruntime",
 				Kind:     ptr.To(kftrainer.TrainingRuntimeKind),
 			}).
@@ -263,7 +263,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
-					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

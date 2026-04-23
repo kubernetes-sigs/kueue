@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -141,7 +140,7 @@ func (j *RayService) IsActive() bool {
 }
 
 func (j *RayService) Suspend() {
-	j.Spec.RayClusterSpec.Suspend = ptr.To(true)
+	j.Spec.RayClusterSpec.Suspend = new(true)
 }
 
 func (j *RayService) GVK() schema.GroupVersionKind {
@@ -177,7 +176,7 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podse
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.RayClusterSpec.Suspend = ptr.To(false)
+	j.Spec.RayClusterSpec.Suspend = new(false)
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
 	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec, podSetsInfo)
