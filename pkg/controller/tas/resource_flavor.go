@@ -167,7 +167,7 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 func (r *rfReconciler) Create(event event.TypedCreateEvent[*kueue.ResourceFlavor]) bool {
 	if event.Object.Spec.TopologyName != nil {
 		log := r.logger().WithValues("flavor", event.Object.Name)
-		log.V(2).Info("Topology TAS ResourceFlavor event")
+		log.V(2).Info("Topology TAS ResourceFlavor create event")
 
 		r.cache.AddOrUpdateResourceFlavor(log, event.Object)
 		return true
@@ -176,7 +176,12 @@ func (r *rfReconciler) Create(event event.TypedCreateEvent[*kueue.ResourceFlavor
 }
 
 func (r *rfReconciler) Delete(event event.TypedDeleteEvent[*kueue.ResourceFlavor]) bool {
-	return event.Object.Spec.TopologyName != nil
+	if event.Object.Spec.TopologyName != nil {
+		log := r.logger().WithValues("flavor", event.Object.Name)
+		log.V(2).Info("Topology TAS ResourceFlavor delete event")
+		return true
+	}
+	return false
 }
 
 func (r *rfReconciler) Update(event event.TypedUpdateEvent[*kueue.ResourceFlavor]) bool {
