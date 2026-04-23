@@ -77,8 +77,10 @@ kind: Workload
 metadata:
   name: job-sample-job-7f173
 spec:
-  priorityClassSource: kueue.x-k8s.io/workloadpriorityclass
-  priorityClassName: sample-priority
+  priorityClassRef:
+    group: kueue.x-k8s.io
+    kind: WorkloadPriorityClass
+    name: sample-priority
   priority: 10000
   queueName: user-queue
   podSets:

@@ -41,10 +41,11 @@ spec:
 ```
 
 Kueue generates the following `Workload` for the Job above.
-The `PriorityClassName` field can accept either `PriorityClass` or
-`WorkloadPriorityClass` name as a value. To distinguish, when using `WorkloadPriorityClass`,
-a `priorityClassSource` field has the `kueue.x-k8s.io/workloadpriorityclass` value.
-When using `PriorityClass`, a `priorityClassSource` field has the `scheduling.k8s.io/priorityclass` value.
+The `priorityClassRef` field references either a `PriorityClass` or a `WorkloadPriorityClass`.
+To distinguish, when using `WorkloadPriorityClass`, `priorityClassRef.group` is
+`kueue.x-k8s.io` and `priorityClassRef.kind` is `WorkloadPriorityClass`.
+When using `PriorityClass`, `priorityClassRef.group` is `scheduling.k8s.io` and
+`priorityClassRef.kind` is `PriorityClass`.
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -52,8 +53,10 @@ kind: Workload
 metadata:
   name: job-sample-job-7f173
 spec:
-  priorityClassSource: kueue.x-k8s.io/workloadpriorityclass
-  priorityClassName: sample-priority
+  priorityClassRef:
+    group: kueue.x-k8s.io
+    kind: WorkloadPriorityClass
+    name: sample-priority
   priority: 10000
   queueName: user-queue
 ...
