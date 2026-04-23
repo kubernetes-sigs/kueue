@@ -346,8 +346,17 @@ func (s *Scheduler) processEntry(
 		return
 	}
 
-	if mode == flavorassigner.Preempt && !s.checkPreemptPreconditions(log, e, cq) {
-		return
+	if mode == flavorassigner.Preempt {
+		if len(e.preemptionTargets) == 0 {
+			s.reserveCapacityForUnreclaimablePreempt(log, e, cq)
+			return
+		}
+		if features.Enabled(features.MultiKueueOrchestratedPreemption) && workload.HasClosedPreemptionGate(e.Obj) {
+			gatedMsg := "Workload requires preemption, but it's gated"
+			log.V(3).Info(gatedMsg)
+			setPreemptionGated(e, gatedMsg)
+			return
+		}
 	}
 
 	// We skip multiple-preemptions per cohort if any of the targets are overlapping
@@ -401,32 +410,15 @@ func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Log
 	e.status = evicted
 }
 
-// checkPreemptPreconditions handles the two early-exit cases for an entry whose
-// representative mode is Preempt: no candidate targets (optionally reserving
-// capacity), and a closed MultiKueue preemption gate. Returns false when the
-// caller should stop processing this entry.
-func (s *Scheduler) checkPreemptPreconditions(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot) bool {
-	if len(e.preemptionTargets) == 0 {
-		log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
-		// We reserve capacity if we are uncertain whether we can reclaim
-		// the capacity later. Otherwise, we allow other workloads in the
-		// Cohort to borrow this capacity, confident we can reclaim it later.
-		if !preemption.CanAlwaysReclaim(cq) {
-			// Reserve capacity up to the borrowing limit, so that
-			// lower-priority workloads in another Cohort cannot admit
-			// before us.
-			cq.AddUsage(resourcesToReserve(e, cq))
-		}
-		return false
+// reserveCapacityForUnreclaimablePreempt is called when an entry needs preemption
+// but has no candidate targets. If the ClusterQueue cannot always reclaim its
+// nominal capacity, we reserve up to the borrowing limit so that lower-priority
+// workloads in another Cohort cannot admit before us.
+func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot) {
+	log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
+	if !preemption.CanAlwaysReclaim(cq) {
+		cq.AddUsage(resourcesToReserve(e, cq))
 	}
-
-	if features.Enabled(features.MultiKueueOrchestratedPreemption) && workload.HasClosedPreemptionGate(e.Obj) {
-		gatedMsg := "Workload requires preemption, but it's gated"
-		log.V(3).Info(gatedMsg)
-		setPreemptionGated(e, gatedMsg)
-		return false
-	}
-	return true
 }
 
 func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *entry, preemptionTargets []*preemption.Target) {
