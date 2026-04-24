@@ -825,7 +825,6 @@ app = HelloWorld.bind()`,
           upscaling_factor: 1.0
           upscale_delay_s: 2
           downscale_delay_s: 600
-        num_replicas: 1
         max_replicas_per_node: 1
         ray_actor_options:
           num_cpus: 0.2`
