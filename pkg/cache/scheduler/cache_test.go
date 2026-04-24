@@ -3571,148 +3571,125 @@ func TestCohortCycles(t *testing.T) {
 }
 
 func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {
-	t.Run("deleting child cohort updates parent SubtreeQuota", func(t *testing.T) {
-		cache := New(utiltesting.NewFakeClient())
-
-		root := utiltestingapi.MakeCohort("root").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
-			Obj()
-		if err := cache.AddOrUpdateCohort(root); err != nil {
+	mustAddCohort := func(t *testing.T, cache *Cache, cohort *kueue.Cohort) {
+		t.Helper()
+		if err := cache.AddOrUpdateCohort(cohort); err != nil {
 			t.Fatal(err)
 		}
+	}
 
-		child := utiltestingapi.MakeCohort("child").
-			Parent("root").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
-			Obj()
-		if err := cache.AddOrUpdateCohort(child); err != nil {
-			t.Fatal(err)
-		}
+	testCases := map[string]struct {
+		setup      func(*testing.T, *Cache)
+		deleteName kueue.CohortReference
+		wantBefore map[kueue.CohortReference]resources.FlavorResourceQuantities
+		wantAfter  map[kueue.CohortReference]resources.FlavorResourceQuantities
+	}{
+		"deleting child cohort updates parent SubtreeQuota": {
+			setup: func(t *testing.T, cache *Cache) {
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj())
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("child").
+					Parent("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj())
+			},
+			deleteName: "child",
+			wantBefore: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 15_000,
+				},
+			},
+			wantAfter: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+				},
+			},
+		},
+		"deleting grandchild cohort updates all ancestors SubtreeQuota": {
+			setup: func(t *testing.T, cache *Cache) {
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj())
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("mid").
+					Parent("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj())
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("leaf").
+					Parent("mid").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj()).
+					Obj())
+			},
+			deleteName: "leaf",
+			wantBefore: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"mid": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 8_000,
+				},
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 18_000,
+				},
+			},
+			wantAfter: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"mid": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 5_000,
+				},
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 15_000,
+				},
+			},
+		},
+		"deleting cohort with children updates parent SubtreeQuota": {
+			setup: func(t *testing.T, cache *Cache) {
+				ctx, _ := utiltesting.ContextWithLog(t)
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj())
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("mid").
+					Parent("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj())
 
-		// before deletion: root SubtreeQuota = 10 (own) + 5 (child) = 15
-		wantBefore := resources.FlavorResourceQuantities{
-			{Flavor: "default", Resource: corev1.ResourceCPU}: 15_000,
-		}
-		if diff := cmp.Diff(wantBefore, cache.hm.Cohort("root").getResourceNode().SubtreeQuota); diff != "" {
-			t.Errorf("before deletion, unexpected SubtreeQuota (-want,+got):\n%s", diff)
-		}
+				if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").
+					Cohort("mid").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "7").Obj()).
+					Obj()); err != nil {
+					t.Fatal(err)
+				}
+			},
+			deleteName: "mid",
+			wantBefore: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 22_000,
+				},
+			},
+			wantAfter: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+				},
+			},
+		},
+	}
 
-		cache.DeleteCohort("child")
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			tc.setup(t, cache)
 
-		// after deletion: root SubtreeQuota = 10 (own only)
-		wantAfter := resources.FlavorResourceQuantities{
-			{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
-		}
-		if diff := cmp.Diff(wantAfter, cache.hm.Cohort("root").getResourceNode().SubtreeQuota); diff != "" {
-			t.Errorf("after deletion, unexpected SubtreeQuota (-want,+got):\n%s", diff)
-		}
-	})
+			for cohortName, wantSubtreeQuota := range tc.wantBefore {
+				if diff := cmp.Diff(wantSubtreeQuota, cache.hm.Cohort(cohortName).getResourceNode().SubtreeQuota); diff != "" {
+					t.Errorf("before deletion, %s unexpected SubtreeQuota (-want,+got):\n%s", cohortName, diff)
+				}
+			}
 
-	t.Run("deleting grandchild cohort updates all ancestors SubtreeQuota", func(t *testing.T) {
-		cache := New(utiltesting.NewFakeClient())
+			cache.DeleteCohort(tc.deleteName)
 
-		root := utiltestingapi.MakeCohort("root").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
-			Obj()
-		if err := cache.AddOrUpdateCohort(root); err != nil {
-			t.Fatal(err)
-		}
-
-		mid := utiltestingapi.MakeCohort("mid").
-			Parent("root").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
-			Obj()
-		if err := cache.AddOrUpdateCohort(mid); err != nil {
-			t.Fatal(err)
-		}
-
-		leaf := utiltestingapi.MakeCohort("leaf").
-			Parent("mid").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj()).
-			Obj()
-		if err := cache.AddOrUpdateCohort(leaf); err != nil {
-			t.Fatal(err)
-		}
-
-		// before: mid = 5+3 = 8, root = 10+8 = 18
-		wantMidBefore := resources.FlavorResourceQuantities{
-			{Flavor: "default", Resource: corev1.ResourceCPU}: 8_000,
-		}
-		wantRootBefore := resources.FlavorResourceQuantities{
-			{Flavor: "default", Resource: corev1.ResourceCPU}: 18_000,
-		}
-		if diff := cmp.Diff(wantMidBefore, cache.hm.Cohort("mid").getResourceNode().SubtreeQuota); diff != "" {
-			t.Errorf("before deletion, mid unexpected SubtreeQuota (-want,+got):\n%s", diff)
-		}
-		if diff := cmp.Diff(wantRootBefore, cache.hm.Cohort("root").getResourceNode().SubtreeQuota); diff != "" {
-			t.Errorf("before deletion, root unexpected SubtreeQuota (-want,+got):\n%s", diff)
-		}
-
-		cache.DeleteCohort("leaf")
-
-		// after: mid = 5, root = 10+5 = 15
-		wantMidAfter := resources.FlavorResourceQuantities{
-			{Flavor: "default", Resource: corev1.ResourceCPU}: 5_000,
-		}
-		wantRootAfter := resources.FlavorResourceQuantities{
-			{Flavor: "default", Resource: corev1.ResourceCPU}: 15_000,
-		}
-		if diff := cmp.Diff(wantMidAfter, cache.hm.Cohort("mid").getResourceNode().SubtreeQuota); diff != "" {
-			t.Errorf("after deletion, mid unexpected SubtreeQuota (-want,+got):\n%s", diff)
-		}
-		if diff := cmp.Diff(wantRootAfter, cache.hm.Cohort("root").getResourceNode().SubtreeQuota); diff != "" {
-			t.Errorf("after deletion, root unexpected SubtreeQuota (-want,+got):\n%s", diff)
-		}
-	})
-
-	t.Run("deleting cohort with children updates parent SubtreeQuota", func(t *testing.T) {
-		cache := New(utiltesting.NewFakeClient())
-		ctx, _ := utiltesting.ContextWithLog(t)
-
-		root := utiltestingapi.MakeCohort("root").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
-			Obj()
-		if err := cache.AddOrUpdateCohort(root); err != nil {
-			t.Fatal(err)
-		}
-
-		mid := utiltestingapi.MakeCohort("mid").
-			Parent("root").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
-			Obj()
-		if err := cache.AddOrUpdateCohort(mid); err != nil {
-			t.Fatal(err)
-		}
-
-		// cq is a child of mid; after mid is deleted, mid becomes implicit (no parent)
-		// and is detached from root. So root loses mid's entire subtree contribution.
-		if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").
-			Cohort("mid").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "7").Obj()).
-			Obj()); err != nil {
-			t.Fatal(err)
-		}
-
-		// before: mid = 5+7 = 12, root = 10+12 = 22
-		wantRootBefore := resources.FlavorResourceQuantities{
-			{Flavor: "default", Resource: corev1.ResourceCPU}: 22_000,
-		}
-		if diff := cmp.Diff(wantRootBefore, cache.hm.Cohort("root").getResourceNode().SubtreeQuota); diff != "" {
-			t.Errorf("before deletion, root unexpected SubtreeQuota (-want,+got):\n%s", diff)
-		}
-
-		// Delete mid (explicit cohort). It becomes implicit because cq still references it.
-		cache.DeleteCohort("mid")
-
-		// after: mid is detached from root entirely (implicit mid has no parent),
-		// so root = 10 (own quota only)
-		wantRootAfter := resources.FlavorResourceQuantities{
-			{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
-		}
-		if diff := cmp.Diff(wantRootAfter, cache.hm.Cohort("root").getResourceNode().SubtreeQuota); diff != "" {
-			t.Errorf("after deletion, root unexpected SubtreeQuota (-want,+got):\n%s", diff)
-		}
-	})
+			for cohortName, wantSubtreeQuota := range tc.wantAfter {
+				if diff := cmp.Diff(wantSubtreeQuota, cache.hm.Cohort(cohortName).getResourceNode().SubtreeQuota); diff != "" {
+					t.Errorf("after deletion, %s unexpected SubtreeQuota (-want,+got):\n%s", cohortName, diff)
+				}
+			}
+		})
+	}
 }
 func TestClusterQueueAncestors(t *testing.T) {
 	testCases := map[string]struct {

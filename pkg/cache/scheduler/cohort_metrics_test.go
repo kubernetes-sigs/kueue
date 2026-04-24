@@ -162,84 +162,197 @@ func TestRecordCohortMetrics_Guards(t *testing.T) {
 	}
 }
 
-func TestRecordCohortMetrics_QuotaHierarchyLikeIntegration(t *testing.T) {
-	fixture := newCohortMetricsFixture(t)
-	cache := fixture.cache
-	ctx, log := fixture.ctx, fixture.log
-
+func TestCohortMetrics_QuotaHierarchyScenarios(t *testing.T) {
 	frDefaultCPU := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
 	frFlavor1CPU := resources.FlavorResource{Flavor: "flavor1", Resource: corev1.ResourceCPU}
 	frFlavor1GPU := resources.FlavorResource{Flavor: "flavor1", Resource: corev1.ResourceName("nvidia.com/gpu")}
 
-	setupRecordMetricsHierarchy(ctx, t, log, cache,
-		[]*kueue.ResourceFlavor{
-			utiltestingapi.MakeResourceFlavor("default").Obj(),
-			utiltestingapi.MakeResourceFlavor("flavor1").Obj(),
-		},
-		[]*kueue.Cohort{
-			utiltestingapi.MakeCohort("root").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").
-					Resource(corev1.ResourceCPU, "20").
-					Resource("nvidia.com/gpu", "5").
-					Obj()).
-				Obj(),
-			utiltestingapi.MakeCohort("ch1").
-				Parent("root").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
-					Resource(corev1.ResourceCPU, "15").
-					Obj()).
-				Obj(),
-			utiltestingapi.MakeCohort("ch2").
-				Parent("root").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
-					Resource(corev1.ResourceCPU, "10").
-					Obj()).
-				Obj(),
-			utiltestingapi.MakeCohort("ch3").
-				Parent("root").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").
-					Resource(corev1.ResourceCPU, "5").
-					Resource("nvidia.com/gpu", "1").
-					Obj()).
-				Obj(),
-		},
-		[]*kueue.ClusterQueue{
-			utiltestingapi.MakeClusterQueue("cqa").
-				Cohort("ch1").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
-				Obj(),
-			utiltestingapi.MakeClusterQueue("cqb").
-				Cohort("ch1").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
-				Obj(),
-			utiltestingapi.MakeClusterQueue("cqd").
-				Cohort("ch2").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
-				Obj(),
-			utiltestingapi.MakeClusterQueue("cqe").
-				Cohort("ch2").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
-				Obj(),
-		},
-	)
-	t.Run("QuotaHierarchyLikeIntegration", func(t *testing.T) {
-		clearCohortMetricsForTest(t, "root", "ch1", "ch2", "ch3")
+	testCases := []struct {
+		name string
+		run  func(t *testing.T, cache *Cache, log logr.Logger)
+	}{
+		{
+			name: "RecordCohortMetrics_QuotaHierarchyLikeIntegration",
+			run: func(t *testing.T, cache *Cache, log logr.Logger) {
+				cache.RecordCohortMetrics(log, "ch1")
+				cache.RecordCohortMetrics(log, "ch2")
+				cache.RecordCohortMetrics(log, "ch3")
 
-		cache.RecordCohortMetrics(log, "ch1")
-		cache.RecordCohortMetrics(log, "ch2")
-		cache.RecordCohortMetrics(log, "ch3")
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch1", frDefaultCPU), 30)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 20)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch3", frFlavor1CPU), 5)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch3", frFlavor1GPU), 1)
 
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch1", frDefaultCPU), 30)
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 20)
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch3", frFlavor1CPU), 5)
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch3", frFlavor1GPU), 1)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 50)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1CPU), 25)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1GPU), 6)
+			},
+		},
+		{
+			name: "DeleteCohort_DoesNotRepublishStaleAncestorQuotaMetrics",
+			run: func(t *testing.T, cache *Cache, log logr.Logger) {
+				cqd := utiltestingapi.MakeClusterQueue("cqd").
+					Cohort("ch3").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).
+					Obj()
+				if err := cache.UpdateClusterQueue(log, cqd); err != nil {
+					t.Fatalf("moving cqd to ch3: %v", err)
+				}
 
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 50)
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1CPU), 25)
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1GPU), 6)
-	})
+				cqe := utiltestingapi.MakeClusterQueue("cqe").
+					Cohort("ch3").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).
+					Obj()
+				if err := cache.UpdateClusterQueue(log, cqe); err != nil {
+					t.Fatalf("moving cqe to ch3: %v", err)
+				}
+
+				cache.RecordCohortMetrics(log, "ch1")
+				cache.RecordCohortMetrics(log, "ch2")
+				cache.RecordCohortMetrics(log, "ch3")
+
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 50)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1CPU), 25)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1GPU), 6)
+
+				cache.ClearCohortMetrics(log, "ch2")
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 40)
+
+				cache.DeleteCohort("ch2")
+
+				// Mimics the  republish (e.g. AFS driven) from another cohort update.
+				// Before the fix, stale root.SubtreeQuota caused this call to write 50 again.
+				cache.RecordCohortMetrics(log, "ch3")
+
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch3", frDefaultCPU), 10)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 40)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1CPU), 25)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1GPU), 6)
+			},
+		},
+		{
+			name: "ClearCohortMetrics_ClearsTargetAndAncestors",
+			run: func(t *testing.T, cache *Cache, log logr.Logger) {
+				addTestUsage(cache, []usageChange{
+					{cqName: "cqa", fr: frDefaultCPU, val: 6_000},
+					{cqName: "cqd", fr: frDefaultCPU, val: 7_000},
+				})
+
+				cache.RecordCohortMetrics(log, "ch1")
+				cache.RecordCohortMetrics(log, "ch2")
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch1", frDefaultCPU), 30)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 20)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 50)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 13)
+
+				cache.ClearCohortMetrics(log, "ch1")
+				expectGaugeCount(t, kueuemetrics.CohortSubtreeQuota, 0, cohortMetricLabels("ch1", frDefaultCPU))
+				expectGaugeCount(t, kueuemetrics.CohortSubtreeResourceReservations, 0, cohortMetricLabels("ch1", frDefaultCPU))
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 20)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch2", frDefaultCPU), 7)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 20)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 7)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newCohortMetricsFixture(t)
+			cache := fixture.cache
+			ctx, log := fixture.ctx, fixture.log
+
+			setupRecordMetricsHierarchy(
+				ctx, t, log, cache,
+				[]*kueue.ResourceFlavor{
+					utiltestingapi.MakeResourceFlavor("default").Obj(),
+					utiltestingapi.MakeResourceFlavor("flavor1").Obj(),
+				},
+				[]*kueue.Cohort{
+					utiltestingapi.MakeCohort("root").
+						ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("flavor1").
+								Resource(corev1.ResourceCPU, "20").
+								Resource("nvidia.com/gpu", "5").
+								Obj(),
+						).
+						Obj(),
+					utiltestingapi.MakeCohort("ch1").
+						Parent("root").
+						ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("default").
+								Resource(corev1.ResourceCPU, "15").
+								Obj(),
+						).
+						Obj(),
+					utiltestingapi.MakeCohort("ch2").
+						Parent("root").
+						ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("default").
+								Resource(corev1.ResourceCPU, "10").
+								Obj(),
+						).
+						Obj(),
+					utiltestingapi.MakeCohort("ch3").
+						Parent("root").
+						ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("flavor1").
+								Resource(corev1.ResourceCPU, "5").
+								Resource("nvidia.com/gpu", "1").
+								Obj(),
+						).
+						Obj(),
+				},
+				[]*kueue.ClusterQueue{
+					utiltestingapi.MakeClusterQueue("cqa").
+						Cohort("ch1").
+						ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("default").
+								Resource(corev1.ResourceCPU, "10").
+								Obj(),
+						).
+						Obj(),
+					utiltestingapi.MakeClusterQueue("cqb").
+						Cohort("ch1").
+						ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("default").
+								Resource(corev1.ResourceCPU, "5").
+								Obj(),
+						).
+						Obj(),
+					utiltestingapi.MakeClusterQueue("cqd").
+						Cohort("ch2").
+						ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("default").
+								Resource(corev1.ResourceCPU, "5").
+								Obj(),
+						).
+						Obj(),
+					utiltestingapi.MakeClusterQueue("cqe").
+						Cohort("ch2").
+						ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("default").
+								Resource(corev1.ResourceCPU, "5").
+								Obj(),
+						).
+						Obj(),
+				},
+			)
+
+			clearCohortMetricsForTest(t, "root", "ch1", "ch2", "ch3")
+
+			tc.run(t, cache, log)
+		})
+	}
 }
-
 func TestRecordCohortMetrics_ReservationsChildParentLikeIntegration(t *testing.T) {
 	fixture := newCohortMetricsFixture(t)
 	cache := fixture.cache
@@ -306,64 +419,6 @@ func TestRecordCohortMetrics_ReservationsChildParentLikeIntegration(t *testing.T
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch1", frDefaultCPU), 6)
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch2", frDefaultCPU), 7)
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 13)
-}
-
-func TestClearCohortMetrics_ClearsTargetAndAncestors(t *testing.T) {
-	fixture := newCohortMetricsFixture(t)
-	cache := fixture.cache
-	ctx, log := fixture.ctx, fixture.log
-	frDefaultCPU := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
-
-	setupRecordMetricsHierarchy(
-		ctx, t, log, cache,
-		[]*kueue.ResourceFlavor{
-			utiltestingapi.MakeResourceFlavor("default").Obj(),
-		},
-		[]*kueue.Cohort{
-			utiltestingapi.MakeCohort("root").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "30").Obj()).
-				Obj(),
-			utiltestingapi.MakeCohort("ch1").
-				Parent("root").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj()).
-				Obj(),
-			utiltestingapi.MakeCohort("ch2").
-				Parent("root").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "6").Obj()).
-				Obj(),
-		},
-		[]*kueue.ClusterQueue{
-			utiltestingapi.MakeClusterQueue("cqa").
-				Cohort("ch1").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
-				Obj(),
-			utiltestingapi.MakeClusterQueue("cqb").
-				Cohort("ch2").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj()).
-				Obj(),
-		},
-	)
-
-	clearCohortMetricsForTest(t, "root", "ch1", "ch2")
-	addTestUsage(cache, []usageChange{
-		{cqName: "cqa", fr: frDefaultCPU, val: 6_000},
-		{cqName: "cqb", fr: frDefaultCPU, val: 7_000},
-	})
-
-	cache.RecordCohortMetrics(log, "ch1")
-	cache.RecordCohortMetrics(log, "ch2")
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch1", frDefaultCPU), 18)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 14)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 62)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 13)
-
-	cache.ClearCohortMetrics(log, "ch1")
-	expectGaugeCount(t, kueuemetrics.CohortSubtreeQuota, 0, cohortMetricLabels("ch1", frDefaultCPU))
-	expectGaugeCount(t, kueuemetrics.CohortSubtreeResourceReservations, 0, cohortMetricLabels("ch1", frDefaultCPU))
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 14)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch2", frDefaultCPU), 7)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 44)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 7)
 }
 
 type cohortMetricsFixture struct {
@@ -461,139 +516,4 @@ func expectGaugeValue(t *testing.T, collector prometheus.Collector, labels map[s
 	if dps[0].Value != want {
 		t.Fatalf("unexpected metric value for labels %v: got=%v want=%v", labels, dps[0].Value, want)
 	}
-}
-
-func TestDeleteCohort_DoesNotRepublishStaleAncestorQuotaMetrics(t *testing.T) {
-	fixture := newCohortMetricsFixture(t)
-	cache := fixture.cache
-	ctx, log := fixture.ctx, fixture.log
-
-	frDefaultCPU := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
-	frFlavor1CPU := resources.FlavorResource{Flavor: "flavor1", Resource: corev1.ResourceCPU}
-	frFlavor1GPU := resources.FlavorResource{Flavor: "flavor1", Resource: corev1.ResourceName("nvidia.com/gpu")}
-
-	setupRecordMetricsHierarchy(
-		ctx, t, log, cache,
-		[]*kueue.ResourceFlavor{
-			utiltestingapi.MakeResourceFlavor("default").Obj(),
-			utiltestingapi.MakeResourceFlavor("flavor1").Obj(),
-		},
-		[]*kueue.Cohort{
-			utiltestingapi.MakeCohort("root").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").
-						Resource(corev1.ResourceCPU, "20").
-						Resource("nvidia.com/gpu", "5").
-						Obj(),
-				).
-				Obj(),
-			utiltestingapi.MakeCohort("ch1").
-				Parent("root").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("default").
-						Resource(corev1.ResourceCPU, "15").
-						Obj(),
-				).
-				Obj(),
-			utiltestingapi.MakeCohort("ch2").
-				Parent("root").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("default").
-						Resource(corev1.ResourceCPU, "10").
-						Obj(),
-				).
-				Obj(),
-			utiltestingapi.MakeCohort("ch3").
-				Parent("root").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").
-						Resource(corev1.ResourceCPU, "5").
-						Resource("nvidia.com/gpu", "1").
-						Obj(),
-				).
-				Obj(),
-		},
-		[]*kueue.ClusterQueue{
-			utiltestingapi.MakeClusterQueue("cqa").
-				Cohort("ch1").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("default").
-						Resource(corev1.ResourceCPU, "10").
-						Obj(),
-				).
-				Obj(),
-			utiltestingapi.MakeClusterQueue("cqb").
-				Cohort("ch1").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("default").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).
-				Obj(),
-			utiltestingapi.MakeClusterQueue("cqd").
-				Cohort("ch2").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("default").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).
-				Obj(),
-			utiltestingapi.MakeClusterQueue("cqe").
-				Cohort("ch2").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("default").
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).
-				Obj(),
-		},
-	)
-
-	clearCohortMetricsForTest(t, "root", "ch1", "ch2", "ch3")
-
-	cqd := utiltestingapi.MakeClusterQueue("cqd").
-		Cohort("ch3").
-		ResourceGroup(
-			*utiltestingapi.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "5").
-				Obj(),
-		).
-		Obj()
-	if err := cache.UpdateClusterQueue(log, cqd); err != nil {
-		t.Fatalf("moving cqd to ch3: %v", err)
-	}
-
-	cqe := utiltestingapi.MakeClusterQueue("cqe").
-		Cohort("ch3").
-		ResourceGroup(
-			*utiltestingapi.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "5").
-				Obj(),
-		).
-		Obj()
-	if err := cache.UpdateClusterQueue(log, cqe); err != nil {
-		t.Fatalf("moving cqe to ch3: %v", err)
-	}
-
-	cache.RecordCohortMetrics(log, "ch1")
-	cache.RecordCohortMetrics(log, "ch2")
-	cache.RecordCohortMetrics(log, "ch3")
-
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 50_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1CPU), 25_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1GPU), 6)
-
-	cache.ClearCohortMetrics(log, "ch2")
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 40_000)
-
-	cache.DeleteCohort("ch2")
-
-	// Mimics the  republish (e.g. AFS driven) from another cohort update.
-	// Before the fix, stale root.SubtreeQuota caused this call to write 50_000 again.
-	cache.RecordCohortMetrics(log, "ch3")
-
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch3", frDefaultCPU), 10_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 40_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1CPU), 25_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1GPU), 6)
 }
