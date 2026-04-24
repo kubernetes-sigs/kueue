@@ -1046,12 +1046,12 @@ func ReportCohortSubtreeQuota(
 	cohort kueue.CohortReference,
 	flavor kueue.ResourceFlavorReference,
 	resource corev1.ResourceName,
-	quota int64,
+	quota float64,
 	customLabelValues []string,
 	tracker *roletracker.RoleTracker,
 ) {
 	labels := append([]string{string(cohort), string(flavor), string(resource), roletracker.GetRole(tracker)}, customLabelValues...)
-	CohortSubtreeQuota.WithLabelValues(labels...).Set(float64(quota))
+	CohortSubtreeQuota.WithLabelValues(labels...).Set(quota)
 }
 
 func ReportCohortSubtreeAdmittedWorkload(cohort kueue.CohortReference, priorityClass string, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1079,12 +1079,12 @@ func ReportCohortSubtreeResourceReservations(
 	cohort kueue.CohortReference,
 	flavor kueue.ResourceFlavorReference,
 	resource corev1.ResourceName,
-	usage int64,
+	usage float64,
 	customLabelValues []string,
 	tracker *roletracker.RoleTracker,
 ) {
 	labels := append([]string{string(cohort), string(flavor), string(resource), roletracker.GetRole(tracker)}, customLabelValues...)
-	CohortSubtreeResourceReservations.WithLabelValues(labels...).Set(float64(usage))
+	CohortSubtreeResourceReservations.WithLabelValues(labels...).Set(usage)
 }
 
 func ClearCohortSubtreeResourceReservations(cohort kueue.CohortReference, flavor kueue.ResourceFlavorReference, resource corev1.ResourceName) {
