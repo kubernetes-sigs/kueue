@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -793,18 +794,22 @@ app = HelloWorld.bind()`,
 	ginkgo.It("Should run a rayservice with InTreeAutoscaling", func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
-		// Create ConfigMap with a simple Ray Serve application
+		// Create ConfigMap with a Ray Serve application that supports a delay parameter
 		configMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "rayservice-autoscale",
 				Namespace: ns.Name,
 			},
 			Data: map[string]string{
-				"hello_serve.py": `from ray import serve
+				"hello_serve.py": `import asyncio
+from ray import serve
 
 @serve.deployment
 class HelloWorld:
-    def __call__(self, request):
+    async def __call__(self, request):
+        delay = request.query_params.get("delay", "0")
+        if float(delay) > 0:
+            await asyncio.sleep(float(delay))
         return "Hello, World!"
 
 app = HelloWorld.bind()`,
@@ -929,9 +934,7 @@ app = HelloWorld.bind()`,
 				},
 			)).To(gomega.Succeed())
 			g.Expect(pods.Items).NotTo(gomega.BeEmpty())
-
 			headPodName := pods.Items[0].Name
-
 			var err error
 			localPort, stopChan, err = util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -943,13 +946,53 @@ app = HelloWorld.bind()`,
 				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/", localPort))
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				defer resp.Body.Close()
-
 				g.Expect(resp.StatusCode).To(gomega.Equal(http.StatusOK))
-
 				body, err := io.ReadAll(resp.Body)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(strings.TrimSpace(string(body))).To(gomega.ContainSubstring("Hello, World!"))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		var initialWorkerCount int
+		ginkgo.By("Recording initial worker count before sending load", func() {
+			pods := &corev1.PodList{}
+			gomega.Expect(k8sClient.List(ctx, pods,
+				client.InNamespace(ns.Name),
+				client.MatchingLabels{
+					"ray.io/node-type": "worker",
+				},
+			)).To(gomega.Succeed())
+			initialWorkerCount = len(pods.Items)
+		})
+
+		ginkgo.By("Sending concurrent requests to trigger autoscaling", func() {
+			// Send many concurrent slow requests so ongoing request count exceeds
+			// the target_ongoing_requests=1 threshold, triggering Ray Serve autoscaling.
+			// With max_replicas_per_node=1, new serve replicas require new Ray worker
+			// nodes, which triggers the RayCluster autoscaler to add workers.
+			for range 10 {
+				go func() {
+					reqClient := &http.Client{Timeout: 60 * time.Second}
+					resp, err := reqClient.Get(fmt.Sprintf("http://localhost:%d/?delay=10", localPort))
+					if err == nil && resp != nil {
+						resp.Body.Close()
+					}
+				}()
+			}
+		})
+
+		ginkgo.By("Waiting for worker count to increase due to autoscaling", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				pods := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, pods,
+					client.InNamespace(ns.Name),
+					client.MatchingLabels{
+						"ray.io/node-type": "worker",
+					},
+				)).To(gomega.Succeed())
+				g.Expect(len(pods.Items)).To(gomega.BeNumerically(">", initialWorkerCount),
+					fmt.Sprintf("Expected more than %d running worker pods after autoscaling", initialWorkerCount))
+			}, 2*util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
