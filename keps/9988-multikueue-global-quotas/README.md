@@ -31,7 +31,7 @@
     - [E2e Tests](#e2e-tests)
   - [Possible Follow-ups](#possible-follow-ups)
     - [Introduce a MultiKueue manager ClusterQueue quota reservation overbooking multiplier](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier)
-    - [Use cached remote clients for "small" resource kinds](#use-cached-remote-clients-for-small-resource-kinds)
+    - [Use cached remote clients for low-volume resource kinds](#use-cached-remote-clients-for-low-volume-resource-kinds)
     - [Add metrics for multiplier usage](#add-metrics-for-multiplier-usage)
   - [Graduation Criteria](#graduation-criteria)
 - [Drawbacks](#drawbacks)
@@ -41,7 +41,7 @@
   - [Avoid the quota automation multiplier](#avoid-the-quota-automation-multiplier)
   - [Different handling of many-to-many relationships between manager-side and worker-side ClusterQueues](#different-handling-of-many-to-many-relationships-between-manager-side-and-worker-side-clusterqueues)
   - [Make the <code>MultiKueueManagerQuotaAutomation</code> Condition message more informative](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative)
-  - [Expose "non-multiplied" total quotas in the manager ClusterQueue object](#expose-non-multiplied-total-quotas-in-the-manager-clusterqueue-object)
+  - [Expose &quot;non-multiplied&quot; total quotas in the manager ClusterQueue object](#expose-non-multiplied-total-quotas-in-the-manager-clusterqueue-object)
   - [Take Cohorts into account](#take-cohorts-into-account)
 <!-- /toc -->
 
@@ -489,7 +489,7 @@ Yet, this comes with some **disadvantages**:
 
 Therefore, this idea is **shelved** for now. We may consider it later, depending on the feedback.
 
-#### Use cached remote clients for "small" resource kinds
+#### Use cached remote clients for low-volume resource kinds
 
 Currently, the MultiKueue controllers use cached K8s clients for local (manager-side) resources but uncached clients for remote resources. Just enabling cache for remote clients does feel risky, as it could use much memory for Workloads and supported job kinds (which can exist in large numbers).
 
