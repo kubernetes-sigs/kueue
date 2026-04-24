@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -489,29 +490,18 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 		podInGroup := FromObject(&podsInGroup[i])
 
 		// The podset info is not relevant here, since this should mark the pod's end of life
-		pCopy := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				UID:       podInGroup.pod.UID,
-				Name:      podInGroup.pod.Name,
-				Namespace: podInGroup.pod.Namespace,
-			},
-			TypeMeta: podInGroup.pod.TypeMeta,
-			Status: corev1.PodStatus{
-				Conditions: []corev1.PodCondition{
-					{
-						Type:   ConditionTypeTerminationTarget,
-						Status: corev1.ConditionTrue,
-						LastTransitionTime: metav1.Time{
-							Time: p.clock.Now(),
-						},
-						Reason:  string(stopReason),
-						Message: eventMsg,
-					},
-				},
-			},
-		}
-		//nolint:staticcheck //SA1019: client.Apply is deprecated
-		err := c.Status().Patch(ctx, pCopy, client.Apply, client.FieldOwner(constants.KueueName))
+		podApplyConfig := corev1ac.Pod(podInGroup.pod.Name, podInGroup.pod.Namespace).
+			WithUID(podInGroup.pod.UID).
+			WithStatus(corev1ac.PodStatus().
+				WithConditions(corev1ac.PodCondition().
+					WithType(corev1.PodConditionType(ConditionTypeTerminationTarget)).
+					WithStatus(corev1.ConditionTrue).
+					WithLastTransitionTime(metav1.NewTime(p.clock.Now())).
+					WithReason(string(stopReason)).
+					WithMessage(eventMsg),
+				),
+			)
+		err := c.Status().Apply(ctx, podApplyConfig, client.FieldOwner(constants.KueueName), client.ForceOwnership)
 		if client.IgnoreNotFound(err) != nil {
 			return stoppedNow, err
 		}

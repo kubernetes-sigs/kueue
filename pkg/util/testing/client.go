@@ -18,9 +18,11 @@ package testing
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -152,4 +154,34 @@ func TreatSSAAsStrategicMerge(ctx context.Context, clnt client.Client, subResour
 		}
 	}
 	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(patch), filteredOpts...)
+}
+
+func TreatSSAAsStrategicMergeForApplyConfiguration(ctx context.Context, clnt client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	patch, data, err := ConvertApplyConfigToObject(applyConf)
+	if err != nil {
+		return fmt.Errorf("failed to convert ApplyConfiguration to Object: %w", err)
+	}
+
+	obj := patch.DeepCopyObject().(client.Object)
+	err = clnt.Get(ctx, client.ObjectKeyFromObject(patch), obj)
+	if err != nil {
+		return fmt.Errorf("failed to get object: %w", err)
+	}
+
+	ssaPatch := client.RawPatch(types.ApplyPatchType, data)
+	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(ssaPatch))
+}
+
+func ConvertApplyConfigToObject(applyConf runtime.ApplyConfiguration) (client.Object, []byte, error) {
+	data, err := json.Marshal(applyConf)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	u := &unstructured.Unstructured{}
+	if err := json.Unmarshal(data, u); err != nil {
+		return nil, nil, err
+	}
+
+	return u, data, nil
 }

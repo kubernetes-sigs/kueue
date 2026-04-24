@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
@@ -6280,14 +6281,18 @@ func TestStop(t *testing.T) {
 			kcBuilder := utiltesting.NewClientBuilder().
 				WithObjects(tc.pod).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 						if tc.deleteBeforePatch {
+							obj, _, err := utiltesting.ConvertApplyConfigToObject(applyConf)
+							if err != nil {
+								t.Fatalf("Could not convert ApplyConfiguration to client.Object: %v", err)
+							}
 							if err := c.Delete(ctx, obj); err != nil {
 								t.Fatalf("Could not delete pod: %v", err)
 							}
 						}
 						patched = true
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 					},
 					Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
 						deleted = true
