@@ -23,8 +23,8 @@
     "react": "^19.2.5",
     "react-ace": "^14.0.1",
     "react-dom": "^19.2.5",
-    "react-router-dom": "^7.14.1",
-    "react-toastify": "^11.0.5"
+    "react-router-dom": "^7.14.2",
+    "react-toastify": "^11.1.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.4",
