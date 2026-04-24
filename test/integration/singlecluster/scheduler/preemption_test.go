@@ -327,6 +327,9 @@ var _ = ginkgo.Describe("Preemption", func() {
 				evictedWorkloads := util.FilterEvictedWorkloads(ctx, k8sClient, lowPriorityWorkloads...)
 				g.Expect(evictedWorkloads).To(gomega.HaveLen(lowPrioWorkloadCount))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing eviction for preempted workloads")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, lowPriorityWorkloads...)
 		})
 
 		ginkgo.It("Should include job UID in preemption condition when the label is set", func() {
