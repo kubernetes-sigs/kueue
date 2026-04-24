@@ -1,9 +1,9 @@
-title: MultiKueue Global Quota
+title: MultiKueue Global Manager Quota Automation
 kep-number: 9988
 authors:
   - "@olekzabl"
 status: provisional
-creation-date: yyyy-mm-dd
+creation-date: 2026-04-24
 reviewers:
   - TBD
 approvers:
@@ -27,7 +27,6 @@ milestone:
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
   - name: MultiKueueManagerQuotaAutomation
-  - name: MultiKueueWorkerResourceStats
 disable-supported: true
 
 # The following PRR answers are required at beta release
