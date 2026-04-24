@@ -789,4 +789,168 @@ app = HelloWorld.bind()`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.It("Should run a rayservice with InTreeAutoscaling", func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		// Create ConfigMap with a simple Ray Serve application
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "rayservice-autoscale",
+				Namespace: ns.Name,
+			},
+			Data: map[string]string{
+				"hello_serve.py": `from ray import serve
+
+@serve.deployment
+class HelloWorld:
+    def __call__(self, request):
+        return "Hello, World!"
+
+app = HelloWorld.bind()`,
+			},
+		}
+
+		// serveConfigV2 configuration for the simple serve app
+		serveConfigV2 := `applications:
+  - name: hello_app
+    import_path: hello_serve:app
+    route_prefix: /
+    deployments:
+      - name: HelloWorld
+        autoscaling_config:
+          min_replicas: 1
+          max_replicas: 5
+          target_ongoing_requests: 1
+          upscaling_factor: 1.0
+          upscale_delay_s: 2
+          downscale_delay_s: 600
+        num_replicas: 1
+        max_replicas_per_node: 1
+        ray_actor_options:
+          num_cpus: 0.2`
+
+		volumes := []corev1.Volume{
+			{
+				Name: "code-sample",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "rayservice-autoscale",
+						},
+						Items: []corev1.KeyToPath{
+							{
+								Key:  "hello_serve.py",
+								Path: "hello_serve.py",
+							},
+						},
+					},
+				},
+			},
+		}
+		volumeMounts := []corev1.VolumeMount{
+			{
+				Name:      "code-sample",
+				MountPath: "/home/ray/samples",
+			},
+		}
+		env := []corev1.EnvVar{
+			{
+				Name:  "PYTHONPATH",
+				Value: "/home/ray/samples:$PYTHONPATH",
+			},
+		}
+
+		rayService := testingrayservice.MakeService("rayservice-autoscale", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "400m").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			Image(rayv1.HeadNode, kuberayTestImage).
+			Image(rayv1.WorkerNode, kuberayTestImage).
+			RayStartParam(rayv1.HeadNode, "object-store-memory", "100000000").
+			WithServeConfigV2(serveConfigV2).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			EnableInTreeAutoscaling().
+			Env(rayv1.HeadNode, env).
+			Env(rayv1.WorkerNode, env).
+			Volumes(rayv1.HeadNode, volumes).
+			Volumes(rayv1.WorkerNode, volumes).
+			VolumeMounts(rayv1.HeadNode, volumeMounts).
+			VolumeMounts(rayv1.WorkerNode, volumeMounts).
+			Obj()
+
+		// Configure worker group with minReplicas and maxReplicas
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](1)
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
+
+		ginkgo.By("Creating the ConfigMap", func() {
+			gomega.Expect(k8sClient.Create(ctx, configMap)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Creating the RayService", func() {
+			gomega.Expect(k8sClient.Create(ctx, rayService)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking one workload is created and admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloadList := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
+				hasAdmittedWorkload := false
+				for _, wl := range workloadList.Items {
+					if workload.IsAdmitted(&wl) || workload.IsFinished(&wl) {
+						hasAdmittedWorkload = true
+						break
+					}
+				}
+				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected admitted workload")
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking the RayService is running", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayService := &rayv1.RayService{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
+				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(ptr.To(false)))
+				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
+			}, 2*util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// Set up port-forwarding to the head pod for sending HTTP requests
+		var localPort int
+		var stopChan chan struct{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			pods := &corev1.PodList{}
+			g.Expect(k8sClient.List(ctx, pods,
+				client.InNamespace(ns.Name),
+				client.MatchingLabels{
+					"ray.io/node-type": "head",
+				},
+			)).To(gomega.Succeed())
+			g.Expect(pods.Items).NotTo(gomega.BeEmpty())
+
+			headPodName := pods.Items[0].Name
+
+			var err error
+			localPort, stopChan, err = util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		defer close(stopChan)
+
+		ginkgo.By("Verifying the RayService responds to HTTP requests via port-forward", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/", localPort))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				defer resp.Body.Close()
+
+				g.Expect(resp.StatusCode).To(gomega.Equal(http.StatusOK))
+
+				body, err := io.ReadAll(resp.Body)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(strings.TrimSpace(string(body))).To(gomega.ContainSubstring("Hello, World!"))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })
