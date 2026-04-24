@@ -264,7 +264,7 @@ func (j *ServiceWrapper) ManagedBy(c string) *ServiceWrapper {
 func (j *ServiceWrapper) EnableInTreeAutoscaling() *ServiceWrapper {
 	aggressive := rayv1.UpscalingMode("Aggressive")
 	idleTimeoutSeconds := int32(5)
-	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = ptr.To(true)
+	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = new(true)
 	j.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
 		UpscalingMode:      &aggressive,
 		IdleTimeoutSeconds: &idleTimeoutSeconds,
