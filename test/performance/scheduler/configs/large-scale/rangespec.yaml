@@ -1,0 +1,28 @@
+# Large-Scale Performance Test - Expected Performance Ranges
+#
+# NOTE: These thresholds are conservative placeholders and must be calibrated
+# from actual trial runs before being used to gate CI.
+#
+# Calibration procedure (mirrors baseline/rangespec.yaml):
+#   1. Run `make run-large-scale-performance-scheduler` at least 5 times
+#   2. Collect the cmdStats WallMs from artifacts/run-large-scale-performance-scheduler/minimalkueue.stats.yaml
+#   3. Collect per-class AverageTimeToAdmissionMs from artifacts/run-large-scale-performance-scheduler/summary.yaml
+#   4. Set maxWallMs = mean × 1.20 (rounded up to nearest 1000ms)
+#   5. Set wlClassesMaxAvgTimeToAdmissionMs = mean × 1.20 (rounded up to nearest 1000ms)
+#   6. Set clusterQueueClassesMinUsage = mean − 7% (rounded down to 0.1%)
+
+cmd:
+  # Placeholder: set to 30 minutes. Replace after calibration.
+  maxWallMs: 1_800_000
+
+clusterQueueClassesMinUsage:
+  # Placeholder: same as baseline. Replace after calibration.
+  cq: 55 #%
+
+wlClassesMaxAvgTimeToAdmissionMs:
+  # Placeholder values — scale from baseline proportionally.
+  # Baseline (15k wl, 30 CQ): large=11_000, medium=90_000, small=260_000
+  # Replace after calibration.
+  large: 60_000
+  medium: 500_000
+  small: 1_500_000
