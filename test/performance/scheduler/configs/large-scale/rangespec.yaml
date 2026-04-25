@@ -12,8 +12,8 @@
 #   6. Set clusterQueueClassesMinUsage = mean − 7% (rounded down to 0.1%)
 
 cmd:
-  # Placeholder: set to 30 minutes. Replace after calibration.
-  maxWallMs: 1_800_000
+  # Placeholder: set to 15 minutes (~2× baseline). Replace after calibration.
+  maxWallMs: 900_000
 
 clusterQueueClassesMinUsage:
   # Placeholder: same as baseline. Replace after calibration.
