@@ -533,7 +533,8 @@ run-large-scale-performance-scheduler: envtest performance-scheduler-runner mini
 		--o "$(ARTIFACTS)/$@" \
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
 		--generatorConfig=$(SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG) \
-		--minimalKueue=$(MINIMALKUEUE_RUNNER) --timeout=30m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
+		--timeout=30m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
 
 .PHONY: test-large-scale-performance-scheduler-once
 test-large-scale-performance-scheduler-once: gotestsum run-large-scale-performance-scheduler
