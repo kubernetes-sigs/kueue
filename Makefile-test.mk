@@ -520,6 +520,41 @@ run-tas-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 		--enableTAS=true \
 		--qps=1000 --burst=2000 --timeout=25m $(SCALABILITY_SCRAPE_ARGS)
 
+##@ Scheduler Performance Testing - Large Scale
+
+SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/large-scale/generator.yaml
+SCALABILITY_LARGE_SCALE_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/large-scale/rangespec.yaml
+
+.PHONY: run-large-scale-performance-scheduler
+run-large-scale-performance-scheduler: envtest performance-scheduler-runner minimalkueue
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG) \
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) --timeout=30m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+
+.PHONY: test-large-scale-performance-scheduler-once
+test-large-scale-performance-scheduler-once: gotestsum run-large-scale-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
+		--summary=$(ARTIFACTS)/run-large-scale-performance-scheduler/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/run-large-scale-performance-scheduler/minimalkueue.stats.yaml \
+		--range=$(SCALABILITY_LARGE_SCALE_RANGE_FILE)
+
+.PHONY: test-large-scale-performance-scheduler
+test-large-scale-performance-scheduler:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-large-scale-performance-scheduler-once
+
+.PHONY: run-large-scale-performance-scheduler-in-cluster
+run-large-scale-performance-scheduler-in-cluster: envtest performance-scheduler-runner
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--generatorConfig=$(SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG) \
+		--qps=1000 --burst=2000 --timeout=30m $(SCALABILITY_SCRAPE_ARGS)
+
 .PHONY: ginkgo-top
 ginkgo-top:
 	cd $(TOOLS_DIR) && go mod download && \
