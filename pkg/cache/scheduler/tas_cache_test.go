@@ -614,7 +614,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Unconstrained: ptr.To(true),
+					Unconstrained: new(true),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -639,7 +639,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Unconstrained: ptr.To(true),
+					Unconstrained: new(true),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -719,7 +719,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Unconstrained: ptr.To(true),
+					Unconstrained: new(true),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
