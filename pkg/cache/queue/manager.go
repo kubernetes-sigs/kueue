@@ -449,10 +449,10 @@ func (m *Manager) DefaultLocalQueueExist(namespace string) bool {
 
 func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
 	m.Lock()
-	defer m.Unlock()
 
 	key := queue.Key(q)
 	if _, ok := m.localQueues[key]; ok {
+		m.Unlock()
 		return fmt.Errorf("queue %q already exists", q.Name)
 	}
 	qImpl := newLocalQueue(q)
@@ -467,8 +467,10 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	// queue might have been added earlier.
 	var workloads kueue.WorkloadList
 	if err := m.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadQueueKey: q.Name}, client.InNamespace(q.Namespace)); err != nil {
+		m.Unlock()
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
+	var draWorkloadsToReconcile []*kueue.Workload
 	for _, w := range workloads.Items {
 		m.assignWorkload(workload.Key(&w), qImpl.Key)
 
@@ -483,8 +485,10 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
 		if dra.NeedsDRAReconcile(&w) {
 			if m.draReconcileChannel != nil {
-				m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: &w}
-				log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")
+				// Defer sending until after releasing the manager lock:
+				// - avoid blocking sends while holding the lock
+				// - keep a stable object pointer (range variable address is unsafe)
+				draWorkloadsToReconcile = append(draWorkloadsToReconcile, w.DeepCopy())
 			}
 			continue
 		}
@@ -498,6 +502,19 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	if cq != nil && cq.AddFromLocalQueue(qImpl, m.roleTracker, m.customLabels) {
 		m.Broadcast()
 	}
+
+	// Unlock before sending DRA reconcile events.
+	ch := m.draReconcileChannel
+	m.Unlock()
+
+	if ch != nil {
+		for _, wl := range draWorkloadsToReconcile {
+			log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
+			ch <- event.TypedGenericEvent[*kueue.Workload]{Object: wl}
+			log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")
+		}
+	}
+
 	return nil
 }
 
