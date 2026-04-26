@@ -4506,6 +4506,240 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"find topology assignment for grouped podsets skips domain where only workers fit without leader": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("small-used").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-used").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("small-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("large-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "large").
+					Label(corev1.LabelHostname, "large-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("6"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("filler", "test-ns").
+					NodeName("small-used").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "2500m").
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 2500,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"large-free"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 2500,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"large-free"}},
+						},
+					},
+				},
+			},
+		},
+		"find topology assignment for grouped podsets skips domain where mixed-size workers only fit without leader": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("small-used").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-used").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("small-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("large-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "large").
+					Label(corev1.LabelHostname, "large-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("6"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("filler", "test-ns").
+					NodeName("small-used").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "2500m").
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 2500,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"large-free"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 500,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           2,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"large-free"}},
+						},
+					},
+				},
+			},
+		},
+		"find topology assignment for grouped podsets keeps tight domain when leader and workers fit together": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("small-used").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-used").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("small-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("large-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "large").
+					Label(corev1.LabelHostname, "large-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("6"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("filler", "test-ns").
+					NodeName("small-used").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "2500m").
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"small-free"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"small-free"}},
+						},
+					},
+				},
+			},
+		},
 		"find topology assignment for two podsets with the same group - no fit": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1").

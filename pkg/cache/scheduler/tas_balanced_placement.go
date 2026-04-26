@@ -264,7 +264,7 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, params *topologyA
 		}
 		threshold := balanceThresholdValue(sliceCount, selectedDomainsCount, lastDomainWithLeader, lastDomain)
 		if threshold >= bestThreshold {
-			s.pruneDomainsBelowThreshold(requestedLevelSiblingDomains, threshold, params.sliceSize, params.sliceLevelIdx, params.requestedLevelIdx)
+			s.pruneDomainsBelowThreshold(requestedLevelSiblingDomains, threshold, params.sliceSize, params.sliceLevelIdx, params.requestedLevelIdx, params.leaderCount > 0)
 			_, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(s, requestedLevelSiblingDomains, sliceCount, params.leaderCount)
 			if threshold > bestThreshold || (threshold == bestThreshold && requestedLevelDomainCount < bestDomainCountOnRequestedLevel) {
 				bestThreshold = threshold
@@ -318,7 +318,7 @@ func clearState(d *domain) {
 	}
 }
 
-func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, threshold int32, sliceSize int32, sliceLevelIdx int, level int) {
+func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, threshold int32, sliceSize int32, sliceLevelIdx int, level int, leaderRequired bool) {
 	for _, d := range domains {
 		for _, c := range d.children {
 			if c.sliceStateWithLeader < threshold {
@@ -327,7 +327,7 @@ func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, thresh
 		}
 	}
 	for _, d := range domains {
-		s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level, nil)
+		s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level, nil, leaderRequired)
 		if d.sliceStateWithLeader < threshold {
 			clearState(d)
 		}
