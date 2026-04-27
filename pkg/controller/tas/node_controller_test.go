@@ -374,7 +374,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
 					LastTransitionTime: earlierTime}).Obj(),
-				workloadReassignedWithUnhealthyNode,
+				workloadReassigned,
 				testingpod.MakePod("late-pod", nsName).
 					Annotation(kueue.WorkloadAnnotation, wlName).
 					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
