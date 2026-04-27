@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"time"
 	"context"
 	"testing"
 
