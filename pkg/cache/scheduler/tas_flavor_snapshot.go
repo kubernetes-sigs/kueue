@@ -1699,16 +1699,14 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 		leaderState = max(child.leaderState, leaderState)
 	}
 	domain.state = childrenCapacity
+	sliceStateWithLeader := int32(0)
 	if minStateWithLeaderDifference == math.MaxInt32 {
 		domain.stateWithLeader = 0
 	} else {
 		domain.stateWithLeader = childrenCapacity - minStateWithLeaderDifference
-	}
-	domain.leaderState = leaderState
-	sliceStateWithLeader := int32(0)
-	if minSliceStateWithLeaderDifference != math.MaxInt32 {
 		sliceStateWithLeader = sliceCapacity - minSliceStateWithLeaderDifference
 	}
+	domain.leaderState = leaderState
 
 	if level == sliceLevelIdx {
 		// initialize the sliceState for the requested slice level.
