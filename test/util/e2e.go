@@ -610,7 +610,9 @@ func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient cli
 
 func GetKuberayTestImage() string {
 	kuberayTestImage, found := os.LookupEnv("KUBERAY_RAY_IMAGE")
-	gomega.Expect(found).To(gomega.BeTrue())
+	if !found {
+		return "rayproject/ray:2.41.0"
+	}
 	return kuberayTestImage
 }
 

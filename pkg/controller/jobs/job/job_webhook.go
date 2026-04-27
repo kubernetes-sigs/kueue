@@ -32,6 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -103,6 +104,15 @@ func (w *JobWebhook) Default(ctx context.Context, obj *batchv1.Job) error {
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults")
+
+	// Strip prebuilt workload label for KubeRay cleanup jobs to prevent suspension
+	// due to missing workload inherited from RayService.
+	if obj.Labels != nil && obj.Labels["ray.io/node-type"] == "redis-cleanup" {
+		if _, ok := obj.Labels[constants.PrebuiltWorkloadLabel]; ok {
+			log.V(2).Info("Stripping prebuilt workload label from KubeRay cleanup job", "job", obj.Name)
+			delete(obj.Labels, constants.PrebuiltWorkloadLabel)
+		}
+	}
 
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {

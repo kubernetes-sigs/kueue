@@ -17,6 +17,7 @@
 set -o errexit
 set -o nounset
 set -o pipefail
+set -x
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/../.."
@@ -51,6 +52,7 @@ trap cleanup EXIT
 startup &
 prepare_docker_images
 wait
+$KIND export kubeconfig --name "$KIND_CLUSTER_NAME"
 kind_load "$KIND_CLUSTER_NAME" ""
 kueue_deploy
 
