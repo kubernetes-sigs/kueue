@@ -24,52 +24,23 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	mockscore "sigs.k8s.io/kueue/internal/mocks/controller/core"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
-
-// mockRFWatcher records watcher calls for test assertions.
-type mockRFWatcher struct {
-	calls []struct{ old, new *kueue.ResourceFlavor }
-}
-
-func (m *mockRFWatcher) NotifyResourceFlavorUpdate(old, new *kueue.ResourceFlavor) {
-	m.calls = append(m.calls, struct{ old, new *kueue.ResourceFlavor }{old, new})
-}
-
-// mockQueue collects enqueued reconcile requests.
-type mockQueue struct {
-	items []reconcile.Request
-}
-
-func (q *mockQueue) Add(item reconcile.Request)     { q.items = append(q.items, item) }
-func (q *mockQueue) Len() int                       { return len(q.items) }
-func (q *mockQueue) Get() (reconcile.Request, bool) { return reconcile.Request{}, false }
-func (q *mockQueue) Done(reconcile.Request)         {}
-func (q *mockQueue) ShutDown()                      {}
-func (q *mockQueue) ShutDownWithDrain()             {}
-func (q *mockQueue) ShuttingDown() bool             { return false }
-func (q *mockQueue) AddAfter(item reconcile.Request, _ time.Duration) {
-	q.items = append(q.items, item)
-}
-func (q *mockQueue) AddRateLimited(item reconcile.Request) { q.items = append(q.items, item) }
-func (q *mockQueue) Forget(reconcile.Request)              {}
-func (q *mockQueue) NumRequeues(reconcile.Request) int     { return 0 }
-
-var _ workqueue.TypedRateLimitingInterface[reconcile.Request] = (*mockQueue)(nil)
 
 func newTestRFReconciler(cl *fake.ClientBuilder) *ResourceFlavorReconciler {
 	c := cl.Build()
@@ -131,9 +102,14 @@ func TestResourceFlavorPredicates(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
 			reconciler := newTestRFReconciler(utiltesting.NewClientBuilder())
-			watcher := &mockRFWatcher{}
+			watcher := mockscore.NewMockResourceFlavorUpdateWatcher(ctrl)
 			reconciler.AddUpdateWatcher(watcher)
+
+			if tc.eventType != "generic" {
+				watcher.EXPECT().NotifyResourceFlavorUpdate(tc.wantOld, tc.wantNew)
+			}
 
 			var got bool
 			switch tc.eventType {
@@ -152,23 +128,6 @@ func TestResourceFlavorPredicates(t *testing.T) {
 
 			if got != tc.wantBool {
 				t.Errorf("predicate returned %v, want %v", got, tc.wantBool)
-			}
-
-			if tc.eventType == "generic" {
-				if len(watcher.calls) != 0 {
-					t.Errorf("generic event should not notify watchers, got %d calls", len(watcher.calls))
-				}
-				return
-			}
-
-			if len(watcher.calls) != 1 {
-				t.Fatalf("expected 1 watcher call, got %d", len(watcher.calls))
-			}
-			if watcher.calls[0].old != tc.wantOld {
-				t.Errorf("watcher old: got %v, want %v", watcher.calls[0].old, tc.wantOld)
-			}
-			if watcher.calls[0].new != tc.wantNew {
-				t.Errorf("watcher new: got %v, want %v", watcher.calls[0].new, tc.wantNew)
 			}
 		})
 	}
@@ -411,11 +370,11 @@ func TestCqHandlerGeneric(t *testing.T) {
 			}
 
 			h := &cqHandler{cache: cqCache}
-			q := &mockQueue{}
+			q := &utiltesting.MockQueue{}
 			h.Generic(ctx, event.GenericEvent{Object: tc.cq}, q)
 
 			var gotNames []string
-			for _, r := range q.items {
+			for _, r := range q.Items {
 				gotNames = append(gotNames, r.Name)
 			}
 
@@ -480,23 +439,5 @@ func TestResourceFlavors(t *testing.T) {
 				t.Errorf("resourceFlavors mismatch (-want +got):\n%s", diff)
 			}
 		})
-	}
-}
-
-func TestAddUpdateWatcher(t *testing.T) {
-	reconciler := newTestRFReconciler(utiltesting.NewClientBuilder())
-
-	w1 := &mockRFWatcher{}
-	w2 := &mockRFWatcher{}
-	reconciler.AddUpdateWatcher(w1, w2)
-
-	flavor := utiltestingapi.MakeResourceFlavor("test").Obj()
-	reconciler.Create(event.TypedCreateEvent[*kueue.ResourceFlavor]{Object: flavor})
-
-	if len(w1.calls) != 1 {
-		t.Errorf("w1: expected 1 call, got %d", len(w1.calls))
-	}
-	if len(w2.calls) != 1 {
-		t.Errorf("w2: expected 1 call, got %d", len(w2.calls))
 	}
 }

@@ -164,6 +164,11 @@ generate-mocks: mockgen ## Generate mockgen mocks
 		-copyright_file hack/boilerplate.txt \
 		-package mocks \
 		sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation,JobWithCustomAnnotations
+	$(MOCKGEN) \
+		-destination=$(MOCKS_DIR)/controller/core/interface.go \
+		-copyright_file hack/boilerplate.txt \
+		-package mocks \
+		sigs.k8s.io/kueue/pkg/controller/core ResourceFlavorUpdateWatcher
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
