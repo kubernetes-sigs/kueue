@@ -12,6 +12,7 @@ description: >
 - [Install a released version](#install-a-released-version)
   - [Install by kubectl](#install-by-kubectl)
   - [Install by Helm](#install-by-helm)
+  - [Upgrade policy](#upgrade-policy)
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
   - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
   - [Uninstall](#uninstall)
@@ -82,6 +83,19 @@ helm install kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{
   --create-namespace \
   --wait --timeout 300s
 ```
+
+### Upgrade policy
+
+When upgrading Kueue to a patch release newer than `.0`, review the upgrade
+notes for the `.0` release in the same minor version, in addition to the notes
+for the target patch release.
+
+For example, when upgrading from `v0.16.x` to `v0.17.1`, first follow the
+upgrade notes for `v0.17.0`, then check the notes for `v0.17.1`.
+
+This is important because manual upgrade steps are commonly introduced in the
+initial minor release and continue to apply to later patch releases in that
+minor version.
 
 ### Add metrics scraping for prometheus-operator
 
