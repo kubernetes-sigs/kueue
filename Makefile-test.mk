@@ -117,7 +117,6 @@ test-integration-baseline: test-integration ## Run baseline integration tests fo
 
 .PHONY: test-integration-extended
 test-integration-extended: INTEGRATION_FILTERS= --label-filter="slow || redundant"
-test-integration-extended: GINKGO_ARGS="--focus=should not add unhealthy node when Ready condition is missing but late pods exist"
 test-integration-extended: test-integration ## Run extended integration tests for singlecluster suites.
 
 .PHONY: test-multikueue-integration
