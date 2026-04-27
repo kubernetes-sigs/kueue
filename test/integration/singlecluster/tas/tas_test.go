@@ -1536,7 +1536,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should not add unhealthy node when node is deleted but late pods exist", func() {
+			ginkgo.It("should not add unhealthy node when node is deleted but late pods exist", framework.SlowSpec, func() {
 				var wl *kueue.Workload
 				nodeName := nodes[0].Name
 				var terminatingPodName string
