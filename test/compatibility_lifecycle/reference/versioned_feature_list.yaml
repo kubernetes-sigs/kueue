@@ -381,6 +381,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: TASNodeMetrics
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false

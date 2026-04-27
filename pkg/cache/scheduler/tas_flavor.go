@@ -142,13 +142,14 @@ func (c *TASFlavorCache) addUsage(key workload.Reference, topologyRequests []wor
 	c.updateUsage(topologyRequests, add)
 }
 
-func (c *TASFlavorCache) removeUsage(key workload.Reference) {
+func (c *TASFlavorCache) removeUsage(key workload.Reference) []workload.TopologyDomainRequests {
 	value, found := c.wlUsage[key]
 	if !found {
-		return
+		return nil
 	}
 	c.updateUsage(value, subtract)
 	delete(c.wlUsage, key)
+	return value
 }
 
 func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainRequests, op usageOp) {

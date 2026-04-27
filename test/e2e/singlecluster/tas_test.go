@@ -23,6 +23,8 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -640,6 +642,132 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				gomega.Expect(foundOriginal).To(gomega.BeTrue(),
 					"original node %s should be preserved in scaled assignment", originalNodeName)
 			})
+		})
+	})
+
+	ginkgo.When("TAS domain usage metrics are exposed", func() {
+		var (
+			topology     *kueue.Topology
+			onDemandRF   *kueue.ResourceFlavor
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+
+			metricsRoleBinding *rbacv1.ClusterRoleBinding
+			testPod            *corev1.Pod
+			testPodContainer   string
+
+			nodeHostname string
+		)
+
+		ginkgo.BeforeEach(func() {
+			// The on-demand worker in kind-cluster.yaml carries pre-baked
+			// block/rack labels so the 3-level topology can be exercised
+			// without any dynamic node patching (which races with the cache).
+			nodeList := &corev1.NodeList{}
+			gomega.Expect(k8sClient.List(ctx, nodeList,
+				client.MatchingLabels{"instance-type": "on-demand"}),
+			).To(gomega.Succeed())
+			gomega.Expect(nodeList.Items).NotTo(gomega.BeEmpty(), "no on-demand node found in cluster")
+			nodeHostname = nodeList.Items[0].Labels[corev1.LabelHostname]
+
+			metricsRoleBinding = &rbacv1.ClusterRoleBinding{
+				ObjectMeta: metav1.ObjectMeta{Name: "tas-metrics-reader-" + ns.Name},
+				Subjects: []rbacv1.Subject{
+					{Kind: "ServiceAccount", Name: serviceAccountName, Namespace: kueueNS},
+				},
+				RoleRef: rbacv1.RoleRef{
+					APIGroup: rbacv1.GroupName,
+					Kind:     "ClusterRole",
+					Name:     metricsReaderClusterRoleName,
+				},
+			}
+			util.MustCreate(ctx, k8sClient, metricsRoleBinding)
+
+			testPod = testingpod.MakePod("curl-tas-metrics-"+ns.Name, kueueNS).
+				ServiceAccountName(serviceAccountName).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, testPod)
+			util.WaitForPodRunning(ctx, k8sClient, testPod)
+			testPodContainer = testPod.Spec.Containers[0].Name
+
+			topology = utiltestingapi.MakeDefaultThreeLevelTopology("tas-metrics-topo-" + ns.Name)
+			util.MustCreate(ctx, k8sClient, topology)
+
+			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
+				NodeLabel("instance-type", "on-demand").
+				TopologyName(topology.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, onDemandRF)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(onDemandRF.Name).
+						Resource(corev1.ResourceCPU, "2").Obj(),
+				).Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("main-tas-metrics", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			if clusterQueue != nil {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			}
+			if onDemandRF != nil {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			}
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsRoleBinding, true)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, testPod, true, util.MediumTimeout)
+		})
+
+		ginkgo.It("should report kueue_tas_domain_usage at all 3 topology levels and clear it on flavor deletion", func() {
+			ginkgo.By("submitting a workload with a hostname-level TAS request")
+			wl := utiltestingapi.MakeWorkload("wl-tas-metrics", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).Obj()).
+				Request(corev1.ResourceCPU, "700m").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("waiting for the workload to be admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			blockLevel := topology.Spec.Levels[0].NodeLabel
+			rackLevel := topology.Spec.Levels[1].NodeLabel
+			hostnameLevel := topology.Spec.Levels[2].NodeLabel
+
+			ginkgo.By("verifying kueue_tas_domain_usage is emitted at all 3 topology levels with value 700")
+			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, testPod.Name, testPodContainer, [][]string{
+				{"kueue_tas_domain_usage", onDemandRF.Name, blockLevel, "b1", "cpu", " 700"},
+				{"kueue_tas_domain_usage", onDemandRF.Name, rackLevel, "r1", "cpu", " 700"},
+				{"kueue_tas_domain_usage", onDemandRF.Name, hostnameLevel, nodeHostname, "cpu", " 700"},
+			})
+
+			ginkgo.By("finishing the workload and verifying gauges drop to 0")
+			util.FinishWorkloads(ctx, k8sClient, wl)
+			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, testPod.Name, testPodContainer, [][]string{
+				{"kueue_tas_domain_usage", onDemandRF.Name, blockLevel, "b1", "cpu", " 0"},
+				{"kueue_tas_domain_usage", onDemandRF.Name, rackLevel, "r1", "cpu", " 0"},
+				{"kueue_tas_domain_usage", onDemandRF.Name, hostnameLevel, nodeHostname, "cpu", " 0"},
+			})
+
+			ginkgo.By("deleting the flavor and verifying all gauges are removed")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, testPod.Name, testPodContainer, [][]string{
+				{"kueue_tas_domain_usage", onDemandRF.Name},
+			})
+
+			clusterQueue = nil
+			onDemandRF = nil
 		})
 	})
 })

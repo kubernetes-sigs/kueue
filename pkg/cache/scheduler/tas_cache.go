@@ -27,6 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -108,7 +110,7 @@ func (t *tasCache) DeleteFlavor(name kueue.ResourceFlavorReference) {
 	t.Lock()
 	defer t.Unlock()
 	delete(t.flavors, name)
-	delete(t.flavorCache, name)
+	t.deleteFlavorFromCache(name)
 }
 
 func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
@@ -117,8 +119,15 @@ func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 	delete(t.topologies, name)
 	for flavor, c := range t.flavorCache {
 		if c.flavor.TopologyName == name {
-			delete(t.flavorCache, flavor)
+			t.deleteFlavorFromCache(flavor)
 		}
+	}
+}
+
+func (t *tasCache) deleteFlavorFromCache(name kueue.ResourceFlavorReference) {
+	delete(t.flavorCache, name)
+	if features.Enabled(features.TASNodeMetrics) {
+		metrics.ClearTASFlavorUsage(name)
 	}
 }
 

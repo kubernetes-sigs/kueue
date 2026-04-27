@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -39,6 +40,22 @@ func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count in
 	if len(all) != count {
 		t.Helper()
 		t.Errorf("Expecting %d metrics got %d, matching labels %v", count, len(all), kvs)
+	}
+}
+
+func expectGaugeValue(t *testing.T, vec prometheus.Collector, wantValue float64, kvs ...string) {
+	t.Helper()
+	labels := prometheus.Labels{}
+	for i := range len(kvs) / 2 {
+		labels[kvs[i*2]] = kvs[i*2+1]
+	}
+	dps := metrics.CollectFilteredGaugeVec(vec, labels)
+	if len(dps) != 1 {
+		t.Errorf("expected 1 metric with labels %v, got %d", labels, len(dps))
+		return
+	}
+	if dps[0].Value != wantValue {
+		t.Errorf("gauge value with labels %v: want %v, got %v", labels, wantValue, dps[0].Value)
 	}
 }
 
@@ -473,4 +490,112 @@ func TestClearCohortMetricsOnlyClearsScopedGauges(t *testing.T) {
 	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
 
 	ClearCohortAdmittedWorkloadsMetrics(cohortName)
+}
+
+func TestTASDomainUsage(t *testing.T) {
+	const rackLabel = "cloud.com/rack"
+
+	type gaugeOp struct {
+		sub      bool
+		levels   []string
+		values   []string
+		resource corev1.ResourceName
+		qty      int64
+	}
+	type wantGauge struct {
+		domain, domainID, resource string
+		value                      float64
+	}
+	tests := []struct {
+		name       string
+		flavor     kueue.ResourceFlavorReference
+		ops        []gaugeOp
+		wantGauges []wantGauge
+		wantNone   bool
+	}{
+		{
+			name:   "add emits gauge at each topology level",
+			flavor: "tas-add-levels",
+			ops: []gaugeOp{
+				{levels: []string{rackLabel, corev1.LabelHostname}, values: []string{"rack-1", "node-1"}, resource: corev1.ResourceCPU, qty: 4000},
+			},
+			wantGauges: []wantGauge{
+				{domain: rackLabel, domainID: "rack-1", resource: string(corev1.ResourceCPU), value: 4000},
+				{domain: corev1.LabelHostname, domainID: "node-1", resource: string(corev1.ResourceCPU), value: 4000},
+			},
+		},
+		{
+			name:   "subtract decrements gauge at each topology level",
+			flavor: "tas-sub-levels",
+			ops: []gaugeOp{
+				{levels: []string{rackLabel, corev1.LabelHostname}, values: []string{"rack-1", "node-1"}, resource: corev1.ResourceCPU, qty: 6000},
+				{sub: true, levels: []string{rackLabel, corev1.LabelHostname}, values: []string{"rack-1", "node-1"}, resource: corev1.ResourceCPU, qty: 2000},
+			},
+			wantGauges: []wantGauge{
+				{domain: rackLabel, domainID: "rack-1", resource: string(corev1.ResourceCPU), value: 4000},
+				{domain: corev1.LabelHostname, domainID: "node-1", resource: string(corev1.ResourceCPU), value: 4000},
+			},
+		},
+		{
+			name:   "accumulates across workloads sharing a topology domain",
+			flavor: "tas-accumulate",
+			ops: []gaugeOp{
+				{levels: []string{rackLabel, corev1.LabelHostname}, values: []string{"rack-1", "node-1"}, resource: corev1.ResourceCPU, qty: 2000},
+				{levels: []string{rackLabel, corev1.LabelHostname}, values: []string{"rack-1", "node-2"}, resource: corev1.ResourceCPU, qty: 3000},
+			},
+			wantGauges: []wantGauge{
+				{domain: corev1.LabelHostname, domainID: "node-1", resource: string(corev1.ResourceCPU), value: 2000},
+				{domain: corev1.LabelHostname, domainID: "node-2", resource: string(corev1.ResourceCPU), value: 3000},
+				{domain: rackLabel, domainID: "rack-1", resource: string(corev1.ResourceCPU), value: 5000},
+			},
+		},
+		{
+			name:   "ignores ResourcePods",
+			flavor: "tas-pods-skip",
+			ops: []gaugeOp{
+				{levels: []string{corev1.LabelHostname}, values: []string{"node-1"}, resource: corev1.ResourcePods, qty: 5},
+				{sub: true, levels: []string{corev1.LabelHostname}, values: []string{"node-1"}, resource: corev1.ResourcePods, qty: 5},
+			},
+			wantNone: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Cleanup(func() { ClearTASFlavorUsage(tc.flavor) })
+			for _, op := range tc.ops {
+				if op.sub {
+					SubTASDomainUsage(tc.flavor, op.levels, op.values, op.resource, op.qty)
+				} else {
+					AddTASDomainUsage(tc.flavor, op.levels, op.values, op.resource, op.qty)
+				}
+			}
+			if tc.wantNone {
+				expectFilteredMetricsCount(t, TASDomainUsage, 0, "flavor", string(tc.flavor))
+				return
+			}
+			for _, g := range tc.wantGauges {
+				expectGaugeValue(t, TASDomainUsage, g.value,
+					"flavor", string(tc.flavor), "domain", g.domain, "domain_id", g.domainID, "resource", g.resource)
+			}
+		})
+	}
+}
+
+func TestClearTASFlavorUsage(t *testing.T) {
+	const (
+		flavor1 = kueue.ResourceFlavorReference("tas-clear-1")
+		flavor2 = kueue.ResourceFlavorReference("tas-clear-2")
+	)
+	t.Cleanup(func() {
+		ClearTASFlavorUsage(flavor1)
+		ClearTASFlavorUsage(flavor2)
+	})
+
+	AddTASDomainUsage(flavor1, []string{corev1.LabelHostname}, []string{"node-a"}, corev1.ResourceCPU, 1000)
+	AddTASDomainUsage(flavor2, []string{corev1.LabelHostname}, []string{"node-b"}, corev1.ResourceCPU, 2000)
+
+	ClearTASFlavorUsage(flavor1)
+
+	expectFilteredMetricsCount(t, TASDomainUsage, 0, "flavor", string(flavor1))
+	expectFilteredMetricsCount(t, TASDomainUsage, 1, "flavor", string(flavor2))
 }

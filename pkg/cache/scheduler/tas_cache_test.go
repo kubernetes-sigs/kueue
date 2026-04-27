@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/component-base/featuregate"
@@ -30,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	pkgmetrics "sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -6615,6 +6617,57 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			if diff := cmp.Diff(tc.wantAssignment, psResult.TopologyAssignment); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got):\n%s", diff)
 			}
+		})
+	}
+}
+
+// ---- TAS metrics: DeleteFlavor / DeleteTopology tests ----
+
+const (
+	tcTestFlavorName   = kueue.ResourceFlavorReference("tc-tas-metrics-flavor")
+	tcTestTopologyName = kueue.TopologyReference("tc-tas-metrics-topology")
+)
+
+func makeTASCacheForDeleteTests() *tasCache {
+	tc := NewTASCache(utiltesting.NewFakeClient())
+	tc.AddTopology(utiltestingapi.MakeTopology(string(tcTestTopologyName)).
+		Levels(corev1.LabelHostname).Obj())
+	tc.AddFlavor(utiltestingapi.MakeResourceFlavor(string(tcTestFlavorName)).
+		TopologyName(string(tcTestTopologyName)).Obj())
+	return &tc
+}
+
+func TestTASCacheDeleteClearsMetrics(t *testing.T) {
+	tests := []struct {
+		name   string
+		delete func(tc *tasCache)
+	}{
+		{
+			name:   "DeleteFlavor clears usage metrics for that flavor",
+			delete: func(tc *tasCache) { tc.DeleteFlavor(tcTestFlavorName) },
+		},
+		{
+			name:   "DeleteTopology clears usage metrics for affected flavors",
+			delete: func(tc *tasCache) { tc.DeleteTopology(tcTestTopologyName) },
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.TASNodeMetrics: true,
+			})
+			t.Cleanup(func() { pkgmetrics.ClearTASFlavorUsage(tcTestFlavorName) })
+
+			pkgmetrics.AddTASDomainUsage(tcTestFlavorName,
+				[]string{corev1.LabelHostname}, []string{"node-del"}, corev1.ResourceCPU, 1000)
+			expectGaugeCount(t, pkgmetrics.TASDomainUsage, 1,
+				prometheus.Labels{"flavor": string(tcTestFlavorName)})
+
+			cache := makeTASCacheForDeleteTests()
+			tc.delete(cache)
+
+			expectGaugeCount(t, pkgmetrics.TASDomainUsage, 0,
+				prometheus.Labels{"flavor": string(tcTestFlavorName)})
 		})
 	}
 }

@@ -844,6 +844,17 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, append([]string{"cohort", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(CohortSubtreeAdmittedActiveWorkloads)
+
+	TASDomainUsage = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "tas_domain_usage",
+			Help: `Resource usage per TAS topology domain at each topology level.
+Emitted for TAS workload usage at all levels (node, rack, block, etc.).
+Only available when the TASNodeMetrics feature gate is enabled.`,
+		},
+		[]string{"flavor", "domain", "domain_id", "resource"},
+	)
 }
 
 func init() {
@@ -1320,6 +1331,9 @@ func Register() {
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
+	}
+	if features.Enabled(features.TASNodeMetrics) {
+		RegisterTASMetrics()
 	}
 }
 

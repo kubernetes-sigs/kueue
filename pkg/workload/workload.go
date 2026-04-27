@@ -662,9 +662,21 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		// If countAfterReclaim is lower then the admission count indicates that
 		// additional pods are marked as reclaimable, and the consumption should be scaled down.
 		if countAfterReclaim := currentCounts[psa.Name]; countAfterReclaim < setRes.Count {
+			originalCount := setRes.Count
 			setRes.Requests.Divide(int64(setRes.Count))
 			setRes.Requests.Mul(int64(countAfterReclaim))
 			setRes.Count = countAfterReclaim
+			// DomainRequests.Count still holds the original per-domain admitted count.
+			// TASUsage() computes domain totals as SinglePodRequests × Count, so without
+			// this adjustment the TAS usage would ignore the reclaim reduction.
+			// Each domain count is scaled by the same reclaim ratio (countAfterReclaim /
+			// originalCount) as the overall pod set count above.
+			if setRes.TopologyRequest != nil {
+				for i := range setRes.TopologyRequest.DomainRequests {
+					dr := &setRes.TopologyRequest.DomainRequests[i]
+					dr.Count = int32(int64(dr.Count) * int64(countAfterReclaim) / int64(originalCount))
+				}
+			}
 		}
 		// Otherwise if countAfterReclaim is higher it means that the podSet was partially admitted
 		// and the count should be preserved.

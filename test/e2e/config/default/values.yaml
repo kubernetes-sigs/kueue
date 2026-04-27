@@ -34,6 +34,8 @@ featureGates:
   enabled: true
 - name: ElasticJobsViaWorkloadSlicesWithTAS
   enabled: true
+- name: TASNodeMetrics
+  enabled: true
 managerConfig:
   controllerManagerConfigYaml: |-
     apiVersion: config.kueue.x-k8s.io/v1beta2
