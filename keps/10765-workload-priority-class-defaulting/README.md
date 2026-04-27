@@ -18,7 +18,6 @@
     - [Integration Tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Alternatives](#alternatives)
-  - [Configuration-based default](#configuration-based-default)
   - [globalDefault field on WorkloadPriorityClass](#globaldefault-field-on-workloadpriorityclass)
 <!-- /toc -->
 
@@ -143,20 +142,26 @@ necessary to implement this enhancement.
 
 #### Unit Tests
 
-- `pkg/util/priority/priority_test.go`:
-  - Feature gate disabled: `default` WPC is not consulted.
-  - Feature gate enabled, `default` WPC exists: unlabeled workloads get its
-    priority.
-  - Feature gate enabled, `default` WPC does not exist: falls through to
-    Kubernetes PriorityClass chain.
-  - Explicit `kueue.x-k8s.io/priority-class` label takes precedence over the
-    `default` WPC.
+- `pkg/util/priority/priority_test.go` — `DefaultWorkloadPriorityClassExist`:
+  - `default` WorkloadPriorityClass exists: returns `true`.
+  - `default` WorkloadPriorityClass does not exist (different name): returns
+    `false`.
+  - No WorkloadPriorityClasses exist: returns `false`.
+
+- `pkg/controller/jobframework/defaults_test.go` —
+  `ApplyDefaultWorkloadPriorityClass`:
+  - Feature gate enabled, no label, `default` WPC exists: label
+    `kueue.x-k8s.io/priority-class: default` is set on the job.
+  - Feature gate disabled: label is not set.
+  - Label already set: existing label is preserved unchanged.
+  - `default` WPC does not exist: label is not set.
+  - Job's owner is managed by Kueue: label is not set.
 
 #### Integration Tests
 
 - Webhook/controller integration tests verifying that workloads created from
-  Jobs without a `WorkloadPriorityClass` label receive the `default` WPC
-  priority when the feature gate is enabled.
+  Jobs without a `kueue.x-k8s.io/priority-class` label receive the `default`
+  WPC priority when the feature gate is enabled.
 
 ### Graduation Criteria
 
