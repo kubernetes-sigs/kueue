@@ -18,6 +18,7 @@ package tas
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -997,7 +998,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 							if wl, ok := obj.(*kueue.Workload); ok && wl.Name == wlName {
 								// Fail only if it's trying to remove the node (it's not in the list anymore).
 								if !slices.Contains(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName}) {
-									return fmt.Errorf("injected patch error on removal")
+									return errors.New("injected patch error on removal")
 								}
 							}
 						}

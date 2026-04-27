@@ -307,7 +307,11 @@ func groupPodsByWorkload(pods []corev1.Pod) map[types.NamespacedName][]*corev1.P
 	return result
 }
 
-func (r *nodeReconciler) getWorkloadsFromLatePods(ctx context.Context, nodeName string, existingWorkloads sets.Set[types.NamespacedName]) (sets.Set[types.NamespacedName], map[types.NamespacedName][]*corev1.Pod, error) {
+func (r *nodeReconciler) getWorkloadsFromLatePods(
+	ctx context.Context,
+	nodeName string,
+	existingWorkloads sets.Set[types.NamespacedName],
+) (sets.Set[types.NamespacedName], map[types.NamespacedName][]*corev1.Pod, error) {
 	nodeSelectorPodsByWorkload, err := r.listPodsAssignedByNodeSelector(ctx, nodeName)
 	if err != nil {
 		return nil, nil, err
