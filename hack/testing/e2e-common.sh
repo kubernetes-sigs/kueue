@@ -963,6 +963,8 @@ function install_lws {
 
     cluster_kind_load_image "${name}" "${LEADERWORKERSET_IMAGE/#v}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${LEADERWORKERSET_MANIFEST}"
+    # TODO: Once https://github.com/kubernetes-sigs/lws/issues/823 is resolved, we should remove the following image setting command.
+    kubectl --kubeconfig="${kubeconfig}" set image -n lws-system deployments lws-controller-manager manager="${LEADERWORKERSET_IMAGE}"
     kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
 }
 
