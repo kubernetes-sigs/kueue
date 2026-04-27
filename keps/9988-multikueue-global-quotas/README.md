@@ -79,7 +79,7 @@ While this approach offers simplicity and network savings, it also leads to prob
 
 2. For a user to get the overview of actual resource availability and usage across the worker fleet, it is necessary to connect to all worker clusters and aggregate the information on their own.
 
-3. For the MultiKueue controller on the manager cluster, having no awareness of workers' quotas (and their usage) makes dispatching choices less effective. \
+3. For the MultiKueue controller on the manager cluster, having no awareness of workers' quotas (and their usage) **prevents more effective dispatching** choices. \
    Even though we generally don't want the manager to take over _the whole_ orchestrating work from the workers (as we intend to share it between both sides), some improvements are likely possible. For example, if a workload fits within the quota of worker A but not of worker B, there is no point in dispatching it to B before A. (At least, unless B could admit it through borrowing).
 
    While designing specific improvements to dispatching is **out of scope** of this KEP, all this improvements require as the **first step** that the manager *knows* workers' quotas, which this KEP proposes. \
@@ -596,7 +596,7 @@ The proposed multiplier mechanism is admittedly quite counter-intuitive, and we'
 1. Abandon quota automation altogether. (Focus on exposing visibility).
 
 2. Implement quota automation but abandon the multiplier. \
-   (This seems appealing at the first glance, as it would allow addressing the via the ClusterQueue quotas, which is the most intuitive place - even if without the breakdown per worker-side flavor).
+   (This seems appealing at the first glance, as it would allow addressing [User Story 4](#story-4-left-unaddressed) via the ClusterQueue quotas, which is the most intuitive place - even if without the breakdown per worker-side flavor).
 
 3. Use the "quota reservation overbooking multiplier" (see [this possible follow-up idea](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier)) _instead_ of the multiplier in the current proposal.
 
@@ -605,6 +605,22 @@ The proposed multiplier mechanism is admittedly quite counter-intuitive, and we'
 * For #1, our assessment is that the value of quota automation justifies introducing it, especially given our mitigations to make the multiplier possibly understandable, and the permanent option to opt-out.
 
 * For #2, we choose to introduce the multiplier, given the [numerous potential reasons](#factors-influencing-desired-manager-quota) for using it.
+
+  The strongest of these reasons is the "Divergence of quota reservation" case which - let us stress this - applies essentially to every user of MultiKueue. This means that implementing quota automation without the multiplier would be a _regression_ for _most_ users. This feels unacceptable.
+
+  Theoretically, the "Divergence of quota reservation" case could be addressed _differently_ - by changing the general MultiKueue flow of handling workloads to enforce alignment of `QuotaReserved` condition between the manager and workers, for example:
+
+  1. Detach dispatching to workloads from the `QuotaReserved` condition on the manager.
+  2. Remove `QuotaReserved` on the manager if a workload failed to get quota on the workers.
+  3. Only dispatch to workers if it's known that some of them will reserve quota.
+
+  However, all these approaches mean substantial changes which seem:
+  
+  - risky for overall MultiKueue performance,
+  - likely infeasible, 
+  - even if feasible, complex enough to be out of the scope here.
+
+  In particular, while (iii) is related to the goal of "more effective dispatching" mentioned in [Motivation](#motivation), it takes that goal to such a high level that it could easily lead to putting too much scheduling work on the manager side, thus slowing down MultiKueue in largest cases.
 
 * For #3, see the disadvantages discussed [here](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier). \
   Also, using that multiplier _instead_ of `QuotaMultiplier` from the main proposal brings two additional subtle disadvantages:
