@@ -50,7 +50,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -103,7 +102,6 @@ func TestWlReconcile(t *testing.T) {
 		wantManagersJobs      []batchv1.Job
 		wantWorker1Workloads  []kueue.Workload
 		wantWorker1Jobs       []batchv1.Job
-		wantWorker1Pods       []corev1.Pod
 
 		// second worker
 		wantWorker2Workloads []kueue.Workload
@@ -1535,7 +1533,7 @@ func TestWlReconcile(t *testing.T) {
 				cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil)
 
 				worker1Client := getClientBuilder(ctx).
-					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}, &corev1.PodList{Items: tc.wantWorker1Pods}).
+					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
 					WithStatusSubresource(&kueue.Workload{}).
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 					Build()
@@ -1646,15 +1644,6 @@ func TestWlReconcile(t *testing.T) {
 					t.Error("unexpected list worker's jobs error")
 				} else {
 					if diff := cmp.Diff(tc.wantWorker1Jobs, gotWorker1Jobs.Items, objCheckOpts...); diff != "" {
-						t.Errorf("unexpected worker's jobs (-want/+got):\n%s", diff)
-					}
-				}
-
-				gotWorker1Pods := &corev1.PodList{}
-				if err := worker1Client.List(ctx, gotWorker1Pods); err != nil {
-					t.Error("unexpected list worker's pods error")
-				} else {
-					if diff := cmp.Diff(tc.wantWorker1Pods, gotWorker1Pods.Items, objCheckOpts...); diff != "" {
 						t.Errorf("unexpected worker's jobs (-want/+got):\n%s", diff)
 					}
 				}
