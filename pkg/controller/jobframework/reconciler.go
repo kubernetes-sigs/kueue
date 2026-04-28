@@ -1528,7 +1528,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		info.Labels[constants.PodSetLabel] = string(psAssignment.Name)
 
 		if _, exists := w.Labels[kueue.MultiKueueOriginLabel]; exists {
-			info.Labels[kueue.MultiKueueWorkerWorkloadPodLabel] = "true"
+			info.Labels[kueue.MultiKueueWorkerWorkloadPodLabel] = kueue.MultiKueueWorkerWorkloadPodValue
 		}
 
 		if features.Enabled(features.AssignQueueLabelsForPods) {
@@ -1703,6 +1703,7 @@ type genericReconciler struct {
 	setup  []ReconcilerSetup
 }
 
+// l
 func (r *genericReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	return r.jr.ReconcileGenericJob(ctx, req, r.newJob())
 }

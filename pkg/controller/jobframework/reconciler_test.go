@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -329,6 +330,68 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantEvents: nil,
 		},
+		"job has MultiKueue origin label in PodTemplate if workload has Multikueue origin label": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			req:          baseReq,
+			job: baseJob.Clone().Label(kueue.MultiKueueOriginLabel, "origin").
+				Label(constants.PrebuiltWorkloadLabel, "job-test-job-1").
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					Label(kueue.MultiKueueOriginLabel, "origin").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+						kueue.PodSetAssignment{
+							Name: "main",
+						},
+					).Obj(), time.Now().Truncate(time.Hour)).
+					AdmittedAt(true, time.Now().Truncate(time.Hour)).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							utiltestingapi.MakePodSetAssignment("main").
+								Obj(),
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").
+					Label(kueue.MultiKueueOriginLabel, "origin").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+						kueue.PodSetAssignment{
+							Name: "main",
+						},
+					).Obj(), time.Now().Truncate(time.Hour)).
+					AdmittedAt(true, time.Now().Truncate(time.Hour)).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							kueue.PodSetAssignment{
+								Name:          "main",
+								Flavors:       nil,
+								ResourceUsage: nil,
+								Count:         ptr.To[int32](1),
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -342,6 +405,27 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
 			mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
 			mgj.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
+			mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), []podset.PodSetInfo{
+				{
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						kueue.WorkloadAnnotation:          "job-test-job-1",
+						kueue.WorkloadSliceNameAnnotation: "job-test-job-1",
+					},
+					Labels: map[string]string{
+						kueueconstants.ClusterQueueLabel:       "default-cq",
+						kueueconstants.LocalQueueLabel:         "test-lq",
+						kueue.MultiKueueWorkerWorkloadPodLabel: kueue.MultiKueueWorkerWorkloadPodValue,
+						kueueconstants.PodSetLabel:             "main",
+					},
+					Affinity:        nil,
+					NodeSelector:    map[string]string{},
+					Tolerations:     nil,
+					SchedulingGates: nil,
+				},
+			},
+			).Return(nil).AnyTimes()
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
@@ -365,7 +449,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				t.Fatalf("Failed to List workloads: %v", err)
 			}
 
-			if diff := cmp.Diff(wls.Items, tc.wantWorkloads, cmpopts.IgnoreFields(corev1.ResourceRequirements{}, "Requests")); diff != "" {
+			if diff := cmp.Diff(tc.wantWorkloads, wls.Items, cmpopts.IgnoreFields(corev1.ResourceRequirements{}, "Requests")); diff != "" {
 				t.Errorf("Workloads mismatch (-want +got):\n%s", diff)
 			}
 
