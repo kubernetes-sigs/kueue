@@ -1333,8 +1333,6 @@ func IsAdmissible(w *kueue.Workload) bool {
 	return !HasAdmissionGate(w) && !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w)
 }
 
-
-
 // HasAdmissionGate returns true if the workload has an admission gate annotation and the AdmissionGatedBy feature is on
 func HasAdmissionGate(w *kueue.Workload) bool {
 	if !features.Enabled(features.AdmissionGatedBy) || w.Annotations == nil {
@@ -1889,4 +1887,3 @@ func TASAssignedNodeNames(wl *kueue.Workload) []string {
 	}
 	return nodesSet.UnsortedList()
 }
-

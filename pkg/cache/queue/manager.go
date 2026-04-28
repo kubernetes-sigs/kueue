@@ -215,6 +215,9 @@ func (m *Manager) NotifyTopologyUpdateWatchers(oldTopology, newTopology *kueue.T
 }
 
 func (m *Manager) AddFinishedWorkload(wl *kueue.Workload) {
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl) {
+		return
+	}
 	m.Lock()
 	defer m.Unlock()
 	m.addFinishedWorkloadWithoutLock(wl)
@@ -749,6 +752,13 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 func (m *Manager) UpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
+	if features.Enabled(features.ConcurrentAdmission) {
+		cqName, _ := m.ClusterQueueForWorkloadWithoutLock(w)
+		if m.ConcurrentAdmissionEnabledWithoutLock(cqName) && concurrentadmission.IsVariant(w) {
+			return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
+		}
+		return nil
+	}
 	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 }
 

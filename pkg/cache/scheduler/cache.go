@@ -660,8 +660,21 @@ func (c *Cache) updateLqMetricLabels(newLq *kueue.LocalQueue) {
 	}
 }
 
+func (c *Cache) ConcurrentAdmissionEnabledFor(wl *kueue.Workload) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
+	c.RLock()
+	defer c.RUnlock()
+	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
+	if cq == nil {
+		return false
+	}
+	return cq.ConcurrentAdmissionEnabled()
+}
+
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
-	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(w) {
+	if c.ConcurrentAdmissionEnabledFor(w) && !concurrentadmission.IsVariant(w) {
 		return false
 	}
 	c.Lock()
