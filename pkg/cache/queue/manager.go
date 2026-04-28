@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 var (
@@ -581,7 +582,7 @@ func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts .
 	defer m.Unlock()
 	if features.Enabled(features.ConcurrentAdmission) {
 		cqName, _ := m.ClusterQueueForWorkloadWithoutLock(w)
-		if m.ConcurrentAdmissionEnabledWithoutLock(cqName) && workload.IsVariant(w) {
+		if m.ConcurrentAdmissionEnabledWithoutLock(cqName) && concurrentadmission.IsVariant(w) {
 			return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 		}
 		return nil

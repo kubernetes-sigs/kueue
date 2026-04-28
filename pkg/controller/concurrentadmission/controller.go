@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 const (
@@ -90,11 +91,11 @@ func (r *variantReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.Co
 			mgr.GetCache(),
 			&kueue.Workload{},
 			handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, obj *kueue.Workload) []reconcile.Request {
-				if workload.IsParentVariant(obj) {
+				if concurrentadmission.IsParent(obj) {
 					return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(obj)}}
 				}
-				if workload.IsVariant(obj) {
-					return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: obj.Namespace, Name: workload.GetParentWorkloadName(obj)}}}
+				if concurrentadmission.IsVariant(obj) {
+					return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: obj.Namespace, Name: concurrentadmission.GetParentWorkloadName(obj)}}}
 				}
 				return nil
 			}),
@@ -148,7 +149,7 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	log.V(3).Info("Syncing variants if needed")
 	parentEvicted, err := r.syncVariantEvictionStatus(ctx, parent, variants)
 	if err != nil {
-		log.V(3).Info("Failed to sync variant eviction status", "error", err)
+		log.Error(err, "Failed to sync variant eviction status")
 		return ctrl.Result{}, err
 	}
 	if parentEvicted {
@@ -157,18 +158,18 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	log.V(3).Info("Deactivating variants if needed")
 	if err := r.deactivateVariants(ctx, parent, variants, cq, flavorOrder); err != nil {
-		log.V(3).Info("Failed to deactivate variants", "error", err)
+		log.Error(err, "Failed to deactivate variants")
 		return ctrl.Result{}, err
 	}
 
 	log.V(3).Info("Activating variants if needed")
 	if err := r.activateVariants(ctx, parent, variants, cq, flavorOrder); err != nil {
-		log.V(3).Info("Failed to activate variants", "error", err)
+		log.Error(err, "Failed to activate variants")
 		return ctrl.Result{}, err
 	}
 
 	if err := r.syncAdmissionStatus(ctx, parent, variants); err != nil {
-		log.V(3).Info("Failed to sync admission status", "error", err)
+		log.Error(err, "Failed to sync admission status")
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
@@ -184,7 +185,7 @@ func (r *variantReconciler) getFamilyAndClusterQueue(ctx context.Context, req ct
 		return nil, nil, nil, client.IgnoreNotFound(err)
 	}
 
-	if !workload.IsParentVariant(wl) {
+	if !concurrentadmission.IsParent(wl) {
 		return nil, nil, nil, nil
 	}
 
@@ -202,7 +203,7 @@ func (r *variantReconciler) getFamilyAndClusterQueue(ctx context.Context, req ct
 }
 
 func (r *variantReconciler) getVariantsForParent(ctx context.Context, parent *kueue.Workload) ([]kueue.Workload, error) {
-	if !workload.IsParentVariant(parent) {
+	if !concurrentadmission.IsParent(parent) {
 		return nil, fmt.Errorf("workload %s/%s is not a parent variant", parent.Namespace, parent.Name)
 	}
 	list := &kueue.WorkloadList{}
@@ -212,7 +213,7 @@ func (r *variantReconciler) getVariantsForParent(ctx context.Context, parent *ku
 	}
 	variants := make([]kueue.Workload, 0)
 	for i := range list.Items {
-		if workload.GetParentWorkloadName(&list.Items[i]) == parent.Name {
+		if concurrentadmission.GetParentWorkloadName(&list.Items[i]) == parent.Name {
 			variants = append(variants, list.Items[i])
 		}
 	}
@@ -277,7 +278,7 @@ func (r *variantReconciler) hasVariantWithFlavor(ctx context.Context, variants [
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Checking if there is a variant with the flavor", "flavor", flavor)
 	for _, v := range variants {
-		if workload.GetVariantFlavor(&v) == flavor {
+		if concurrentadmission.GetVariantFlavor(&v) == flavor {
 			log.V(3).Info("Found a variant with the flavor", "variant", v.Name, "flavor", flavor)
 			return true
 		}
@@ -287,8 +288,8 @@ func (r *variantReconciler) hasVariantWithFlavor(ctx context.Context, variants [
 
 func sortVariantsByFlavorOrder(variants []kueue.Workload, flavorOrder map[kueue.ResourceFlavorReference]int) []kueue.Workload {
 	slices.SortFunc(variants, func(a, b kueue.Workload) int {
-		aFlavor := workload.GetVariantFlavor(&a) // we only support one flavor per variant for now
-		bFlavor := workload.GetVariantFlavor(&b)
+		aFlavor := concurrentadmission.GetVariantFlavor(&a) // we only support one flavor per variant for now
+		bFlavor := concurrentadmission.GetVariantFlavor(&b)
 		return flavorOrder[aFlavor] - flavorOrder[bFlavor]
 	})
 	return variants
@@ -394,8 +395,8 @@ func (r *variantReconciler) deactivateVariants(
 			if v.Name == admittedWl.Name {
 				continue
 			}
-			if flavorOrder[workload.GetVariantFlavor(v)] > flavorOrder[*minPreferredFlavor] {
-				log.V(2).Info("Deactivating variant because it is below the minPreferredFlavor", "variant", klog.KObj(v), "flavor", workload.GetVariantFlavor(v), "minPreferredFlavor", *minPreferredFlavor)
+			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[*minPreferredFlavor] {
+				log.V(2).Info("Deactivating variant because it is below the minPreferredFlavor", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "minPreferredFlavor", *minPreferredFlavor)
 				if err := r.deactivateVariant(ctx, v); err != nil {
 					return err
 				}
@@ -403,11 +404,11 @@ func (r *variantReconciler) deactivateVariants(
 		}
 	}
 	// also deactivate Variants below the admitted variant regardless of minPreferredFlavor
-	log.V(3).Info("Deactivating variants below the admitted variant", "admittedVariant", klog.KObj(admittedWl), "admittedFlavor", workload.GetVariantFlavor(admittedWl))
+	log.V(3).Info("Deactivating variants below the admitted variant", "admittedVariant", klog.KObj(admittedWl), "admittedFlavor", concurrentadmission.GetVariantFlavor(admittedWl))
 	for i := range variants {
 		v := &variants[i]
-		if flavorOrder[workload.GetVariantFlavor(v)] > flavorOrder[workload.GetVariantFlavor(admittedWl)] {
-			log.V(2).Info("Deactivating variant because it is below the admitted variant", "variant", klog.KObj(v), "flavor", workload.GetVariantFlavor(v), "admittedFlavor", workload.GetVariantFlavor(admittedWl))
+		if flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[concurrentadmission.GetVariantFlavor(admittedWl)] {
+			log.V(2).Info("Deactivating variant because it is below the admitted variant", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "admittedFlavor", concurrentadmission.GetVariantFlavor(admittedWl))
 			if err := r.deactivateVariant(ctx, v); err != nil {
 				return err
 			}
@@ -442,7 +443,7 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 	if minPreferredFlavor != nil {
 		for i := range variants {
 			v := &variants[i]
-			if flavorOrder[workload.GetVariantFlavor(v)] <= flavorOrder[*minPreferredFlavor] && flavorOrder[workload.GetVariantFlavor(v)] < flavorOrder[workload.GetVariantFlavor(admittedVariant)] {
+			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] <= flavorOrder[*minPreferredFlavor] && flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {
 				// activate the variant, the smaller or equal the flavor order is to the minPreferredFlavor, the higher the priority is
 				if err := activateWl(ctx, r.client, v); err != nil {
 					return err
@@ -454,7 +455,7 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 	// no minPreferredFlavor specified, so activate all variants that are below the admitted variant in the flavor order
 	for i := range variants {
 		v := &variants[i]
-		if flavorOrder[workload.GetVariantFlavor(v)] < flavorOrder[workload.GetVariantFlavor(admittedVariant)] {
+		if flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {
 			// activate the variant, the smaller the flavor order is to the admitted variant, the higher the priority is
 			if err := activateWl(ctx, r.client, v); err != nil {
 				return err
@@ -578,14 +579,24 @@ func (r *variantReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) bo
 
 func (r *variantReconciler) shouldReconcile(wl *kueue.Workload) bool {
 	log := r.logger()
-	if workload.IsParentVariant(wl) {
+	if concurrentadmission.IsParent(wl) {
 		log.V(3).Info("Workload is a parent variant, reconciling", "workload", klog.KObj(wl))
 		return true
 	}
-	if workload.IsVariant(wl) {
+	if concurrentadmission.IsVariant(wl) {
 		log.V(3).Info("Workload is a variant, reconciling", "workload", klog.KObj(wl))
 		return true
 	}
 	log.V(3).Info("Workload is neither a parent variant nor a variant, ignoring", "workload", klog.KObj(wl))
 	return false
+}
+
+func getAdmittedVariant(variants []kueue.Workload) *kueue.Workload {
+	for i := range variants {
+		v := &variants[i]
+		if workload.IsAdmitted(v) {
+			return v
+		}
+	}
+	return nil
 }

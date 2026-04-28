@@ -51,6 +51,7 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -303,7 +304,7 @@ func (r *topologyUngater) Generic(event.TypedGenericEvent[*kueue.Workload]) bool
 
 func shouldReconcileWorkload(wl *kueue.Workload) bool {
 	if features.Enabled(features.ConcurrentAdmission) {
-		return workload.IsAdmittedByTAS(wl) && !workload.IsVariant(wl)
+		return workload.IsAdmittedByTAS(wl) && !concurrentadmission.IsVariant(wl)
 	}
 	return workload.IsAdmittedByTAS(wl)
 }

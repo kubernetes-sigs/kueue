@@ -43,6 +43,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -705,7 +706,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 }
 
 func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, assignment flavorassigner.Assignment, snap *schdcache.Snapshot) *preemption.Target {
-	parentUID := workload.GetParentWorkloadUID(wl.Obj)
+	parentUID := concurrentadmission.GetParentWorkloadUID(wl.Obj)
 	if parentUID == "" {
 		return nil
 	}
@@ -716,7 +717,7 @@ func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, 
 	}
 	flavors := cq.ResourceGroups[0].Flavors
 
-	candidateFlavor := workload.GetVariantFlavor(wl.Obj)
+	candidateFlavor := concurrentadmission.GetVariantFlavor(wl.Obj)
 	if candidateFlavor == "" {
 		return nil
 	}
@@ -725,8 +726,8 @@ func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, 
 		if otherWl.Obj.UID == wl.Obj.UID {
 			continue
 		}
-		if workload.GetParentWorkloadUID(otherWl.Obj) == parentUID && workload.IsAdmitted(otherWl.Obj) {
-			siblingFlavor := workload.GetVariantFlavor(otherWl.Obj)
+		if concurrentadmission.GetParentWorkloadUID(otherWl.Obj) == parentUID && workload.IsAdmitted(otherWl.Obj) {
+			siblingFlavor := concurrentadmission.GetVariantFlavor(otherWl.Obj)
 			if siblingFlavor != "" && isLessFavorable(candidateFlavor, siblingFlavor, flavors) {
 				return &preemption.Target{
 					WorkloadInfo: otherWl,

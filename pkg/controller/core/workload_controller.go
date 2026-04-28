@@ -54,7 +54,6 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -68,6 +67,7 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -241,7 +241,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if features.Enabled(features.ConcurrentAdmission) {
 		enabled := r.queues.ConcurrentAdmissionEnabledFor(&wl)
-		if enabled && !workload.IsVariant(&wl) && !workload.IsParentVariant(&wl) {
+		if enabled && !concurrentadmission.IsVariant(&wl) && !concurrentadmission.IsParent(&wl) {
 			// Workload is a Parent without set Parent annotation yet
 			concurrentadmission.SetParentVariantLabel(&wl)
 			err := r.client.Update(ctx, &wl)
@@ -747,7 +747,7 @@ func buildAdmissionChecksMessage(checks []kueue.AdmissionCheckState, state kueue
 // reconcileCheckBasedEviction evicts or deactivates the given Workload if any admission checks have failed.
 // Returns true if the Workload was rejected or deactivated, and false otherwise.
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
-	if features.Enabled(features.ConcurrentAdmission) && workload.IsParentVariant(wl) {
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) {
 		// Parent Workloads are not supposed to have admission checks.
 		return false, nil
 	}
@@ -780,7 +780,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 }
 
 func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cq *kueue.ClusterQueue) (bool, error) {
-	if features.Enabled(features.ConcurrentAdmission) && workload.IsParentVariant(wl) {
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) {
 		// Parent Workloads are not supposed to have admission checks.
 		return false, nil
 	}
@@ -999,7 +999,7 @@ func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionCh
 }
 
 func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (time.Duration, error) {
-	if features.Enabled(features.ConcurrentAdmission) && workload.IsVariant(wl) {
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl) {
 		// Variant Workloads are not supposed to have PodsReady condition, it's Parent Workload responsibility.
 		return 0, nil
 	}
@@ -1073,7 +1073,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	log.V(2).Info("Workload create event")
 
 	if status == workload.StatusFinished {
-		if features.Enabled(features.ConcurrentAdmission) && workload.IsVariant(e.Object) {
+		if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Object) {
 			// Finished metric shouldn't account for Variants
 			return true
 		}
@@ -1176,7 +1176,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		// The workload could have been in the queues if we missed an event.
 		r.queues.DeleteWorkload(log, wlKey)
 
-		if features.Enabled(features.ConcurrentAdmission) && workload.IsVariant(wlCopy) {
+		if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wlCopy) {
 			// Finished metric should account for Parent Workloads, not Variants
 			log.V(2).Info("Skipping finished workload metric update for Variant workload")
 		} else {
@@ -1196,7 +1196,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		if dra.NeedsDRAReconcile(e.ObjectNew) {
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
-		} else if !concurrentAdmissionEnabled || workload.IsVariant(wlCopy) {
+		} else if !concurrentAdmissionEnabled || concurrentadmission.IsVariant(wlCopy) {
 			// Concurrent Admission: Here there's no guarantee the Parent is properly labeled because it may have not gone through Reconcile yet
 			// We need to check if the Workload is has Concurrent Admission enabled for its CQ and is Variant
 			if err := r.queues.UpdateWorkload(log, wlCopy); err != nil {
@@ -1259,7 +1259,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 
 		// Concurrent Admission: Here there's no guarantee the Parent is properly labeled because it may have not gone through Reconcile yet
 		// We need to check if the Workload is has Concurrent Admission enabled for its CQ and is Variant
-		if !concurrentAdmissionEnabled || workload.IsVariant(wlCopy) {
+		if !concurrentAdmissionEnabled || concurrentadmission.IsVariant(wlCopy) {
 			r.cache.AddOrUpdateWorkload(log, wlCopy)
 		}
 	}

@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 type RequeueReason string
@@ -266,7 +267,7 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 	defer c.rwm.Unlock()
 	added := false
 	for _, info := range q.items {
-		if features.Enabled(features.ConcurrentAdmission) && workload.IsParentVariant(info.Obj) {
+		if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(info.Obj) {
 			// Parent Workloads are not pushed onto heap
 			continue
 		}
@@ -293,7 +294,7 @@ func (c *ClusterQueue) ConcurrentAdmissionEnabled() bool {
 // PushOrUpdate pushes the workload to ClusterQueue.
 // If the workload is already present, updates with the new one.
 func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
-	if features.Enabled(features.ConcurrentAdmission) && workload.IsParentVariant(wInfo.Obj) {
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wInfo.Obj) {
 		// Parent Workloads are not pushed onto heap
 		return
 	}
