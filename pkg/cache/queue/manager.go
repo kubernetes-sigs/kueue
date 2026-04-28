@@ -519,6 +519,7 @@ func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
 	if !ok {
 		return 0, ErrLocalQueueDoesNotExistOrInactive
 	}
+
 	return int32(len(qImpl.items)), nil
 }
 
@@ -560,6 +561,12 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
+	if features.Enabled(features.ConcurrentAdmission) {
+		cqName, _ := m.ClusterQueueForWorkload(w)
+		if m.ConcurrentAdmissionEnabled(cqName) && workload.IsVariant(w) {
+			return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
+		}
+	}
 	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 }
 

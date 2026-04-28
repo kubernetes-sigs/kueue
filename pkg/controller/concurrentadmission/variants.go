@@ -22,13 +22,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func IsVariant(wl *kueue.Workload) bool {
-	if wl == nil {
-		return false
-	}
-	return workload.GetParentWorkloadName(wl) != ""
-}
-
 func getAdmittedVariant(variants []kueue.Workload) *kueue.Workload {
 	for i := range variants {
 		v := &variants[i]

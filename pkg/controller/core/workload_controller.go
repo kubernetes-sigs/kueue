@@ -239,14 +239,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	cqName, found := r.queues.ClusterQueueForWorkload(&wl)
-	if found {
-		enabled := r.queues.ConcurrentAdmissionEnabled(cqName)
-		if enabled && !concurrentadmission.IsVariant(&wl) && !workload.IsParentVariant(&wl) {
-			// Workload is a Parent without set Parent annotation yet
-			concurrentadmission.SetParentVariantLabel(&wl)
-			err := r.client.Update(ctx, &wl)
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+	if features.Enabled(features.ConcurrentAdmission) {
+		cqName, found := r.queues.ClusterQueueForWorkload(&wl)
+		if found {
+			enabled := r.queues.ConcurrentAdmissionEnabled(cqName)
+			if enabled && !workload.IsVariant(&wl) && !workload.IsParentVariant(&wl) {
+				// Workload is a Parent without set Parent annotation yet
+				concurrentadmission.SetParentVariantLabel(&wl)
+				err := r.client.Update(ctx, &wl)
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
 		}
 	}
 
@@ -381,18 +383,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		if workload.IsAdmissible(&wl) {
-			if !workload.IsParentVariant(&wl) {
-				// at this point Workload Parent are for sure labeled
-				if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
-					log.V(2).Info("Failed to add DRA workload to queue", "error", err)
-					return ctrl.Result{}, err
-				}
+			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
+				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
+				return ctrl.Result{}, err
 			}
 		} else {
-			if !workload.IsParentVariant(&wl) {
-				if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
-					log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
-				}
+			if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
+				log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 			}
 		}
 		log.V(3).Info("Successfully pre-processed and queued DRA workload in scheduler")
@@ -424,13 +421,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				if err != nil {
 					return ctrl.Result{}, client.IgnoreNotFound(err)
 				}
-				if !workload.IsParentVariant(&wl) {
-					if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy()); err != nil {
-						log.V(2).Info("failed to put the workload back into queue", "error", err)
-						return ctrl.Result{}, err
-					}
-					log.V(3).Info("Workload requeued after backoff")
+				if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy()); err != nil {
+					log.V(2).Info("failed to put the workload back into queue", "error", err)
+					return ctrl.Result{}, err
 				}
+				log.V(3).Info("Workload requeued after backoff")
 				return ctrl.Result{}, nil
 			}
 		}
@@ -1007,7 +1002,7 @@ func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionCh
 }
 
 func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (time.Duration, error) {
-	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl) {
+	if features.Enabled(features.ConcurrentAdmission) && workload.IsVariant(wl) {
 		// Variant Workloads are not supposed to have PodsReady condition, it's Parent Workload responsibility.
 		return 0, nil
 	}
@@ -1081,10 +1076,11 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	log.V(2).Info("Workload create event")
 
 	if status == workload.StatusFinished {
-		if !concurrentadmission.IsVariant(e.Object) {
-			// Finished metric should account for Variants
-			r.queues.AddFinishedWorkload(e.Object)
+		if features.Enabled(features.ConcurrentAdmission) && workload.IsVariant(e.Object) {
+			// Finished metric shouldn't account for Variants
+			return true
 		}
+		r.queues.AddFinishedWorkload(e.Object)
 		return true
 	}
 
@@ -1098,12 +1094,8 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	}
 
 	if workload.IsAdmissible(e.Object) {
-		cqName, _ := r.queues.ClusterQueueForWorkload(e.Object)
-		concurrentAdmissionEnabled := r.queues.ConcurrentAdmissionEnabled(cqName)
-		if !concurrentAdmissionEnabled || (concurrentAdmissionEnabled && concurrentadmission.IsVariant(wlCopy)) {
-			if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
-				log.V(2).Info("ignored an error for now", "error", err)
-			}
+		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+			log.V(2).Info("ignored an error for now", "error", err)
 		}
 		return true
 	}
@@ -1188,7 +1180,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		// The workload could have been in the queues if we missed an event.
 		r.queues.DeleteWorkload(log, wlKey)
 
-		if !concurrentadmission.IsVariant(wlCopy) {
+		if features.Enabled(features.ConcurrentAdmission) && workload.IsVariant(wlCopy) {
+			// Finished metric should account for Parent Workloads, not Variants
+			log.V(2).Info("Skipping finished workload metric update for Variant workload")
+		} else {
 			// Finished metric should account for Variants
 			r.queues.AddFinishedWorkload(wlCopy)
 		}
@@ -1205,18 +1200,17 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		if dra.NeedsDRAReconcile(e.ObjectNew) {
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
-		} else if !concurrentAdmissionEnabled || (concurrentAdmissionEnabled && concurrentadmission.IsVariant(wlCopy)) {
-			err := r.queues.UpdateWorkload(log, wlCopy)
-			if err != nil {
+		} else if !concurrentAdmissionEnabled || (concurrentAdmissionEnabled && workload.IsVariant(wlCopy)) {
+			// Concurrent Admission: Here there's no guarantee the Parent is properly labeled because it may have not gone through Reconcile yet
+			// We need to check if the Workload is has Concurrent Admission enabled for its CQ and is Variant
+			if err := r.queues.UpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(log, wlKey)
-		if !concurrentAdmissionEnabled || (concurrentAdmissionEnabled && concurrentadmission.IsVariant(wlCopy)) {
-			if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
-				log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
-			}
+		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
+			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 		if afs.Enabled(r.admissionFSConfig) && status == workload.StatusAdmitted && r.cache.ClusterQueueUsesAdmissionFairSharing(wlCopy.Status.Admission.ClusterQueue) {
 			r.updateAfsConsumedUsage(log, wlCopy)
@@ -1245,10 +1239,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				if dra.NeedsDRAReconcile(e.ObjectNew) {
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				} else {
-					if !concurrentAdmissionEnabled || (concurrentAdmissionEnabled && concurrentadmission.IsVariant(wlCopy)) {
-						if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
-							log.V(2).Info("ignored an error for now", "error", err)
-						}
+					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
+						log.V(2).Info("ignored an error for now", "error", err)
 					}
 					r.queues.DeleteSecondPassWithoutLock(wlKey)
 				}
@@ -1262,15 +1254,16 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Update the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if !concurrentAdmissionEnabled || (concurrentAdmissionEnabled && concurrentadmission.IsVariant(wlCopy)) {
-				r.cache.AddOrUpdateWorkload(log, wlCopy)
-			}
+			r.cache.AddOrUpdateWorkload(log, wlCopy)
 		})
 
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		if !concurrentAdmissionEnabled || (concurrentAdmissionEnabled && concurrentadmission.IsVariant(wlCopy)) {
+
+		// Concurrent Admission: Here there's no guarantee the Parent is properly labeled because it may have not gone through Reconcile yet
+		// We need to check if the Workload is has Concurrent Admission enabled for its CQ and is Variant
+		if !concurrentAdmissionEnabled || (concurrentAdmissionEnabled && workload.IsVariant(wlCopy)) {
 			r.cache.AddOrUpdateWorkload(log, wlCopy)
 		}
 	}
@@ -1483,14 +1476,10 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 			log.V(2).Info("Queued reconcile for DRA workload due to resource update")
 			continue
 		}
-		cqName, _ := h.r.queues.ClusterQueueForWorkload(wlCopy)
-		concurrentAdmissionEnabled := h.r.queues.ConcurrentAdmissionEnabled(cqName)
 
 		if workload.IsAdmissible(wlCopy) {
-			if !concurrentAdmissionEnabled || (concurrentAdmissionEnabled && concurrentadmission.IsVariant(wlCopy)) {
-				if err = h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
-					log.V(2).Info("ignored an error for now", "error", err)
-				}
+			if err = h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+				log.V(2).Info("ignored an error for now", "error", err)
 			}
 		}
 	}

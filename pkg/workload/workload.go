@@ -1729,22 +1729,6 @@ func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, ms
 	return nil
 }
 
-func Activate(ctx context.Context, c client.Client, wl *kueue.Workload) error {
-	if wl == nil || IsActive(wl) {
-		return nil
-	}
-	wl.Spec.Active = new(true)
-	return c.Update(ctx, wl)
-}
-
-func Deactivate(ctx context.Context, c client.Client, wl *kueue.Workload) error {
-	if wl == nil || !IsActive(wl) {
-		return nil
-	}
-	wl.Spec.Active = new(false)
-	return c.Update(ctx, wl)
-}
-
 func PriorityClassName(wl *kueue.Workload) string {
 	if wl.Spec.PriorityClassRef != nil {
 		return wl.Spec.PriorityClassRef.Name
@@ -1941,4 +1925,11 @@ func TASAssignedNodeNames(wl *kueue.Workload) []string {
 
 func IsParentVariant(workload *kueue.Workload) bool {
 	return workload != nil && workload.Labels[controllerconstants.ParentVariantLabel] == "true"
+}
+
+func IsVariant(wl *kueue.Workload) bool {
+	if wl == nil {
+		return false
+	}
+	return GetParentWorkloadName(wl) != ""
 }

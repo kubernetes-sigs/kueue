@@ -252,7 +252,9 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	}
 	c.namespaceSelector = nsSelector
 	c.active = apimeta.IsStatusConditionTrue(apiCQ.Status.Conditions, kueue.ClusterQueueActive)
-	c.ConcurrentAdmissionPolicy = apiCQ.Spec.ConcurrentAdmissionPolicy
+	if features.Enabled(features.ConcurrentAdmission) {
+		c.ConcurrentAdmissionPolicy = apiCQ.Spec.ConcurrentAdmissionPolicy
+	}
 	return nil
 }
 
@@ -264,7 +266,7 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 	defer c.rwm.Unlock()
 	added := false
 	for _, info := range q.items {
-		if workload.IsParentVariant(info.Obj) {
+		if features.Enabled(features.ConcurrentAdmission) && workload.IsParentVariant(info.Obj) {
 			// Parent Workloads are not pushed onto heap
 			continue
 		}
@@ -280,6 +282,9 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 }
 
 func (c *ClusterQueue) ConcurrentAdmissionEnabled() bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.ConcurrentAdmissionPolicy != nil
@@ -288,7 +293,7 @@ func (c *ClusterQueue) ConcurrentAdmissionEnabled() bool {
 // PushOrUpdate pushes the workload to ClusterQueue.
 // If the workload is already present, updates with the new one.
 func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
-	if workload.IsParentVariant(wInfo.Obj) {
+	if features.Enabled(features.ConcurrentAdmission) && workload.IsParentVariant(wInfo.Obj) {
 		// Parent Workloads are not pushed onto heap
 		return
 	}

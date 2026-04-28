@@ -779,6 +779,9 @@ func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource
 }
 
 func (a *FlavorAssigner) isFlavorAllowed(fName kueue.ResourceFlavorReference) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return true
+	}
 	if annotations := a.wl.Obj.GetAnnotations(); annotations != nil {
 		if allowedFlavors, ok := annotations[controllerconstants.WorkloadAllowedResourceFlavorAnnotation]; ok {
 			return slices.Contains(strings.Split(allowedFlavors, ","), string(fName))

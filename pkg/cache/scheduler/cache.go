@@ -660,7 +660,7 @@ func (c *Cache) updateLqMetricLabels(newLq *kueue.LocalQueue) {
 }
 
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
-	if workload.IsParentVariant(w) {
+	if features.Enabled(features.ConcurrentAdmission) && workload.IsParentVariant(w) {
 		return false
 	}
 	c.Lock()
@@ -677,7 +677,7 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Worklo
 	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
 
 	// Finished or deactivated workloads should not keep ClusterQueues in-use in the cache.
-	if !workload.HasActiveQuotaReservation(wl) || workload.IsParentVariant(wl) {
+	if !workload.HasActiveQuotaReservation(wl) || (features.Enabled(features.ConcurrentAdmission) && workload.IsParentVariant(wl)) {
 		if assigned {
 			c.deleteFromQueueIfPresent(log, wlKey, assignedCqName)
 			delete(c.workloadAssignedQueues, wlKey)

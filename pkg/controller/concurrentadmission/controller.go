@@ -93,7 +93,7 @@ func (r *variantReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.Co
 				if workload.IsParentVariant(obj) {
 					return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(obj)}}
 				}
-				if IsVariant(obj) {
+				if workload.IsVariant(obj) {
 					return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: obj.Namespace, Name: workload.GetParentWorkloadName(obj)}}}
 				}
 				return nil
@@ -348,7 +348,7 @@ func (r *variantReconciler) clearWorkloadAdmission(ctx context.Context, wl *kueu
 
 func (r *variantReconciler) deactivateVariant(ctx context.Context, v *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
-	if err := workload.Deactivate(ctx, r.client, v); err != nil {
+	if err := deactivateWl(ctx, r.client, v); err != nil {
 		return err
 	}
 	// fetch the updated variant and unset quota
@@ -436,7 +436,7 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 		// no admitted variants so activate all variants if they are not active, case of preemption
 		for i := range variants {
 			v := &variants[i]
-			if err := workload.Activate(ctx, r.client, v); err != nil {
+			if err := activateWl(ctx, r.client, v); err != nil {
 				return err
 			}
 		}
@@ -452,7 +452,7 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 			v := &variants[i]
 			if flavorOrder[getVariantFlavor(v)] <= flavorOrder[*minPreferredFlavor] && flavorOrder[getVariantFlavor(v)] < flavorOrder[getVariantFlavor(admittedVariant)] {
 				// activate the variant, the smaller or equal the flavor order is to the minPreferredFlavor, the higher the priority is
-				if err := workload.Activate(ctx, r.client, v); err != nil {
+				if err := activateWl(ctx, r.client, v); err != nil {
 					return err
 				}
 			}
@@ -464,12 +464,28 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 		v := &variants[i]
 		if flavorOrder[getVariantFlavor(v)] < flavorOrder[getVariantFlavor(admittedVariant)] {
 			// activate the variant, the smaller the flavor order is to the admitted variant, the higher the priority is
-			if err := workload.Activate(ctx, r.client, v); err != nil {
+			if err := activateWl(ctx, r.client, v); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func activateWl(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	if wl == nil || workload.IsActive(wl) {
+		return nil
+	}
+	wl.Spec.Active = new(true)
+	return c.Update(ctx, wl)
+}
+
+func deactivateWl(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	if wl == nil || !workload.IsActive(wl) {
+		return nil
+	}
+	wl.Spec.Active = new(false)
+	return c.Update(ctx, wl)
 }
 
 func (r *variantReconciler) syncFinished(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {
@@ -574,7 +590,7 @@ func (r *variantReconciler) shouldReconcile(wl *kueue.Workload) bool {
 		log.V(3).Info("Workload is a parent variant, reconciling", "workload", klog.KObj(wl))
 		return true
 	}
-	if IsVariant(wl) {
+	if workload.IsVariant(wl) {
 		log.V(3).Info("Workload is a variant, reconciling", "workload", klog.KObj(wl))
 		return true
 	}

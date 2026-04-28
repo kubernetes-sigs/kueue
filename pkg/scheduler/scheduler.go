@@ -662,8 +662,12 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
-	// Add less favorable siblings to preemption targets once here.
-	preemptionTargets = append(preemptionTargets, s.getLessFavorableSiblings(log, wl, fullAssignment, snap)...)
+	if features.Enabled(features.ConcurrentAdmission) {
+		// Add less favorable siblings to preemption targets once here.
+		if lessFavorableSibling := s.getLessFavorableSibling(log, wl, fullAssignment, snap); lessFavorableSibling != nil {
+			preemptionTargets = append(preemptionTargets, lessFavorableSibling)
+		}
+	}
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
@@ -700,7 +704,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 	return fullAssignment, nil
 }
 
-func (s *Scheduler) getLessFavorableSiblings(log logr.Logger, wl *workload.Info, assignment flavorassigner.Assignment, snap *schdcache.Snapshot) []*preemption.Target {
+func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, assignment flavorassigner.Assignment, snap *schdcache.Snapshot) *preemption.Target {
 	parentUID := workload.GetParentWorkloadUID(wl.Obj)
 	if parentUID == "" {
 		return nil
@@ -717,7 +721,6 @@ func (s *Scheduler) getLessFavorableSiblings(log logr.Logger, wl *workload.Info,
 		return nil
 	}
 
-	var targets []*preemption.Target
 	for _, otherWl := range cq.Workloads {
 		if otherWl.Obj.UID == wl.Obj.UID {
 			continue
@@ -725,15 +728,15 @@ func (s *Scheduler) getLessFavorableSiblings(log logr.Logger, wl *workload.Info,
 		if workload.GetParentWorkloadUID(otherWl.Obj) == parentUID && workload.IsAdmitted(otherWl.Obj) {
 			siblingFlavor := workload.GetVariantFlavor(otherWl.Obj)
 			if siblingFlavor != "" && isLessFavorable(candidateFlavor, siblingFlavor, flavors) {
-				targets = append(targets, &preemption.Target{
+				return &preemption.Target{
 					WorkloadInfo: otherWl,
 					WorkloadCq:   cq,
 					Reason:       kueue.ConcurrentAdmissionReason,
-				})
+				}
 			}
 		}
 	}
-	return targets
+	return nil
 }
 
 func isLessFavorable(candidate, sibling kueue.ResourceFlavorReference, flavors []kueue.ResourceFlavorReference) bool {

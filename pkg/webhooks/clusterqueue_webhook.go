@@ -229,6 +229,9 @@ func validateFlavorResourceCombinations(resourceGroups []kueue.ResourceGroup, pa
 
 func validateConcurrentAdmissionPolicy(cq *kueue.ClusterQueue, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return allErrs
+	}
 	if cq.Spec.ConcurrentAdmissionPolicy == nil {
 		return allErrs
 	}
