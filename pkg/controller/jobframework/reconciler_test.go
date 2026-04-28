@@ -96,6 +96,7 @@ func TestReconcileGenericJob(t *testing.T) {
 		objs          []client.Object
 		wantWorkloads []kueue.Workload
 		wantEvents    []utiltesting.EventRecord
+		wantPodSets   []podset.PodSetInfo
 	}{
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
@@ -330,7 +331,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantEvents: nil,
 		},
-		"job has MultiKueue origin label in PodTemplate if workload has Multikueue origin label": {
+		"MultiKueue worker pod origin label is propagated to PodTemplate if workload has Multikueue origin label": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			req:          baseReq,
 			job: baseJob.Clone().Label(kueue.MultiKueueOriginLabel, "origin").
@@ -381,7 +382,7 @@ func TestReconcileGenericJob(t *testing.T) {
 					Admission(&kueue.Admission{
 						ClusterQueue: "default-cq",
 						PodSetAssignments: []kueue.PodSetAssignment{
-							kueue.PodSetAssignment{
+							{
 								Name:          "main",
 								Flavors:       nil,
 								ResourceUsage: nil,
@@ -391,21 +392,7 @@ func TestReconcileGenericJob(t *testing.T) {
 					}).
 					Obj(),
 			},
-		},
-	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-
-			ctx, _ := utiltesting.ContextWithLog(t)
-			mockctrl := gomock.NewController(t)
-
-			mgj := mocks.NewMockGenericJob(mockctrl)
-			mgj.EXPECT().Object().Return(tc.job).AnyTimes()
-			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
-			mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
-			mgj.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
-			mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), []podset.PodSetInfo{
+			wantPodSets: []podset.PodSetInfo{
 				{
 					Name:  "main",
 					Count: 1,
@@ -425,7 +412,21 @@ func TestReconcileGenericJob(t *testing.T) {
 					SchedulingGates: nil,
 				},
 			},
-			).Return(nil).AnyTimes()
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			mockctrl := gomock.NewController(t)
+
+			mgj := mocks.NewMockGenericJob(mockctrl)
+			mgj.EXPECT().Object().Return(tc.job).AnyTimes()
+			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
+			mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
+			mgj.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
+			mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), tc.wantPodSets).Return(nil).AnyTimes()
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
