@@ -1668,7 +1668,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	// logic for a parent
 	childrenCapacity := int32(0)
 	sliceCapacity := int32(0)
-	hasWithLeaderCapacityContributor = false
+	hasWithLeaderCapacityContributor := false
 	minStateWithLeaderDifference := int32(math.MaxInt32)
 	minSliceStateWithLeaderDifference := int32(math.MaxInt32)
 	leaderState := int32(0)
