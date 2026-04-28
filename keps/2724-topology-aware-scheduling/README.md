@@ -53,6 +53,7 @@
     - [Selecting the algorithm](#selecting-the-algorithm)
       - [Until v0.14](#until-v014)
       - [Since v0.15](#since-v015)
+      - [Hierarchical LeastFreeCapacity for unconstrained workloads](#hierarchical-leastfreecapacity-for-unconstrained-workloads)
   - [Two-level Topology Aware scheduling](#two-level-topology-aware-scheduling)
     - [Example](#example-1)
   - [Multi-level Topology Aware scheduling](#multi-level-topology-aware-scheduling)
@@ -1541,10 +1542,27 @@ Since v0.15, the available feature gates are as follows:
 | TASProfileBestFit (deprecated)                   | BestFit           | BestFit           | BestFit           |
 | TASProfileLeastFreeCapacity (removed in v0.17)   | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
 | TASBalancedPlacement                             | BalancedPlacement | BestFit           | LeastFreeCapacity |
+| TASHierarchicalUnconstrained                     | BestFit           | BestFit           | LeastFreeCapacity (hierarchical) |
 
 Based on the user feedback, we decided to make `TASProfileMixed` default starting in v0.15. (The corresponding feature gate is hence obsolete; we formally keep it "deprecated" for backwards compatibility). It differs from the previous default only in the `unconstrained` case - in which Kueue should prioritize minimizing fragmentation which is provided by the `LeastFreeCapacity` algorithm.
 
 For users still preferring the "always BestFit" profile, we introduce the `TASProfileBestFit` feature gate, marking it as deprecated. We will remove it in v0.17 if we see no report indicating a need for that configuration.
+
+##### Hierarchical LeastFreeCapacity for unconstrained workloads
+
+When `TASHierarchicalUnconstrained` is enabled (alongside the default `TASProfileMixed`
+profile), the `LeastFreeCapacity` algorithm for `unconstrained` workloads resolves the
+topology level starting from the **highest level** in the hierarchy (e.g., rack) rather
+than the lowest level (host). This means the algorithm first identifies the busiest
+higher-level domain and then packs pods into the busiest nodes within that domain,
+resulting in hierarchical packing behavior.
+
+Without `TASHierarchicalUnconstrained`, the existing behavior is preserved: the topology
+level for unconstrained workloads is resolved at the node level, and `LeastFreeCapacity`
+sorting occurs only within that level.
+
+This feature gate is alpha and disabled by default. It is not mutually exclusive with
+`TASProfileMixed` — it augments the unconstrained scheduling path when both are enabled.
 
 ### Two-level Topology Aware scheduling
 In consideration of a [Story 5](#story-5) a two-level scheduling is introduced.
