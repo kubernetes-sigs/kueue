@@ -1668,7 +1668,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	// logic for a parent
 	childrenCapacity := int32(0)
 	sliceCapacity := int32(0)
-
+	hasWithLeaderCapacityContributor = false
 	minStateWithLeaderDifference := int32(math.MaxInt32)
 	minSliceStateWithLeaderDifference := int32(math.MaxInt32)
 	leaderState := int32(0)
@@ -1693,6 +1693,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 		childrenCapacity += childState
 		sliceCapacity += child.sliceState
 		if !leaderRequired || child.leaderState > 0 {
+			hasWithLeaderCapacityContributor = true
 			minStateWithLeaderDifference = min(childState-childStateWithLeader, minStateWithLeaderDifference)
 			minSliceStateWithLeaderDifference = min(child.sliceState-child.sliceStateWithLeader, minSliceStateWithLeaderDifference)
 		}
@@ -1700,11 +1701,11 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	}
 	domain.state = childrenCapacity
 	sliceStateWithLeader := int32(0)
-	if minStateWithLeaderDifference == math.MaxInt32 {
-		domain.stateWithLeader = 0
-	} else {
+	if hasWithLeaderCapacityContributor {
 		domain.stateWithLeader = childrenCapacity - minStateWithLeaderDifference
 		sliceStateWithLeader = sliceCapacity - minSliceStateWithLeaderDifference
+	} else {
+		domain.stateWithLeader = 0
 	}
 	domain.leaderState = leaderState
 
