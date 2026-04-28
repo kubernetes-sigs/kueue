@@ -127,8 +127,8 @@ func main() {
 		// resulting in "http2: client connection lost" errors when pending requests queue up
 		// and connections time out.
 		testEnv.ControlPlane.GetAPIServer().Configure().
-			Append("max-requests-inflight", "800").
-			Append("max-mutating-requests-inflight", "400")
+			Append("max-requests-inflight", "2000").
+			Append("max-mutating-requests-inflight", "1000")
 
 		var err error
 		cfg, err = testEnv.Start()
