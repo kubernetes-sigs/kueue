@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -724,11 +723,6 @@ app = HelloWorld.bind()`,
 			VolumeMounts(rayv1.WorkerNode, volumeMounts).
 			Obj()
 
-		// Configure worker group with minReplicas and maxReplicas
-		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"
-		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](1)
-		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
-
 		ginkgo.By("Creating the ConfigMap", func() {
 			gomega.Expect(k8sClient.Create(ctx, configMap)).Should(gomega.Succeed())
 		})
@@ -884,11 +878,6 @@ app = HelloWorld.bind()`,
 			VolumeMounts(rayv1.WorkerNode, volumeMounts).
 			Obj()
 
-		// Configure worker group with minReplicas and maxReplicas
-		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"
-		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](1)
-		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
-
 		ginkgo.By("Creating the ConfigMap", func() {
 			gomega.Expect(k8sClient.Create(ctx, configMap)).Should(gomega.Succeed())
 		})
@@ -901,15 +890,9 @@ app = HelloWorld.bind()`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
-				hasAdmittedWorkload := false
-				for _, wl := range workloadList.Items {
-					if workload.IsAdmitted(&wl) || workload.IsFinished(&wl) {
-						hasAdmittedWorkload = true
-						break
-					}
-				}
-				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected admitted workload")
+				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected one workload in namespace")
+				wl := workloadList.Items[0]
+				g.Expect(workload.IsAdmitted(&wl)).Should(gomega.BeTrue(), "Expected admitted workload")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -919,7 +902,7 @@ app = HelloWorld.bind()`,
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
 				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
 				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
-			}, 2*util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		// Set up port-forwarding to the head pod for sending HTTP requests
@@ -992,7 +975,7 @@ app = HelloWorld.bind()`,
 				)).To(gomega.Succeed())
 				g.Expect(len(pods.Items)).To(gomega.BeNumerically(">", initialWorkerCount),
 					fmt.Sprintf("Expected more than %d running worker pods after autoscaling", initialWorkerCount))
-			}, 2*util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
