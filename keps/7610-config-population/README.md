@@ -112,8 +112,16 @@ The `kueue-populator` does not modify the `ClusterQueue` API. Instead, it is con
 
 #### LocalQueue creation
 
--   `--local-queue-name`: The name of the LocalQueue to create (default: "default").
--   `--managed-jobs-namespace-selector`: A global selector to restrict which
+-   `localQueueName`: The name of the LocalQueue to create (default: "default").
+    Only used when `localQueueNameMode` is `Static`.
+-   `localQueueNameMode`: Determines how LocalQueue names are derived. Supported
+    values:
+    -   `Static` (default): uses the configured `localQueueName` for all
+        LocalQueues.
+    -   `AsClusterQueue`: uses each ClusterQueue's name as the LocalQueue name,
+        allowing multiple ClusterQueues to each have their own LocalQueue within
+        the same namespace. `localQueueName` cannot be set in this mode.
+-   `managedJobsNamespaceSelector`: A global selector to restrict which
     namespaces are considered (default: excludes `kube-system`).
 
 **Reconciliation Logic:**
@@ -180,6 +188,7 @@ Beta:
 ## Implementation History
 
 - https://github.com/kubernetes-sigs/kueue/pull/7655
+- https://github.com/kubernetes-sigs/kueue/pull/9746 (LocalQueueNameMode: AsClusterQueue support)
 
 ## Drawbacks
 

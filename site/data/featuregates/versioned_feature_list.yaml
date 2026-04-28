@@ -77,6 +77,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: FinishOrphanedWorkloads
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: FlavorFungibility
   versionedSpecs:
   - default: true
@@ -209,6 +215,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.16"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.18"
 - name: ObjectRetentionPolicies
   versionedSpecs:
   - default: false
@@ -261,6 +271,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: RejectUpdatesToCQWithInvalidOnFlavors
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: RemoveFinalizersWithStrictPatch
   versionedSpecs:
   - default: true
@@ -307,6 +323,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.16"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.18"
 - name: SparkApplicationIntegration
   versionedSpecs:
   - default: false

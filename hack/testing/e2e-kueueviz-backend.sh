@@ -20,6 +20,9 @@ SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/../.."
 # shellcheck source=hack/testing/e2e-common.sh
 source "${SOURCE_DIR}/e2e-common.sh"
+
+mkdir -p "${ARTIFACTS}"
+
 echo ROOT_DIR="${ROOT_DIR}" SOURCE_DIR="${SOURCE_DIR}" KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
 
 # if CI is true and PROW_JOB_ID is set, set NO_COLOR to 1

@@ -45,7 +45,9 @@ func TestCustomLogProcessor(t *testing.T) {
 	const reconcilerErrorMessage = "Reconciler error"
 	const concurrentModificationErrorDetails = "Operation cannot be fulfilled on workloads.kueue.x-k8s.io \"job-job2-907f9\": the object has been modified; please apply your changes to the latest version and try again"
 	concurrentModificationErrorDetailsField := newErrorField(concurrentModificationErrorDetails)
-	concurrentModificationErrorDetailsFieldWithCustomPrefix := newErrorField(fmt.Sprintf("clearing admission: %v", concurrentModificationErrorDetails))
+	concurrentModificationErrorDetailsFieldWithCustomPrefixAndSuffix := newErrorField(
+		fmt.Sprintf("clearing admission: %v after some other error: some other error", concurrentModificationErrorDetails),
+	)
 
 	someOtherField := zap.String("Some field", "Some value")
 	someOtherErrorMessage := "This is another test error connected with concurrent modification"
@@ -75,11 +77,11 @@ func TestCustomLogProcessor(t *testing.T) {
 			},
 			expectedLog: observedLog{someOtherErrorMessage, warningLevel, []zap.Field{concurrentModificationErrorDetailsField}},
 		},
-		"Changes error level of concurrent modification log with custom prefix": {
+		"Changes error level of concurrent modification log with custom prefix and suffix": {
 			logCall: func() {
-				logger.Error(someOtherErrorMessage, concurrentModificationErrorDetailsFieldWithCustomPrefix)
+				logger.Error(someOtherErrorMessage, concurrentModificationErrorDetailsFieldWithCustomPrefixAndSuffix)
 			},
-			expectedLog: observedLog{someOtherErrorMessage, warningLevel, []zap.Field{concurrentModificationErrorDetailsFieldWithCustomPrefix}},
+			expectedLog: observedLog{someOtherErrorMessage, warningLevel, []zap.Field{concurrentModificationErrorDetailsFieldWithCustomPrefixAndSuffix}},
 		},
 		"Does not change error level of non concurrent modification error (without appropriate error details)": {
 			logCall: func() {

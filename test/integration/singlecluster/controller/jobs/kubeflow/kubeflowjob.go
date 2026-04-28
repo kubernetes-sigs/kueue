@@ -220,7 +220,13 @@ func ShouldNotReconcileUnmanagedJob(ctx context.Context, k8sClient client.Client
 	}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 }
 
-func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, podsReadyTestSpec PodsReadyTestSpec, podSetsResources []PodSetsResource) {
+func JobControllerWhenWaitForPodsReadyEnabled(
+	ctx context.Context,
+	k8sClient client.Client,
+	job, createdJob kubeflowjob.KubeflowJob,
+	podsReadyTestSpec PodsReadyTestSpec,
+	podSetsResources []PodSetsResource,
+) {
 	ginkgo.By("Create a job")
 	job.Object().SetLabels(map[string]string{constants.QueueLabel: string(jobQueueName)})
 	util.MustCreate(ctx, k8sClient, job.Object())
@@ -293,7 +299,13 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
-func ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, clusterQueue *kueue.ClusterQueue, podSetsResources []PodSetsResource) {
+func ShouldScheduleJobsAsTheyFitInTheirClusterQueue(
+	ctx context.Context,
+	k8sClient client.Client,
+	job, createdJob kubeflowjob.KubeflowJob,
+	clusterQueue *kueue.ClusterQueue,
+	podSetsResources []PodSetsResource,
+) {
 	ginkgo.By("checking a job starts")
 	util.MustCreate(ctx, k8sClient, job.Object())
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {

@@ -42,6 +42,18 @@ func (m *AfsEntryPenalties) Sub(lqKey utilqueue.LocalQueueReference, penalty cor
 		penalty[k] = v
 	}
 	m.penalties.Add(lqKey, resource.MergeResourceListKeepSum(m.Peek(lqKey), penalty))
+	if canClearPenalty(m.Peek(lqKey)) {
+		m.penalties.Delete(lqKey)
+	}
+}
+
+func canClearPenalty(penalty corev1.ResourceList) bool {
+	for _, v := range penalty {
+		if !v.IsZero() {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *AfsEntryPenalties) Peek(lqKey utilqueue.LocalQueueReference) corev1.ResourceList {

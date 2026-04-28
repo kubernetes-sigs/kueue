@@ -2707,6 +2707,11 @@ are used to target the provisioned nodes.</p>
 <td>
    <p>podSetMergePolicy specifies the policy for merging PodSets before being passed
 to the cluster autoscaler.</p>
+<p>The possible policies are:</p>
+<ul>
+<li><code>IdenticalPodTemplates</code>: Merges only identical PodTemplates.</li>
+<li><code>IdenticalWorkloadSchedulingRequirements</code>: Merges PodTemplates with identical fields that are considered when defining the workload scheduling requirements.</li>
+</ul>
 </td>
 </tr>
 </tbody>

@@ -206,7 +206,14 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 
 	// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
 	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && !workloadslicing.Enabled(object) {
-		allErrors = append(allErrors, field.Invalid(rayClusterSpecPath.Child("enableInTreeAutoscaling"), rayClusterSpec.EnableInTreeAutoscaling, "a kueue managed job should only use autoscaling when workload slicing is enabled"))
+		allErrors = append(
+			allErrors,
+			field.Invalid(
+				rayClusterSpecPath.Child("enableInTreeAutoscaling"),
+				rayClusterSpec.EnableInTreeAutoscaling,
+				"a kueue managed job should only use autoscaling when workload slicing is enabled",
+			),
+		)
 	}
 
 	// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
@@ -217,7 +224,10 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 	// None of the workerGroups should be named "head"
 	for i := range rayClusterSpec.WorkerGroupSpecs {
 		if rayClusterSpec.WorkerGroupSpecs[i].GroupName == headGroupPodSetName {
-			allErrors = append(allErrors, field.Forbidden(rayClusterSpecPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)))
+			allErrors = append(
+				allErrors,
+				field.Forbidden(rayClusterSpecPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
+			)
 		}
 	}
 

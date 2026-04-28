@@ -108,3 +108,9 @@ Kueue will remove the finalizer from Pods when:
 Once a Pod doesn't have any finalizers, Kubernetes will delete the Pods based on:
 - Whether a user or a controller has issued a Pod deletion.
 - The [Pod garbage collector](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-garbage-collection).
+
+## Why is my Pod not being scheduled if I am using external scheduling gates
+
+If you use custom [scheduling gates](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-scheduling-readiness/), then your Pods will stay gated even if Kueue marks the 
+workload as admitted and removes the scheduling gates it is managing (such as `keueu.x-k8s.io/admission` or `keueu.x-k8s.io/topology`), because Kueue only removes scheduling gates
+managed by Kueue.

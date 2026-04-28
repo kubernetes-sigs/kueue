@@ -1092,6 +1092,10 @@ const (
 
 	// WorkloadFinishedReasonOutOfSync indicates that the prebuilt workload is not in sync with its parent job.
 	WorkloadFinishedReasonOutOfSync = "OutOfSync"
+
+	// WorkloadFinishedReasonOwnerNotFound indicates that the workload's owner
+	// no longer exists (e.g., a pod deleted after PodsReady timeout eviction).
+	WorkloadFinishedReasonOwnerNotFound = "OwnerNotFound"
 )
 
 // +genclient

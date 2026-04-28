@@ -1,1 +1,1 @@
-FROM cypress/base:24.14.1
+FROM cypress/base:24.15.0

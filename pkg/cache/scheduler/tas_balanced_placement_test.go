@@ -158,7 +158,13 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 
 			got, _ := placeSlicesOnDomainsBalanced(s, domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold)
 
-			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(domain{}), cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues"), cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id })); diff != "" {
+			if diff := cmp.Diff(
+				tc.want,
+				got,
+				cmp.AllowUnexported(domain{}),
+				cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues"),
+				cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id }),
+			); diff != "" {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)
 			}
 		})

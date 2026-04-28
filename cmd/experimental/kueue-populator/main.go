@@ -81,6 +81,7 @@ func start(configFile string) error {
 
 	reconcilerOpts := []controller.KueuePopulatorReconcilerOption{
 		controller.WithLocalQueueName(cfg.LocalQueueName),
+		controller.WithLocalQueueNameMode(cfg.LocalQueueNameMode),
 	}
 	if cfg.ManagedJobsNamespaceSelector != nil {
 		selector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)

@@ -241,12 +241,6 @@ func TestMetricsWithReplicaRoleLabel(t *testing.T) {
 }
 
 func TestStaleMetricsAfterRoleTransition(t *testing.T) {
-	savedGaugeVecs := allGaugeVecs
-	allGaugeVecs = append(allGaugeVecs, ClusterQueueResourceNominalQuota)
-	t.Cleanup(func() {
-		allGaugeVecs = savedGaugeVecs
-	})
-
 	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
 	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 
@@ -285,6 +279,104 @@ func TestMetricsWithDifferentRoles(t *testing.T) {
 	ClearClusterQueueMetrics("cq_follower")
 }
 
+func TestClearClusterQueueMetricsOnLabelChangeOnlyClearsScopedGaugeMetrics(t *testing.T) {
+	const cqName = "cq-label-change"
+
+	ReportPendingWorkloads(cqName, 3, 1, nil, nil)
+	ReportClusterQueueWeightedShare(cqName, "cohort", 7, nil, nil)
+	ReportReplacedWorkloadSlices(cqName, nil, nil)
+
+	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueWeightedShare, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ReplacedWorkloadSlicesTotal, 1, "cluster_queue", cqName)
+
+	ClearClusterQueueMetricsOnLabelChange(cqName)
+
+	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueWeightedShare, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ReplacedWorkloadSlicesTotal, 0, "cluster_queue", cqName)
+
+	ClearClusterQueueMetrics(cqName)
+}
+
+func TestClearCacheMetricsOnlyClearsCacheScopedGauges(t *testing.T) {
+	const cqName = "cq-cache-scope"
+
+	ReportClusterQueueStatus(cqName, CQStatusActive, nil, nil)
+	ReportAdmittedActiveWorkloads(cqName, 3, nil, nil)
+	ReportReservingActiveWorkloads(cqName, 1, nil, nil)
+	ReportClusterQueueQuotas("cohort", cqName, "flavor", "cpu", 10, 5, 3, nil, nil)
+	ReportPendingWorkloads(cqName, 4, 2, nil, nil)
+
+	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, AdmittedActiveWorkloads, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ReservingActiveWorkloads, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
+
+	ClearCacheMetrics(cqName)
+
+	expectFilteredMetricsCount(t, ClusterQueueByStatus, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, AdmittedActiveWorkloads, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ReservingActiveWorkloads, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
+
+	ClearClusterQueueResourceMetrics(cqName)
+	ClearClusterQueueMetrics(cqName)
+}
+
+func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testing.T) {
+	const cqName = "cq-resource-scope"
+
+	ReportClusterQueueQuotas("cohort", cqName, "flavor", "cpu", 10, 5, 3, nil, nil)
+	ReportClusterQueueResourceReservations("cohort", cqName, "flavor", "cpu", 7, nil, nil)
+	ReportClusterQueueResourceUsage("cohort", cqName, "flavor", "cpu", 6, nil, nil)
+	ReportClusterQueueStatus(cqName, CQStatusActive, nil, nil)
+
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
+
+	ClearClusterQueueResourceMetrics(cqName)
+
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
+
+	ClearCacheMetrics(cqName)
+}
+
+func TestClearLocalQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testing.T) {
+	lq := LocalQueueReference{Name: "lq-resource-scope", Namespace: "ns-resource-scope"}
+
+	ReportLocalQueueResourceReservations(lq, "flavor", "cpu", 7, nil, nil)
+	ReportLocalQueueResourceUsage(lq, "flavor", "cpu", 6, nil, nil)
+	ReportLocalQueueStatus(lq, "True", nil, nil)
+	ReportLocalQueuePendingWorkloads(lq, 4, 2, nil, nil)
+
+	expectFilteredMetricsCount(t, LocalQueueResourceReservations, 1, "name", string(lq.Name), "namespace", lq.Namespace)
+	expectFilteredMetricsCount(t, LocalQueueResourceUsage, 1, "name", string(lq.Name), "namespace", lq.Namespace)
+	expectFilteredMetricsCount(t, LocalQueueByStatus, 3, "name", string(lq.Name), "namespace", lq.Namespace)
+	expectFilteredMetricsCount(t, LocalQueuePendingWorkloads, 2, "name", string(lq.Name), "namespace", lq.Namespace)
+
+	ClearLocalQueueResourceMetrics(lq)
+
+	expectFilteredMetricsCount(t, LocalQueueResourceReservations, 0, "name", string(lq.Name), "namespace", lq.Namespace)
+	expectFilteredMetricsCount(t, LocalQueueResourceUsage, 0, "name", string(lq.Name), "namespace", lq.Namespace)
+	expectFilteredMetricsCount(t, LocalQueueByStatus, 3, "name", string(lq.Name), "namespace", lq.Namespace)
+	expectFilteredMetricsCount(t, LocalQueuePendingWorkloads, 2, "name", string(lq.Name), "namespace", lq.Namespace)
+
+	ClearLocalQueueCacheMetrics(lq)
+	ClearLocalQueueMetrics(lq)
+}
+
 func TestCohortMetrics(t *testing.T) {
 	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
@@ -320,4 +412,27 @@ func TestCohortMetrics(t *testing.T) {
 	ClearCohortMetrics("cohort_two")
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 0, "cohort", "cohort_two")
 	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 0, "cohort", "cohort_two")
+}
+
+func TestClearCohortMetricsOnlyClearsScopedGauges(t *testing.T) {
+	const cohortName = "cohort-scope"
+
+	ReportCohortWeightedShare(cohortName, 7, nil, nil)
+	ReportCohortSubtreeQuota(cohortName, "flavor", "cpu", 10, nil, nil)
+	ReportCohortSubtreeResourceReservations(cohortName, "flavor", "cpu", 6, nil, nil)
+	ReportCohortSubtreeAdmittedActiveWorkloads(cohortName, 4, nil, nil)
+
+	expectFilteredMetricsCount(t, CohortWeightedShare, 1, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 1, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
+
+	ClearCohortMetrics(cohortName)
+
+	expectFilteredMetricsCount(t, CohortWeightedShare, 0, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeQuota, 0, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 0, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
+
+	ClearCohortAdmittedWorkloadsMetrics(cohortName)
 }

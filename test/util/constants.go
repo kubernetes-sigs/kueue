@@ -58,6 +58,7 @@ var (
 
 var (
 	ProjectBaseDir           = getProjectBaseDir()
+	ArtifactsDir             = filepath.Join(ProjectBaseDir, "artifacts")
 	AutoscalerCrds           = filepath.Join(ProjectBaseDir, "dep-crds", "cluster-autoscaler")
 	JobsetCrds               = filepath.Join(ProjectBaseDir, "dep-crds", "jobset-operator")
 	TrainingOperatorCrds     = filepath.Join(ProjectBaseDir, "dep-crds", "training-operator-crds")

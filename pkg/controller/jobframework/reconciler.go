@@ -657,13 +657,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	if WorkloadSliceEnabled(job) {
-		// Start workload-slice schedule-gated pods (if any).
-		log.V(3).Info("Job running with admitted workload slice, start pods.")
-		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, wl)
-	}
-
 	// workload is admitted and job is running, nothing to do.
+	// For elastic jobs, pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
 }
@@ -1212,18 +1207,23 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearMinCountsIfFeatureDisabled(getPodSets)
 
+	opts := make([]equality.ComparePodSetsOption, 0, 1)
+	if workload.IsAdmitted(wl) {
+		opts = append(opts, equality.WithIgnoreTolerations())
+	}
+
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
-		if equality.ComparePodSetSlices(jobPodSets, runningPodSets, workload.IsAdmitted(wl)) {
+		if equality.ComparePodSetSlices(jobPodSets, runningPodSets, opts...) {
 			return true, nil
 		}
 		// If the workload is admitted but the job is suspended, do the check
 		// against the non-running info.
 		// This might allow some violating jobs to pass equivalency checks, but their
 		// workloads would be invalidated in the next sync after unsuspending.
-		return job.IsSuspended() && equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl)), nil
+		return job.IsSuspended() && equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, opts...), nil
 	}
 
-	return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl)), nil
+	return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, opts...), nil
 }
 
 func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) (*kueue.Workload, error) {

@@ -104,7 +104,12 @@ The resource needs of the workload can be configured in the `spec.containers`.
 
 Kueue will inject the `kueue.x-k8s.io/managed=true` label to indicate which pods are managed by it.
 
-### d. Limitations
+### d. Scheduling Gates
+
+Kueue injects the `kueue.x-k8s.io/admission` scheduling gate to the Pods that Kueue is managing.
+Once the corresponding Workload is admitted, Kueue will patch the pods and remove this scheduling gate.
+
+### e. Limitations
 
 - A Kueue managed Pod cannot be created in `kube-system` or `kueue-system` namespaces.
 - In case of [preemption](/docs/concepts/cluster_queue/#preemption), the Pod will

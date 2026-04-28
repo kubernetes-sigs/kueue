@@ -22,7 +22,9 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -33,6 +35,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/dra"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -46,19 +50,24 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
+	qManager  *qcache.Manager
 )
 
 func TestScheduler(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"Scheduler Fair Sharing Suite",
-	)
+	util.RunSuite(t, "Scheduler Fair Sharing Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
+
 	fwk = &framework.Framework{
 		WebhookPath: util.WebhookPath,
+		APIServerFeatureGates: []string{
+			"DynamicResourceAllocation=true",
+		},
+		APIServerRuntimeConfig: []string{
+			"resource.k8s.io/v1beta2=true",
+		},
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -68,17 +77,19 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-})
-
-func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing) framework.ManagerSetup {
+func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing, mappings ...[]config.DeviceClassMapping) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		fairSharing := &config.FairSharing{}
 
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		var deviceClassMappings []config.DeviceClassMapping
+		if len(mappings) > 0 {
+			deviceClassMappings = mappings[0]
+			err = dra.CreateMapperFromConfiguration(deviceClassMappings)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		cCache := schdcache.New(mgr.GetClient(), schdcache.WithFairSharing(fairsharing.Enabled(fairSharing)), schdcache.WithAdmissionFairSharing(admissionFairSharing))
 		preemptionExpectations := preemptexpectations.New()
@@ -86,8 +97,18 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing)
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(admissionFairSharing))
 		queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		qManager = queues
 
-		configuration := &config.Configuration{FairSharing: fairSharing, AdmissionFairSharing: admissionFairSharing}
+		configuration := &config.Configuration{
+			Namespace:            ptr.To("kueue-system"),
+			FairSharing:          fairSharing,
+			AdmissionFairSharing: admissionFairSharing,
+		}
+		if len(deviceClassMappings) > 0 {
+			configuration.Resources = &config.Resources{
+				DeviceClassMappings: deviceClassMappings,
+			}
+		}
 		configuration.Metrics.EnableClusterQueueResources = true
 		mgr.GetScheme().Default(configuration)
 
@@ -104,5 +125,12 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing)
 			scheduler.WithFairSharing(fairSharing), scheduler.WithAdmissionFairSharing(admissionFairSharing), scheduler.WithPreemptionExpectations(preemptionExpectations))
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+func afsConfig(samplingInterval, halfLifeTime metav1.Duration) *config.AdmissionFairSharing {
+	return &config.AdmissionFairSharing{
+		UsageSamplingInterval: samplingInterval,
+		UsageHalfLifeTime:     halfLifeTime,
 	}
 }

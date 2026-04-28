@@ -228,11 +228,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		}
 	}
 
-	if err := o.deleteWorkloads(ctx, workloadResources); err != nil {
-		return err
-	}
-
-	return nil
+	return o.deleteWorkloads(ctx, workloadResources)
 }
 
 func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*kueue.Workload, bool, error) {

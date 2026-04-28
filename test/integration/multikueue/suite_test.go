@@ -54,7 +54,7 @@ import (
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
-	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
+	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -92,11 +92,7 @@ var (
 )
 
 func TestMultiKueue(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"MultiKueue Suite",
-	)
+	util.RunSuite(t, "MultiKueue Suite")
 }
 
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
@@ -380,30 +376,25 @@ func managerAndMultiKueueSetup(
 		},
 	}
 	mgr.GetScheme().Default(configuration)
-	_, err = dispatcher.SetupControllers(mgr, configuration, nil)
+	_, err = workloaddispatcher.SetupControllers(mgr, configuration, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	var managerFeatureGates []string
 	ginkgo.By("creating the clusters", func() {
-		mu = sync.Mutex{}
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
 			// pass nil setup since the manager for the manage cluster is different in some specs.
-			c := createCluster(nil, managerFeatureGates...)
-			managerTestCluster = c
+			managerTestCluster = createCluster(nil)
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
-			c := createCluster(managerSetup)
-			worker1TestCluster = c
+			worker1TestCluster = createCluster(managerSetup)
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
-			c := createCluster(managerSetup)
-			worker2TestCluster = c
+			worker2TestCluster = createCluster(managerSetup)
 		})
 		wg.Wait()
 	})
@@ -421,9 +412,4 @@ var _ = ginkgo.AfterSuite(func() {
 	managerTestCluster.fwk.Teardown()
 	worker1TestCluster.fwk.Teardown()
 	worker2TestCluster.fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })

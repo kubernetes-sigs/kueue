@@ -333,7 +333,9 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
 		func(podsReadyTestSpec kftesting.PodsReadyTestSpec) {
-			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadjaxjob.JobControl)(testingjaxjob.MakeJAXJob(jobName, ns.Name).JAXReplicaSpecsDefault().Parallelism(kftraining.JAXJobReplicaTypeWorker, 2).Obj())}
+			kfJob := kubeflowjob.KubeflowJob{
+				KFJobControl: (*workloadjaxjob.JobControl)(testingjaxjob.MakeJAXJob(jobName, ns.Name).JAXReplicaSpecsDefault().Parallelism(kftraining.JAXJobReplicaTypeWorker, 2).Obj()),
+			}
 			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadjaxjob.JobControl)(&kftraining.JAXJob{})}
 
 			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{

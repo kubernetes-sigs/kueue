@@ -223,6 +223,8 @@ The controller has to **ignore** updates to pods that:
     For example, nodes with the `node.kubernetes.io/not-ready` taint experiencing resource pressure
     that makes pod termination take longer.
 
+Additionally, the controller watches `Node` events to trigger reconciliations for pods on nodes that receive the `node.kubernetes.io/unreachable` taint. This prevents pods from getting stuck if their node becomes unreachable only after their forceful termination timeout has already elapsed.
+
 For relevant (not ignored) terminating pods, the reconciliation behaves in the following way:
 1. It computes the amount of time elapsed since the the pod's `gracefulTerminationGracePeriod` elapsed:
     1. If it's below the default timeout of **1 minute**, the reconciler will requeue the object to be re-evaluated once the thershold is reached.
@@ -248,6 +250,7 @@ The proposal will be covered with unit tests for:
 The proposal will be covered with integrations tests that check whether:
 1. Adding a deletion timestamp to the pod requeues a reconciliation loop for when the grace period elapses.
 1. After the grace period elapses, the pod is marked as `Failed` and deleted.
+1. Tainting a node as unreachable triggers a reconciliation for affected pods on that node.
 1. Replacement pods are scheduled in the place of the failed pod (optional, technically 1+2 is sufficient to prove this).
 
 Existing integration tests should prove that this feature does not impact Kueue during normal operation.
@@ -276,6 +279,8 @@ Existing integration tests should prove that this feature does not impact Kueue 
 to handle [foreground propagated deletion](https://github.com/kubernetes-sigs/kueue/issues/9649).
 Additionally, the annotation used by the feature was renamed from `kueue.x-k8s.io/safe-to-forcefully-terminate` to `kueue.x-k8s.io/safe-to-forcefully-delete`
 in versions `>=0.15.6`, `>=0.16.3` and `>=0.17.0`. Previous releases retain the old behaviour and annotation name.
+
+2026-04-15: The controller is [changed](https://github.com/kubernetes-sigs/kueue/pull/10463) to watch `Node` events to trigger failure recovery reconciliations for pods on nodes that become unreachable.
 
 ## Drawbacks
 

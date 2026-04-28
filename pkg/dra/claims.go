@@ -74,13 +74,23 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 			allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "requests").Index(i).Child("exactly", "adminAccess"), nil, "AdminAccess is not supported"))
 			return nil, allErrs
 		case req.Exactly.AllocationMode == resourcev1.DeviceAllocationModeAll:
-			allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "requests").Index(i).Child("exactly", "allocationMode"), resourcev1.DeviceAllocationModeAll, "AllocationMode 'All' is not supported"))
+			allErrs = append(
+				allErrs,
+				field.Invalid(field.NewPath("devices", "requests").Index(i).Child("exactly", "allocationMode"), resourcev1.DeviceAllocationModeAll, "AllocationMode 'All' is not supported"),
+			)
 			return nil, allErrs
 		case req.Exactly.AllocationMode == resourcev1.DeviceAllocationModeExactCount:
 			dcName = req.Exactly.DeviceClassName
 			q = req.Exactly.Count
 		default:
-			allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "requests").Index(i).Child("exactly", "allocationMode"), req.Exactly.AllocationMode, fmt.Sprintf("unsupported allocation mode: %s", req.Exactly.AllocationMode)))
+			allErrs = append(
+				allErrs,
+				field.Invalid(
+					field.NewPath("devices", "requests").Index(i).Child("exactly", "allocationMode"),
+					req.Exactly.AllocationMode,
+					fmt.Sprintf("unsupported allocation mode: %s", req.Exactly.AllocationMode),
+				),
+			)
 			return nil, allErrs
 		}
 

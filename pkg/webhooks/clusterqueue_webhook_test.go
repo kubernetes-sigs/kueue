@@ -26,9 +26,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -65,11 +67,23 @@ func TestValidateClusterQueue(t *testing.T) {
 				Obj(),
 		},
 		{
-			name: "admissionCheckStrategy defined",
+			name: "admissionCheckStrategy defined with a valid flavor",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+				).Obj(),
+		},
+		{
+			name: "admissionCheckStrategy refers to a flavor that is not in quota",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				AdmissionCheckStrategy(
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 				).Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(specPath.Child("admissionChecksStrategy", "admissionChecks").Index(0).Child("onFlavors").Index(0), kueue.ResourceFlavorReference("flavor1"), []string{}),
+			},
+			wantBadValue: "flavor1",
 		},
 		{
 			name:         "in cohort",
@@ -396,29 +410,136 @@ func TestValidateClusterQueue(t *testing.T) {
 }
 
 func TestValidateClusterQueueUpdate(t *testing.T) {
+	admissionCheckFlavorPath := admissionChecksPath.Index(0).Child("onFlavors").Index(0)
 	testcases := []struct {
 		name            string
-		newClusterQueue *kueue.ClusterQueue
 		oldClusterQueue *kueue.ClusterQueue
+		newClusterQueue *kueue.ClusterQueue
+		featureGates    map[featuregate.Feature]bool
 		wantErr         field.ErrorList
 	}{
 		{
 			name:            "queueingStrategy can be updated",
-			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy("StrictFIFO").Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
 			wantErr:         nil,
 		},
 		{
 			name:            "same queueingStrategy",
-			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
 			wantErr:         nil,
+		},
+		{
+			name: "legacy cluster queue with invalid onFlavors allows unrelated updates when the feature gate is disabled",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				QueueingStrategy("StrictFIFO").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				QueueingStrategy("BestEffortFIFO").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.RejectUpdatesToCQWithInvalidOnFlavors: false,
+			},
+			wantErr: nil,
+		},
+		{
+			name: "legacy cluster queue with invalid onFlavors rejects unrelated updates when the feature gate is enabled",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				QueueingStrategy("StrictFIFO").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				QueueingStrategy("BestEffortFIFO").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.RejectUpdatesToCQWithInvalidOnFlavors: true,
+			},
+			wantErr: field.ErrorList{
+				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("ghost"), []string{"alpha"}),
+			},
+		},
+		{
+			name: "valid admissionCheckStrategy can be added when the old cluster queue has no strategy",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "alpha").Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		{
+			name: "invalid admissionCheckStrategy is rejected when the old cluster queue has no strategy",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("ghost"), []string{"alpha"}),
+			},
+		},
+		{
+			name: "resourceGroup flavor change revalidates admissionCheck onFlavors for legacy cluster queue",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("beta").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("ghost"), []string{"beta"}),
+			},
+		},
+		{
+			name: "changing invalid onFlavors for a legacy cluster queue revalidates the new ref",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "phantom").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("phantom"), []string{"alpha"}),
+			},
+		},
+		{
+			name: "changing admissionCheck name revalidates onFlavors for the new rule",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2", "ghost").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("ghost"), []string{"alpha"}),
+			},
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotErr := ValidateClusterQueueUpdate(tc.newClusterQueue)
+			if tc.featureGates != nil {
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			}
+			gotErr := ValidateClusterQueueUpdate(tc.oldClusterQueue, tc.newClusterQueue)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)
 			}

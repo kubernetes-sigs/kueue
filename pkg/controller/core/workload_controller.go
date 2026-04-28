@@ -58,7 +58,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -133,6 +132,13 @@ func WithPreemptionExpectations(value *expectations.Store) Option {
 	}
 }
 
+// WithAdmissionFairSharing sets the admission fair sharing configuration.
+func WithAdmissionFairSharing(value *config.AdmissionFairSharing) Option {
+	return func(r *WorkloadReconciler) {
+		r.admissionFSConfig = value
+	}
+}
+
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
@@ -189,22 +195,37 @@ func (r *WorkloadReconciler) logger() logr.Logger {
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var wl kueue.Workload
+	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
+		// we'll ignore not-found errors, since there is nothing to do.
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
-
-	var wl kueue.Workload
-	if err := r.client.Get(ctx, req.NamespacedName, &wl); apierrors.IsNotFound(err) {
-		r.deleteWorkloadFromCaches(ctx, req.Namespace, req.Name)
-		return ctrl.Result{}, nil
-	} else if err != nil {
-		log.Error(err, "Failed to fetch workload")
-		return ctrl.Result{}, err
-	}
 
 	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		// manual deletion triggered by the user
 		err := workload.RemoveFinalizer(ctx, r.client, &wl)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Finish orphaned workloads whose controller owner no longer exists.
+	// The ownerReference still points to a non-existent object (e.g., a
+	// Deployment-owned pod deleted after PodsReady timeout eviction).
+	if features.Enabled(features.FinishOrphanedWorkloads) && wl.DeletionTimestamp.IsZero() {
+		if ownerGone, err := r.isControllerOwnerGone(ctx, &wl); err != nil {
+			return ctrl.Result{}, err
+		} else if ownerGone {
+			log.V(2).Info("Workload is orphaned, finishing to release quota")
+			if err := workload.Finish(ctx, r.client, &wl, kueue.WorkloadFinishedReasonOwnerNotFound, "The workload's owner no longer exists", r.clock); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+			if err := workload.RemoveFinalizer(ctx, r.client, &wl); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+			return ctrl.Result{}, nil
+		}
 	}
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
@@ -236,11 +257,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Deleted", "Deleted finished workload due to elapsed retention")
-		return ctrl.Result{}, nil
-	}
-
-	if workload.IsAdmitted(&wl) && workload.HasUnhealthyNodes(&wl) {
-		log.V(3).Info("Skipping reconcile of a workload with nodes to replace", "unhealthyNodes", workload.UnhealthyNodeNames(&wl))
 		return ctrl.Result{}, nil
 	}
 
@@ -466,7 +482,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if updated {
 			if evicted {
 				exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, &wl)
-				if err := workload.Evict(ctx, r.client, r.recorder, &wl, reason, message, underlyingCause, r.clock, exposeLqMetrics, r.roleTracker, r.customLabels, workload.WithCustomPrepare(prepare)); err != nil {
+				if err := workload.Evict(
+					ctx,
+					r.client,
+					r.recorder,
+					&wl,
+					reason,
+					message,
+					underlyingCause,
+					r.clock,
+					exposeLqMetrics,
+					r.roleTracker,
+					r.customLabels,
+					workload.WithCustomPrepare(prepare),
+				); err != nil {
 					if !apierrors.IsNotFound(err) {
 						return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 					}
@@ -537,7 +566,14 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
 			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
-			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
+			r.recorder.Eventf(
+				&wl,
+				corev1.EventTypeNormal,
+				"Admitted",
+				"Admitted by ClusterQueue %v, wait time since reservation was %.0fs",
+				wl.Status.Admission.ClusterQueue,
+				quotaReservedWaitTime.Seconds(),
+			)
 			priorityClassName := workload.PriorityClassName(&wl)
 			r.cache.ReportCohortSubtreeAdmittedWorkload(log, &wl)
 			metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
@@ -630,36 +666,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkloadReconciler) deleteWorkloadFromCaches(ctx context.Context, namespace, name string) {
-	log := ctrl.LoggerFrom(ctx)
-	wlRef := workload.NewReference(namespace, name)
-	log.V(3).Info("Workload deleted; removing from cache")
-
-	// Retrieve the cached workload info before purging the data from the caches.
-	// Ensure watchers are notified after the updates are performed.
-	wlInQueuesCache := r.queues.GetWorkloadFromCache(wlRef)
-	defer r.notifyWatchers(wlInQueuesCache, nil)
-
-	// If workload cached by scheduler points to a different queue:
-	// notify watchers to ensure all identified queues remain up-to-date.
-	if wlInSchedulerCache := r.cache.GetWorkloadFromCache(wlRef); workload.GetLocalQueue(wlInSchedulerCache) != workload.GetLocalQueue(wlInQueuesCache) {
-		defer r.notifyWatchers(wlInSchedulerCache, nil)
-	}
-
-	// Delete from cache unconditionally. Pending workloads may have been "assumed"
-	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
-	// The operation is idempotent if the workload was never in the cache.
-	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlRef, func() {
-		if err := r.cache.DeleteWorkload(log, wlRef); err != nil {
-			log.Error(err, "Failed to delete workload from cache")
-		}
-	})
-
-	// Clear the workload form the queues.
-	// No operations will be performed if the wl has already been purged.
-	r.queues.DeleteAndForgetWorkload(log, wlRef)
-}
-
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
 func isDisabledRequeuedByClusterQueueStopped(w *kueue.Workload) bool {
 	return isDisabledRequeuedByReason(w, kueue.WorkloadEvictedByClusterQueueStopped)
@@ -683,7 +689,11 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 		return 0, nil
 	}
 
-	remainingTime := time.Duration(*wl.Spec.MaximumExecutionTimeSeconds-ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0))*time.Second - r.clock.Since(admittedCondition.LastTransitionTime.Time)
+	remainingTime := time.Duration(
+		*wl.Spec.MaximumExecutionTimeSeconds-ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0),
+	)*time.Second - r.clock.Since(
+		admittedCondition.LastTransitionTime.Time,
+	)
 	if remainingTime > 0 {
 		return remainingTime, nil
 	}
@@ -705,6 +715,27 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 	return 0, nil
 }
 
+// buildAdmissionChecksMessage formats a human-readable message
+// describing the list of admission checks in the given state.
+func buildAdmissionChecksMessage(checks []kueue.AdmissionCheckState, state kueue.CheckState) string {
+	slices.SortFunc(checks, func(a, b kueue.AdmissionCheckState) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	parts := make([]string, 0, len(checks))
+	for _, ac := range checks {
+		if ac.Message != "" {
+			parts = append(parts, fmt.Sprintf("%q (%s)", ac.Name, ac.Message))
+		} else {
+			parts = append(parts, fmt.Sprintf("%q", ac.Name))
+		}
+	}
+	noun := "AdmissionCheck"
+	if len(checks) > 1 {
+		noun = "AdmissionChecks"
+	}
+	return fmt.Sprintf("%s in %s state: %s", noun, state, stringsutils.Join(parts, "; "))
+}
+
 // reconcileCheckBasedEviction evicts or deactivates the given Workload if any admission checks have failed.
 // Returns true if the Workload was rejected or deactivated, and false otherwise.
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
@@ -714,23 +745,21 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Workload is evicted due to admission checks")
 	if workload.HasRejectedChecks(wl) {
-		var rejectedCheckNames []kueue.AdmissionCheckReference
-		for _, check := range workload.RejectedChecks(wl) {
-			rejectedCheckNames = append(rejectedCheckNames, check.Name)
-		}
+		rejectedChecks := workload.RejectedChecks(wl)
+		message := buildAdmissionChecksMessage(rejectedChecks, kueue.CheckStateRejected)
 		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, fmt.Sprintf("Admission check(s): %v, were rejected", stringsutils.Join(rejectedCheckNames, ","))), nil
+			return workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, message), nil
 		})
 		if err != nil {
 			return false, err
 		}
-		log.V(3).Info("Workload is evicted due to rejected admission checks", "workload", klog.KObj(wl), "rejectedChecks", rejectedCheckNames)
-		rejectedCheck := workload.RejectedChecks(wl)[0]
-		r.recorder.Eventf(wl, corev1.EventTypeWarning, "AdmissionCheckRejected", "Deactivating workload because AdmissionCheck for %v was Rejected: %s", rejectedCheck.Name, rejectedCheck.Message)
+		log.V(3).Info("Workload is deactivated due to rejected admission checks", "workload", klog.KObj(wl), "rejectedChecks", rejectedChecks)
+		r.recorder.Event(wl, corev1.EventTypeWarning, "AdmissionCheckRejected", fmt.Sprintf("Deactivated due to %s", message))
 		return true, nil
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
-	message := "At least one admission check is false"
+	retryChecks := workload.RetryChecks(wl)
+	message := fmt.Sprintf("Evicted due to %s", buildAdmissionChecksMessage(retryChecks, kueue.CheckStateRetry))
 	exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
 	if err := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByAdmissionCheck, message, "", r.clock, exposeLqMetrics, r.roleTracker, r.customLabels); err != nil {
 		return false, err
@@ -740,7 +769,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 
 func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cq *kueue.ClusterQueue) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
-	admissionChecks := workload.AdmissionChecksForWorkload(log, wl, admissioncheck.NewAdmissionChecks(cq), qutil.AllFlavors(cq.Spec.ResourceGroups))
+	admissionChecks := workload.AdmissionChecksForWorkload(log, wl, cq)
 	newChecks, shouldUpdate := syncAdmissionCheckConditions(wl.Status.AdmissionChecks, admissionChecks, r.clock)
 	if shouldUpdate {
 		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cq.Name), "admissionChecks", admissionChecks)
@@ -892,7 +921,12 @@ func (r *WorkloadReconciler) mayUpdateConditionForAdmissionGatedBy(ctx context.C
 	} else if hasGatedAnnotation && !hasGatedCondition {
 		// This is the first detection we see a non-empty AdmissionGatedBy annotation
 		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), r.clock.Now()), nil
+			return workload.UnsetQuotaReservationWithCondition(
+				wl,
+				kueue.WorkloadAdmissionGated,
+				fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]),
+				r.clock.Now(),
+			), nil
 		})
 		if err != nil {
 			return false, err
@@ -974,9 +1008,22 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
 	exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
-	err = workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByPodsReadyTimeout, message, underlyingCause, r.clock, exposeLqMetrics, r.roleTracker, r.customLabels, workload.WithCustomPrepare(func(wl *kueue.Workload) {
-		workload.UpdateRequeueState(wl, r.waitForPodsReady.requeuingBackoffBaseSeconds, int32(r.waitForPodsReady.requeuingBackoffMaxDuration.Seconds()), r.clock)
-	}))
+	err = workload.Evict(
+		ctx,
+		r.client,
+		r.recorder,
+		wl,
+		kueue.WorkloadEvictedByPodsReadyTimeout,
+		message,
+		underlyingCause,
+		r.clock,
+		exposeLqMetrics,
+		r.roleTracker,
+		r.customLabels,
+		workload.WithCustomPrepare(func(wl *kueue.Workload) {
+			workload.UpdateRequeueState(wl, r.waitForPodsReady.requeuingBackoffBaseSeconds, int32(r.waitForPodsReady.requeuingBackoffMaxDuration.Seconds()), r.clock)
+		}),
+	)
 
 	return 0, err
 }
@@ -1032,13 +1079,31 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 }
 
 func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) bool {
+	defer r.notifyWatchers(e.Object, nil)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
 		status = workload.Status(e.Object)
 	}
-	r.logger().V(2).Info("Workload delete event", "workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
-	r.preemptionExpectations.ObservedUID(r.logger(),
+	log := r.logger().WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
+	log.V(2).Info("Workload delete event")
+	r.preemptionExpectations.ObservedUID(log,
 		client.ObjectKeyFromObject(e.Object), e.Object.UID)
+
+	ctx := ctrl.LoggerInto(context.Background(), log)
+	wlKey := workload.Key(e.Object)
+
+	// Delete from cache unconditionally. Pending workloads may have been "assumed"
+	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
+	// The operation is idempotent if the workload was never in the cache.
+	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
+		if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
+			log.Error(err, "Failed to delete workload from cache")
+		}
+	})
+
+	// Even if the state is unknown, the last cached state tells us whether the
+	// workload was in the queues and should be cleared from them.
+	r.queues.DeleteAndForgetWorkload(log, wlKey)
 	return true
 }
 
@@ -1190,14 +1255,12 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 
 	r.queues.AfsConsumedResources.Set(lqKey, newConsumed, now)
 	r.queues.AfsEntryPenalties.Sub(lqKey, penalty)
+	log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "penalty", penalty, "remaining", r.queues.AfsEntryPenalties.Peek(lqKey))
 
 	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", newConsumed)
 }
 
 func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
-	if oldWl == nil && newWl == nil {
-		return
-	}
 	for _, w := range r.watchers {
 		w.NotifyWorkloadUpdate(oldWl, newWl)
 	}
@@ -1239,16 +1302,36 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
-// admittedNotReadyWorkload checks if a workload counts toward the PodsReady timeout
-// and calculates the remaining timeout duration.
-//
-// It returns two values:
-//  1. A underlyingCause that complements information carried by kueue.WorkloadEvictedByPodsReadyTimeout
-//
-// (e.g., WaitForStart, WaitForRecovery, or empty if not applicable).
-//
-//  2. The remaining time (in seconds) until the timeout is exceeded, based on
-//     the maximum of the LastTransitionTime for the Admitted and PodsReady conditions.
+// isControllerOwnerGone checks whether the controller owner of the workload
+// still exists. Returns true if the controller owner reference points to an
+// object that no longer exists (NotFound) or whose UID no longer matches.
+// This is used to detect stale workloads whose owning pod was deleted
+// (e.g., by eviction) and replaced by a new pod from a Deployment.
+func (r *WorkloadReconciler) isControllerOwnerGone(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	ref := metav1.GetControllerOf(wl)
+	if ref == nil {
+		return false, nil
+	}
+	obj := &metav1.PartialObjectMetadata{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: ref.APIVersion,
+			Kind:       ref.Kind,
+		},
+	}
+	key := client.ObjectKey{Namespace: wl.Namespace, Name: ref.Name}
+	if err := r.client.Get(ctx, key, obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	// A different UID means the original owner was deleted and a new object
+	// with the same name was created.
+	return obj.UID != ref.UID, nil
+}
+
+// admittedNotReadyWorkload returns the underlying cause and remaining time for
+// a workload that is admitted but not yet in PodsReady condition.
 //
 // If the workload is not admitted, PodsReady is true, or no timeout is configured,
 // it returns an empty underlyingCause and zero duration.

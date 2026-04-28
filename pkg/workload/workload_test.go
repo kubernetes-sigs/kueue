@@ -44,7 +44,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1076,7 +1075,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 	}
 }
 
-func TestAdmissionCheckStrategy(t *testing.T) {
+func TestFilterChecksForAdmission(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
 		cq                  *kueue.ClusterQueue
@@ -1141,7 +1140,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
 		},
-		"AdmissionCheckStrategy with a non-existent flavor": {
+		"AdmissionCheckStrategy with only a non-existent flavor": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -1156,22 +1155,98 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference](),
 		},
-		"Workload has no QuotaReserved": {
+		"AdmissionCheckStrategy with an additional non-existent flavor": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1", "flavor-nonexistent").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
+		},
+		"Two AdmissionCheckStrategies, one covering one flavor, one covering another": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Assignment("memory", "flavor2", "1").
+						Obj()).
+					Obj(), now).
 				Obj(),
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionCheckStrategy(
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
-					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj()).
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2", "flavor2").Obj(),
+				).
 				Obj(),
-			wantAdmissionChecks: nil,
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, admissioncheck.NewAdmissionChecks(tc.cq), qutil.AllFlavors(tc.cq.Spec.ResourceGroups))
+			gotAdmissionChecks := admissionChecksForAdmission(log, admissioncheck.NewAdmissionChecks(tc.cq), *tc.wl.Status.Admission)
+			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
+				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAdmissionChecksForWorkload(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		wl                  *kueue.Workload
+		wantAdmissionChecks sets.Set[kueue.AdmissionCheckReference]
+	}{
+		"Only relevant checks returned for an admitted workload": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Assignment("memory", "flavor2", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2", "ac3", "ac4", "ac6"),
+		},
+		"Only correct checks covering all relevant flavors returned for Workload without Quota Reserved ": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac3", "ac4", "ac6"),
+		},
+		"All checks returned when workload has an empty assignment": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).
+						Obj(),
+					now,
+				).Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2", "ac3", "ac4", "ac5", "ac6"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2", "flavor2").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac3", "flavor1", "flavor2").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac4", "flavor1", "flavor2", "non-existent-flavor").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac5", "non-existent-flavor").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac6").Obj(),
+				).Obj()
+			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, cq)
 
 			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
 				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
@@ -2622,35 +2697,6 @@ func TestFinish(t *testing.T) {
 		})
 	}
 }
-
-func TestGetLocalQueueFromWorkload(t *testing.T) {
-	testCases := map[string]struct {
-		wl     *kueue.Workload
-		wantLq kueue.LocalQueueName
-	}{
-		"no workload": {
-			wl:     nil,
-			wantLq: "",
-		},
-		"workload with lq": {
-			wl: &kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					QueueName: "test-queue",
-				},
-			},
-			wantLq: "test-queue",
-		},
-	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			gotLq := GetLocalQueue(tc.wl)
-			if gotLq != tc.wantLq {
-				t.Errorf("invalid local queue identified: got \"%v\", want \"%v\"", gotLq, tc.wantLq)
-			}
-		})
-	}
-}
-
 func TestSchedulingHash(t *testing.T) {
 	cases := map[string]struct {
 		wl1          *kueue.Workload
@@ -3015,5 +3061,133 @@ func TestIsExplicitlyRequestingTAS(t *testing.T) {
 				t.Errorf("IsExplicitlyRequestingTAS() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCalcFSUsageFromResourcesWithDRA(t *testing.T) {
+	tests := map[string]struct {
+		consumed   corev1.ResourceList
+		penalty    corev1.ResourceList
+		lqWeight   float64
+		resWeights map[corev1.ResourceName]float64
+		wantUsage  float64
+	}{
+		"DRA resource with default weight": {
+			consumed: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("2"),
+			},
+			penalty:    corev1.ResourceList{},
+			lqWeight:   1,
+			resWeights: map[corev1.ResourceName]float64{},
+			wantUsage:  2, // default weight is 1, so 1 * 2 / 1 = 2
+		},
+		"DRA resource with explicit weight": {
+			consumed: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("2"),
+			},
+			penalty:  corev1.ResourceList{},
+			lqWeight: 1,
+			resWeights: map[corev1.ResourceName]float64{
+				"gpu-logical": 3.0,
+			},
+			wantUsage: 6, // 3 * 2 / 1 = 6
+		},
+		"mixed CPU and DRA resources": {
+			consumed: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("4"),
+				"gpu-logical":      resource.MustParse("2"),
+			},
+			penalty:  corev1.ResourceList{},
+			lqWeight: 1,
+			resWeights: map[corev1.ResourceName]float64{
+				corev1.ResourceCPU: 1.0,
+				"gpu-logical":      5.0,
+			},
+			wantUsage: 14, // (1*4 + 5*2) / 1 = 14
+		},
+		"DRA resource with weight zero contributes nothing": {
+			consumed: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("10"),
+			},
+			penalty:  corev1.ResourceList{},
+			lqWeight: 1,
+			resWeights: map[corev1.ResourceName]float64{
+				"gpu-logical": 0,
+			},
+			wantUsage: 0,
+		},
+		"DRA resource in penalty only": {
+			consumed: corev1.ResourceList{},
+			penalty: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("3"),
+			},
+			lqWeight:   1,
+			resWeights: map[corev1.ResourceName]float64{},
+			wantUsage:  3, // default weight 1, 1 * 3 / 1 = 3
+		},
+		"DRA resource in both consumed and penalty": {
+			consumed: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("2"),
+			},
+			penalty: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("1"),
+			},
+			lqWeight: 2,
+			resWeights: map[corev1.ResourceName]float64{
+				"gpu-logical": 4.0,
+			},
+			wantUsage: 6, // 4 * (2+1) / 2 = 6
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := CalcFSUsageFromResources(tc.consumed, tc.penalty, tc.lqWeight, tc.resWeights)
+			if got != tc.wantUsage {
+				t.Errorf("CalcFSUsageFromResources() = %v, want %v", got, tc.wantUsage)
+			}
+		})
+	}
+}
+
+func TestSumTotalRequestsWithDRAFromAdmission(t *testing.T) {
+	fakeClock := testingclock.NewFakeClock(time.Now())
+	now := fakeClock.Now()
+	wl := utiltestingapi.MakeWorkload("test-wl", "default").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("main").
+						Flavor(corev1.ResourceCPU, "default").
+						ResourceUsage(corev1.ResourceCPU, "1000m").
+						Flavor("gpu-logical", "gpu-flavor").
+						ResourceUsage("gpu-logical", "2").
+						Count(1).
+						Obj(),
+				).Obj(), now,
+		).Obj()
+
+	info := NewInfo(wl)
+	sumReqs := info.SumTotalRequests()
+
+	// Verify CPU is present
+	cpuVal, hasCPU := sumReqs[corev1.ResourceCPU]
+	if !hasCPU {
+		t.Fatal("SumTotalRequests should include cpu")
+	}
+	if cpuVal.Cmp(resource.MustParse("1")) != 0 {
+		t.Errorf("cpu = %v, want 1", cpuVal)
+	}
+
+	// Verify DRA logical resource is present from admission
+	gpuVal, hasGPU := sumReqs["gpu-logical"]
+	if !hasGPU {
+		t.Fatal("SumTotalRequests should include DRA logical resource 'gpu-logical' from admission")
+	}
+	if gpuVal.Cmp(resource.MustParse("2")) != 0 {
+		t.Errorf("gpu-logical = %v, want 2", gpuVal)
 	}
 }

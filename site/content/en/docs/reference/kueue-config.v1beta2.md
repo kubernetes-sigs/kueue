@@ -10,13 +10,167 @@ description: Generated API reference documentation for config.kueue.x-k8s.io/v1b
 ## Resource Types 
 
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
   
+
+## `Configuration`     {#config-kueue-x-k8s-io-v1beta2-Configuration}
+    
+
+
+<p>Configuration is the Schema for the kueueconfigurations API</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>config.kueue.x-k8s.io/v1beta2</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>Configuration</code></td></tr>
+    
+  
+<tr><td><code>namespace</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Namespace is the namespace in which kueue is deployed. It is used as part of DNSName of the webhook Service.
+If not set, the value is set from the file /var/run/secrets/kubernetes.io/serviceaccount/namespace
+If the file doesn't exist, default value is kueue-system.</p>
+</td>
+</tr>
+<tr><td><code>ControllerManager</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ControllerManager"><code>ControllerManager</code></a>
+</td>
+<td>(Members of <code>ControllerManager</code> are embedded into this type.)
+   <p>ControllerManager returns the configurations for controllers</p>
+</td>
+</tr>
+<tr><td><code>manageJobsWithoutQueueName</code> <B>[Required]</B><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>ManageJobsWithoutQueueName controls whether or not Kueue reconciles
+jobs that don't set the label kueue.x-k8s.io/queue-name.
+If set to true, then those jobs will be suspended and never started unless
+they are assigned a queue and eventually admitted. This also applies to
+jobs created before starting the kueue controller.
+Defaults to false; therefore, those jobs are not managed and if they are created
+unsuspended, they will start immediately.</p>
+</td>
+</tr>
+<tr><td><code>managedJobsNamespaceSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>ManagedJobsNamespaceSelector provides a namespace-based mechanism to exempt jobs
+from management by Kueue.</p>
+<p>It provides a strong exemption for the Pod-based integrations (pod, deployment, statefulset, etc.),
+For Pod-based integrations, only jobs whose namespaces match ManagedJobsNamespaceSelector are
+eligible to be managed by Kueue.  Pods, deployments, etc. in non-matching namespaces will
+never be managed by Kueue, even if they have a kueue.x-k8s.io/queue-name label.
+This strong exemption ensures that Kueue will not interfere with the basic operation
+of system namespace.</p>
+<p>For all other integrations, ManagedJobsNamespaceSelector provides a weaker exemption
+by only modulating the effects of ManageJobsWithoutQueueName.  For these integrations,
+a job that has a kueue.x-k8s.io/queue-name label will always be managed by Kueue. Jobs without
+a kueue.x-k8s.io/queue-name label will be managed by Kueue only when ManageJobsWithoutQueueName is
+true and the job's namespace matches ManagedJobsNamespaceSelector.</p>
+</td>
+</tr>
+<tr><td><code>internalCertManagement</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-InternalCertManagement"><code>InternalCertManagement</code></a>
+</td>
+<td>
+   <p>InternalCertManagement is configuration for internalCertManagement</p>
+</td>
+</tr>
+<tr><td><code>waitForPodsReady</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-WaitForPodsReady"><code>WaitForPodsReady</code></a>
+</td>
+<td>
+   <p>WaitForPodsReady is configuration to provide a time-based all-or-nothing
+scheduling semantics for Jobs, by ensuring all pods are ready (running
+and passing the readiness probe) within the specified time. If the timeout
+is exceeded, then the workload is evicted.</p>
+</td>
+</tr>
+<tr><td><code>clientConnection</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClientConnection"><code>ClientConnection</code></a>
+</td>
+<td>
+   <p>ClientConnection provides additional configuration options for Kubernetes
+API server client.</p>
+</td>
+</tr>
+<tr><td><code>integrations</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-Integrations"><code>Integrations</code></a>
+</td>
+<td>
+   <p>Integrations provide configuration options for AI/ML/Batch frameworks
+integrations (including K8S job).</p>
+</td>
+</tr>
+<tr><td><code>multiKueue</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-MultiKueue"><code>MultiKueue</code></a>
+</td>
+<td>
+   <p>MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.</p>
+</td>
+</tr>
+<tr><td><code>fairSharing</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-FairSharing"><code>FairSharing</code></a>
+</td>
+<td>
+   <p>FairSharing controls the Fair Sharing semantics across the cluster.</p>
+</td>
+</tr>
+<tr><td><code>admissionFairSharing</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-AdmissionFairSharing"><code>AdmissionFairSharing</code></a>
+</td>
+<td>
+   <p>admissionFairSharing indicates configuration of FairSharing with the <code>AdmissionTime</code> mode on</p>
+</td>
+</tr>
+<tr><td><code>resources</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-Resources"><code>Resources</code></a>
+</td>
+<td>
+   <p>Resources provides additional configuration options for handling the resources.</p>
+</td>
+</tr>
+<tr><td><code>featureGates</code> <B>[Required]</B><br/>
+<code>map[string]bool</code>
+</td>
+<td>
+   <p>FeatureGates is a map of feature names to bools that allows to override the
+default enablement status of a feature. The map cannot be used in conjunction
+with passing the list of features via the command line argument &quot;--feature-gates&quot;
+for the Kueue Deployment.</p>
+</td>
+</tr>
+<tr><td><code>objectRetentionPolicies</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ObjectRetentionPolicies"><code>ObjectRetentionPolicies</code></a>
+</td>
+<td>
+   <p>ObjectRetentionPolicies provides configuration options for automatic deletion
+of Kueue-managed objects. A nil value disables all automatic deletions.</p>
+</td>
+</tr>
+<tr><td><code>visibilityServer</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-VisibilityServerConfiguration"><code>VisibilityServerConfiguration</code></a>
+</td>
+<td>
+   <p>VisibilityServer configures the visibility server.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `AdmissionFairSharing`     {#config-kueue-x-k8s-io-v1beta2-AdmissionFairSharing}
     
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
 
 
@@ -58,6 +212,7 @@ Defaults to 1.</p>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
 
 
@@ -234,6 +389,7 @@ It can be set to &quot;0&quot; or &quot;&quot; to disable serving the health pro
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
 
 
@@ -497,6 +653,7 @@ The total length of each name must not exceed 253 characters.</p>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
 
 
@@ -536,6 +693,7 @@ newest start time first.</li>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
 
 
@@ -603,6 +761,7 @@ underlying job are changed.</p>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
 
 
@@ -686,6 +845,7 @@ If left empty, then metrics will expose for all local queues across namespaces.<
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
 
 
@@ -785,6 +945,7 @@ the expected format is <code>kind.version.group</code>.</p>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
 
 <p>ObjectRetentionPolicies holds retention settings for different object types.</p>
@@ -962,6 +1123,7 @@ An empty Outputs combined with a <code>Replace</code> Strategy causes the Input 
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
 
 
@@ -1040,6 +1202,7 @@ The default would be to not set this value and inherit golang settings.</p>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
 
 
@@ -1072,6 +1235,7 @@ Defaults to 8082.</p>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
 
 <p>WaitForPodsReady defines configuration for the Wait For Pods Ready feature,

@@ -930,6 +930,8 @@ func (c *ClusterQueueWrapper) Active(status metav1.ConditionStatus) *ClusterQueu
 // No name should be given in the MakeClusterQueue for the GeneratedName to work.
 func (c *ClusterQueueWrapper) GeneratedName(name string) *ClusterQueueWrapper {
 	c.GenerateName = name
+	c.Name = ""
+
 	return c
 }
 
@@ -1163,6 +1165,12 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 	return &rf.ResourceFlavor
 }
 
+func (rf *ResourceFlavorWrapper) GeneratedName(name string) *ResourceFlavorWrapper {
+	rf.GenerateName = name
+	rf.Name = ""
+	return rf
+}
+
 // TopologyName sets the topology name
 func (rf *ResourceFlavorWrapper) TopologyName(name string) *ResourceFlavorWrapper {
 	rf.Spec.TopologyName = ptr.To(kueue.TopologyReference(name))
@@ -1352,6 +1360,12 @@ func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
 	}
 }
 
+func (ac *AdmissionCheckWrapper) GeneratedName(name string) *AdmissionCheckWrapper {
+	ac.GenerateName = name
+	ac.Name = ""
+	return ac
+}
+
 type AdmissionCheckStrategyRuleWrapper struct {
 	kueue.AdmissionCheckStrategyRule
 }
@@ -1430,6 +1444,12 @@ func MakeWorkloadPriorityClass(name string) *WorkloadPriorityClassWrapper {
 	}
 }
 
+func (p *WorkloadPriorityClassWrapper) GeneratedName(name string) *WorkloadPriorityClassWrapper {
+	p.GenerateName = name
+	p.Name = ""
+	return p
+}
+
 // PriorityValue updates value of WorkloadPriorityClass.
 func (p *WorkloadPriorityClassWrapper) PriorityValue(v int32) *WorkloadPriorityClassWrapper {
 	p.Value = v
@@ -1455,6 +1475,12 @@ func MakeMultiKueueConfig(name string) *MultiKueueConfigWrapper {
 	}
 }
 
+func MakeMultiKueueConfigWithGeneratedName(namePrefix string) *MultiKueueConfigWrapper {
+	mkc := MakeMultiKueueConfig("")
+	mkc.GenerateName = namePrefix
+	return mkc
+}
+
 func (mkc *MultiKueueConfigWrapper) Obj() *kueue.MultiKueueConfig {
 	return &mkc.MultiKueueConfig
 }
@@ -1476,6 +1502,12 @@ func MakeMultiKueueCluster(name string) *MultiKueueClusterWrapper {
 			},
 		},
 	}
+}
+
+func MakeMultiKueueClusterWithGeneratedName(namePrefix string) *MultiKueueClusterWrapper {
+	mkc := MakeMultiKueueCluster("")
+	mkc.GenerateName = namePrefix
+	return mkc
 }
 
 func (mkc *MultiKueueClusterWrapper) Obj() *kueue.MultiKueueCluster {

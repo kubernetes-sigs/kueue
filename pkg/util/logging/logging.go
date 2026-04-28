@@ -19,9 +19,9 @@ package logging
 import (
 	arrayslices "slices"
 	"strings"
-	"unicode"
 
 	"go.uber.org/zap/zapcore"
+	"k8s.io/apiserver/pkg/registry/generic/registry"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -57,23 +57,29 @@ type CustomLogProcessor struct {
 	zapcore.Core
 }
 
-func (core CustomLogProcessor) Check(entry zapcore.Entry, checkedEntry *zapcore.CheckedEntry) *zapcore.CheckedEntry {
-	if core.Enabled(entry.Level) {
-		return checkedEntry.AddCore(entry, core)
+func (c CustomLogProcessor) Check(entry zapcore.Entry, checkedEntry *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	if c.Enabled(entry.Level) {
+		return checkedEntry.AddCore(entry, c)
 	}
 	return checkedEntry
 }
 
-func (core CustomLogProcessor) Write(entry zapcore.Entry, fields []zapcore.Field) error {
+func (c CustomLogProcessor) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 	if isEntryAConcurrentModificationError(entry, fields) {
 		entry.Level = klogV3Level
 		entry.Stack = ""
 	}
-	return core.Core.Write(entry, fields)
+	return c.Core.Write(entry, fields)
 }
 
-const concurrentModificationErrorSuffix = "the object has been modified; please apply your changes to the latest version and try again"
 const concurrentModificationErrorPrefix = "Operation cannot be fulfilled on"
+
+func IsWriteConflictError(errMsg string) bool {
+	// Error message sometimes is additionally prefixed like: "clearing admission: %w",
+	// therefore, we use Contains instead of HasPrefix to also detect those messages.
+	return strings.Contains(errMsg, concurrentModificationErrorPrefix) &&
+		strings.Contains(errMsg, registry.OptimisticLockErrorMsg)
+}
 
 func isEntryAConcurrentModificationError(entry zapcore.Entry, fields []zapcore.Field) bool {
 	if entry.Level != zapcore.ErrorLevel {
@@ -84,13 +90,7 @@ func isEntryAConcurrentModificationError(entry zapcore.Entry, fields []zapcore.F
 			return false
 		}
 		err := field.Interface.(error)
-		if err == nil {
-			return false
-		}
-		errorDescription := strings.TrimFunc(err.Error(), unicode.IsSpace)
-		// Error messages sometimes are additionally prefixed like: "clearing admission: %w"
-		// therefore we use Contains instead of HasPrefix to also detect those messages
-		return strings.Contains(errorDescription, concurrentModificationErrorPrefix) && strings.HasSuffix(errorDescription, concurrentModificationErrorSuffix)
+		return err != nil && IsWriteConflictError(err.Error())
 	})
 }
 

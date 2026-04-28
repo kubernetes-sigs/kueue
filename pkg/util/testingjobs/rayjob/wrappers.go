@@ -285,7 +285,10 @@ func (j *JobWrapper) Env(rayType rayv1.RayNodeType, name, value string) *JobWrap
 		if j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env == nil {
 			j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = make([]corev1.EnvVar, 0)
 		}
-		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = append(j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env, corev1.EnvVar{Name: name, Value: value})
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = append(
+			j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env,
+			corev1.EnvVar{Name: name, Value: value},
+		)
 	}
 	return j
 }
@@ -344,5 +347,10 @@ func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
 	}
 	// Must set suspend to false for autoscaling, since Kueue needs KubeRay to create underlying RayCluster and then manages that RayCluster
 	j.Spec.Suspend = false
+	return j
+}
+
+func (j *JobWrapper) MaxWorkerReplicas(count int32) *JobWrapper {
+	j.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To(count)
 	return j
 }

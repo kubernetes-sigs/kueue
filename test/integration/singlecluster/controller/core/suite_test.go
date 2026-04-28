@@ -50,11 +50,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"Core Controllers Suite",
-	)
+	util.RunSuite(t, "Core Controllers Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -68,11 +64,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 type managerSetupOpts struct {
@@ -157,7 +148,14 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 		}
 
 		if opts.runScheduler {
-			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations), scheduler.WithCustomLabels(customLabels))
+			sched := scheduler.New(
+				queues,
+				cCache,
+				mgr.GetClient(),
+				mgr.GetEventRecorderFor(constants.AdmissionName),
+				scheduler.WithPreemptionExpectations(preemptionExpectations),
+				scheduler.WithCustomLabels(customLabels),
+			)
 			err = sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

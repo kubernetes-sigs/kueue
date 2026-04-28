@@ -34,24 +34,27 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueuepopulatorconfig "sigs.k8s.io/kueue/cmd/experimental/kueue-populator/pkg/config"
 	"sigs.k8s.io/kueue/cmd/experimental/kueue-populator/pkg/constants"
 )
 
 const ControllerName = "kueue-populator"
 
 type KueuePopulatorReconciler struct {
-	client            client.Client
-	log               logr.Logger
-	recorder          record.EventRecorder
-	namespaceSelector labels.Selector
-	localQueueName    string
+	client             client.Client
+	log                logr.Logger
+	recorder           record.EventRecorder
+	namespaceSelector  labels.Selector
+	localQueueName     string
+	localQueueNameMode kueuepopulatorconfig.LocalQueueNameMode
 }
 
 var _ reconcile.Reconciler = (*KueuePopulatorReconciler)(nil)
 
 type KueuePopulatorReconcilerOptions struct {
-	NamespaceSelector labels.Selector
-	LocalQueueName    string
+	NamespaceSelector  labels.Selector
+	LocalQueueName     string
+	LocalQueueNameMode kueuepopulatorconfig.LocalQueueNameMode
 }
 
 type KueuePopulatorReconcilerOption func(*KueuePopulatorReconcilerOptions)
@@ -68,6 +71,12 @@ func WithLocalQueueName(name string) KueuePopulatorReconcilerOption {
 	}
 }
 
+func WithLocalQueueNameMode(mode kueuepopulatorconfig.LocalQueueNameMode) KueuePopulatorReconcilerOption {
+	return func(o *KueuePopulatorReconcilerOptions) {
+		o.LocalQueueNameMode = mode
+	}
+}
+
 var defaultPopulatorOptions = KueuePopulatorReconcilerOptions{}
 
 func NewKueuePopulatorReconciler(
@@ -80,11 +89,12 @@ func NewKueuePopulatorReconciler(
 		opt(&options)
 	}
 	return &KueuePopulatorReconciler{
-		client:            client,
-		log:               ctrl.Log.WithName("kueue-populator-reconciler"),
-		recorder:          recorder,
-		namespaceSelector: options.NamespaceSelector,
-		localQueueName:    options.LocalQueueName,
+		client:             client,
+		log:                ctrl.Log.WithName("kueue-populator-reconciler"),
+		recorder:           recorder,
+		namespaceSelector:  options.NamespaceSelector,
+		localQueueName:     options.LocalQueueName,
+		localQueueNameMode: options.LocalQueueNameMode,
 	}
 }
 
@@ -204,9 +214,14 @@ func (r *KueuePopulatorReconciler) mapClusterQueueToNamespaces(ctx context.Conte
 func (r *KueuePopulatorReconciler) ensureLocalQueueExists(ctx context.Context, cq *kueue.ClusterQueue, ns *corev1.Namespace) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	lqName := r.localQueueName
+	if r.localQueueNameMode == kueuepopulatorconfig.LocalQueueNameModeAsClusterQueue {
+		lqName = cq.Name
+	}
+
 	targetLQ := types.NamespacedName{
 		Namespace: ns.Name,
-		Name:      r.localQueueName,
+		Name:      lqName,
 	}
 
 	var lq kueue.LocalQueue

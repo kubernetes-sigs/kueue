@@ -6,6 +6,7 @@ metadata:
 data:
   controller_manager_config.yaml: |
     localQueueName: default
+    # localQueueNameMode: Static
     # managedJobsNamespaceSelector:
     #   matchLabels:
     #     key: value

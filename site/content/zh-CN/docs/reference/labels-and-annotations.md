@@ -1,9 +1,9 @@
 ---
-title: "Labels and Annotations"
-linkTitle: "Labels and Annotations"
+title: "标签和注解"
+linkTitle: "标签和注解"
 date: 2026-03-19
 ---
 
-This page serves as a reference for all labels and annotations in Kueue.
+本页面作为 Kueue 中所有标签和注解的参考。
 
 {{% labels-and-annotations %}}
