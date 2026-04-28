@@ -1673,7 +1673,6 @@ func TestSchedule(t *testing.T) {
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 			},
-
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"concurrent-cq": {"eng-alpha/candidate-more-favorable"},
 			},
@@ -1684,6 +1683,7 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
 		},
 		"multiple CQs need preemption": {
 			additionalClusterQueues: []kueue.ClusterQueue{

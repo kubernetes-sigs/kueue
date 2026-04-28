@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -111,11 +112,11 @@ func TestReconcile(t *testing.T) {
 		"parent workload without variants creates them": {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-variant-spot-545ad", "default").
@@ -135,7 +136,7 @@ func TestReconcile(t *testing.T) {
 		"parent workload with missing variants; creates missing": {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-variant-spot", "default").
@@ -146,7 +147,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-variant-spot", "default").
@@ -166,7 +167,7 @@ func TestReconcile(t *testing.T) {
 		"admitted variant syncs admission to parent": {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-variant-spot", "default").
@@ -185,7 +186,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Admission(utiltestingapi.MakeAdmission("cq", "main").
 					PodSets(kueue.PodSetAssignment{
 						Name: "main",
@@ -229,7 +230,7 @@ func TestReconcile(t *testing.T) {
 		"admitted variant evicted; parent has quota; evict parent and wait": {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Request(corev1.ResourceCPU, "1").
 				SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 				AdmittedAt(true, metav1.Now().Time).
@@ -261,7 +262,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 				AdmittedAt(true, metav1.Now().Time).
 				Condition(metav1.Condition{
@@ -301,7 +302,7 @@ func TestReconcile(t *testing.T) {
 		"admitted variant evicted; parent has no quota reservation; clear variant reservation": {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
@@ -331,7 +332,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-variant-spot", "default").
@@ -382,7 +383,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-variant-reservation", "default").
@@ -409,7 +410,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Admission(utiltestingapi.MakeAdmission("cq-migration", "main").
 					PodSets(kueue.PodSetAssignment{
 						Name: "main",
@@ -460,7 +461,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-variant-reservation", "default").
@@ -487,7 +488,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Admission(utiltestingapi.MakeAdmission("cq-migration", "main").
 					PodSets(kueue.PodSetAssignment{
 						Name: "main",
@@ -538,7 +539,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-variant-reservation", "default").
@@ -565,7 +566,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Admission(utiltestingapi.MakeAdmission("cq-migration", "main").
 					PodSets(kueue.PodSetAssignment{
 						Name: "main",
@@ -617,7 +618,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration-no-constraint").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-variant-reservation", "default").
@@ -644,7 +645,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration-no-constraint").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Admission(utiltestingapi.MakeAdmission("cq-migration-no-constraint", "main").
 					PodSets(kueue.PodSetAssignment{
 						Name: "main",
@@ -694,7 +695,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration-no-constraint").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-variant-reservation", "default").
@@ -721,7 +722,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration-no-constraint").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Admission(utiltestingapi.MakeAdmission("cq-migration-no-constraint", "main").
 					PodSets(kueue.PodSetAssignment{
 						Name: "main",
@@ -772,7 +773,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration-no-constraint").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-variant-reservation", "default").
@@ -799,7 +800,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq-migration-no-constraint").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Admission(utiltestingapi.MakeAdmission("cq-migration-no-constraint", "main").
 					PodSets(kueue.PodSetAssignment{
 						Name: "main",
@@ -851,7 +852,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
@@ -876,7 +877,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
 				Request(corev1.ResourceCPU, "1").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
@@ -914,7 +915,7 @@ func TestReconcile(t *testing.T) {
 		"parent is not active, propagating deactivation to all variants": {
 			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Request(corev1.ResourceCPU, "1").
 				Active(false).
 				Obj(),
@@ -934,7 +935,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
 				Queue("lq").
-				Label(constants.ParentVariantLabel, "true").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Request(corev1.ResourceCPU, "1").
 				Active(false).
 				Obj(),
@@ -961,6 +962,7 @@ func TestReconcile(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
 			var objects []client.Object
 			if tc.parentWorkload != nil {
 				objects = append(objects, tc.parentWorkload)

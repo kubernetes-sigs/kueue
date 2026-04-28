@@ -4591,6 +4591,7 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
 			wlBuilder := utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "2").Obj())
 			if tc.allowedFlavors != nil {

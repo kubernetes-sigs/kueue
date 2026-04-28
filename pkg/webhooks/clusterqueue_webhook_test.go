@@ -434,6 +434,7 @@ func TestValidateClusterQueue(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
 			gotErr := ValidateClusterQueue(tc.clusterQueue)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)
@@ -595,6 +596,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 							Mode: kueue.ConcurrentAdmissionTryPreferredFlavors}},
 					"field is immutable"),
 			},
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
 		},
 		{
 			name: "ConcurrentAdmissionPolicy cannot be removed",
@@ -608,6 +610,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "concurrentAdmissionPolicy"), nil, "field is immutable"),
 			},
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
 		},
 	}
 

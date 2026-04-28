@@ -340,7 +340,13 @@ func (m *Manager) ConcurrentAdmissionEnabled(cqName kueue.ClusterQueueReference)
 	}
 	m.RLock()
 	defer m.RUnlock()
+	return m.ConcurrentAdmissionEnabledWithoutLock(cqName)
+}
 
+func (m *Manager) ConcurrentAdmissionEnabledWithoutLock(cqName kueue.ClusterQueueReference) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
 	cq := m.hm.ClusterQueue(cqName)
 	if cq == nil {
 		return false
@@ -548,6 +554,10 @@ func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	m.RLock()
 	defer m.RUnlock()
+	return m.ClusterQueueForWorkloadWithoutLock(wl)
+}
+
+func (m *Manager) ClusterQueueForWorkloadWithoutLock(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	q, ok := m.localQueues[queue.KeyFromWorkload(wl)]
 	if !ok {
 		return "", false
@@ -562,8 +572,8 @@ func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts .
 	m.Lock()
 	defer m.Unlock()
 	if features.Enabled(features.ConcurrentAdmission) {
-		cqName, _ := m.ClusterQueueForWorkload(w)
-		if m.ConcurrentAdmissionEnabled(cqName) && workload.IsVariant(w) {
+		cqName, _ := m.ClusterQueueForWorkloadWithoutLock(w)
+		if m.ConcurrentAdmissionEnabledWithoutLock(cqName) && workload.IsVariant(w) {
 			return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 		}
 	}
