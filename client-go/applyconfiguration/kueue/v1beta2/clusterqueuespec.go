@@ -86,7 +86,10 @@ type ClusterQueueSpecApplyConfiguration struct {
 	FairSharing *FairSharingApplyConfiguration `json:"fairSharing,omitempty"`
 	// admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
 	AdmissionScope *AdmissionScopeApplyConfiguration `json:"admissionScope,omitempty"`
-	// concurrentAdmissionPolicy defines the policy for concurrent attempts.
+	// concurrentAdmissionPolicy defines the configuration for ConcurrentAdmission feature.
+	// Its main capability is to allow Workloads pursuing multiple flavors at the same time, and starting on the first flavor that led to admission.
+	// Additionally after the admission, Workloads can still try to pursue capacity on the more preferable flavors while running.
+	// It enables them to migrate to more preferable, whenever capacity appears.
 	ConcurrentAdmissionPolicy *ConcurrentAdmissionPolicyApplyConfiguration `json:"concurrentAdmissionPolicy,omitempty"`
 }
 

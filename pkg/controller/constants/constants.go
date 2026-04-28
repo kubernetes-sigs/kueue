@@ -69,11 +69,12 @@ const (
 	PriorityBoostAnnotationKey = "kueue.x-k8s.io/priority-boost"
 
 	// WorkloadAllowedResourceFlavorAnnotation is an annotation used with ConcurrentAdmission feature
-	// It's set on a Workload level that defines which ResourceFlavors can be assigned to this Workload by Kueue scheduler
+	// It's set on a Workload level that defines which ResourceFlavors can be assigned to this Workload by Kueue scheduler.
+	// The value is a comma-separated list of resource flavor names (e.g., "reservation,spot").
 	WorkloadAllowedResourceFlavorAnnotation = "kueue.x-k8s.io/workload-allowed-resource-flavors"
 
-	// ParentVariantLabel is the label key in the Workload that is a parent of Variants
+	// ConcurrentAdmissionParentLabelKey is the label key in the Workload that is a Parent of Variants.
 	// The value of this label is boolean, and it is set to "true" if the Workload is a parent of Variants.
 	// The label is used with ConcurrentAdmission feature.
-	ParentVariantLabel = "kueue.x-k8s.io/parent-variant"
+	ConcurrentAdmissionParentLabelKey = "kueue.x-k8s.io/concurrent-admission-parent"
 )

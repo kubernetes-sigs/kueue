@@ -36,5 +36,5 @@ func SetParentVariantLabel(workload *kueue.Workload) {
 	if workload.Labels == nil {
 		workload.Labels = make(map[string]string, 1)
 	}
-	workload.Labels[constants.ParentVariantLabel] = "true"
+	workload.Labels[constants.ConcurrentAdmissionParentLabelKey] = "true"
 }

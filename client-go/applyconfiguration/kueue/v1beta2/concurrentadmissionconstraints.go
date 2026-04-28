@@ -27,9 +27,9 @@ import (
 type ConcurrentAdmissionConstraintsApplyConfiguration struct {
 	// minPreferredFlavorName defines the minimal flavor a Workload can migrate to.
 	// The order is based on the order of flavors in ClusterQueue.
-	// It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is not specified.
-	// If the Mode is `UpgradeOnly` and MinPreferredFlavorName is not specified, then there's
-	// no constraints on what flavors a Workload can migrate to.
+	// It can only be used if the Mode is `TryPreferredFlavors`.
+	// If the Mode is `TryPreferredFlavors` and MinPreferredFlavorName is not specified, then
+	// Workload can migrate to any flavor that is more preferable than the one it was admitted to.
 	MinPreferredFlavorName *kueuev1beta2.ResourceFlavorReference `json:"minPreferredFlavorName,omitempty"`
 }
 

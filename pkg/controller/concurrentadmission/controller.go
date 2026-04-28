@@ -268,7 +268,7 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 		Spec:   parent.Spec,
 		Status: parent.Status,
 	}
-	delete(variant.Labels, constants.ParentVariantLabel)
+	delete(variant.Labels, constants.ConcurrentAdmissionParentLabelKey)
 	metav1.SetMetaDataAnnotation(&variant.ObjectMeta, constants.WorkloadAllowedResourceFlavorAnnotation, string(flavor))
 	return variant
 }

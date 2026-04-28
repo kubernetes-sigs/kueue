@@ -1924,7 +1924,7 @@ func TASAssignedNodeNames(wl *kueue.Workload) []string {
 }
 
 func IsParentVariant(workload *kueue.Workload) bool {
-	return workload != nil && workload.Labels[controllerconstants.ParentVariantLabel] == "true"
+	return workload != nil && workload.Labels[controllerconstants.ConcurrentAdmissionParentLabelKey] == "true"
 }
 
 func IsVariant(wl *kueue.Workload) bool {

@@ -307,7 +307,7 @@ func (w *WorkloadWrapper) Label(k, v string) *WorkloadWrapper {
 }
 
 func (w *WorkloadWrapper) ParentVariant() *WorkloadWrapper {
-	return w.Label(constants.ParentVariantLabel, "true")
+	return w.Label(constants.ConcurrentAdmissionParentLabelKey, "true")
 }
 
 func (w *WorkloadWrapper) Annotation(k, v string) *WorkloadWrapper {

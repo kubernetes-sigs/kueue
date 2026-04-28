@@ -21,7 +21,13 @@ package v1beta2
 // ConcurrentAdmissionPolicyApplyConfiguration represents a declarative configuration of the ConcurrentAdmissionPolicy type for use
 // with apply.
 type ConcurrentAdmissionPolicyApplyConfiguration struct {
-	// migration defines the constraints of Variants migration
+	// migration defines the constraints Workload's migration.
+	// The mechanism itself creates "Variants" of the same Workload, each pursuing a different flavor.
+	// All Variants belong to the same "Parent" Workload, and are picked up by Kueue scheduler independently.
+	// Once one of the Variants is admitted, the Parent Workload gets also admitted. The Variants that pursue more
+	// favorable flavors keep trying to get admitted and if they succeed, the Workload migrates to the new flavor.
+	// The Variants that pursue less favorable flavors are deactivated.
+	// Flavor preferences are expressed through the order of flavors in the ClusterQueue.
 	Migration *ConcurrentAdmissionMigrationApplyConfiguration `json:"migration,omitempty"`
 }
 

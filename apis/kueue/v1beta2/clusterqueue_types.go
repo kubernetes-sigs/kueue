@@ -143,7 +143,11 @@ type ClusterQueueSpec struct {
 	// +optional
 	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
 
-	// concurrentAdmissionPolicy defines the policy for concurrent attempts.
+	// concurrentAdmissionPolicy defines the configuration for ConcurrentAdmission feature.
+	// Its main capability is to allow Workloads pursuing multiple flavors at the same time, and starting on the first flavor that led to admission.
+	// Additionally after the admission, Workloads can still try to pursue capacity on the more preferable flavors while running.
+	// It enables them to migrate to more preferable, whenever capacity appears.
+	//
 	// +optional
 	ConcurrentAdmissionPolicy *ConcurrentAdmissionPolicy `json:"concurrentAdmissionPolicy,omitempty"`
 }
@@ -188,7 +192,13 @@ const (
 )
 
 type ConcurrentAdmissionPolicy struct {
-	// migration defines the constraints of Variants migration
+	// migration defines the constraints Workload's migration.
+	// The mechanism itself creates "Variants" of the same Workload, each pursuing a different flavor.
+	// All Variants belong to the same "Parent" Workload, and are picked up by Kueue scheduler independently.
+	// Once one of the Variants is admitted, the Parent Workload gets also admitted. The Variants that pursue more
+	// favorable flavors keep trying to get admitted and if they succeed, the Workload migrates to the new flavor.
+	// The Variants that pursue less favorable flavors are deactivated.
+	// Flavor preferences are expressed through the order of flavors in the ClusterQueue.
 	//
 	// +required
 	Migration ConcurrentAdmissionMigration `json:"migration,omitzero"`
@@ -196,6 +206,8 @@ type ConcurrentAdmissionPolicy struct {
 
 type ConcurrentAdmissionMigration struct {
 	// mode defines the mode of Workload's migration.
+	// The possible values are:
+	// - `TryPreferredFlavors` (default): a Workload will try to migrate to the preferred flavor after it's admitted and running.
 	//
 	// +required
 	Mode ConcurrentAdmissionMigrationMode `json:"mode,omitempty"`
@@ -209,9 +221,9 @@ type ConcurrentAdmissionMigration struct {
 type ConcurrentAdmissionConstraints struct {
 	// minPreferredFlavorName defines the minimal flavor a Workload can migrate to.
 	// The order is based on the order of flavors in ClusterQueue.
-	// It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is not specified.
-	// If the Mode is `UpgradeOnly` and MinPreferredFlavorName is not specified, then there's
-	// no constraints on what flavors a Workload can migrate to.
+	// It can only be used if the Mode is `TryPreferredFlavors`.
+	// If the Mode is `TryPreferredFlavors` and MinPreferredFlavorName is not specified, then
+	// Workload can migrate to any flavor that is more preferable than the one it was admitted to.
 	//
 	// +optional
 	MinPreferredFlavorName *ResourceFlavorReference `json:"minPreferredFlavorName,omitempty"`
@@ -222,6 +234,7 @@ type ConcurrentAdmissionConstraints struct {
 type ConcurrentAdmissionMigrationMode string
 
 const (
+	// TryPreferredFlavors means that a Workload will try to migrate to the preferred flavor after it's admitted and running.
 	ConcurrentAdmissionTryPreferredFlavors ConcurrentAdmissionMigrationMode = "TryPreferredFlavors"
 )
 
