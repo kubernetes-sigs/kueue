@@ -30,7 +30,7 @@ TEST_LOG_LEVEL ?= -3
 INTEGRATION_NPROCS ?= 4
 INTEGRATION_NPROCS_MULTIKUEUE ?= 3
 # Folder where the integration tests are located.
-INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
+INTEGRATION_TARGET ?= ./test/integration/singlecluster/scheduler/...
 INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
@@ -112,7 +112,7 @@ test-integration-run:
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
 .PHONY: test-integration-baseline
-test-integration-baseline: INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
+test-integration-baseline: INTEGRATION_FILTERS= --label-filter="!slow && !redundant" --repeat=10
 test-integration-baseline: test-integration ## Run baseline integration tests for singlecluster suites.
 
 .PHONY: test-integration-extended

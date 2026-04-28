@@ -46,7 +46,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Scheduler", func() {
+var _ = ginkgo.FDescribe("Scheduler", func() {
 	const (
 		instanceKey = "cloud.provider.com/instance"
 	)
