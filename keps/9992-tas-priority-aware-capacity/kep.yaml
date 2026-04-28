@@ -1,0 +1,25 @@
+title: TAS Priority-Aware Non-TAS Pod Capacity
+kep-number: 9992
+authors:
+  - "@islewis"
+  - "@Huang-Wei"
+status: provisional
+creation-date: 2026-04-28
+reviewers:
+  - "@mimowo"
+approvers:
+  - TBD
+
+see-also:
+  - "https://github.com/kubernetes-sigs/kueue/issues/9992"
+
+stage: alpha
+
+latest-milestone: "v0.18"
+
+milestone:
+  alpha: "v0.18"
+
+feature-gates:
+  - name: TASPriorityAwareNonTASUsage
+disable-supported: true
