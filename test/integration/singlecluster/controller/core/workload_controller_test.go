@@ -367,7 +367,18 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			})
 
 			ginkgo.By("reserving quota for a Workload", func() {
-				util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(clusterQueue.Name).Obj())
+				podSet := kueue.PodSetAssignment{
+					Name: kueue.DefaultPodSetName,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
+					},
+				}
+				util.SetQuotaReservation(
+					ctx,
+					k8sClient,
+					wlKey,
+					utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(podSet).Obj(),
+				)
 			})
 
 			ginkgo.By("setting the check conditions", func() {

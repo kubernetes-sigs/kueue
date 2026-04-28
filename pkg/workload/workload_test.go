@@ -1222,16 +1222,6 @@ func TestAdmissionChecksForWorkload(t *testing.T) {
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac3", "ac4", "ac6"),
 		},
-		"All checks returned when workload has an empty assignment": {
-			wl: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuotaAt(
-					utiltestingapi.MakeAdmission("cq").
-						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).
-						Obj(),
-					now,
-				).Obj(),
-			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2", "ac3", "ac4", "ac5", "ac6"),
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

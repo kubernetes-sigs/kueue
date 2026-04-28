@@ -58,6 +58,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		multiKueueAC             *kueue.AdmissionCheck
 		managerCq                *kueue.ClusterQueue
 		managerLq                *kueue.LocalQueue
+		managerFlavor            *kueue.ResourceFlavor
 
 		worker1Cq *kueue.ClusterQueue
 		worker1Lq *kueue.LocalQueue
@@ -108,7 +109,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
+		managerFlavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerFlavor)
+
 		managerCq = utiltestingapi.MakeClusterQueue("q1").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
@@ -134,6 +139,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
 		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
 		util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq, true)
+		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerFlavor, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
@@ -741,7 +747,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 			ginkgo.By("setting workload reservation in the management cluster", func() {
-				admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
+				admission := utiltestingapi.MakeAdmission(managerCq.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
 				util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 			})
 

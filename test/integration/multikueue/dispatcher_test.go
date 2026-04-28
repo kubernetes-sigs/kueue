@@ -40,6 +40,8 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
+const multikueueTestFlavor kueue.ResourceFlavorReference = "default"
+
 var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		managerNs *corev1.Namespace
@@ -54,6 +56,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 		multiKueueAC             *kueue.AdmissionCheck
 		managerCq                *kueue.ClusterQueue
 		managerLq                *kueue.LocalQueue
+		managerFlavor            *kueue.ResourceFlavor
 
 		worker1Cq *kueue.ClusterQueue
 		worker1Lq *kueue.LocalQueue
@@ -104,7 +107,11 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
+		managerFlavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerFlavor)
+
 		managerCq = utiltestingapi.MakeClusterQueue("q1").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
@@ -130,6 +137,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
 		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
 		util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq, true)
+		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerFlavor, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
@@ -149,7 +157,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
@@ -170,7 +178,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 		})
 
 		ginkgo.By("setting workload reservation in worker1, workload in worker2 is removed", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
@@ -223,6 +231,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 		multiKueueAC             *kueue.AdmissionCheck
 		managerCq                *kueue.ClusterQueue
 		managerLq                *kueue.LocalQueue
+		managerFlavor            *kueue.ResourceFlavor
 
 		worker1Cq *kueue.ClusterQueue
 		worker1Lq *kueue.LocalQueue
@@ -273,7 +282,11 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
+		managerFlavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerFlavor)
+
 		managerCq = utiltestingapi.MakeClusterQueue("q1").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
@@ -299,6 +312,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
 		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
 		util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq, true)
+		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerFlavor, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
@@ -318,7 +332,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
@@ -390,7 +404,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 		})
 
 		ginkgo.By("setting workload reservation in worker2, workload in worker1 is removed", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
 			util.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, wlLookupKey, admission)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
@@ -443,6 +457,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:mult
 		multiKueueAC             *kueue.AdmissionCheck
 		managerCq                *kueue.ClusterQueue
 		managerLq                *kueue.LocalQueue
+		managerFlavor            *kueue.ResourceFlavor
 
 		worker1Cq *kueue.ClusterQueue
 		worker1Lq *kueue.LocalQueue
@@ -493,7 +508,11 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:mult
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
+		managerFlavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerFlavor)
+
 		managerCq = utiltestingapi.MakeClusterQueue("q1").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
@@ -519,6 +538,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:mult
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
 		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
 		util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq, true)
+		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerFlavor, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
@@ -538,7 +558,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:mult
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
@@ -559,7 +579,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:mult
 		})
 
 		ginkgo.By("setting workload reservation in worker1, workload in worker2 is removed", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
@@ -650,6 +670,7 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Label("area:mul
 		multiKueueAC             *kueue.AdmissionCheck
 		managerCq                *kueue.ClusterQueue
 		managerLq                *kueue.LocalQueue
+		managerFlavor            *kueue.ResourceFlavor
 
 		worker1Cq *kueue.ClusterQueue
 		worker2Cq *kueue.ClusterQueue
@@ -697,7 +718,11 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Label("area:mul
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
+		managerFlavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerFlavor)
+
 		managerCq = utiltestingapi.MakeClusterQueue("isolated-cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
@@ -719,6 +744,7 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Label("area:mul
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
 		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
 		util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq, true)
+		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerFlavor, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
@@ -747,7 +773,7 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Label("area:mul
 			}
 
 			// Set quota reservation to trigger MultiKueue processing
-			admission = utiltestingapi.MakeAdmission(managerCq.Name).Obj()
+			admission = utiltestingapi.MakeAdmission(managerCq.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, workloadLookupKey, admission)
 		})
 

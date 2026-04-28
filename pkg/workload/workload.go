@@ -1530,23 +1530,11 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 	return checksForAllFlavors
 }
 
-func admissionChecksForAdmission(log logr.Logger, acs AdmissionChecks, admission kueue.Admission) sets.Set[kueue.AdmissionCheckReference] {
+func admissionChecksForAdmission(_ logr.Logger, acs AdmissionChecks, admission kueue.Admission) sets.Set[kueue.AdmissionCheckReference] {
 	admissionFlavors := findAdmissionFlavors(admission)
-	if len(admissionFlavors) > 0 {
-		return filterChecks(acs, func(acFlavors flavorSet) bool {
-			return admissionFlavors.Intersection(acFlavors).Len() > 0
-		})
-	}
-
-	// Some tests allow for admissions not to be assigned any flavors.
-	// To ensure those tests work as before: flavorless Admissions are assigned/expected to fulfill all Admission Checks.
-	// Issue to address the matter further: https://github.com/kubernetes-sigs/kueue/issues/10316
-	log.V(3).Info(
-		"Admission has no Flavors; assigning all checks",
-		"AdmissionChecks",
-		acs,
-	)
-	return sets.KeySet(acs)
+	return filterChecks(acs, func(acFlavors flavorSet) bool {
+		return admissionFlavors.Intersection(acFlavors).Len() > 0
+	})
 }
 
 func filterChecks(acs AdmissionChecks, fsPredicate func(flavorSet) bool) sets.Set[kueue.AdmissionCheckReference] {

@@ -1059,7 +1059,12 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			ginkgo.By("Setting quota reservation")
 			wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
-			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), utiltestingapi.MakeAdmission(cq.Name).Obj())
+			podSetAssignment := utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(
+				resourceGPU,
+				kueue.ResourceFlavorReference(flavor.Name),
+			).Obj()
+			cqAdmission := utiltestingapi.MakeAdmission(cq.Name).PodSets(podSetAssignment).Obj()
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), cqAdmission)
 
 			ginkgo.By("Delete clusterQueue")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
