@@ -818,12 +818,12 @@ app = HelloWorld.bind()`,
     deployments:
       - name: HelloWorld
         autoscaling_config:
-          min_replicas: 1
+          min_replicas: 0
           max_replicas: 5
           target_ongoing_requests: 1
           upscaling_factor: 1.0
           upscale_delay_s: 2
-          downscale_delay_s: 600
+          downscale_delay_s: 2
         max_replicas_per_node: 1
         ray_actor_options:
           num_cpus: 0.2`
@@ -975,6 +975,20 @@ app = HelloWorld.bind()`,
 				)).To(gomega.Succeed())
 				g.Expect(len(pods.Items)).To(gomega.BeNumerically(">", initialWorkerCount),
 					fmt.Sprintf("Expected more than %d running worker pods after autoscaling", initialWorkerCount))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for workers to scale down to zero", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				pods := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, pods,
+					client.InNamespace(ns.Name),
+					client.MatchingLabels{
+						"ray.io/node-type": "worker",
+					},
+				)).To(gomega.Succeed())
+				runningWorkers := getRunningWorkerPodNames(pods)
+				g.Expect(runningWorkers).To(gomega.BeEmpty(), "Expected zero running worker pods after scale-down")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
