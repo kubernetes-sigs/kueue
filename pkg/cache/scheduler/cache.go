@@ -687,11 +687,14 @@ func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 }
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
+	if c.ConcurrentAdmissionEnabledFor(wl) && !concurrentadmission.IsVariant(wl) {
+		return false, nil
+	}
 	wlKey := workload.Key(wl)
 	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
 
 	// Finished or deactivated workloads should not keep ClusterQueues in-use in the cache.
-	if !workload.HasActiveQuotaReservation(wl) || (features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl)) {
+	if !workload.HasActiveQuotaReservation(wl) {
 		if assigned {
 			c.deleteFromQueueIfPresent(log, wlKey, assignedCqName)
 			delete(c.workloadAssignedQueues, wlKey)
