@@ -38,3 +38,16 @@ func SetParentVariantLabel(workload *kueue.Workload) {
 	}
 	workload.Labels[constants.ConcurrentAdmissionParentLabelKey] = "true"
 }
+
+// getParentWorkloadName returns the name of the parent workload from owner references.
+func getParentWorkloadName(wl *kueue.Workload) string {
+	if wl == nil {
+		return ""
+	}
+	for _, owner := range wl.OwnerReferences {
+		if owner.Kind == "Workload" && owner.APIVersion == kueue.GroupVersion.String() {
+			return owner.Name
+		}
+	}
+	return ""
+}

@@ -273,19 +273,11 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 	return variant
 }
 
-func getVariantFlavor(wl *kueue.Workload) kueue.ResourceFlavorReference {
-	annotations := wl.GetAnnotations()
-	if annotations == nil {
-		return ""
-	}
-	return kueue.ResourceFlavorReference(annotations[constants.WorkloadAllowedResourceFlavorAnnotation])
-}
-
 func (r *variantReconciler) hasVariantWithFlavor(ctx context.Context, variants []kueue.Workload, flavor kueue.ResourceFlavorReference) bool {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Checking if there is a variant with the flavor", "flavor", flavor)
 	for _, v := range variants {
-		if getVariantFlavor(&v) == flavor {
+		if workload.GetVariantFlavor(&v) == flavor {
 			log.V(3).Info("Found a variant with the flavor", "variant", v.Name, "flavor", flavor)
 			return true
 		}
@@ -295,8 +287,8 @@ func (r *variantReconciler) hasVariantWithFlavor(ctx context.Context, variants [
 
 func sortVariantsByFlavorOrder(variants []kueue.Workload, flavorOrder map[kueue.ResourceFlavorReference]int) []kueue.Workload {
 	slices.SortFunc(variants, func(a, b kueue.Workload) int {
-		aFlavor := getVariantFlavor(&a) // we only support one flavor per variant for now
-		bFlavor := getVariantFlavor(&b)
+		aFlavor := workload.GetVariantFlavor(&a) // we only support one flavor per variant for now
+		bFlavor := workload.GetVariantFlavor(&b)
 		return flavorOrder[aFlavor] - flavorOrder[bFlavor]
 	})
 	return variants
@@ -402,8 +394,8 @@ func (r *variantReconciler) deactivateVariants(
 			if v.Name == admittedWl.Name {
 				continue
 			}
-			if flavorOrder[getVariantFlavor(v)] > flavorOrder[*minPreferredFlavor] {
-				log.V(2).Info("Deactivating variant because it is below the minPreferredFlavor", "variant", klog.KObj(v), "flavor", getVariantFlavor(v), "minPreferredFlavor", *minPreferredFlavor)
+			if flavorOrder[workload.GetVariantFlavor(v)] > flavorOrder[*minPreferredFlavor] {
+				log.V(2).Info("Deactivating variant because it is below the minPreferredFlavor", "variant", klog.KObj(v), "flavor", workload.GetVariantFlavor(v), "minPreferredFlavor", *minPreferredFlavor)
 				if err := r.deactivateVariant(ctx, v); err != nil {
 					return err
 				}
@@ -411,11 +403,11 @@ func (r *variantReconciler) deactivateVariants(
 		}
 	}
 	// also deactivate Variants below the admitted variant regardless of minPreferredFlavor
-	log.V(3).Info("Deactivating variants below the admitted variant", "admittedVariant", klog.KObj(admittedWl), "admittedFlavor", getVariantFlavor(admittedWl))
+	log.V(3).Info("Deactivating variants below the admitted variant", "admittedVariant", klog.KObj(admittedWl), "admittedFlavor", workload.GetVariantFlavor(admittedWl))
 	for i := range variants {
 		v := &variants[i]
-		if flavorOrder[getVariantFlavor(v)] > flavorOrder[getVariantFlavor(admittedWl)] {
-			log.V(2).Info("Deactivating variant because it is below the admitted variant", "variant", klog.KObj(v), "flavor", getVariantFlavor(v), "admittedFlavor", getVariantFlavor(admittedWl))
+		if flavorOrder[workload.GetVariantFlavor(v)] > flavorOrder[workload.GetVariantFlavor(admittedWl)] {
+			log.V(2).Info("Deactivating variant because it is below the admitted variant", "variant", klog.KObj(v), "flavor", workload.GetVariantFlavor(v), "admittedFlavor", workload.GetVariantFlavor(admittedWl))
 			if err := r.deactivateVariant(ctx, v); err != nil {
 				return err
 			}
@@ -450,7 +442,7 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 	if minPreferredFlavor != nil {
 		for i := range variants {
 			v := &variants[i]
-			if flavorOrder[getVariantFlavor(v)] <= flavorOrder[*minPreferredFlavor] && flavorOrder[getVariantFlavor(v)] < flavorOrder[getVariantFlavor(admittedVariant)] {
+			if flavorOrder[workload.GetVariantFlavor(v)] <= flavorOrder[*minPreferredFlavor] && flavorOrder[workload.GetVariantFlavor(v)] < flavorOrder[workload.GetVariantFlavor(admittedVariant)] {
 				// activate the variant, the smaller or equal the flavor order is to the minPreferredFlavor, the higher the priority is
 				if err := activateWl(ctx, r.client, v); err != nil {
 					return err
@@ -462,7 +454,7 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 	// no minPreferredFlavor specified, so activate all variants that are below the admitted variant in the flavor order
 	for i := range variants {
 		v := &variants[i]
-		if flavorOrder[getVariantFlavor(v)] < flavorOrder[getVariantFlavor(admittedVariant)] {
+		if flavorOrder[workload.GetVariantFlavor(v)] < flavorOrder[workload.GetVariantFlavor(admittedVariant)] {
 			// activate the variant, the smaller the flavor order is to the admitted variant, the higher the priority is
 			if err := activateWl(ctx, r.client, v); err != nil {
 				return err
