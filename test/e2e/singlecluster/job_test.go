@@ -17,13 +17,13 @@ limitations under the License.
 package singlecluster
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -211,18 +211,16 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(util.GetAgnHostImage(), util.BehaviorExitFast).Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
 
-			createdWorkload := &kueue.Workload{}
-
 			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
 			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
+
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
-				g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By(fmt.Sprintf("Wait for the workload %q to finish", wlLookupKey), func() {
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+			})
 		})
 
 		ginkgo.It("Should run with prebuilt workload", func() {
@@ -294,11 +292,11 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			})
 
 			ginkgo.By("Await for jobs completion", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.Finalizers).NotTo(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
-					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonFailed))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+			})
+
+			ginkgo.By("Await workload finalized", func() {
+				util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, wlLookupKey)
 			})
 		})
 
@@ -402,18 +400,10 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Wait for the workload to finish", func() {
-				createdWorkload := &kueue.Workload{}
-				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
-				gomega.Eventually(func(g gomega.Gomega) {
-					err := k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-					if apierrors.IsNotFound(err) {
-						return
-					}
-					g.Expect(err).To(gomega.Not(gomega.HaveOccurred()))
-					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
-					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+
+			ginkgo.By(fmt.Sprintf("wait for the workload %q to finish", wlLookupKey), func() {
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 			})
 		})
 
@@ -773,11 +763,10 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
-				g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By(fmt.Sprintf("wait for the workload %q to finish", wlLookupKey), func() {
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+			})
 		})
 
 		ginkgo.It("Should suspend a job when its checks become invalid", func() {
