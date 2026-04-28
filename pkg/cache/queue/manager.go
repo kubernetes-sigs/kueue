@@ -37,6 +37,7 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -333,6 +334,20 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	return nil
 }
 
+func (m *Manager) ConcurrentAdmissionEnabled(cqName kueue.ClusterQueueReference) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
+	m.RLock()
+	defer m.RUnlock()
+
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return false
+	}
+	return cq.ConcurrentAdmissionEnabled()
+}
+
 func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue, specUpdated, labelsUpdated bool) error {
 	m.Lock()
 	defer m.Unlock()
@@ -504,7 +519,6 @@ func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
 	if !ok {
 		return 0, ErrLocalQueueDoesNotExistOrInactive
 	}
-
 	return int32(len(qImpl.items)), nil
 }
 

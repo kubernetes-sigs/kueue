@@ -383,6 +383,53 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   `preference "PreemptionOverBorrowing" requires both whenCanBorrow and whenCanPreempt to be TryNextFlavor`,
 			wantBadValue: string(kueue.PreemptionOverBorrowing),
 		},
+		{
+			name: "valid ConcurrentAdmissionPolicy",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				Obj(),
+		},
+		{
+			name: "ConcurrentAdmissionPolicy with more than one ResourceGroup",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor2").Resource("memory", "1").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("resourceGroups"), 2, "must have exactly one ResourceGroup when ConcurrentAdmissionPolicy is defined"),
+			},
+			wantDetail:   "must have exactly one ResourceGroup when ConcurrentAdmissionPolicy is defined",
+			wantBadValue: "2",
+		},
+		{
+			name: "ConcurrentAdmissionPolicy with more than 16 flavors",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				ResourceGroup(makeFlavors(17)...).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					specPath.Child("resourceGroups").Index(0).Child("flavors"),
+					17,
+					"cannot have more than 16 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined",
+				),
+			},
+			wantDetail:   "cannot have more than 16 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined",
+			wantBadValue: "17",
+		},
+		{
+			name: "ConcurrentAdmissionPolicy with empty ResourceGroups",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("resourceGroups"), 0, "must have exactly one ResourceGroup when ConcurrentAdmissionPolicy is defined"),
+			},
+			wantDetail:   "must have exactly one ResourceGroup when ConcurrentAdmissionPolicy is defined",
+			wantBadValue: "0",
+		},
 	}
 
 	for _, tc := range testcases {
@@ -530,6 +577,36 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("ghost"), []string{"alpha"}),
+			},
+		},
+		{
+			name: "ConcurrentAdmissionPolicy cannot be added",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "concurrentAdmissionPolicy"),
+					&kueue.ConcurrentAdmissionPolicy{
+						Migration: kueue.ConcurrentAdmissionMigration{
+							Mode: kueue.ConcurrentAdmissionTryPreferredFlavors}},
+					"field is immutable"),
+			},
+		},
+		{
+			name: "ConcurrentAdmissionPolicy cannot be removed",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "concurrentAdmissionPolicy"), nil, "field is immutable"),
 			},
 		},
 	}

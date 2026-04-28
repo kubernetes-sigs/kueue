@@ -420,7 +420,7 @@ func (s *Scheduler) processEntry(
 	// Note: it is valid for either or both preemptionTargets and oldWorkloadSlice to be nil.
 	preemptionTargets, oldWorkloadSlice := workloadslicing.FindReplacedSliceTarget(e.Obj, e.preemptionTargets)
 
-	if mode == flavorassigner.Preempt {
+	if mode == flavorassigner.Preempt || len(preemptionTargets) > 0 {
 		s.issuePreemptions(ctx, log, e, preemptionTargets)
 		return
 	}
@@ -662,6 +662,9 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
+	// Add less favorable siblings to preemption targets once here.
+	preemptionTargets = append(preemptionTargets, s.getLessFavorableSiblings(log, wl, fullAssignment, snap)...)
+
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
 		return fullAssignment, preemptionTargets
@@ -695,6 +698,51 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 		}
 	}
 	return fullAssignment, nil
+}
+
+func (s *Scheduler) getLessFavorableSiblings(log logr.Logger, wl *workload.Info, assignment flavorassigner.Assignment, snap *schdcache.Snapshot) []*preemption.Target {
+	parentUID := workload.GetParentWorkloadUID(wl.Obj)
+	if parentUID == "" {
+		return nil
+	}
+
+	cq := snap.ClusterQueue(wl.ClusterQueue)
+	if cq == nil || len(cq.ResourceGroups) == 0 {
+		return nil
+	}
+	flavors := cq.ResourceGroups[0].Flavors
+
+	candidateFlavor := workload.GetVariantFlavor(wl.Obj)
+	if candidateFlavor == "" {
+		return nil
+	}
+
+	var targets []*preemption.Target
+	for _, otherWl := range cq.Workloads {
+		if otherWl.Obj.UID == wl.Obj.UID {
+			continue
+		}
+		if workload.GetParentWorkloadUID(otherWl.Obj) == parentUID && workload.IsAdmitted(otherWl.Obj) {
+			siblingFlavor := workload.GetVariantFlavor(otherWl.Obj)
+			if siblingFlavor != "" && isLessFavorable(candidateFlavor, siblingFlavor, flavors) {
+				targets = append(targets, &preemption.Target{
+					WorkloadInfo: otherWl,
+					WorkloadCq:   cq,
+					Reason:       kueue.ConcurrentAdmissionReason,
+				})
+			}
+		}
+	}
+	return targets
+}
+
+func isLessFavorable(candidate, sibling kueue.ResourceFlavorReference, flavors []kueue.ResourceFlavorReference) bool {
+	candidateIdx := slices.Index(flavors, candidate)
+	siblingIdx := slices.Index(flavors, sibling)
+	if candidateIdx == -1 || siblingIdx == -1 {
+		return false
+	}
+	return candidateIdx < siblingIdx
 }
 
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {

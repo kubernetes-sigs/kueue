@@ -996,6 +996,10 @@ const (
 	// InCohortReclaimWhileBorrowingReason indicates the Workload was preempted
 	// due to reclamation within the cohort while borrowing.
 	InCohortReclaimWhileBorrowingReason string = "InCohortReclaimWhileBorrowing"
+
+	// ConcurrentAdmissionReason indicates the Workload was preempted due to
+	// admission of more favorable Variant of the same Parent Workload.
+	ConcurrentAdmissionReason string = "ConcurrentAdmission"
 )
 
 const (

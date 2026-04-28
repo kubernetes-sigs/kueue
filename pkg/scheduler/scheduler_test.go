@@ -1580,6 +1580,111 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 		},
+		"concurrent admission: more favorable variant preempts less favorable sibling": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("concurrent-cq").
+					NamespaceSelector(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng"},
+						}},
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "10").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "10").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("concurrent-queue", "eng-alpha").ClusterQueue("concurrent-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("sibling-less-favorable", "eng-alpha").
+					UID("sibling-uid").
+					Queue("concurrent-queue").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("concurrent-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "10").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					Annotation("kueue.x-k8s.io/workload-allowed-resource-flavors", "spot").
+					Obj(),
+				*utiltestingapi.MakeWorkload("candidate-more-favorable", "eng-alpha").
+					UID("candidate-uid").
+					Queue("concurrent-queue").
+					Request(corev1.ResourceCPU, "10").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					Annotation("kueue.x-k8s.io/workload-allowed-resource-flavors", "on-demand").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("candidate-more-favorable", "eng-alpha").
+					UID("candidate-uid").
+					Queue("concurrent-queue").
+					Request(corev1.ResourceCPU, "10").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					Annotation("kueue.x-k8s.io/workload-allowed-resource-flavors", "on-demand").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            ". Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("10"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("sibling-less-favorable", "eng-alpha").
+					UID("sibling-uid").
+					Queue("concurrent-queue").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("concurrent-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "10").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					Annotation("kueue.x-k8s.io/workload-allowed-resource-flavors", "spot").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: candidate-uid, JobUID: UNKNOWN) due to migration to more favorable resource flavor; preemptor path: /concurrent-cq; preemptee path: /concurrent-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "ConcurrentAdmission",
+						Message:            "Preempted to accommodate a workload (UID: candidate-uid, JobUID: UNKNOWN) due to migration to more favorable resource flavor; preemptor path: /concurrent-cq; preemptee path: /concurrent-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
+
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"concurrent-cq": {"eng-alpha/candidate-more-favorable"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/sibling-less-favorable": *utiltestingapi.MakeAdmission("concurrent-cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "spot", "10").
+						Obj()).
+					Obj(),
+			},
+		},
 		"multiple CQs need preemption": {
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("other-alpha").

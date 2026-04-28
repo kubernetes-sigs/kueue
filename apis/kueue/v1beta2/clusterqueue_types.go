@@ -142,6 +142,10 @@ type ClusterQueueSpec struct {
 	// admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
 	// +optional
 	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
+
+	// concurrentAdmissionPolicy defines the policy for concurrent attempts.
+	// +optional
+	ConcurrentAdmissionPolicy *ConcurrentAdmissionPolicy `json:"concurrentAdmissionPolicy,omitempty"`
 }
 
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
@@ -181,6 +185,44 @@ const (
 	// however older workloads that can't be admitted will not block
 	// admitting newer workloads that fit existing quota.
 	BestEffortFIFO QueueingStrategy = "BestEffortFIFO"
+)
+
+type ConcurrentAdmissionPolicy struct {
+	// migration defines the constraints of Variants migration
+	//
+	// +required
+	Migration ConcurrentAdmissionMigration `json:"migration,omitzero"`
+}
+
+type ConcurrentAdmissionMigration struct {
+	// mode defines the mode of Workload's migration.
+	//
+	// +required
+	Mode ConcurrentAdmissionMigrationMode `json:"mode,omitempty"`
+
+	// constraints defines the constraints of Workload's migration.
+	//
+	// +optional
+	Constraints *ConcurrentAdmissionConstraints `json:"constraints,omitempty"`
+}
+
+type ConcurrentAdmissionConstraints struct {
+	// minPreferredFlavorName defines the minimal flavor a Workload can migrate to.
+	// The order is based on the order of flavors in ClusterQueue.
+	// It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is not specified.
+	// If the Mode is `UpgradeOnly` and MinPreferredFlavorName is not specified, then there's
+	// no constraints on what flavors a Workload can migrate to.
+	//
+	// +optional
+	MinPreferredFlavorName *ResourceFlavorReference `json:"minPreferredFlavorName,omitempty"`
+}
+
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Enum=TryPreferredFlavors
+type ConcurrentAdmissionMigrationMode string
+
+const (
+	ConcurrentAdmissionTryPreferredFlavors ConcurrentAdmissionMigrationMode = "TryPreferredFlavors"
 )
 
 // +kubebuilder:validation:XValidation:rule="self.flavors.all(x, size(x.resources) == size(self.coveredResources))", message="flavors must have the same number of resources as the coveredResources"

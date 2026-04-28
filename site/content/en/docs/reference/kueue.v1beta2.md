@@ -1029,6 +1029,13 @@ if FairSharing is enabled in the Kueue configuration.</p>
    <p>admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing</p>
 </td>
 </tr>
+<tr><td><code>concurrentAdmissionPolicy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy"><code>ConcurrentAdmissionPolicy</code></a>
+</td>
+<td>
+   <p>concurrentAdmissionPolicy defines the policy for concurrent attempts.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1252,6 +1259,101 @@ if FairSharing is enabled in the Kueue configuration.</p>
    <p>fairSharing contains the current state for this Cohort
 when participating in Fair Sharing.
 The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ConcurrentAdmissionConstraints`     {#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionConstraints}
+    
+
+**Appears in:**
+
+- [ConcurrentAdmissionMigration](#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigration)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>minPreferredFlavorName</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
+</td>
+<td>
+   <p>minPreferredFlavorName defines the minimal flavor a Workload can migrate to.
+The order is based on the order of flavors in ClusterQueue.
+It can only be used if the Mode is <code>UpgradeOnly</code> and <code>ExplicitVariants</code> is not specified.
+If the Mode is <code>UpgradeOnly</code> and MinPreferredFlavorName is not specified, then there's
+no constraints on what flavors a Workload can migrate to.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ConcurrentAdmissionMigration`     {#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigration}
+    
+
+**Appears in:**
+
+- [ConcurrentAdmissionPolicy](#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>mode</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigrationMode"><code>ConcurrentAdmissionMigrationMode</code></a>
+</td>
+<td>
+   <p>mode defines the mode of Workload's migration.</p>
+</td>
+</tr>
+<tr><td><code>constraints</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionConstraints"><code>ConcurrentAdmissionConstraints</code></a>
+</td>
+<td>
+   <p>constraints defines the constraints of Workload's migration.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ConcurrentAdmissionMigrationMode`     {#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigrationMode}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ConcurrentAdmissionMigration](#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigration)
+
+
+
+
+
+## `ConcurrentAdmissionPolicy`     {#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy}
+    
+
+**Appears in:**
+
+- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta2-ClusterQueueSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>migration,omitzero</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigration"><code>ConcurrentAdmissionMigration</code></a>
+</td>
+<td>
+   <p>migration defines the constraints of Variants migration</p>
 </td>
 </tr>
 </tbody>
@@ -2911,6 +3013,8 @@ this time would be reset to null.</p>
 **Appears in:**
 
 - [AdmissionCheckStrategyRule](#kueue-x-k8s-io-v1beta2-AdmissionCheckStrategyRule)
+
+- [ConcurrentAdmissionConstraints](#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionConstraints)
 
 - [FlavorQuotas](#kueue-x-k8s-io-v1beta2-FlavorQuotas)
 

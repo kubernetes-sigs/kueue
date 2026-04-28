@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	resourcehelpers "k8s.io/component-helpers/resource"
@@ -45,6 +46,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -973,6 +975,18 @@ func SetFinishedCondition(w *kueue.Workload, now time.Time, reason string, messa
 	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
+func SetAdmittedCondition(w *kueue.Workload, now time.Time, reason string, message string) bool {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: w.Generation,
+	}
+	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
 func SetBlockedOnPreemptionGatesCondition(w *kueue.Workload, now time.Time, reason string, message string) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadBlockedOnPreemptionGates,
@@ -1317,6 +1331,41 @@ func IsActive(w *kueue.Workload) bool {
 // IsAdmissible returns true if the workload can be added to the queue.
 func IsAdmissible(w *kueue.Workload) bool {
 	return !HasAdmissionGate(w) && !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w)
+}
+
+// GetParentWorkloadName returns the name of the parent workload from owner references.
+func GetParentWorkloadName(wl *kueue.Workload) string {
+	if wl == nil {
+		return ""
+	}
+	for _, owner := range wl.OwnerReferences {
+		if owner.Kind == "Workload" && owner.APIVersion == kueue.GroupVersion.String() {
+			return owner.Name
+		}
+	}
+	return ""
+}
+
+// GetParentWorkloadUID returns the UID of the parent workload from owner references.
+func GetParentWorkloadUID(wl *kueue.Workload) types.UID {
+	if wl == nil {
+		return ""
+	}
+	for _, ref := range wl.OwnerReferences {
+		if ref.Kind == "Workload" && ref.APIVersion == kueue.GroupVersion.String() {
+			return ref.UID
+		}
+	}
+	return ""
+}
+
+// GetVariantFlavor returns the allowed flavor for a variant from annotations.
+func GetVariantFlavor(wl *kueue.Workload) kueue.ResourceFlavorReference {
+	annotations := wl.GetAnnotations()
+	if annotations == nil {
+		return ""
+	}
+	return kueue.ResourceFlavorReference(annotations[controllerconstants.WorkloadAllowedResourceFlavorAnnotation])
 }
 
 // HasAdmissionGate returns true if the workload has an admission gate annotation and the AdmissionGatedBy feature is on
@@ -1680,6 +1729,22 @@ func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, ms
 	return nil
 }
 
+func Activate(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	if wl == nil || IsActive(wl) {
+		return nil
+	}
+	wl.Spec.Active = new(true)
+	return c.Update(ctx, wl)
+}
+
+func Deactivate(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	if wl == nil || !IsActive(wl) {
+		return nil
+	}
+	wl.Spec.Active = new(false)
+	return c.Update(ctx, wl)
+}
+
 func PriorityClassName(wl *kueue.Workload) string {
 	if wl.Spec.PriorityClassRef != nil {
 		return wl.Spec.PriorityClassRef.Name
@@ -1872,4 +1937,8 @@ func TASAssignedNodeNames(wl *kueue.Workload) []string {
 		}
 	}
 	return nodesSet.UnsortedList()
+}
+
+func IsParentVariant(workload *kueue.Workload) bool {
+	return workload != nil && workload.Labels[controllerconstants.ParentVariantLabel] == "true"
 }

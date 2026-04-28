@@ -367,6 +367,12 @@ const (
 	// stale workload accumulation (e.g., after PodsReady timeout eviction
 	// deletes a Deployment-owned pod).
 	FinishOrphanedWorkloads featuregate.Feature = "FinishOrphanedWorkloads"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/8691-concurrent-admission
+	//
+	// Enables Concurrent Admission feature which allows pursuing multiple ResourceFlavors in parallel.
+	ConcurrentAdmission featuregate.Feature = "ConcurrentAdmission"
 )
 
 func init() {
@@ -567,6 +573,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	FinishOrphanedWorkloads: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	ConcurrentAdmission: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

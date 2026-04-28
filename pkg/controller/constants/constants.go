@@ -67,4 +67,13 @@ const (
 	// external controllers to adjust a workload's effective priority.
 	// Positive values increase priority; negative values decrease it.
 	PriorityBoostAnnotationKey = "kueue.x-k8s.io/priority-boost"
+
+	// WorkloadAllowedResourceFlavorAnnotation is an annotation used with ConcurrentAdmission feature
+	// It's set on a Workload level that defines which ResourceFlavors can be assigned to this Workload by Kueue scheduler
+	WorkloadAllowedResourceFlavorAnnotation = "kueue.x-k8s.io/workload-allowed-resource-flavors"
+
+	// ParentVariantLabel is the label key in the Workload that is a parent of Variants
+	// The value of this label is boolean, and it is set to "true" if the Workload is a parent of Variants.
+	// The label is used with ConcurrentAdmission feature.
+	ParentVariantLabel = "kueue.x-k8s.io/parent-variant"
 )

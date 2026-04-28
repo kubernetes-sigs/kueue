@@ -921,6 +921,40 @@ spec:
                 maxLength: 253
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
+              concurrentAdmissionPolicy:
+                description: concurrentAdmissionPolicy defines the policy for concurrent
+                  attempts.
+                properties:
+                  migration:
+                    description: migration defines the constraints of Variants migration
+                    properties:
+                      constraints:
+                        description: constraints defines the constraints of Workload's
+                          migration.
+                        properties:
+                          minPreferredFlavorName:
+                            description: |-
+                              minPreferredFlavorName defines the minimal flavor a Workload can migrate to.
+                              The order is based on the order of flavors in ClusterQueue.
+                              It can only be used if the Mode is `UpgradeOnly` and `ExplicitVariants` is not specified.
+                              If the Mode is `UpgradeOnly` and MinPreferredFlavorName is not specified, then there's
+                              no constraints on what flavors a Workload can migrate to.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                        type: object
+                      mode:
+                        description: mode defines the mode of Workload's migration.
+                        enum:
+                        - TryPreferredFlavors
+                        maxLength: 253
+                        type: string
+                    required:
+                    - mode
+                    type: object
+                required:
+                - migration
+                type: object
               fairSharing:
                 description: |-
                   fairSharing defines the properties of the ClusterQueue when
