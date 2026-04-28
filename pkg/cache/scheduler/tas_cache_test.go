@@ -5033,7 +5033,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 2500,
 					},
-					podSetGroupName: new("sameGroup"),
+					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -5050,7 +5050,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 2500,
 					},
-					podSetGroupName: new("sameGroup"),
+					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -5111,7 +5111,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 2500,
 					},
-					podSetGroupName: new("sameGroup"),
+					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -5128,7 +5128,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 500,
 					},
-					podSetGroupName: new("sameGroup"),
+					podSetGroupName: ptr.To("sameGroup"),
 					count:           2,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -5189,7 +5189,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 					},
-					podSetGroupName: new("sameGroup"),
+					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -5206,7 +5206,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 					},
-					podSetGroupName: new("sameGroup"),
+					podSetGroupName: ptr.To("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
