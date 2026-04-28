@@ -334,6 +334,14 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	return nil
 }
 
+func (m *Manager) ConcurrentAdmissionEnabledFor(wl *kueue.Workload) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
+	cqName, _ := m.ClusterQueueForWorkload(wl)
+	return m.ConcurrentAdmissionEnabled(cqName)
+}
+
 func (m *Manager) ConcurrentAdmissionEnabled(cqName kueue.ClusterQueueReference) bool {
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return false
@@ -576,6 +584,7 @@ func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts .
 		if m.ConcurrentAdmissionEnabledWithoutLock(cqName) && workload.IsVariant(w) {
 			return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 		}
+		return nil
 	}
 	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 }

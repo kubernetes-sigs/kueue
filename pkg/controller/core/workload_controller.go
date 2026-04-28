@@ -240,15 +240,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if features.Enabled(features.ConcurrentAdmission) {
-		cqName, found := r.queues.ClusterQueueForWorkload(&wl)
-		if found {
-			enabled := r.queues.ConcurrentAdmissionEnabled(cqName)
-			if enabled && !workload.IsVariant(&wl) && !workload.IsParentVariant(&wl) {
-				// Workload is a Parent without set Parent annotation yet
-				concurrentadmission.SetParentVariantLabel(&wl)
-				err := r.client.Update(ctx, &wl)
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
+		enabled := r.queues.ConcurrentAdmissionEnabledFor(&wl)
+		if enabled && !workload.IsVariant(&wl) && !workload.IsParentVariant(&wl) {
+			// Workload is a Parent without set Parent annotation yet
+			concurrentadmission.SetParentVariantLabel(&wl)
+			err := r.client.Update(ctx, &wl)
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	}
 
@@ -1163,8 +1160,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	wlKey := workload.Key(e.ObjectNew)
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
-	cqName, _ := r.queues.ClusterQueueForWorkload(wlCopy)
-	concurrentAdmissionEnabled := r.queues.ConcurrentAdmissionEnabled(cqName)
+	concurrentAdmissionEnabled := r.queues.ConcurrentAdmissionEnabledFor(wlCopy)
 	// we need to prevent ParentVariants from being added to caches now as the Parent Workload may not have the label yet
 
 	switch {
@@ -1200,7 +1196,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		if dra.NeedsDRAReconcile(e.ObjectNew) {
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
-		} else if !concurrentAdmissionEnabled || (concurrentAdmissionEnabled && workload.IsVariant(wlCopy)) {
+		} else if !concurrentAdmissionEnabled || workload.IsVariant(wlCopy) {
 			// Concurrent Admission: Here there's no guarantee the Parent is properly labeled because it may have not gone through Reconcile yet
 			// We need to check if the Workload is has Concurrent Admission enabled for its CQ and is Variant
 			if err := r.queues.UpdateWorkload(log, wlCopy); err != nil {
@@ -1263,7 +1259,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 
 		// Concurrent Admission: Here there's no guarantee the Parent is properly labeled because it may have not gone through Reconcile yet
 		// We need to check if the Workload is has Concurrent Admission enabled for its CQ and is Variant
-		if !concurrentAdmissionEnabled || (concurrentAdmissionEnabled && workload.IsVariant(wlCopy)) {
+		if !concurrentAdmissionEnabled || workload.IsVariant(wlCopy) {
 			r.cache.AddOrUpdateWorkload(log, wlCopy)
 		}
 	}
