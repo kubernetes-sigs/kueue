@@ -830,6 +830,12 @@ func (c *CohortWrapper) FairWeight(w resource.Quantity) *CohortWrapper {
 	return c
 }
 
+func (c *CohortWrapper) GeneratedName(name string) *CohortWrapper {
+	c.GenerateName = name
+	c.Name = ""
+	return c
+}
+
 // ClusterQueueWrapper wraps a ClusterQueue.
 type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 

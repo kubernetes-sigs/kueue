@@ -506,9 +506,17 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	return cohort.updateCohort(apiCohort, oldParent)
 }
 
+// DeleteCohort removes the cohort from the cache and updates the SubtreeQuota
+// of ancestor cohorts to reflect the removal.
 func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	c.Lock()
 	defer c.Unlock()
+
+	var parent *cohort
+	if cohort := c.hm.Cohort(cohortName); cohort != nil {
+		parent = cohort.Parent()
+	}
+
 	c.hm.DeleteCohort(cohortName)
 
 	// If the cohort still exists after deletion, it means
@@ -516,6 +524,10 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	// We need to run update algorithm.
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		updateCohortResourceNode(cohort)
+	}
+
+	if parent != nil {
+		updateCohortTreeResourcesIfNoCycle(parent)
 	}
 }
 
