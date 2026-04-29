@@ -218,7 +218,7 @@ func run() int {
 	go cCache.CleanUpOnContext(ctx)
 
 	// Setup core controllers
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}, nil, preemptionExpectations, nil); err != nil {
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}, nil, preemptionExpectations, nil, nil); err != nil {
 		log.Error(err, "Unable to create core controller", "controller", failedCtrl)
 		return 1
 	}

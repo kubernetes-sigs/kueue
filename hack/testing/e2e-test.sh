@@ -54,6 +54,13 @@ wait
 kind_load "$KIND_CLUSTER_NAME" ""
 kueue_deploy
 
+# Optional: enable OTLP export to local Jaeger (see hack/tracing/README.md). Example:
+#   KUEUE_OTLP_PATCH=true OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317 make test-e2e
+if e2e_is_truthy "${KUEUE_OTLP_PATCH:-}"; then
+    echo "Applying OTLP/Jaeger patch (KUEUE_OTLP_PATCH=true)..."
+    "${ROOT_DIR}/hack/tracing/patch-kueue-for-local-jaeger.sh"
+fi
+
 if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     deploy_kueue_prometheus_config ""
 fi

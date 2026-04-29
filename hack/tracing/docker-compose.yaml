@@ -1,0 +1,21 @@
+# Local Jaeger (all-in-one layout) for Kueue OTLP (gRPC) development and e2e-style verification.
+# Jaeger v2 image: jaegertracing/jaeger — matches latest release at github.com/jaegertracing/jaeger.
+# See hack/tracing/README.md and site docs (reference/tracing).
+#
+# Start:  docker compose -f hack/tracing/docker-compose.yaml up -d
+# UI:     http://localhost:16686
+# OTLP:   gRPC 4317, HTTP 4318 (Kueue uses gRPC by default)
+#
+# Image tag pinned for reproducible OTLP behavior; bump when upgrading Jaeger.
+services:
+  jaeger:
+    image: jaegertracing/jaeger:2.17.0
+    container_name: kueue-jaeger
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    # All-in-one enables OTLP receiver on 4317/4318 by default in current images.
+    # If an older image required it: COLLECTOR_OTLP_ENABLED=true
+    environment:
+      - LOG_LEVEL=info

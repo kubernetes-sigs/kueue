@@ -70,6 +70,7 @@ var (
 	visibilityServerBindAddressPath              = field.NewPath("visibilityServer", "bindAddress")
 	visibilityServerBindPortPath                 = field.NewPath("visibilityServer", "bindPort")
 	customLabelsPath                             = field.NewPath("metrics", "customLabels")
+	tracingPath                                  = field.NewPath("tracing")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -87,6 +88,19 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateTLS(c)...)
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
+	allErrs = append(allErrs, validateTracing(c)...)
+	return allErrs
+}
+
+func validateTracing(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.Tracing == nil || c.Tracing.SamplingRatio == nil {
+		return allErrs
+	}
+	r := *c.Tracing.SamplingRatio
+	if r < 0 || r > 1 {
+		allErrs = append(allErrs, field.Invalid(tracingPath.Child("samplingRatio"), r, "must be between 0 and 1 inclusive"))
+	}
 	return allErrs
 }
 

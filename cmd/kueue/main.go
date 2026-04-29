@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -82,6 +83,7 @@ import (
 	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
+	kueuetrace "sigs.k8s.io/kueue/pkg/util/tracing"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -249,6 +251,32 @@ func main() {
 	setupLog.V(2).Info("K8S Client", "qps", *cfg.ClientConnection.QPS, "burst", *cfg.ClientConnection.Burst)
 
 	ctx := ctrl.SetupSignalHandler()
+
+	instrumenter := kueuetrace.NewNoOp()
+	var tracingCleanup func()
+	if cfg.Tracing != nil && cfg.Tracing.Enable {
+		ratio := 0.01
+		if cfg.Tracing.SamplingRatio != nil {
+			ratio = *cfg.Tracing.SamplingRatio
+		}
+		initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		ins, shutdown, err := kueuetrace.SetupOTel(initCtx, "kueue",
+			kueuetrace.WithSamplingRatio(ratio),
+			kueuetrace.WithLogger(setupLog.WithName("tracing")),
+		)
+		cancel()
+		if err != nil {
+			setupLog.Error(err, "Unable to initialize tracing")
+			os.Exit(1)
+		}
+		instrumenter = ins
+		tracingCleanup = shutdown
+		setupLog.Info("OpenTelemetry tracing enabled", "samplingRatio", ratio)
+	}
+	if tracingCleanup != nil {
+		defer tracingCleanup()
+	}
+
 	// Bootstrap certificates before creating the main manager
 	// This ensures certs are ready and CA bundles are injected into conversion CRDs
 	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
@@ -363,7 +391,7 @@ func main() {
 		})
 	}
 
-	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, roleTracker, preemptionExpectations, customLabels); err != nil {
+	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, roleTracker, preemptionExpectations, customLabels, instrumenter); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
 		os.Exit(1)
 	}
@@ -430,8 +458,8 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 
 func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager,
 	cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher, roleTracker *roletracker.RoleTracker,
-	preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels) error {
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, roleTracker, preemptionExpectations, customLabels); err != nil {
+	preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels, instrumenter kueuetrace.Instrumenter) error {
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, roleTracker, preemptionExpectations, customLabels, instrumenter); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
 	}
 	if features.Enabled(features.FailureRecoveryPolicy) {
