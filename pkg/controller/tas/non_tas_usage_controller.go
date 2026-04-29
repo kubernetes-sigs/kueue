@@ -84,7 +84,24 @@ func belongsToNonTASCache(pod *corev1.Pod) bool {
 	if pod == nil {
 		return false
 	}
-	if utiltas.IsTAS(pod) {
+	// Terminating TAS pods (DeletionTimestamp set, not yet terminal) must be
+	// included here to prevent overcommit: once a Workload's tasUsage is
+	// removed the pod still consumes node resources until it reaches a
+	// terminal phase. Without this, terminating TAS pods are invisible to
+	// both accounting systems (tasUsage already released, nonTasUsageCache
+	// previously excluded them).
+	//
+	// This may temporarily double-count resources when the Workload has not
+	// yet been marked Finished (tasUsage still present). This is the safe
+	// direction: under-admission is preferable to over-admission for
+	// expensive resources like GPUs. The overlap window is bounded by the
+	// time between DeletionTimestamp being set and the Workload entering
+	// Finished state.
+	//
+	// TODO(KEP-6143): when quotaReleaseStrategy is OnTerminal, TAS pods
+	// should remain tracked exclusively via tasUsage for their full
+	// lifecycle, eliminating both the gap and the overlap.
+	if utiltas.IsTAS(pod) && pod.DeletionTimestamp.IsZero() {
 		return false
 	}
 	if len(pod.Spec.NodeName) == 0 {

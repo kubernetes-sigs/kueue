@@ -56,6 +56,36 @@ func TestBelongsToNonTASCache(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "terminating TAS pod",
+			pod: testingpod.MakePod("pod", "ns").
+				NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				StatusPhase(corev1.PodRunning).
+				Delete().
+				Obj(),
+			want: true,
+		},
+		{
+			name: "terminating TAS pod with unconstrained topology",
+			pod: testingpod.MakePod("pod", "ns").
+				NodeName("node-a").
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "").
+				StatusPhase(corev1.PodRunning).
+				Delete().
+				Obj(),
+			want: true,
+		},
+		{
+			name: "terminated TAS pod",
+			pod: testingpod.MakePod("pod", "ns").
+				NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				StatusPhase(corev1.PodSucceeded).
+				Delete().
+				Obj(),
+			want: false,
+		},
+		{
 			name: "scheduled succeeded non-TAS pod",
 			pod:  testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodSucceeded).Obj(),
 			want: false,
@@ -101,6 +131,16 @@ func TestNonTasUsageReconcilerCreateDelete(t *testing.T) {
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
 				Obj(),
 			want: false,
+		},
+		{
+			name: "terminating TAS pod",
+			pod: testingpod.MakePod("pod", "ns").
+				NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				StatusPhase(corev1.PodRunning).
+				Delete().
+				Obj(),
+			want: true,
 		},
 		{
 			name: "terminated scheduled non-TAS pod",
@@ -191,6 +231,37 @@ func TestShouldReconcilePodUpdate(t *testing.T) {
 				StatusPhase(corev1.PodRunning).
 				Obj(),
 			want: false,
+		},
+		{
+			name: "reconciles when TAS pod starts terminating",
+			oldPod: testingpod.MakePod("pod", "ns").
+				NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				StatusPhase(corev1.PodRunning).
+				Obj(),
+			newPod: testingpod.MakePod("pod", "ns").
+				NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				StatusPhase(corev1.PodRunning).
+				Delete().
+				Obj(),
+			want: true,
+		},
+		{
+			name: "reconciles when terminating TAS pod reaches terminal phase",
+			oldPod: testingpod.MakePod("pod", "ns").
+				NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				StatusPhase(corev1.PodRunning).
+				Delete().
+				Obj(),
+			newPod: testingpod.MakePod("pod", "ns").
+				NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				StatusPhase(corev1.PodSucceeded).
+				Delete().
+				Obj(),
+			want: true,
 		},
 		{
 			name:   "ignores unscheduled non-TAS update",
