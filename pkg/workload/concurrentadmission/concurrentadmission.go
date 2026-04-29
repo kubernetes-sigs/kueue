@@ -17,9 +17,14 @@ limitations under the License.
 package concurrentadmission
 
 import (
+	"slices"
+	"strings"
+
 	"k8s.io/apimachinery/pkg/types"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // SetParentVariantLabel sets the label indicating the workload is a parent variant.
@@ -45,11 +50,11 @@ func IsVariant(wl *kueue.Workload) bool {
 
 // GetVariantFlavor returns the allowed flavor for a variant from annotations.
 func GetVariantFlavor(wl *kueue.Workload) kueue.ResourceFlavorReference {
-	annotations := wl.GetAnnotations()
-	if annotations == nil {
+	flavors := parseAllowedFlavorsString(wl.GetAnnotations()[controllerconstants.WorkloadAllowedResourceFlavorAnnotation])
+	if len(flavors) == 0 {
 		return ""
 	}
-	return kueue.ResourceFlavorReference(annotations[controllerconstants.WorkloadAllowedResourceFlavorAnnotation])
+	return kueue.ResourceFlavorReference(flavors[0])
 }
 
 // GetParentWorkloadName returns the name of the parent workload from owner references.
@@ -76,4 +81,29 @@ func GetParentWorkloadUID(wl *kueue.Workload) types.UID {
 		}
 	}
 	return ""
+}
+
+func IsFlavorAllowedForVariant(wl *kueue.Workload, flavor kueue.ResourceFlavorReference) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return true
+	}
+	val, ok := wl.GetAnnotations()[controllerconstants.WorkloadAllowedResourceFlavorAnnotation]
+	if !ok || val == "" {
+		return true
+	}
+	allowedFlavors := parseAllowedFlavorsString(val)
+	return slices.Contains(allowedFlavors, string(flavor))
+}
+
+// parseAllowedFlavorsString parses a comma-separated string of flavor names
+// and returns a slice of flavor names with leading and trailing spaces removed.
+func parseAllowedFlavorsString(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return []string{}
+	}
+	parts := strings.Split(s, ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return parts
 }

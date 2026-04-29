@@ -34,7 +34,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -43,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 type Assignment struct {
@@ -778,18 +778,6 @@ func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource
 	return 0
 }
 
-func (a *FlavorAssigner) isFlavorAllowed(fName kueue.ResourceFlavorReference) bool {
-	if !features.Enabled(features.ConcurrentAdmission) {
-		return true
-	}
-	if annotations := a.wl.Obj.GetAnnotations(); annotations != nil {
-		if allowedFlavors, ok := annotations[controllerconstants.WorkloadAllowedResourceFlavorAnnotation]; ok {
-			return slices.Contains(strings.Split(allowedFlavors, ","), string(fName))
-		}
-	}
-	return true
-}
-
 // findFlavorForPodSets finds the flavor which can satisfy all the PodSet requests
 // for all resources in the same group as resName.
 // Returns the chosen flavor, along with the information about resources that need to be borrowed
@@ -831,7 +819,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
-		if !a.isFlavorAllowed(fName) {
+		if !concurrentadmission.IsFlavorAllowedForVariant(a.wl.Obj, fName) {
 			status.appendf("flavor %s is not in the allowed this workload due to concurrent admission constraints", fName)
 			continue
 		}
