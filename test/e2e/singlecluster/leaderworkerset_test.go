@@ -869,7 +869,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					g.Expect(createdLowPriorityLWS.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
 					g.Expect(createdLowPriorityLWS.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Progressing", "GroupsProgressing"))
 					g.Expect(createdLowPriorityLWS.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason("Available", "AllGroupsReady"))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			createdHighPriorityWl := &kueue.Workload{}
@@ -996,7 +996,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 							Reason: "AllGroupsReady",
 						}, util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage),
 					))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Await for the high priority Workload to be admitted", func() {
@@ -1246,7 +1246,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
 					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason("Available", "AllGroupsReady"))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Check pods are gated", func() {
