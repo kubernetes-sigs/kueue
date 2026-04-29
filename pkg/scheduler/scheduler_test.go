@@ -1634,7 +1634,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            ". Pending the preemption of 1 workload(s)",
+						Message:            ". Pending the migration of 1 workload(s)",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -1659,18 +1659,11 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
-						Reason:             "Preempted",
-						Message:            "Preempted to accommodate a workload (UID: candidate-uid, JobUID: UNKNOWN) due to migration to more favorable resource flavor; preemptor path: /concurrent-cq; preemptee path: /concurrent-cq",
+						Reason:             "FlavorMigration",
+						Message:            "Evicted to accommodate a workload (UID: candidate-uid) due to migration to more favorable resource flavor",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadPreempted,
-						Status:             metav1.ConditionTrue,
-						Reason:             "ConcurrentAdmission",
-						Message:            "Preempted to accommodate a workload (UID: candidate-uid, JobUID: UNKNOWN) due to migration to more favorable resource flavor; preemptor path: /concurrent-cq; preemptee path: /concurrent-cq",
-						LastTransitionTime: metav1.NewTime(now),
-					}).
-					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "FlavorMigration", Count: 1}).
 					Obj(),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{

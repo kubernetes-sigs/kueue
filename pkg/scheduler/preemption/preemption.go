@@ -158,7 +158,7 @@ var HumanReadablePreemptionReasons = map[string]string{
 	kueue.InCohortReclamationReason:           "reclamation within the cohort",
 	kueue.InCohortFairSharingReason:           "Fair Sharing within the cohort",
 	kueue.InCohortReclaimWhileBorrowingReason: "reclamation within the cohort while borrowing",
-	kueue.ConcurrentAdmissionReason:           "migration to more favorable resource flavor",
+	kueue.WorkloadEvictedByFlavorMigration:    "migration to more favorable resource flavor",
 	"":                                        "UNKNOWN",
 }
 

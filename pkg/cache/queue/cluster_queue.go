@@ -59,6 +59,7 @@ const (
 	RequeueReasonGeneric               RequeueReason = ""
 	RequeueReasonPreemptionGated       RequeueReason = "PreemptionGated"
 	RequeueReasonPendingPreemption     RequeueReason = "PendingPreemption"
+	RequeueReasonPendingMigration      RequeueReason = "PendingMigration"
 	RequeueReasonPreemptionFailed      RequeueReason = "PreemptionFailed"
 )
 
@@ -754,7 +755,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	// schedule the same workload for BestEffortFIFO queues. See
 	// documentation of stickyWorkload for more details
 	log := ctrl.LoggerFrom(ctx)
-	if reason == RequeueReasonPendingPreemption && c.queueingStrategy == kueue.BestEffortFIFO {
+	if (reason == RequeueReasonPendingPreemption || reason == RequeueReasonPendingMigration) && c.queueingStrategy == kueue.BestEffortFIFO {
 		if logV := log.V(5); logV.Enabled() {
 			logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", workload.Key(wInfo.Obj))
 		}
@@ -767,6 +768,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	} else {
 		immediate = reason == RequeueReasonFailedAfterNomination ||
 			reason == RequeueReasonPendingPreemption ||
+			reason == RequeueReasonPendingMigration ||
 			reason == RequeueReasonPreemptionFailed
 	}
 	return c.requeueIfNotPresent(log, wInfo, immediate)

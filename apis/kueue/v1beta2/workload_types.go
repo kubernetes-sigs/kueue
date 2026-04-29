@@ -996,10 +996,6 @@ const (
 	// InCohortReclaimWhileBorrowingReason indicates the Workload was preempted
 	// due to reclamation within the cohort while borrowing.
 	InCohortReclaimWhileBorrowingReason string = "InCohortReclaimWhileBorrowing"
-
-	// ConcurrentAdmissionReason indicates the Workload was preempted due to
-	// admission of more favorable Variant of the same Parent Workload.
-	ConcurrentAdmissionReason string = "ConcurrentAdmission"
 )
 
 const (
@@ -1014,6 +1010,11 @@ const (
 	// WorkloadEvictedByPreemption indicates that the workload was evicted
 	// in order to free resources for a workload with a higher priority.
 	WorkloadEvictedByPreemption = "Preempted"
+
+	// WorkloadEvictedByFlavorMigration indicates the Workload was evicted due to
+	// admission of more favorable Variant of the same Parent Workload.
+	// This is part of Concurrent Admission feature.
+	WorkloadEvictedByFlavorMigration string = "FlavorMigration"
 
 	// WorkloadEvictedByPodsReadyTimeout indicates that the eviction took
 	// place due to a PodsReady timeout.
