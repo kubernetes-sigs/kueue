@@ -155,7 +155,7 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 	}
 
-	affectedWorkloads, err := r.getWorkloadsOnNode(ctx, req.Name)
+	affectedWorkloads, err := r.getWorkloadsOnNodeFromTASAssignment(ctx, req.Name)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -182,7 +182,12 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		affectedWorkloads = affectedWorkloads.Difference(evictedWorkloads)
 	}
 
-	latePodWorkloads, nodeSelectorPodsByWorkload, err := r.getWorkloadsFromLatePods(ctx, req.Name, affectedWorkloads)
+	nodeSelectorPodsByWorkload, err := r.listPodsAssignedByNodeSelector(ctx, req.Name)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	latePodWorkloads, err := r.getWorkloadsFromPodsOnNode(ctx, req.Name, affectedWorkloads, nodeSelectorPodsByWorkload)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -307,15 +312,14 @@ func groupPodsByWorkload(pods []corev1.Pod) map[types.NamespacedName][]*corev1.P
 	return result
 }
 
-func (r *nodeReconciler) getWorkloadsFromLatePods(
+// getWorkloadsFromPodsOnNode returns the set of workloads that pods on the node belong to.
+// It ignores the workloads that are already in the existingWorkloads set.
+func (r *nodeReconciler) getWorkloadsFromPodsOnNode(
 	ctx context.Context,
 	nodeName string,
 	existingWorkloads sets.Set[types.NamespacedName],
-) (sets.Set[types.NamespacedName], map[types.NamespacedName][]*corev1.Pod, error) {
-	nodeSelectorPodsByWorkload, err := r.listPodsAssignedByNodeSelector(ctx, nodeName)
-	if err != nil {
-		return nil, nil, err
-	}
+	nodeSelectorPodsByWorkload map[types.NamespacedName][]*corev1.Pod,
+) (sets.Set[types.NamespacedName], error) {
 	latePodWorkloads := sets.New[types.NamespacedName]()
 	logger := r.logger().V(4).WithValues("node", nodeName)
 	for wlKey := range nodeSelectorPodsByWorkload {
@@ -331,11 +335,11 @@ func (r *nodeReconciler) getWorkloadsFromLatePods(
 			latePodWorkloads.Insert(wlKey)
 		}
 	}
-	return latePodWorkloads, nodeSelectorPodsByWorkload, nil
+	return latePodWorkloads, nil
 }
 
-// getWorkloadsOnNode gets all workloads that have the given node assigned in TAS topology assignment
-func (r *nodeReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
+// getWorkloadsOnNodeFromTASAssignment gets all workloads that have the given node assigned in TAS topology assignment
+func (r *nodeReconciler) getWorkloadsOnNodeFromTASAssignment(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
 	var workloadsOnNode kueue.WorkloadList
 	if err := r.client.List(ctx, &workloadsOnNode, client.MatchingFields{indexer.AdmittedWorkloadNodesKey: nodeName}); err != nil {
 		return nil, fmt.Errorf("failed to list workloads: %w", err)
