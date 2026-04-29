@@ -92,8 +92,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 		).
 		AdmittedAt(true, testStartTime).
 		Obj()
-	workloadReassignedWithUnhealthyNode := workloadReassigned.DeepCopy()
-	workloadReassignedWithUnhealthyNode.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: nodeName}}
 
 	workloadWithUnhealthyNode := baseWorkload.DeepCopy()
 	workloadWithUnhealthyNode.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: nodeName}}
