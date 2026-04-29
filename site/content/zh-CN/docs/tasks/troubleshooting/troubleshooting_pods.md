@@ -45,6 +45,10 @@ Workload 的名称与标签 `kueue.x-k8s.io/pod-group-name` 的值匹配。
 你可以按照[识别 Job 的 Workload](troubleshooting_jobs/#identifying-the-workload-for-your-job)
 指南来识别其对应的 Workload。
 
+如果你从 Pod 开始排查，并且使用的 agent 可以访问 Kueue 的实验性 skills，
+请参阅[使用 Agent Skills 进行故障排除](/zh-CN/docs/tasks/troubleshooting/troubleshooting_agent_skills)，
+将 Pod 反向追踪到对应的 Workload 和父级 Job。
+
 ## 为什么我的 Pod 组没有 Workload？ {#why-doesnt-a-workload-exist-for-my-pod-group}
 
 在创建 Workload 对象之前，Kueue 期望为该组创建所有 Pod。
