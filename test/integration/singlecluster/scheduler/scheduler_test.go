@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -2934,6 +2935,108 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq2, 0, 1)
 			util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 0)
+		})
+	})
+	ginkgo.When("Deleting child Cohort should update borrowable resources for parent Cohort", func() {
+		var (
+			root    *kueue.Cohort
+			chLeft  *kueue.Cohort
+			chRight *kueue.Cohort
+		)
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, root, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, chLeft, true)
+		})
+
+		ginkgo.It("Should not admit from stale subtree quota after deleting sibling cohort", func() {
+			// 		    Root Cohort (quota 0)
+			//             SubtreeQuota = 22
+			//             /               \
+			//    Left Cohort (quota 0)   Right Cohort (quota 5)
+			//    Subtree = 10             Subtree = 12
+			//      |                      |
+			//     cq-a                   cq-b
+			//     nominal 10             nominal 7
+			ginkgo.By("Creating the Cohorts")
+			root = utiltestingapi.MakeCohort("").GeneratedName("root-").Obj()
+			util.MustCreate(ctx, k8sClient, root)
+
+			chLeft = utiltestingapi.MakeCohort("").
+				GeneratedName("left-").
+				Parent(kueue.CohortReference(root.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, chLeft)
+
+			chRight = utiltestingapi.MakeCohort("").
+				GeneratedName("right-").
+				Parent(kueue.CohortReference(root.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, chRight)
+
+			ginkgo.By("creating ClusterQueues")
+			cqA := createQueue(utiltestingapi.MakeClusterQueue("cq-a").
+				Cohort(kueue.CohortReference(chLeft.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
+						Resource(corev1.ResourceCPU, "10").
+						Obj(),
+				).
+				Obj())
+
+			createQueue(utiltestingapi.MakeClusterQueue("cq-b").
+				Cohort(kueue.CohortReference(chRight.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
+						Resource(corev1.ResourceCPU, "7").
+						Obj(),
+				).
+				Obj())
+
+			ginkgo.By("admitting baseline workload on cq-a")
+			wlBase := utiltestingapi.MakeWorkload("wl-base", ns.Name).
+				Queue(kueue.LocalQueueName(cqA.Name)).
+				Request(corev1.ResourceCPU, "10").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlBase)
+			util.ExpectWorkloadToBeAdmittedAs(
+				ctx,
+				k8sClient,
+				wlBase,
+				utiltestingapi.MakeAdmission(cqA.Name).
+					PodSets(
+						utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(onDemandFlavor.GetName()), "10").
+							Obj(),
+					).
+					Obj(),
+			)
+
+			ginkgo.By("deleting explicit cohort right while cq-b still references it")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, chRight, true)
+			// Wait for the cache to process the cohort deletion
+			time.Sleep(util.ConsistentDuration)
+
+			ginkgo.By("trying to admit extra workload on cq-a after deletion of cohort right")
+			// root cohort subtree quota should be properly recomputed after deletion of right cohort
+			// and should reflect the fact that cq-b is no longer borrowable
+			// admitting of the workload "wl-after-delete" should fail be pending
+			wlAfterDelete := utiltestingapi.MakeWorkload("wl-after-delete", ns.Name).
+				Queue(kueue.LocalQueueName(cqA.Name)).
+				Request(corev1.ResourceCPU, "8").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlAfterDelete)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlAfterDelete)
 		})
 	})
 	ginkgo.When("Workload slicing with multiple podSets", func() {
