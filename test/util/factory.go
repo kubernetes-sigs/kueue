@@ -35,6 +35,10 @@ func NewManagerForIntegrationTestsWithBatchPeriod(ctx context.Context, client cl
 		qcache.WithPendingWaitMetricsBatchPeriod(batchPeriod),
 		qcache.WithPendingWaitMetricsTickPeriod(5*time.Second),
 	)
+	opts := append([]qcache.Option{qcache.WithPendingWaitMetrics(pendingWaitWorker)}, options...)
+	// NewManager calls setManager on the workers, so it must run before the
+	// workers are started to avoid a data race on w.manager.
+	m := qcache.NewManager(client, checker, requeuer, opts...)
 	go func() {
 		// ignore error to make linter happy.
 		_ = requeuer.Start(ctx)
@@ -42,6 +46,5 @@ func NewManagerForIntegrationTestsWithBatchPeriod(ctx context.Context, client cl
 	go func() {
 		_ = pendingWaitWorker.Start(ctx)
 	}()
-	opts := append([]qcache.Option{qcache.WithPendingWaitMetrics(pendingWaitWorker)}, options...)
-	return qcache.NewManager(client, checker, requeuer, opts...)
+	return m
 }

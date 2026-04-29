@@ -23,6 +23,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	gomegatypes "github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -2455,6 +2456,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Should report pending workloads properly when blocked", framework.SlowSpec, func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PendingWorkloadsMetrics, true)
 			var wl1, wl2, wl3 *kueue.Workload
 			ginkgo.By("Create two workloads", func() {
 				wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
@@ -2466,8 +2468,12 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
-				util.ExpectPendingWorkloadWaitTimeGauges(clusterQueue, metrics.PendingStatusActive,
-					gomega.BeNumerically(">", 0), gomega.BeNumerically(">", 0))
+				util.ExpectPendingWorkloadWaitTimeQuantiles(clusterQueue, metrics.PendingStatusActive,
+					map[string]gomegatypes.GomegaMatcher{
+						"0.5":  gomega.BeNumerically(">", 0),
+						"0.95": gomega.BeNumerically(">", 0),
+						"0.99": gomega.BeNumerically(">", 0),
+					})
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 					g.Expect(clusterQueue.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))

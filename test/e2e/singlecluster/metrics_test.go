@@ -270,8 +270,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 
 			waitMetrics := [][]string{
-				{"kueue_pending_workload_max_wait_time_seconds", clusterQueue.Name},
-				{"kueue_pending_workload_mean_wait_time_seconds", clusterQueue.Name},
+				{"kueue_pending_workload_wait_time_seconds", clusterQueue.Name},
 			}
 			ginkgo.By("checking pending wait time gauges appear while the second workload is queued", func() {
 				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, waitMetrics)

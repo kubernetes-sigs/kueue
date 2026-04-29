@@ -253,6 +253,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: PendingWorkloadsMetrics
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: PriorityBoost
   versionedSpecs:
   - default: false

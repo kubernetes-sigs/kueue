@@ -18,7 +18,8 @@ package queue
 
 import (
 	"context"
-	"math"
+	"math/rand/v2"
+	"slices"
 	"time"
 
 	"k8s.io/client-go/util/workqueue"
@@ -35,73 +36,79 @@ const (
 	pendingWaitMetricsTickPeriod  = 15 * time.Second
 )
 
-type queuedWaitAgg struct {
-	n   int
-	sum float64
-	max float64
+// queuedWaitSamples accumulates individual queued-wait durations (in seconds)
+// for a single bucket (active or inadmissible) within a ClusterQueue.
+// After collection, the samples are sorted and quantiles are computed.
+type queuedWaitSamples struct {
+	samples []float64
 }
 
-func (a *queuedWaitAgg) add(clk clock.Clock, wl *kueue.Workload) {
+// add records one workload's queued-wait duration from the given clock.
+func (s *queuedWaitSamples) add(clk clock.Clock, wl *kueue.Workload) {
 	sec := workload.QueuedWaitTime(wl, clk).Seconds()
-	a.n++
-	a.sum += sec
-	if a.n == 1 || sec > a.max {
-		a.max = sec
+	s.samples = append(s.samples, sec)
+}
+
+// quantiles computes p50, p95, p99 from the collected samples using the nearest-rank method.
+// Returns zero values if no samples were collected.
+func (s *queuedWaitSamples) quantiles() metrics.PendingWorkloadWaitQuantiles {
+	n := len(s.samples)
+	if n == 0 {
+		return metrics.PendingWorkloadWaitQuantiles{}
+	}
+	slices.Sort(s.samples)
+	return metrics.PendingWorkloadWaitQuantiles{
+		P50: quantileFromSorted(s.samples, 0.50),
+		P95: quantileFromSorted(s.samples, 0.95),
+		P99: quantileFromSorted(s.samples, 0.99),
+		N:   n,
 	}
 }
 
-func (a queuedWaitAgg) finalize() (max, mean float64) {
-	if a.n == 0 {
-		return 0, 0
+// quantileFromSorted returns the q-th quantile from a pre-sorted slice
+// using the nearest-rank (ceiling) method.
+func quantileFromSorted(sorted []float64, q float64) float64 {
+	n := len(sorted)
+	if n == 0 {
+		return 0
 	}
-	return a.max, a.sum / float64(a.n)
+	// Nearest-rank: rank = ceil(q * n) - 1 (0-indexed).
+	rank := max(int(q*float64(n)+0.5)-1, 0)
+	if rank >= n {
+		rank = n - 1
+	}
+	return sorted[rank]
 }
 
-func maxQueuedWaitAcross(a, b queuedWaitAgg) float64 {
-	switch {
-	case a.n == 0:
-		return b.max
-	case b.n == 0:
-		return a.max
-	default:
-		return math.Max(a.max, b.max)
-	}
-}
-
-// pendingWaitAggregates computes max/mean queued wait times for active vs inadmissible pending workloads.
+// pendingWaitQuantiles computes quantile-based queued wait times for active vs inadmissible pending workloads.
 // When cqSchedulingActive is false (ClusterQueue inactive for scheduling), active workloads are folded into the
 // inadmissible bucket — matching ReportPendingWorkloads counts semantics.
 //
 // Caller must NOT hold ClusterQueue locks; this method acquires RLock internally.
-func (c *ClusterQueue) pendingWaitAggregates(clk clock.Clock, cqSchedulingActive bool) (activeMax, activeMean float64, activeN int, inadmMax, inadmMean float64, inadmN int) {
+func (c *ClusterQueue) pendingWaitQuantiles(clk clock.Clock, cqSchedulingActive bool) (active, inadm metrics.PendingWorkloadWaitQuantiles) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 
-	var active, inadm queuedWaitAgg
+	var activeSamples, inadmSamples queuedWaitSamples
 	for _, wi := range c.heap.List() {
-		active.add(clk, wi.Obj)
+		activeSamples.add(clk, wi.Obj)
 	}
 	if c.inflight != nil {
-		active.add(clk, c.inflight.Obj)
+		activeSamples.add(clk, c.inflight.Obj)
 	}
 	for _, wi := range c.inadmissibleWorkloads {
-		inadm.add(clk, wi.Obj)
+		inadmSamples.add(clk, wi.Obj)
 	}
 
 	if !cqSchedulingActive {
-		totalN := active.n + inadm.n
-		if totalN == 0 {
-			return 0, 0, 0, 0, 0, 0
+		// Fold all samples into the inadmissible bucket.
+		merged := queuedWaitSamples{
+			samples: append(activeSamples.samples, inadmSamples.samples...),
 		}
-		sum := active.sum + inadm.sum
-		inadmMean = sum / float64(totalN)
-		inadmMax = maxQueuedWaitAcross(active, inadm)
-		return 0, 0, 0, inadmMax, inadmMean, totalN
+		return metrics.PendingWorkloadWaitQuantiles{}, merged.quantiles()
 	}
 
-	amx, amn := active.finalize()
-	imx, imn := inadm.finalize()
-	return amx, amn, active.n, imx, imn, inadm.n
+	return activeSamples.quantiles(), inadmSamples.quantiles()
 }
 
 type pendingWaitMetricsOptions struct {
@@ -155,6 +162,8 @@ func (w *PendingWaitMetricsWorker) setManager(manager *Manager) {
 	w.manager = manager
 }
 
+// notify schedules a single ClusterQueue for metrics re-evaluation after the batch period.
+// Used on event-driven paths (workload add/remove); no jitter is applied here.
 func (w *PendingWaitMetricsWorker) notify(cqName kueue.ClusterQueueReference) {
 	w.queue.AddAfter(cqName, w.batchPeriod)
 }
@@ -193,12 +202,17 @@ func (w *PendingWaitMetricsWorker) Start(ctx context.Context) error {
 	}
 }
 
+// enqueueAllClusterQueues schedules all known ClusterQueues for metrics re-evaluation.
+// A random jitter of up to 50% of the tick period is added per CQ to spread reconcile
+// work and avoid processing all queues at the same instant.
 func (w *PendingWaitMetricsWorker) enqueueAllClusterQueues() {
 	if w.manager == nil {
 		return
 	}
+	maxJitter := int64(w.tickPeriod / 2)
 	for _, name := range w.manager.GetClusterQueueNames() {
-		w.notify(name)
+		jitter := time.Duration(rand.Int64N(maxJitter))
+		w.queue.AddAfter(name, w.batchPeriod+jitter)
 	}
 }
 
@@ -214,6 +228,6 @@ func (w *PendingWaitMetricsWorker) reconcile(ctx context.Context, cqName kueue.C
 		return
 	}
 	cqSchedulingActive := m.statusChecker == nil || m.statusChecker.ClusterQueueActive(cqName)
-	activeMax, activeMean, activeN, inadmMax, inadmMean, inadmN := cq.pendingWaitAggregates(m.clock, cqSchedulingActive)
-	metrics.ReportPendingWorkloadWaitTimes(cqName, activeMax, activeMean, activeN, inadmMax, inadmMean, inadmN, m.customLabels.CQGet(cq.name), m.roleTracker)
+	active, inadm := cq.pendingWaitQuantiles(m.clock, cqSchedulingActive)
+	metrics.ReportPendingWorkloadWaitTimes(cqName, active, inadm, m.customLabels.CQGet(cqName), m.roleTracker)
 }

@@ -102,23 +102,24 @@ func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible i
 	}
 }
 
-// ExpectPendingWorkloadWaitTimeGauges waits until max/mean pending wait gauges match for the given pending status bucket.
-func ExpectPendingWorkloadWaitTimeGauges(cq *kueue.ClusterQueue, status string, maxMatcher, meanMatcher gomegatypes.GomegaMatcher, customLabels ...string) {
+// ExpectPendingWorkloadWaitTimeQuantiles waits until the quantile wait-time gauges match for the given pending status bucket.
+// matchers maps quantile labels ("0.5", "0.95", "0.99") to their respective gomega matchers.
+func ExpectPendingWorkloadWaitTimeQuantiles(cq *kueue.ClusterQueue, status string, matchers map[string]gomegatypes.GomegaMatcher, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	lvs := append([]string{cq.Name, status, roletracker.RoleStandalone}, customLabels...)
-	expectGaugeMetric(metrics.PendingWorkloadMaxWaitTimeSeconds, lvs, maxMatcher, "pending_workload_max_wait_time_seconds status=%s", status)
-	expectGaugeMetric(metrics.PendingWorkloadMeanWaitTimeSeconds, lvs, meanMatcher, "pending_workload_mean_wait_time_seconds status=%s", status)
+	for q, m := range matchers {
+		lvs := append([]string{cq.Name, status, q, roletracker.RoleStandalone}, customLabels...)
+		expectGaugeMetric(metrics.PendingWorkloadWaitTimeSeconds, lvs, m, "pending_workload_wait_time_seconds status=%s quantile=%s", status, q)
+	}
 }
 
-// ExpectNoPendingWorkloadWaitTimeMetrics waits until both wait-time gauges have no series for this ClusterQueue (any status).
+// ExpectNoPendingWorkloadWaitTimeMetrics waits until the quantile wait-time gauges have no series for this ClusterQueue (any status).
 func ExpectNoPendingWorkloadWaitTimeMetrics(cq *kueue.ClusterQueue) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		for _, status := range pendingStatuses {
 			lbls := prometheus.Labels{"cluster_queue": cq.Name, "status": status, "replica_role": roletracker.RoleStandalone}
-			nMax := len(testmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloadMaxWaitTimeSeconds, lbls))
-			nMean := len(testmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloadMeanWaitTimeSeconds, lbls))
-			g.Expect(nMax+nMean).Should(gomega.Equal(0), "status=%s", status)
+			n := len(testmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloadWaitTimeSeconds, lbls))
+			g.Expect(n).Should(gomega.Equal(0), "status=%s", status)
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

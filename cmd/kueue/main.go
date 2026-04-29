@@ -328,17 +328,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	pendingWaitWorker := qcache.NewPendingWaitMetricsWorker()
-	queueOptions = append(queueOptions, qcache.WithPendingWaitMetrics(pendingWaitWorker))
+	if features.Enabled(features.PendingWorkloadsMetrics) {
+		pendingWaitWorker := qcache.NewPendingWaitMetricsWorker()
+		queueOptions = append(queueOptions, qcache.WithPendingWaitMetrics(pendingWaitWorker))
+		if err := mgr.Add(pendingWaitWorker); err != nil {
+			setupLog.Error(err, "Unable to add pendingWaitMetricsWorker to manager")
+			os.Exit(1)
+		}
+	}
 
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
 	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions...)
-
-	if err := mgr.Add(pendingWaitWorker); err != nil {
-		setupLog.Error(err, "Unable to add pendingWaitMetricsWorker to manager")
-		os.Exit(1)
-	}
 
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
 		setupLog.Error(err, "Unable to setup indexes")

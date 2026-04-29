@@ -373,6 +373,13 @@ const (
 	//
 	// Enables Concurrent Admission feature which allows pursuing multiple ResourceFlavors in parallel.
 	ConcurrentAdmission featuregate.Feature = "ConcurrentAdmission"
+
+	// owner: @vladikkuzn
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10124
+	// Enables a background worker that periodically computes and reports
+	// pending workload wait-time quantile gauges (p50/p95/p99) per ClusterQueue.
+	PendingWorkloadsMetrics featuregate.Feature = "PendingWorkloadsMetrics"
 )
 
 func init() {
@@ -570,11 +577,13 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	RejectUpdatesToCQWithInvalidOnFlavors: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
-
 	FinishOrphanedWorkloads: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ConcurrentAdmission: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	PendingWorkloadsMetrics: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

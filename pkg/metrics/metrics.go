@@ -89,12 +89,8 @@ var (
 	PendingWorkloads *prometheus.GaugeVec
 
 	// +metricsdoc:group=clusterqueue
-	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="one of `active` or `inadmissible` (same as kueue_pending_workloads)",replica_role="one of `leader`, `follower`, or `standalone`"
-	PendingWorkloadMaxWaitTimeSeconds *prometheus.GaugeVec
-
-	// +metricsdoc:group=clusterqueue
-	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="one of `active` or `inadmissible` (same as kueue_pending_workloads)",replica_role="one of `leader`, `follower`, or `standalone`"
-	PendingWorkloadMeanWaitTimeSeconds *prometheus.GaugeVec
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="one of `active` or `inadmissible` (same as kueue_pending_workloads)",quantile="one of `0.5`, `0.95`, or `0.99`",replica_role="one of `leader`, `follower`, or `standalone`"
+	PendingWorkloadWaitTimeSeconds *prometheus.GaugeVec
 
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",status="status label (varies by metric)",replica_role="one of `leader`, `follower`, or `standalone`"
@@ -360,29 +356,20 @@ The label 'result' can have the following values:
 	)
 	trackGaugeVec(PendingWorkloads, gaugeCleanupScopeClusterQueue)
 
-	PendingWorkloadMaxWaitTimeSeconds = prometheus.NewGaugeVec(
+	PendingWorkloadWaitTimeSeconds = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
-			Name:      "pending_workload_max_wait_time_seconds",
-			Help: `The maximum queued wait time in seconds among pending workloads in this ClusterQueue bucket,
-per 'cluster_queue' and 'status'. Queued wait time is from workload creation or last requeue until now.
+			Name:      "pending_workload_wait_time_seconds",
+			Help: `Queued wait time quantiles in seconds among pending workloads in this ClusterQueue bucket,
+per 'cluster_queue', 'status', and 'quantile'. Queued wait time is from workload creation or last requeue until now.
 'status' matches kueue_pending_workloads: "active" for workloads in the admission heap (plus inflight scheduling),
 "inadmissible" for workloads waiting for cluster conditions after a failed admission attempt.
 When the ClusterQueue is inactive for scheduling, active workloads are folded into the inadmissible bucket.
-No time series is reported for a bucket with zero pending workloads.`,
-		}, append([]string{"cluster_queue", "status", "replica_role"}, extraLabels...),
+No time series is reported for a bucket with zero pending workloads.
+Requires feature gate PendingWorkloadsMetrics (alpha in 0.18).`,
+		}, append([]string{"cluster_queue", "status", "quantile", "replica_role"}, extraLabels...),
 	)
-	trackGaugeVec(PendingWorkloadMaxWaitTimeSeconds, gaugeCleanupScopeClusterQueue)
-
-	PendingWorkloadMeanWaitTimeSeconds = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Subsystem: constants.KueueName,
-			Name:      "pending_workload_mean_wait_time_seconds",
-			Help: `The mean queued wait time in seconds among pending workloads in this ClusterQueue bucket,
-per 'cluster_queue' and 'status'. Semantics match kueue_pending_workload_max_wait_time_seconds.`,
-		}, append([]string{"cluster_queue", "status", "replica_role"}, extraLabels...),
-	)
-	trackGaugeVec(PendingWorkloadMeanWaitTimeSeconds, gaugeCleanupScopeClusterQueue)
+	trackGaugeVec(PendingWorkloadWaitTimeSeconds, gaugeCleanupScopeClusterQueue)
 
 	LocalQueuePendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -945,28 +932,49 @@ func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmiss
 	PendingWorkloads.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
 }
 
-// ReportPendingWorkloadWaitTimes sets max/mean queued wait gauges per status bucket, or removes the series when the bucket is empty.
-func ReportPendingWorkloadWaitTimes(cqName kueue.ClusterQueueReference, activeMax, activeMean float64, activeN int, inadmMax, inadmMean float64, inadmN int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+// PendingWorkloadWaitQuantiles holds per-bucket quantile values (p50, p95, p99) and sample count.
+type PendingWorkloadWaitQuantiles struct {
+	P50, P95, P99 float64
+	N             int
+}
+
+// ReportPendingWorkloadWaitTimes sets quantile gauges per status bucket, or removes the series when the bucket is empty.
+// This is a no-op when the PendingWorkloadsMetrics feature gate is disabled.
+func ReportPendingWorkloadWaitTimes(cqName kueue.ClusterQueueReference, active, inadm PendingWorkloadWaitQuantiles, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	if !features.Enabled(features.PendingWorkloadsMetrics) {
+		return
+	}
 	role := roletracker.GetRole(tracker)
-	reportBucket := func(status string, n int, maxVal, meanVal float64) {
-		labels := append([]string{string(cqName), status, role}, customLabelValues...)
-		if n > 0 {
-			PendingWorkloadMaxWaitTimeSeconds.WithLabelValues(labels...).Set(maxVal)
-			PendingWorkloadMeanWaitTimeSeconds.WithLabelValues(labels...).Set(meanVal)
-		} else {
-			PendingWorkloadMaxWaitTimeSeconds.DeleteLabelValues(labels...)
-			PendingWorkloadMeanWaitTimeSeconds.DeleteLabelValues(labels...)
+	reportBucket := func(status string, q PendingWorkloadWaitQuantiles) {
+		baseLabels := []string{string(cqName), status}
+		quantiles := []struct {
+			label string
+			val   float64
+		}{
+			{"0.5", q.P50},
+			{"0.95", q.P95},
+			{"0.99", q.P99},
+		}
+		for _, qv := range quantiles {
+			labels := append(append(baseLabels, qv.label, role), customLabelValues...)
+			if q.N > 0 {
+				PendingWorkloadWaitTimeSeconds.WithLabelValues(labels...).Set(qv.val)
+			} else {
+				PendingWorkloadWaitTimeSeconds.DeleteLabelValues(labels...)
+			}
 		}
 	}
-	reportBucket(PendingStatusActive, activeN, activeMax, activeMean)
-	reportBucket(PendingStatusInadmissible, inadmN, inadmMax, inadmMean)
+	reportBucket(PendingStatusActive, active)
+	reportBucket(PendingStatusInadmissible, inadm)
 }
 
 // ClearPendingWorkloadWaitTimes removes all pending wait time series for a ClusterQueue.
 func ClearPendingWorkloadWaitTimes(cqName kueue.ClusterQueueReference) {
+	if !features.Enabled(features.PendingWorkloadsMetrics) {
+		return
+	}
 	lbls := prometheus.Labels{"cluster_queue": string(cqName)}
-	PendingWorkloadMaxWaitTimeSeconds.DeletePartialMatch(lbls)
-	PendingWorkloadMeanWaitTimeSeconds.DeletePartialMatch(lbls)
+	PendingWorkloadWaitTimeSeconds.DeletePartialMatch(lbls)
 }
 
 func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1285,8 +1293,7 @@ func Register() {
 		admissionAttemptDuration,
 		AdmissionCyclePreemptionSkips,
 		PendingWorkloads,
-		PendingWorkloadMaxWaitTimeSeconds,
-		PendingWorkloadMeanWaitTimeSeconds,
+		PendingWorkloadWaitTimeSeconds,
 		FinishedWorkloads,
 		QuotaReservedWorkloadsTotal,
 		FinishedWorkloadsTotal,

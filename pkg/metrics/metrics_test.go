@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -160,20 +161,22 @@ func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
 }
 
 func TestReportPendingWorkloadWaitTimesSetAndDelete(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PendingWorkloadsMetrics, true)
 	cq := kueue.ClusterQueueReference("cq-wait")
-	ReportPendingWorkloadWaitTimes(cq, 10, 5, 1, 20, 15, 1, nil, nil)
-	expectFilteredMetricsCount(t, PendingWorkloadMaxWaitTimeSeconds, 1, "cluster_queue", "cq-wait", "status", PendingStatusActive)
-	expectFilteredMetricsCount(t, PendingWorkloadMaxWaitTimeSeconds, 1, "cluster_queue", "cq-wait", "status", PendingStatusInadmissible)
-	expectFilteredMetricsCount(t, PendingWorkloadMeanWaitTimeSeconds, 1, "cluster_queue", "cq-wait", "status", PendingStatusActive)
+	active := PendingWorkloadWaitQuantiles{P50: 5, P95: 8, P99: 10, N: 1}
+	inadm := PendingWorkloadWaitQuantiles{P50: 15, P95: 18, P99: 20, N: 1}
+	ReportPendingWorkloadWaitTimes(cq, active, inadm, nil, nil)
+	expectFilteredMetricsCount(t, PendingWorkloadWaitTimeSeconds, 3, "cluster_queue", "cq-wait", "status", PendingStatusActive)
+	expectFilteredMetricsCount(t, PendingWorkloadWaitTimeSeconds, 3, "cluster_queue", "cq-wait", "status", PendingStatusInadmissible)
+	expectFilteredMetricsCount(t, PendingWorkloadWaitTimeSeconds, 1, "cluster_queue", "cq-wait", "status", PendingStatusActive, "quantile", "0.5")
 
-	ReportPendingWorkloadWaitTimes(cq, 0, 0, 0, 20, 15, 1, nil, nil)
-	expectFilteredMetricsCount(t, PendingWorkloadMaxWaitTimeSeconds, 0, "cluster_queue", "cq-wait", "status", PendingStatusActive)
-	expectFilteredMetricsCount(t, PendingWorkloadMeanWaitTimeSeconds, 0, "cluster_queue", "cq-wait", "status", PendingStatusActive)
-	expectFilteredMetricsCount(t, PendingWorkloadMaxWaitTimeSeconds, 1, "cluster_queue", "cq-wait", "status", PendingStatusInadmissible)
+	emptyActive := PendingWorkloadWaitQuantiles{N: 0}
+	ReportPendingWorkloadWaitTimes(cq, emptyActive, inadm, nil, nil)
+	expectFilteredMetricsCount(t, PendingWorkloadWaitTimeSeconds, 0, "cluster_queue", "cq-wait", "status", PendingStatusActive)
+	expectFilteredMetricsCount(t, PendingWorkloadWaitTimeSeconds, 3, "cluster_queue", "cq-wait", "status", PendingStatusInadmissible)
 
 	ClearPendingWorkloadWaitTimes(cq)
-	expectFilteredMetricsCount(t, PendingWorkloadMaxWaitTimeSeconds, 0, "cluster_queue", "cq-wait")
-	expectFilteredMetricsCount(t, PendingWorkloadMeanWaitTimeSeconds, 0, "cluster_queue", "cq-wait")
+	expectFilteredMetricsCount(t, PendingWorkloadWaitTimeSeconds, 0, "cluster_queue", "cq-wait")
 }
 
 func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
