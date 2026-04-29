@@ -602,6 +602,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
+			featureGates: map[featuregate.Feature]bool{features.TASHierarchicalUnconstrained: false},
 		},
 		// Topology: scatteredNodes (block → rack → host)
 		//   b1/r1: x3(4cpu), x5(1cpu), x1(1cpu) = 6cpu total
@@ -681,14 +682,37 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
+			featureGates: map[featuregate.Feature]bool{features.TASHierarchicalUnconstrained: false},
 		},
 		// Topology: defaultNodes (block → rack → host), all 1cpu except x4(2cpu)
-		//   b1/r1: x3(1cpu); b1/r2: x5(1cpu), x1(1cpu), x6(1cpu)
-		//   b2/r1: x2(1cpu); b2/r2: x4(2cpu)
-		// With TASHierarchicalUnconstrained enabled, the algorithm picks the
-		// tightest-fitting block first (b2: 3cpu total vs b1: 4cpu total), then
-		// the tightest host within b2 → x2(1cpu). Without this gate, the
-		// node-level-only sort picks x3 (least free at node level globally).
+		"unconstrained; a single pod fits into each host; LeastFreeCapacity; TASProfileMixed": {
+			nodes:  defaultNodes,
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count: 1,
+							Values: []string{
+								"x3",
+							},
+						},
+					},
+				},
+			}},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true, features.TASHierarchicalUnconstrained: false},
+		},
+		// Same topology as above but with TASHierarchicalUnconstrained enabled.
+		// The algorithm picks the tightest-fitting block first (b2: 3cpu total
+		// vs b1: 4cpu total), then the tightest host within b2 → x2(1cpu).
 		"unconstrained; a single pod fits into each host; LeastFreeCapacity; TASHierarchicalUnconstrained": {
 			nodes:  defaultNodes,
 			levels: defaultThreeLevels,

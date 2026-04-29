@@ -1561,8 +1561,9 @@ Without `TASHierarchicalUnconstrained`, the existing behavior is preserved: the 
 level for unconstrained workloads is resolved at the node level, and `LeastFreeCapacity`
 sorting occurs only within that level.
 
-This feature gate is alpha and disabled by default. It is not mutually exclusive with
-`TASProfileMixed` — it augments the unconstrained scheduling path when both are enabled.
+This feature gate is Beta and enabled by default in v0.18. It is planned to graduate to
+GA in v0.21. It is not mutually exclusive with `TASProfileMixed` — it augments the
+unconstrained scheduling path when both are enabled.
 
 ### Two-level Topology Aware scheduling
 In consideration of a [Story 5](#story-5) a two-level scheduling is introduced.
