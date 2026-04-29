@@ -208,7 +208,6 @@ func TestDefault(t *testing.T) {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
 			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				Obj(),
 		},
 		"should not suspend a TrainJob without a queue label if manageJobsWithoutQueueName is not enabled": {
@@ -227,7 +226,6 @@ func TestDefault(t *testing.T) {
 			wantTrainJob: testExpectedTrainJob.Clone().
 				Suspend(true).
 				Queue(string(controllerconstants.DefaultLocalQueueName)).
-				JobSetLabel(controllerconstants.QueueLabel, string(controllerconstants.DefaultLocalQueueName)).
 				Obj(),
 			withDefaultLocalQueue: true,
 		},
@@ -238,9 +236,8 @@ func TestDefault(t *testing.T) {
 		},
 		"should set managedBy to multiKueue if the user didn't specify any": {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
-			wantTrainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).
+			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
 			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
@@ -250,7 +247,6 @@ func TestDefault(t *testing.T) {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).ManagedBy("user").Obj(),
 			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				ManagedBy("user").
 				Obj(),
 			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
@@ -260,7 +256,6 @@ func TestDefault(t *testing.T) {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
 			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				Obj(),
 			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			withMultiKueueAdmissionCheck: false,

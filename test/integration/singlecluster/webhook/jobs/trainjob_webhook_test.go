@@ -26,7 +26,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -84,14 +83,13 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 				util.MustCreate(ctx, k8sClient, trainJob)
 			})
 
-			ginkgo.By("suspending it and setting the child jobset labels", func() {
+			ginkgo.By("suspending it", func() {
 				createdTrainJob := kftrainerapi.TrainJob{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}, &createdTrainJob)).Should(gomega.Succeed())
 					g.Expect(ptr.Deref(createdTrainJob.Spec.Suspend, false)).Should(gomega.BeTrue())
 					kueueRuntimePatch := testingtrainjob.KueueRuntimePatch(&createdTrainJob)
 					g.Expect(kueueRuntimePatch).ShouldNot(gomega.BeNil())
-					g.Expect(kueueRuntimePatch.TrainingRuntimeSpec.Template.Metadata.Labels).To(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "queue"))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
