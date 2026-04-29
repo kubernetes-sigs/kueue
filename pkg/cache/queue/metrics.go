@@ -53,16 +53,14 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 	metrics.ReportPendingWorkloads(cq.name, active, inadmissible, cqCustomLabels, m.roleTracker)
 
-	var cohort kueue.CohortReference
-	if cq.HasParent() {
-		cohort = cq.Parent().GetName()
-	}
-	// pendingResourcesTotal carries 0 entries for configured resources (seeded by
-	// Update), so iterating it once covers both the zero-series and actual pending.
-	pendingResources := cq.PendingResources()
-	for resourceName, v := range pendingResources {
-		q := resources.ResourceQuantity(resourceName, v)
-		metrics.ReportClusterQueueResourcePending(cohort, string(cq.name), string(resourceName), utilresource.QuantityToFloat(&q), cqCustomLabels, m.roleTracker)
+	if m.resourceMetricsEnabled {
+		// pendingResourcesTotal carries 0 entries for configured resources (seeded by
+		// Update), so iterating it once covers both the zero-series and actual pending.
+		pendingResources := cq.PendingResources()
+		for resourceName, v := range pendingResources {
+			q := resources.ResourceQuantity(resourceName, v)
+			metrics.ReportClusterQueueResourcePending(string(cq.name), string(resourceName), utilresource.QuantityToFloat(&q), cqCustomLabels, m.roleTracker)
+		}
 	}
 }
 

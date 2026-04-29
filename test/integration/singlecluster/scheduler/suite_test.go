@@ -96,7 +96,11 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	}
 	cCache := schdcache.New(mgr.GetClient())
 	preemptionExpectations := preemptexpectations.New()
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, qcache.WithResourceTransformations(transformations), qcache.WithPreemptionExpectations(preemptionExpectations))
+	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
+		qcache.WithResourceTransformations(transformations),
+		qcache.WithPreemptionExpectations(preemptionExpectations),
+		qcache.WithResourceMetrics(true),
+	)
 
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)

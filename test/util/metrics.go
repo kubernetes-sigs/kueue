@@ -287,7 +287,7 @@ func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource strin
 
 func ExpectCQResourcePendingMetric(cq *kueue.ClusterQueue, resource string, matcher gomegatypes.GomegaMatcher) {
 	ginkgo.GinkgoHelper()
-	lvs := []string{string(cq.Spec.CohortName), cq.Name, resource, roletracker.RoleStandalone}
+	lvs := []string{cq.Name, resource, roletracker.RoleStandalone}
 	expectGaugeMetric(metrics.ClusterQueueResourcePending, lvs, matcher)
 }
 

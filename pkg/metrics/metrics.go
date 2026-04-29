@@ -229,7 +229,7 @@ var (
 	ClusterQueueResourceUsage *prometheus.GaugeVec
 
 	// +metricsdoc:group=clusterqueue
-	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
 	ClusterQueueResourcePending *prometheus.GaugeVec
 
 	// +metricsdoc:group=localqueue
@@ -726,7 +726,7 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_resource_pending",
 			Help:      `Reports the cluster_queue's total pending resource requests. Unlike resource_reservation, pending workloads have not yet been assigned to flavors.`,
-		}, append([]string{"cohort", "cluster_queue", "resource", "replica_role"}, extraLabels...),
+		}, append([]string{"cluster_queue", "resource", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(ClusterQueueResourcePending, gaugeCleanupScopeClusterQueue, gaugeCleanupScopeClusterQueueResource)
 
@@ -1147,8 +1147,8 @@ func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue,
 	ClusterQueueResourceReservations.WithLabelValues(labels...).Set(usage)
 }
 
-func ReportClusterQueueResourcePending(cohort kueue.CohortReference, queue, resource string, pending float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := append([]string{string(cohort), queue, resource, roletracker.GetRole(tracker)}, customLabelValues...)
+func ReportClusterQueueResourcePending(queue, resource string, pending float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{queue, resource, roletracker.GetRole(tracker)}, customLabelValues...)
 	ClusterQueueResourcePending.WithLabelValues(labels...).Set(pending)
 }
 

@@ -119,6 +119,12 @@ func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
 	}
 }
 
+func WithResourceMetrics(enabled bool) Option {
+	return func(m *Manager) {
+		m.resourceMetricsEnabled = enabled
+	}
+}
+
 // SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
 func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
 	m.draReconcileChannel = ch
@@ -160,9 +166,10 @@ type Manager struct {
 
 	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
 
-	roleTracker  *roletracker.RoleTracker
-	customLabels *metrics.CustomLabels
-	lqMetrics    *metrics.LocalQueueMetricsConfig
+	roleTracker            *roletracker.RoleTracker
+	customLabels           *metrics.CustomLabels
+	lqMetrics              *metrics.LocalQueueMetricsConfig
+	resourceMetricsEnabled bool
 
 	requeuer inadmissibleRequeuer
 

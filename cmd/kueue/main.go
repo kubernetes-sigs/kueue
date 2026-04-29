@@ -296,6 +296,7 @@ func main() {
 		qcache.WithRoleTracker(roleTracker),
 		qcache.WithCustomLabels(customLabels),
 		qcache.WithLocalQueueMetrics(lqMetrics),
+		qcache.WithResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 	}
 	if cfg.Resources != nil && len(cfg.Resources.ExcludeResourcePrefixes) > 0 {
 		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))

@@ -53,8 +53,8 @@ func TestGenerateExponentialBuckets(t *testing.T) {
 func TestReportAndCleanupClusterQueuePendingResources(t *testing.T) {
 	const cqName = "cq-pending"
 
-	ReportClusterQueueResourcePending("cohort", cqName, "cpu", 4, nil, nil)
-	ReportClusterQueueResourcePending("cohort", cqName, "memory", 8589934592, nil, nil)
+	ReportClusterQueueResourcePending(cqName, "cpu", 4, nil, nil)
+	ReportClusterQueueResourcePending(cqName, "memory", 8589934592, nil, nil)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 2, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName, "resource", "cpu")
@@ -64,7 +64,7 @@ func TestReportAndCleanupClusterQueuePendingResources(t *testing.T) {
 	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 0, "cluster_queue", cqName)
 
 	// Verify ClearClusterQueueMetrics (gaugeCleanupScopeClusterQueue) also clears it.
-	ReportClusterQueueResourcePending("cohort", cqName, "cpu", 2, nil, nil)
+	ReportClusterQueueResourcePending(cqName, "cpu", 2, nil, nil)
 	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName)
 	ClearClusterQueueMetrics(cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 0, "cluster_queue", cqName)
@@ -367,7 +367,7 @@ func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testi
 	ReportClusterQueueQuotas("cohort", cqName, "flavor", "cpu", 10, 5, 3, nil, nil)
 	ReportClusterQueueResourceReservations("cohort", cqName, "flavor", "cpu", 7, nil, nil)
 	ReportClusterQueueResourceUsage("cohort", cqName, "flavor", "cpu", 6, nil, nil)
-	ReportClusterQueueResourcePending("cohort", cqName, "cpu", 4, nil, nil)
+	ReportClusterQueueResourcePending(cqName, "cpu", 4, nil, nil)
 	ReportClusterQueueStatus(cqName, CQStatusActive, nil, nil)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)

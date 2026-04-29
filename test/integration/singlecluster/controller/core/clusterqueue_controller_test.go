@@ -443,6 +443,34 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 0)
 		})
 
+		ginkgo.It("Should update pending resource metric when a pending workload's effective resources change", func() {
+			wl := utiltestingapi.MakeWorkload("one", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "2").Obj()).
+				Obj()
+
+			ginkgo.By("Creating a workload with 3 pods × 2 CPU = 6 CPU pending")
+			util.MustCreate(ctx, k8sClient, wl)
+
+			// Workloads are inadmissible because ResourceFlavors don't exist yet.
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+				g.Expect(updatedCq.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking initial pending resource metric shows 6 CPU")
+			util.ExpectCQResourcePendingMetric(clusterQueue, string(corev1.ResourceCPU), gomega.Equal(6.0))
+
+			ginkgo.By("Setting 1 pod as reclaimable, reducing effective request to 4 CPU")
+			util.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
+				{Name: kueue.DefaultPodSetName, Count: 1},
+			})
+
+			ginkgo.By("Checking pending resource metric updates to reflect reduced request of 4 CPU")
+			util.ExpectCQResourcePendingMetric(clusterQueue, string(corev1.ResourceCPU), gomega.Equal(4.0))
+		})
+
 		ginkgo.It("Should update status when workloads have reclaimable pods", framework.SlowSpec, func() {
 			ginkgo.By("Creating ResourceFlavors", func() {
 				onDemandFlavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()

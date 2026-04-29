@@ -306,7 +306,6 @@ func TestUpdateClusterQueueLabelsUpdated(t *testing.T) {
 }
 
 func TestPendingResourceMetrics(t *testing.T) {
-	ctx, log := utiltesting.ContextWithLog(t)
 	// CQ with cpu configured — this populates configuredResources, which is the
 	// anchor set for pending metrics (mirroring resource_reservation's Quotas).
 	cq := utiltestingapi.MakeClusterQueue("cq1").
@@ -323,43 +322,73 @@ func TestPendingResourceMetrics(t *testing.T) {
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "3").Obj()).
 		Creation(time.Now()).Obj()
 
-	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
-	manager, _ := NewManagerForUnitTestsWithRequeuer(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
-
-	if err := manager.AddClusterQueue(ctx, cq); err != nil {
-		t.Fatalf("Failed adding clusterQueue: %v", err)
+	cases := map[string]struct {
+		ops       func(t *testing.T, log logr.Logger, manager *Manager)
+		wantValue float64
+	}{
+		"add single workload": {
+			ops: func(t *testing.T, log logr.Logger, manager *Manager) {
+				if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+					t.Fatalf("Failed adding wl1: %v", err)
+				}
+			},
+			wantValue: 2.0,
+		},
+		"add two workloads accumulates resources": {
+			ops: func(t *testing.T, log logr.Logger, manager *Manager) {
+				if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+					t.Fatalf("Failed adding wl1: %v", err)
+				}
+				if err := manager.AddOrUpdateWorkload(log, wl2); err != nil {
+					t.Fatalf("Failed adding wl2: %v", err)
+				}
+			},
+			wantValue: 5.0,
+		},
+		"delete one of two workloads reduces resources": {
+			ops: func(t *testing.T, log logr.Logger, manager *Manager) {
+				if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+					t.Fatalf("Failed adding wl1: %v", err)
+				}
+				if err := manager.AddOrUpdateWorkload(log, wl2); err != nil {
+					t.Fatalf("Failed adding wl2: %v", err)
+				}
+				manager.DeleteWorkload(log, workload.Key(wl2))
+			},
+			wantValue: 2.0,
+		},
+		"delete all workloads keeps configured series at zero": {
+			ops: func(t *testing.T, log logr.Logger, manager *Manager) {
+				if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+					t.Fatalf("Failed adding wl1: %v", err)
+				}
+				manager.DeleteWorkload(log, workload.Key(wl1))
+			},
+			wantValue: 0.0,
+		},
 	}
-	if err := manager.AddLocalQueue(ctx, lq); err != nil {
-		t.Fatalf("Failed adding queue: %v", err)
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+			manager, _ := NewManagerForUnitTestsWithRequeuer(cl, nil, WithPreemptionExpectations(preemptexpectations.New()), WithResourceMetrics(true))
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding clusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding queue: %v", err)
+			}
+
+			metrics.ClusterQueueResourcePending.Reset()
+			pendingLabels := map[string]string{"cluster_queue": "cq1", "resource": "cpu"}
+
+			tc.ops(t, log, manager)
+
+			expectGaugeCount(t, metrics.ClusterQueueResourcePending, 1, pendingLabels)
+			expectGaugeValue(t, metrics.ClusterQueueResourcePending, pendingLabels, tc.wantValue)
+		})
 	}
-
-	metrics.ClusterQueueResourcePending.Reset()
-	pendingLabels := map[string]string{"cluster_queue": "cq1", "resource": "cpu"}
-
-	// Add wl1 — expect 1 series for cpu with value corresponding to 2 cores.
-	if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
-		t.Fatalf("Failed adding wl1: %v", err)
-	}
-	expectGaugeCount(t, metrics.ClusterQueueResourcePending, 1, pendingLabels)
-	wl1CPUValue := getGaugeValue(t, metrics.ClusterQueueResourcePending, pendingLabels)
-
-	// Add wl2 — cpu value should increase.
-	if err := manager.AddOrUpdateWorkload(log, wl2); err != nil {
-		t.Fatalf("Failed adding wl2: %v", err)
-	}
-	if got := getGaugeValue(t, metrics.ClusterQueueResourcePending, pendingLabels); got <= wl1CPUValue {
-		t.Errorf("expected cpu pending to increase after adding wl2: before=%v after=%v", wl1CPUValue, got)
-	}
-
-	// Delete wl2 — cpu value should return to wl1-only level.
-	manager.DeleteWorkload(log, workload.Key(wl2))
-	expectGaugeValue(t, metrics.ClusterQueueResourcePending, pendingLabels, wl1CPUValue)
-
-	// Delete wl1 — no pending workloads remain, but cpu is in configuredResources
-	// so the series stays at 0 (like resource_reservation reports 0 for configured
-	// resources with no active reservations).
-	manager.DeleteWorkload(log, workload.Key(wl1))
-	expectGaugeValue(t, metrics.ClusterQueueResourcePending, pendingLabels, 0)
 }
 
 func expectGaugeCount(t *testing.T, collector prometheus.Collector, want int, labels map[string]string) {
@@ -379,15 +408,6 @@ func expectGaugeValue(t *testing.T, collector prometheus.Collector, labels map[s
 	if dps[0].Value != want {
 		t.Fatalf("unexpected metric value for labels %v: got=%v want=%v", labels, dps[0].Value, want)
 	}
-}
-
-func getGaugeValue(t *testing.T, collector prometheus.Collector, labels map[string]string) float64 {
-	t.Helper()
-	dps := testingmetrics.CollectFilteredGaugeVec(collector, labels)
-	if len(dps) != 1 {
-		t.Fatalf("expected exactly one metric for labels %v, got=%d", labels, len(dps))
-	}
-	return dps[0].Value
 }
 
 func TestRequeueWorkloadsCohortCycle(t *testing.T) {
