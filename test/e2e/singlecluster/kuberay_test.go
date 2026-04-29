@@ -77,10 +77,26 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		localQueueName     string
 	)
 
-	// getRunningWorkerPodNames returns the names of running pods that have "workers" in their name
 	getRunningWorkerPodNames := func(podList *corev1.PodList) []string {
 		var podNames []string
 		for _, pod := range podList.Items {
+			if strings.Contains(pod.Name, "workers") && pod.Status.Phase == corev1.PodRunning {
+				podNames = append(podNames, pod.Name)
+			}
+		}
+		return podNames
+	}
+
+	getRunningRayWorkerPodNames := func(g gomega.Gomega) []string {
+		pods := &corev1.PodList{}
+		g.Expect(k8sClient.List(ctx, pods,
+			client.InNamespace(ns.Name),
+			client.MatchingLabels{
+				"ray.io/node-type": "worker",
+			},
+		)).To(gomega.Succeed())
+		var podNames []string
+		for _, pod := range pods.Items {
 			if strings.Contains(pod.Name, "workers") && pod.Status.Phase == corev1.PodRunning {
 				podNames = append(podNames, pod.Name)
 			}
@@ -938,14 +954,7 @@ app = HelloWorld.bind()`,
 
 		var initialWorkerCount int
 		ginkgo.By("Recording initial worker count before sending load", func() {
-			pods := &corev1.PodList{}
-			gomega.Expect(k8sClient.List(ctx, pods,
-				client.InNamespace(ns.Name),
-				client.MatchingLabels{
-					"ray.io/node-type": "worker",
-				},
-			)).To(gomega.Succeed())
-			initialWorkerCount = len(pods.Items)
+			initialWorkerCount = len(getRunningRayWorkerPodNames(gomega.Default))
 		})
 
 		ginkgo.By("Sending concurrent requests to trigger autoscaling", func() {
@@ -966,28 +975,15 @@ app = HelloWorld.bind()`,
 
 		ginkgo.By("Waiting for worker count to increase due to autoscaling", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				pods := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, pods,
-					client.InNamespace(ns.Name),
-					client.MatchingLabels{
-						"ray.io/node-type": "worker",
-					},
-				)).To(gomega.Succeed())
-				g.Expect(len(pods.Items)).To(gomega.BeNumerically(">", initialWorkerCount),
+				runningWorkers := getRunningRayWorkerPodNames(g)
+				g.Expect(len(runningWorkers)).To(gomega.BeNumerically(">", initialWorkerCount),
 					fmt.Sprintf("Expected more than %d running worker pods after autoscaling", initialWorkerCount))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for workers to scale down to zero", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				pods := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, pods,
-					client.InNamespace(ns.Name),
-					client.MatchingLabels{
-						"ray.io/node-type": "worker",
-					},
-				)).To(gomega.Succeed())
-				runningWorkers := getRunningWorkerPodNames(pods)
+				runningWorkers := getRunningRayWorkerPodNames(g)
 				g.Expect(runningWorkers).To(gomega.BeEmpty(), "Expected zero running worker pods after scale-down")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
