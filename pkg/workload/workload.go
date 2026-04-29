@@ -83,6 +83,7 @@ var (
 		kueue.WorkloadRequeued,
 		kueue.WorkloadDeactivationTarget,
 		kueue.WorkloadFinished,
+		kueue.WorkloadPodsReady,
 	}
 )
 

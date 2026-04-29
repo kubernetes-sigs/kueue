@@ -959,6 +959,245 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{},
 			wantErr:    false,
 		},
+		"parent changes WaitForPodsReady from False to True, syncs to admitted variant": {
+			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  "PodsReady",
+					Message: "Pods are ready",
+				}).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("parent-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  "PodsNotReady",
+						Message: "Pods are not ready",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("parent-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  "PodsReady",
+					Message: "Pods are ready",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("parent-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  "PodsReady",
+						Message: "Pods are ready",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("parent-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					Obj(),
+			},
+			wantResult: reconcile.Result{},
+			wantErr:    false,
+		},
+		"parent changes WaitForPodsReady from True to False, syncs to admitted variant": {
+			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsNotReady",
+					Message: "Pods are not ready",
+				}).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("parent-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  "PodsReady",
+						Message: "Pods are ready",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("parent-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsNotReady",
+					Message: "Pods are not ready",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("parent-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  "PodsNotReady",
+						Message: "Pods are not ready",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("parent-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					Obj(),
+			},
+			wantResult: reconcile.Result{},
+			wantErr:    false,
+		},
+		"parent not admitted, variant admitted, parent changes WaitForPodsReady from True to False, syncs to variant and admits parent": {
+			parentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsNotReady",
+					Message: "Pods are not ready",
+				}).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("parent-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  "PodsReady",
+						Message: "Pods are ready",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("parent-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("parent-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				Admission(utiltestingapi.MakeAdmission("cq", "main").
+					PodSets(kueue.PodSetAssignment{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "spot",
+						},
+						Count:         ptr.To[int32](1),
+						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+					}).Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Admitted",
+					Message: "The variant parent-variant-spot is admitted",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionTrue,
+					Reason:  "QuotaReserved",
+					Message: "Quota reserved in ClusterQueue cq",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsNotReady",
+					Message: "Pods are not ready",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("parent-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  "PodsNotReady",
+						Message: "Pods are not ready",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("parent-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					Obj(),
+			},
+			wantResult: reconcile.Result{},
+			wantErr:    false,
+		},
 	}
 
 	for name, tc := range testCases {

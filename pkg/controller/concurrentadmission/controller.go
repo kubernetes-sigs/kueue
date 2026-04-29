@@ -526,8 +526,8 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 	case admittedVariant != nil && !workload.IsAdmitted(parent):
 		log.V(2).Info("Parent not admitted and Variant admitted, syncing their status", "parent", klog.KObj(parent), "Variant", klog.KObj(admittedVariant))
 		log.V(3).Info("Syncing WaitForPodsReady condition")
-		if err := workload.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return r.syncPodsReadyCond(wl, admittedVariant), nil
+		if err := workload.PatchAdmissionStatus(ctx, r.client, admittedVariant, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return r.syncPodsReadyCond(parent, wl), nil
 		}); err != nil {
 			return client.IgnoreNotFound(err)
 		}
@@ -542,8 +542,8 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 	case admittedVariant != nil && workload.IsAdmitted(parent):
 		log.V(2).Info("Parent and Variant admitted, syncing their status", "parent", klog.KObj(parent), "Variant", klog.KObj(admittedVariant))
 		log.V(3).Info("Syncing WaitForPodsReady condition")
-		if err := workload.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return r.syncPodsReadyCond(wl, admittedVariant), nil
+		if err := workload.PatchAdmissionStatus(ctx, r.client, admittedVariant, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return r.syncPodsReadyCond(parent, wl), nil
 		}); err != nil {
 			return client.IgnoreNotFound(err)
 		}
