@@ -660,12 +660,10 @@ func (c *Cache) updateLqMetricLabels(newLq *kueue.LocalQueue) {
 	}
 }
 
-func (c *Cache) ConcurrentAdmissionEnabledFor(wl *kueue.Workload) bool {
+func (c *Cache) concurrentAdmissionEnabledForWithoutLock(wl *kueue.Workload) bool {
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return false
 	}
-	c.RLock()
-	defer c.RUnlock()
 	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
 	if cq == nil {
 		return false
@@ -674,11 +672,11 @@ func (c *Cache) ConcurrentAdmissionEnabledFor(wl *kueue.Workload) bool {
 }
 
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
-	if c.ConcurrentAdmissionEnabledFor(w) && !concurrentadmission.IsVariant(w) {
-		return false
-	}
 	c.Lock()
 	defer c.Unlock()
+	if c.concurrentAdmissionEnabledForWithoutLock(w) && !concurrentadmission.IsVariant(w) {
+		return false
+	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(log, w)
 	if err != nil {
 		log.Error(err, "Updating workload in cache")
@@ -687,7 +685,7 @@ func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 }
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
-	if c.ConcurrentAdmissionEnabledFor(wl) && !concurrentadmission.IsVariant(wl) {
+	if c.concurrentAdmissionEnabledForWithoutLock(wl) && !concurrentadmission.IsVariant(wl) {
 		return false, nil
 	}
 	wlKey := workload.Key(wl)
