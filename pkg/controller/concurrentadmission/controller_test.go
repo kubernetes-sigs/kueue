@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 var (
@@ -1042,19 +1043,19 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 
-			var gotVariants kueue.WorkloadList
-			if err := cl.List(t.Context(), &gotVariants, client.InNamespace(tc.req.Namespace)); err != nil {
+			var allWorkloads kueue.WorkloadList
+			if err := cl.List(t.Context(), &allWorkloads, client.InNamespace(tc.req.Namespace)); err != nil {
 				t.Fatal(err)
 			}
 
-			var variants []kueue.Workload
-			for _, wl := range gotVariants.Items {
-				if wl.Name != tc.wantParentWorkload.Name {
-					variants = append(variants, wl)
+			var gotVariants []kueue.Workload
+			for _, wl := range allWorkloads.Items {
+				if concurrentadmission.IsVariant(&wl) {
+					gotVariants = append(gotVariants, wl)
 				}
 			}
 
-			if diff := cmp.Diff(tc.wantVariantWorkloads, variants, workloadCmpOpts); diff != "" {
+			if diff := cmp.Diff(tc.wantVariantWorkloads, gotVariants, workloadCmpOpts); diff != "" {
 				t.Errorf("Unexpected variant workloads (-want +got):\n%s", diff)
 			}
 		})
