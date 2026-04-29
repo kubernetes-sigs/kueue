@@ -952,9 +952,11 @@ app = HelloWorld.bind()`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		var initialWorkerCount int
-		ginkgo.By("Recording initial worker count before sending load", func() {
-			initialWorkerCount = len(getRunningRayWorkerPodNames(gomega.Default))
+		ginkgo.By("Waiting for worker count to be zero due to autoscaling", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				runningWorkers := getRunningRayWorkerPodNames(g)
+				g.Expect(runningWorkers).To(gomega.BeEmpty(), "Expected 0 running worker pod before sending load")
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Sending concurrent requests to trigger autoscaling", func() {
@@ -976,15 +978,8 @@ app = HelloWorld.bind()`,
 		ginkgo.By("Waiting for worker count to increase due to autoscaling", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				runningWorkers := getRunningRayWorkerPodNames(g)
-				g.Expect(len(runningWorkers)).To(gomega.BeNumerically(">", initialWorkerCount),
-					fmt.Sprintf("Expected more than %d running worker pods after autoscaling", initialWorkerCount))
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Waiting for workers to scale down to zero", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers := getRunningRayWorkerPodNames(g)
-				g.Expect(runningWorkers).To(gomega.BeEmpty(), "Expected zero running worker pods after scale-down")
+				g.Expect(len(runningWorkers)).To(gomega.BeNumerically(">", 1),
+					fmt.Sprintf("Expected more than %d running worker pods after autoscaling", 1))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
