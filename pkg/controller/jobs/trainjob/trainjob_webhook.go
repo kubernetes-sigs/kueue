@@ -20,7 +20,6 @@ import (
 	"context"
 
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,7 +28,6 @@ import (
 
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
@@ -90,13 +88,6 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	}
 	if suspend {
 		trainJob.Suspend()
-		if trainJobQueueName := jobframework.QueueNameForObject(trainJob.Object()); trainJobQueueName != "" {
-			runtimePatch.TrainingRuntimeSpec.Template.Metadata = &metav1.ObjectMeta{
-				Labels: map[string]string{
-					controllerconstants.QueueLabel: string(trainJobQueueName),
-				},
-			}
-		}
 	}
 	trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, runtimePatch)
 	return nil
