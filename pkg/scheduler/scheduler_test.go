@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -7366,5 +7367,99 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestSchedulerNotifiesWatchersWhenAssumedWorkloadAdmissionFailsWithNotFound(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	ns := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()
+	rf := utiltestingapi.MakeResourceFlavor("rf").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "1").
+				Obj(),
+		).Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+	wl := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+		ResourceVersion("1").
+		Queue(kueue.LocalQueueName(lq.Name)).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		Obj()
+
+	var patchAttempted bool
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(ns, rf, cq, lq, wl).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourcePatch: func(context.Context, client.Client, string, client.Object, client.Patch, ...client.SubResourcePatchOption) error {
+				patchAttempted = true
+				return apierrors.NewNotFound(kueue.Resource("workload"), wl.Name)
+			},
+		}).
+		Build()
+
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	watcher := &workloadUpdateWatcherRecorder{}
+	qManager.AddWorkloadUpdateWatcher(watcher)
+
+	cqCache.AddOrUpdateResourceFlavor(log, rf)
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+	}
+
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+
+	ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+	go qManager.CleanUpOnContext(ctx)
+	defer cancel()
+
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	if !patchAttempted {
+		t.Fatal("Expected scheduler to patch workload admission")
+	}
+	if !cqCache.ClusterQueueEmpty(kueue.ClusterQueueReference(cq.Name)) {
+		t.Fatal("Expected failed assumed workload to be removed from ClusterQueue cache")
+	}
+	if watcher.oldWl == nil {
+		t.Fatal("Expected workload update watcher to be notified about the assumed workload removal")
+	}
+	if watcher.newWl != nil {
+		t.Errorf("Expected delete-like workload notification, got new workload %s/%s", watcher.newWl.Namespace, watcher.newWl.Name)
+	}
+	if got, want := watcher.oldWl.Status.Admission.ClusterQueue, kueue.ClusterQueueReference(cq.Name); got != want {
+		t.Errorf("Unexpected notified workload ClusterQueue: got %q, want %q", got, want)
+	}
+}
+
+type workloadUpdateWatcherRecorder struct {
+	oldWl *kueue.Workload
+	newWl *kueue.Workload
+}
+
+func (r *workloadUpdateWatcherRecorder) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
+	if oldWl != nil {
+		r.oldWl = oldWl.DeepCopy()
+	}
+	if newWl != nil {
+		r.newWl = newWl.DeepCopy()
 	}
 }

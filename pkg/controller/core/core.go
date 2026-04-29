@@ -110,6 +110,7 @@ func SetupControllers(
 	}
 	qManager.AddTopologyUpdateWatcher(cqRec)
 	qManager.AddWorkloadUpdateWatcher(qRec)
+	qManager.AddWorkloadUpdateWatcher(cqRec)
 
 	return "", nil
 }

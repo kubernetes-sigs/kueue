@@ -684,6 +684,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		// Ignore errors because the workload or clusterQueue could have been deleted
 		// by an event.
 		_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
+		s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
 		if afs.Enabled(s.admissionFairSharing) {
 			s.updateEntryPenalty(log, e, subtract)
 		}
