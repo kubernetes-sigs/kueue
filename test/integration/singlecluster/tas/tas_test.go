@@ -1584,7 +1584,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}
 				})
 
-				ginkgo.By("make node NotReady to trigger node replacement", func() {
+				ginkgo.By("make node x3 NotReady to trigger node replacement", func() {
 					nodeToUpdate := &corev1.Node{}
 					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
 					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
@@ -1712,7 +1712,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("make node Ready first to trigger reconcile on subsequent update", func() {
+				ginkgo.By("make node x3 Ready first to trigger reconcile on subsequent update", func() {
 					nodeToUpdate := &corev1.Node{}
 					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
 					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
