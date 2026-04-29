@@ -396,7 +396,8 @@ func (r *variantReconciler) deactivateVariants(
 				continue
 			}
 			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[*minPreferredFlavor] {
-				log.V(2).Info("Deactivating variant because it is below the minPreferredFlavor", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "minPreferredFlavor", *minPreferredFlavor)
+				log.V(2).
+					Info("Deactivating variant because it is below the minPreferredFlavor", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "minPreferredFlavor", *minPreferredFlavor)
 				if err := r.deactivateVariant(ctx, v); err != nil {
 					return err
 				}
@@ -408,7 +409,8 @@ func (r *variantReconciler) deactivateVariants(
 	for i := range variants {
 		v := &variants[i]
 		if flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[concurrentadmission.GetVariantFlavor(admittedWl)] {
-			log.V(2).Info("Deactivating variant because it is below the admitted variant", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "admittedFlavor", concurrentadmission.GetVariantFlavor(admittedWl))
+			log.V(2).
+				Info("Deactivating variant because it is below the admitted variant", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "admittedFlavor", concurrentadmission.GetVariantFlavor(admittedWl))
 			if err := r.deactivateVariant(ctx, v); err != nil {
 				return err
 			}
@@ -443,7 +445,8 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 	if minPreferredFlavor != nil {
 		for i := range variants {
 			v := &variants[i]
-			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] <= flavorOrder[*minPreferredFlavor] && flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {
+			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] <= flavorOrder[*minPreferredFlavor] &&
+				flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {
 				// activate the variant, the smaller or equal the flavor order is to the minPreferredFlavor, the higher the priority is
 				if err := activateWl(ctx, r.client, v); err != nil {
 					return err
