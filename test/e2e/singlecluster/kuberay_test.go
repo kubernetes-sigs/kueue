@@ -77,16 +77,6 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		localQueueName     string
 	)
 
-	getRunningWorkerPodNames := func(podList *corev1.PodList) []string {
-		var podNames []string
-		for _, pod := range podList.Items {
-			if strings.Contains(pod.Name, "workers") && pod.Status.Phase == corev1.PodRunning {
-				podNames = append(podNames, pod.Name)
-			}
-		}
-		return podNames
-	}
-
 	getRunningRayWorkerPodNames := func(g gomega.Gomega) []string {
 		pods := &corev1.PodList{}
 		g.Expect(k8sClient.List(ctx, pods,
@@ -349,8 +339,7 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 		ginkgo.By("Waiting for exactly 1 worker pod", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				workerPodNames := getRunningWorkerPodNames(podList)
+				workerPodNames := getRunningRayWorkerPodNames(g)
 				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pod with 'workers' in the name")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 worker pod", podList))
 		})
@@ -368,17 +357,14 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 		ginkgo.By("Waiting for all 2 worker pods to be running", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				runningWorkers := getRunningWorkerPodNames(podList)
+				runningWorkers := getRunningRayWorkerPodNames(g)
 				g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Did not observe 2 running worker pods", podList))
 		})
 
 		var deletedPodName string
 		ginkgo.By("Deleting one worker pod", func() {
-			podList := &corev1.PodList{}
-			gomega.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-			runningWorkers := getRunningWorkerPodNames(podList)
+			runningWorkers := getRunningRayWorkerPodNames(gomega.Default)
 			gomega.Expect(runningWorkers).NotTo(gomega.BeEmpty())
 			deletedPodName = runningWorkers[0]
 			pod := &corev1.Pod{
@@ -393,8 +379,7 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 		ginkgo.By("Waiting for a new worker pod to replace the deleted one", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				runningWorkers := getRunningWorkerPodNames(podList)
+				runningWorkers := getRunningRayWorkerPodNames(g)
 				g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods after replacement")
 				g.Expect(runningWorkers).NotTo(gomega.ContainElement(deletedPodName),
 					"Deleted pod should not be present among running workers")
@@ -550,8 +535,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 		ginkgo.By("Waiting for exactly 1 worker pod", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				workerPodNames := getRunningWorkerPodNames(podList)
+				workerPodNames := getRunningRayWorkerPodNames(g)
 				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pod with 'workers' in the name")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 worker pod", podList))
 		})
@@ -569,9 +553,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 		ginkgo.By("Waiting for second scale-up to 5 workers due to high parallelism tasks", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				// Get worker pod names and check count
-				currentPodNames := getRunningWorkerPodNames(podList)
+				currentPodNames := getRunningRayWorkerPodNames(g)
 				g.Expect(currentPodNames).To(gomega.HaveLen(5), "Expected exactly 5 pods with 'workers' in the name after second scale-up")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Did not scale up to 5 worker pods", podList))
 		})
@@ -601,9 +583,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 		ginkgo.By("Waiting for workers reduced to 1 due to scaling down", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				// Get worker pod names and check count
-				currentPodNames := getRunningWorkerPodNames(podList)
+				currentPodNames := getRunningRayWorkerPodNames(g)
 				g.Expect(currentPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pods with 'workers' in the name")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Workers did not scale down to 1", podList))
 		})
