@@ -158,8 +158,7 @@ var HumanReadablePreemptionReasons = map[string]string{
 	kueue.InCohortReclamationReason:           "reclamation within the cohort",
 	kueue.InCohortFairSharingReason:           "Fair Sharing within the cohort",
 	kueue.InCohortReclaimWhileBorrowingReason: "reclamation within the cohort while borrowing",
-	kueue.WorkloadEvictedByFlavorMigration:    "migration to more favorable resource flavor",
-	"":                                        "UNKNOWN",
+	"": "UNKNOWN",
 }
 
 func priorityInfo(log logr.Logger, w *kueue.Workload) (effectivePri int64, basePri, boost int32) {

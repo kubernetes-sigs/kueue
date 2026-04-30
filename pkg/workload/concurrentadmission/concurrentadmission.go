@@ -88,7 +88,7 @@ func IsFlavorAllowedForVariant(wl *kueue.Workload, flavor kueue.ResourceFlavorRe
 		return true
 	}
 	val, ok := wl.GetAnnotations()[controllerconstants.WorkloadAllowedResourceFlavorAnnotation]
-	if !ok || val == "" {
+	if !ok {
 		return true
 	}
 	allowedFlavors := parseAllowedFlavorsString(val)
@@ -106,4 +106,8 @@ func parseAllowedFlavorsString(s string) []string {
 		parts[i] = strings.TrimSpace(parts[i])
 	}
 	return parts
+}
+
+func SerializeAllowedFlavors(flavors []string) string {
+	return strings.Join(flavors, ",")
 }

@@ -192,7 +192,7 @@ const (
 )
 
 type ConcurrentAdmissionPolicy struct {
-	// migration defines the constraints Workload's migration.
+	// migration defines the constraints on Workload's migration.
 	// The mechanism itself creates "Variants" of the same Workload, each pursuing a different flavor.
 	// All Variants belong to the same "Parent" Workload, and are picked up by Kueue scheduler independently.
 	// Once one of the Variants is admitted, the Parent Workload gets also admitted. The Variants that pursue more

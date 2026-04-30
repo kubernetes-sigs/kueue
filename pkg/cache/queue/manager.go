@@ -366,6 +366,14 @@ func (m *Manager) ConcurrentAdmissionEnabledWithoutLock(cqName kueue.ClusterQueu
 	return cq.ConcurrentAdmissionEnabled()
 }
 
+func (m *Manager) IsConcurrentAdmissionParentWithoutLock(wl *kueue.Workload) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
+	cqName, _ := m.ClusterQueueForWorkloadWithoutLock(wl)
+	return m.ConcurrentAdmissionEnabledWithoutLock(cqName) && !concurrentadmission.IsVariant(wl)
+}
+
 func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue, specUpdated, labelsUpdated bool) error {
 	m.Lock()
 	defer m.Unlock()
@@ -583,11 +591,7 @@ func (m *Manager) ClusterQueueForWorkloadWithoutLock(wl *kueue.Workload) (kueue.
 func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	if features.Enabled(features.ConcurrentAdmission) {
-		cqName, _ := m.ClusterQueueForWorkloadWithoutLock(w)
-		if m.ConcurrentAdmissionEnabledWithoutLock(cqName) && concurrentadmission.IsVariant(w) {
-			return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
-		}
+	if features.Enabled(features.ConcurrentAdmission) && m.IsConcurrentAdmissionParentWithoutLock(w) {
 		return nil
 	}
 	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
@@ -752,11 +756,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 func (m *Manager) UpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	if features.Enabled(features.ConcurrentAdmission) {
-		cqName, _ := m.ClusterQueueForWorkloadWithoutLock(w)
-		if m.ConcurrentAdmissionEnabledWithoutLock(cqName) && concurrentadmission.IsVariant(w) {
-			return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
-		}
+	if features.Enabled(features.ConcurrentAdmission) && m.IsConcurrentAdmissionParentWithoutLock(w) {
 		return nil
 	}
 	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)

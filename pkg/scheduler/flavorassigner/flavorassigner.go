@@ -819,8 +819,8 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
-		if !concurrentadmission.IsFlavorAllowedForVariant(a.wl.Obj, fName) {
-			status.appendf("flavor %s is not in the allowed this workload due to concurrent admission constraints", fName)
+		if features.Enabled(features.ConcurrentAdmission) && !concurrentadmission.IsFlavorAllowedForVariant(a.wl.Obj, fName) {
+			status.appendf("skipping flavor %s due to WorkloadAllowedResourceFlavorAnnotation annotation", fName)
 			continue
 		}
 
