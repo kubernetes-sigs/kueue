@@ -14,13 +14,15 @@ Kueue 包含实验性的 agent skills，可帮助 AI agent 按照可重复的 ru
 {{% alert title="实验性能力" color="warning" %}}
 Agent skills 和 `AGENTS.md` 支持仍是实验性的。它们不是 Kueue API、CLI 命令或发布二进制，
 也不提供向后或向前兼容性保证。
+Agent 的行为具有非确定性，因此必须由人工监督排查过程，并在采取操作前验证结果。
 {{% /alert %}}
 
 ## 开始之前 {#before-you-begin}
 
 使用这些 skills 前，请确认：
 
-- 你使用的 agent 能够读取 `AGENTS.md` 以及 `cmd/experimental/agent/skills` 下的文件。
+- 已在你的 agent 配置文件中添加 `@AGENTS.md` 引用。
+- Agent 能够理解 `AGENTS.md` 以及 `cmd/experimental/agent/skills` 下的文件。
 - 你有一份包含这些 skills 的 Kueue 仓库本地副本。
 - `kubectl` 已配置到要排查的集群。
 - 你的 Kubernetes RBAC 权限允许读取排查所需的 Workload、父级 Job、Pod、事件和命名空间。
@@ -75,7 +77,8 @@ StatefulSet 或其他受支持的作业类型。
 
 ## 事实来源 {#source-of-truth}
 
-详细 runbook 随 skills 一起维护：
+仓库中的 [`AGENTS.md`](https://github.com/kubernetes-sigs/kueue/blob/main/AGENTS.md)
+会指示兼容的 agent 使用 skills 索引。详细 runbook 随 skills 一起维护：
 
 - [`cmd/experimental/agent/skills/README.md`](https://github.com/kubernetes-sigs/kueue/blob/main/cmd/experimental/agent/skills/README.md)
 - [`cmd/experimental/agent/skills/kueue-lineage.md`](https://github.com/kubernetes-sigs/kueue/blob/main/cmd/experimental/agent/skills/kueue-lineage.md)
