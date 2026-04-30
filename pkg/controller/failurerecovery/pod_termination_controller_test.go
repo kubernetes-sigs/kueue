@@ -336,7 +336,7 @@ func TestReconciler(t *testing.T) {
 			wantErr:    nil,
 			wantPod: podToForcefullyDelete.
 				Clone().
-				StatusPhase(corev1.PodFailed).
+				StatusPhase(corev1.PodSucceeded).
 				StatusConditions(corev1.PodCondition{
 					Type:    KueueFailureRecoveryConditionType,
 					Status:  "True",
