@@ -529,6 +529,33 @@ func waitForKueueAvailability(ctx context.Context, k8sClient client.Client, chec
 	waitForLeaderElection(ctx, k8sClient)
 }
 
+// ForceLeaderFailover deletes the current leader pod
+// and waits for a new replica to acquire the leader lease
+func ForceLeaderFailover(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
+	kueueNS := GetKueueNamespace()
+	leaseKey := types.NamespacedName{Namespace: kueueNS, Name: configapi.DefaultLeaderElectionID}
+
+	lease := &coordinationv1.Lease{}
+	gomega.Expect(k8sClient.Get(ctx, leaseKey, lease)).To(gomega.Succeed())
+
+	holderIdentity := ptr.Deref(lease.Spec.HolderIdentity, "")
+	gomega.Expect(holderIdentity).NotTo(gomega.BeEmpty(), "expected a current leader to be elected")
+	leaderPodName := strings.SplitN(holderIdentity, "_", 2)[0]
+
+	ginkgo.By(fmt.Sprintf("Deleting leader pod %q to force failover", leaderPodName))
+	leaderPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: kueueNS, Name: leaderPodName}}
+	gomega.Expect(k8sClient.Delete(ctx, leaderPod)).To(gomega.Succeed())
+
+	ginkgo.By("Waiting for a new leader to be elected")
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, leaseKey, lease)).To(gomega.Succeed())
+		newHolder := ptr.Deref(lease.Spec.HolderIdentity, "")
+		g.Expect(newHolder).NotTo(gomega.BeEmpty())
+		g.Expect(newHolder).NotTo(gomega.Equal(holderIdentity))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
 // waitForLeaderElection waits for the kueue controller to acquire the leader lease
 func waitForLeaderElection(ctx context.Context, k8sClient client.Client) {
 	ginkgo.GinkgoHelper()
