@@ -104,6 +104,18 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		return podNames
 	}
 
+	getRayHeadPod := func(g gomega.Gomega) corev1.Pod {
+		pods := &corev1.PodList{}
+		g.Expect(k8sClient.List(ctx, pods,
+			client.InNamespace(ns.Name),
+			client.MatchingLabels{
+				"ray.io/node-type": "head",
+			},
+		)).To(gomega.Succeed())
+		g.Expect(pods.Items).NotTo(gomega.BeEmpty())
+		return pods.Items[0]
+	}
+
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-e2e-")
 		resourceFlavorName = "kuberay-rf-" + ns.Name
@@ -770,17 +782,7 @@ app = HelloWorld.bind()`,
 
 		ginkgo.By("Verifying the RayService responds to HTTP requests via port-forward", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				// Find the head pod in this namespace
-				pods := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, pods,
-					client.InNamespace(ns.Name),
-					client.MatchingLabels{
-						"ray.io/node-type": "head",
-					},
-				)).To(gomega.Succeed())
-				g.Expect(pods.Items).NotTo(gomega.BeEmpty())
-
-				headPodName := pods.Items[0].Name
+				headPodName := getRayHeadPod(g).Name
 
 				// Port-forward to the head pod on port 8000 (Ray Serve default)
 				localPort, stopChan, err := util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
@@ -925,15 +927,7 @@ app = HelloWorld.bind()`,
 		var localPort int
 		var stopChan chan struct{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			pods := &corev1.PodList{}
-			g.Expect(k8sClient.List(ctx, pods,
-				client.InNamespace(ns.Name),
-				client.MatchingLabels{
-					"ray.io/node-type": "head",
-				},
-			)).To(gomega.Succeed())
-			g.Expect(pods.Items).NotTo(gomega.BeEmpty())
-			headPodName := pods.Items[0].Name
+			headPodName := getRayHeadPod(g).Name
 			var err error
 			localPort, stopChan, err = util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
