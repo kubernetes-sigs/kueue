@@ -29,9 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
-
 	testingclock "k8s.io/utils/clock/testing"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -189,9 +187,7 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 					).
 					WithStatusSubresource(&kueue.Workload{}).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
-						},
+						SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					})
 
 				cl := clientBuilder.Build()
