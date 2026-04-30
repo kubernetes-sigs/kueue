@@ -82,31 +82,31 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					Obj(),
 			},
@@ -126,18 +126,18 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
 					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
 					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "2").
 					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
@@ -145,15 +145,15 @@ func TestReconciler(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "2").
 					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
@@ -334,7 +334,7 @@ func TestReconciler(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					GroupNameLabel(GetWorkloadName("", "sts")).
 					Obj(),
 			},
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -343,7 +343,7 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					GroupNameLabel(GetWorkloadName("", "sts")).
 					Label(controllerconstants.QueueLabel, "lq").
 					Obj(),
 			},
@@ -370,7 +370,7 @@ func TestReconciler(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					GroupNameLabel(GetWorkloadName("", "sts")).
 					KueueFinalizer().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -382,7 +382,7 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("", "sts")).
+					GroupNameLabel(GetWorkloadName("", "sts")).
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 			},
@@ -406,7 +406,7 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label(podconstants.GroupNameLabel, GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					DeletionTimestamp(now).
 					Obj(),

@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -56,7 +55,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 	podGroupWithWl := basePodBuilder.
 		Clone().
-		Label(constants.PrebuiltWorkloadLabel, "wl1").
+		PrebuiltWorkloadLabel("wl1").
 		Label(kueue.MultiKueueOriginLabel, "origin1").
 		MakePodGroupWrappers(groupSize)
 
@@ -83,7 +82,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerPods: []corev1.Pod{
 				*basePodBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
@@ -94,7 +93,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerPods: []corev1.Pod{
 				*basePodBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusPhase(corev1.PodRunning).
 					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
@@ -112,7 +111,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerPods: []corev1.Pod{
 				*basePodBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusPhase(corev1.PodRunning).
 					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
@@ -122,7 +121,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote pod is deleted": {
 			workerPods: []corev1.Pod{
 				*basePodBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},

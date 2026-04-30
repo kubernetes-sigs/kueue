@@ -109,6 +109,11 @@ func (j *ServiceWrapper) Queue(queue string) *ServiceWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of RayService
+func (j *ServiceWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *ServiceWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Request adds a resource request to the default container.
 func (j *ServiceWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *ServiceWrapper {
 	switch rayType {

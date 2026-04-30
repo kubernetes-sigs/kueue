@@ -138,6 +138,11 @@ func (t *TrainJobWrapper) Queue(queue string) *TrainJobWrapper {
 	return t
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the TrainJob.
+func (t *TrainJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *TrainJobWrapper {
+	return t.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // ManagedBy sets the managedby field of the TrainJob.
 func (t *TrainJobWrapper) ManagedBy(managedBy string) *TrainJobWrapper {
 	t.Spec.ManagedBy = new(managedBy)
