@@ -32,6 +32,11 @@
 				{{ partial "navbar-lang-selector.html" . }}
 			</li>
 			{{ end }}
+			<li class="nav-item mt-1 mt-lg-0">
+				<button class="btn btn-link nav-link" onclick="window.togglePagefindSearch && window.togglePagefindSearch()" aria-label="Search" title="Search (Ctrl+K)">
+					<i class="fas fa-search"></i>
+				</button>
+			</li>
 		</ul>
 	</div>
 </nav>
