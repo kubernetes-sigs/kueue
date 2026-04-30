@@ -171,6 +171,12 @@ func main() {
 		}
 	}
 
+	// Validates the configuration after it has been loaded and feature gates have been set.
+	if err := config.Validate(&cfg, scheme).ToAggregate(); err != nil {
+		setupLog.Error(err, "Unable to validate the configuration")
+		os.Exit(1)
+	}
+
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit, "buildDate", version.BuildDate)
 
 	features.LogFeatureGates(setupLog)
@@ -633,7 +639,7 @@ func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.Requeui
 }
 
 func quotaCheckStrategy(cfg *configapi.Configuration) configapi.QuotaCheckStrategy {
-	if cfg.Resources != nil && cfg.Resources.QuotaCheckStrategy != nil {
+	if features.Enabled(features.QuotaCheckStrategy) && cfg.Resources != nil && cfg.Resources.QuotaCheckStrategy != nil {
 		return *cfg.Resources.QuotaCheckStrategy
 	}
 	return configapi.QuotaCheckBlockUndeclared
@@ -648,6 +654,6 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 	if err != nil {
 		return options, cfg, err
 	}
-	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
+	setupLog.Info("Configuration loaded", "config", cfgStr)
 	return options, cfg, nil
 }

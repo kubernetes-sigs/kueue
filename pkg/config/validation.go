@@ -73,7 +73,8 @@ var (
 	resourceQuotaCheckStrategyPath               = field.NewPath("resources", "quotaCheckStrategy")
 )
 
-func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
+// Validate checks the configuration for invalid values.
+func Validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
 	allErrs = append(allErrs, validateIntegrations(c, scheme)...)
@@ -94,6 +95,9 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 
 func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
+	if !features.Enabled(features.QuotaCheckStrategy) {
+		return allErrs
+	}
 	if c.Resources != nil && c.Resources.QuotaCheckStrategy != nil {
 		strategy := *c.Resources.QuotaCheckStrategy
 		if len(c.Resources.ExcludeResourcePrefixes) > 0 && strategy == configapi.QuotaCheckIgnoreUndeclared {
