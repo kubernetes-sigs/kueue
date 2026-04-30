@@ -1,3 +1,25 @@
+## v0.16.7
+
+Changes since `v0.16.6`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- FailureRecovery: Forcefully delete pods that are Failed/Succeeded and scheduled on unreachable nodes.
+  This unblocks cases like a JobSet deleting a Job with foreground cascade being stuck because a pod in a terminal phase exists on one of the unhealthy nodes. (#10855, @kshalot)
+- Fix a race-condition bug that a deleted ClusterQueue may be kept by a finalizer, even after deletion of all workloads and LQs. (#10834, @ShaanveerS)
+- Fixed a bug in Kueue's cache that could leave stale SubtreeQuota values in ancestor cohorts after a child Cohort
+  was deleted, leading to potential over-admission of workloads and incorrect metrics reporting. (#10842, @mbobrovskyi)
+- Fixed a bug where admitted Workloads could fail to patch through the v1beta1 API due to CEL validation of the `priorityClassSource` immutability rule. (#10630, @kannon92)
+- Observability: downgrade the non-compatible flavor error logs to Info level (v3). (#10638, @maishivamhoo123)
+- TAS: Fix a bug where admitted workloads with unhealthy nodes were not evicted when an AdmissionCheck entered Retry or when the PodsReady recovery timeout was exceeded. (#10693, @pajakd)
+- TAS: Fix handling of PodSet groups which could lead in some scenarios to empty topologyAssignment. (#10857, @mimowo)
+- TAS: Fix nil pointer panic in TAS node reconciler when unadmitted workloads exist in the cluster. (#10674, @j-skiba)
+- TAS: Refine the NodeHotSwap logic to ensure that UnhealthyNodes are only updated for workloads currently assigned to a Node via a topology topology assignment. This prevents "late pods" from stale topologies from triggering inaccurate health reporting. (#10838, @j-skiba)
+- VisibilityOnDemand: Fixed a bug in the visibility endpoint, that listing workloads from a local queue includes
+  workloads from other LocalQueues in different namespaces, if the other LocalQueues have the same name. (#10678, @mbobrovskyi)
+
 ## v0.16.6
 
 Changes since `v0.16.5`:
