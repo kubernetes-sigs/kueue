@@ -512,13 +512,9 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 	admittedVariant := getAdmittedVariant(variants)
 	switch {
 	case admittedVariant == nil && workload.IsAdmitted(parent):
-		// variant got evicted
-		log.V(2).Info("Parent admitted and no Variant is admitted, updating parent to not admitted", "parent", klog.KObj(parent))
+		log.V(2).Info("Parent admitted and no Variant is admitted, evicting parent", "parent", klog.KObj(parent))
 		err := workload.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
-			if workload.UnsetQuotaReservationWithCondition(wl, "Pending", "No variant is admitted", r.clock.Now()) {
-				return true, nil
-			}
-			return false, nil
+			return workload.SetEvictedCondition(wl, r.clock.Now(), "ConcurrentAdmission", "No variant is running"), nil
 		})
 		if err != nil {
 			return fmt.Errorf("clearing admission: %w", err)
