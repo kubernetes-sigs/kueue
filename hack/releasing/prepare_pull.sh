@@ -32,15 +32,22 @@ FORK_REMOTE=${FORK_REMOTE:-origin}
 # shellcheck source=hack/utils.sh
 source "${REPO_ROOT}/hack/utils.sh"
 
-MAIN_REPO_ORG=${MAIN_REPO_ORG:-$(get_repo_org "$(git remote get-url "$UPSTREAM_REMOTE")")}
-MAIN_REPO_NAME=${MAIN_REPO_NAME:-$(get_repo_name "$(git remote get-url "$UPSTREAM_REMOTE")")}
+MAIN_REMOTE_URL="$(git remote get-url "$UPSTREAM_REMOTE")"
+MAIN_REPO_ORG=${MAIN_REPO_ORG:-$(get_repo_org "$MAIN_REMOTE_URL")}
+MAIN_REPO_NAME=${MAIN_REPO_NAME:-$(get_repo_name "$MAIN_REMOTE_URL")}
 
 TARGET=${TARGET:-all}
 POSITIONAL_ARGS=()
+SKIP_VERSION_UPDATES=false
 
 # Parse flags (can appear anywhere in argument list)
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --skip-version-updates)
+      SKIP_VERSION_UPDATES=true
+      echo "!!! Skip version updates enabled"
+      shift
+      ;;
     --target)
       TARGET="$2"
       shift 2
@@ -80,15 +87,18 @@ if [[ "$#" -lt 1 ]]; then
   echo "  Create prepare-release PRs for the release branch and/or main"
   echo
   echo "  Options:"
-  echo "    --target <all|release|main>  Which PR(s) to create (default: all)"
+  echo "    --target <all|release|main>         Which PR(s) to create (default: all)"
   echo "      all     - Create both release branch and main PRs"
   echo "      release - Create only the release branch PR"
   echo "      main    - Create only the main branch PR"
+  echo "    --skip-version-updates              Update version strings in main branch to the"
+  echo "                                        provided <version> (default: false)"
   echo
   echo "  Example:"
-  echo "    $0 v0.13.2              # Create both PRs"
-  echo "    $0 --target release v0.13.2  # Create only release branch PR"
-  echo "    $0 --target main v0.13.2     # Create only main branch PR"
+  echo "    $0 v0.13.2                          # Create both PRs"
+  echo "    $0 --skip-version-updates v0.13.2   # Create both PRs (skip version updates)"
+  echo "    $0 --target release v0.13.2         # Create only release branch PR"
+  echo "    $0 --target main v0.13.2            # Create only main branch PR"
   echo
   echo "  Set the DRY_RUN environment var to skip git push and creating PR."
   echo "  This is useful for creating patches to a release branch without making a PR."
@@ -163,6 +173,15 @@ if [ -z "$CHANGELOG" ]; then
   echo "!!! No changelog found. Please update issue and add changelog."
 fi
 
+LATEST_RELEASE_VERSION="$(gh --repo "$MAIN_REMOTE_URL" release list --json name,isLatest -q '.[] | select(.isLatest) | .name')"
+
+echo "Latest release version is ${LATEST_RELEASE_VERSION}"
+
+# Split into LATEST_MAJOR, LATEST_MINOR, LATEST_PATCH
+latest_core_version=${LATEST_RELEASE_VERSION#v}
+LATEST_MAJOR=$(echo "$latest_core_version" | cut -d. -f1)
+LATEST_MINOR=$(echo "$latest_core_version" | cut -d. -f2)
+
 clean_branches=()
 function cleanup {
   # Return to the starting branch and delete specified branches
@@ -224,9 +243,6 @@ function prepare_local_branch() {
   git checkout -b "$2" "${UPSTREAM_REMOTE}/$1"
   clean_branches+=("$2")
 
-  update_version_and_branch "$RELEASE_VERSION" "$1"
-  make prepare-release-branch
-
   # Ensure CHANGELOG dir exists
   mkdir -p "$(dirname "$CHANGELOG_FILE")"
 
@@ -243,9 +259,14 @@ function prepare_local_branch() {
   } > "$tmpfile"
   mv "$tmpfile" "${CHANGELOG_FILE}"
 
-  # Update security insights only for main branch PRs.
-  if [ "$1" = "main" ]; then
-    make update-security-insights GIT_TAG="${RELEASE_VERSION}"
+  if [[ "$1" != "main" ]] || [[ "$SKIP_VERSION_UPDATES" == "false" && ( MAJOR -gt LATEST_MAJOR || ( MAJOR -eq LATEST_MAJOR && MINOR -ge LATEST_MINOR ) ) ]]; then
+    update_version_and_branch "$RELEASE_VERSION" "$1"
+    make prepare-release-branch
+
+    # Update security insights only for main branch PRs.
+    if [ "$1" = "main" ]; then
+      make update-security-insights GIT_TAG="${RELEASE_VERSION}"
+    fi
   fi
 
   git add .
@@ -323,30 +344,29 @@ if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
 
   PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
   if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
-    NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL -->/#${PREPARE_RELEASE_PR_NUMBER}}
-    gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
+    RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_RELEASE -->/#${PREPARE_RELEASE_PR_NUMBER}}
+    gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
       echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
     }
   fi
 fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "main" ]]; then
-  LATEST_RELEASE_VERSION=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+  UPDATE_MAIN_WITH_LATEST_BRANCH="update-main-with-latest-${RELEASE_VERSION}"
+  declare -r UPDATE_MAIN_WITH_LATEST_BRANCH
+  UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE="${UPDATE_MAIN_WITH_LATEST_BRANCH}-$(date +%s)"
+  declare -r UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE
 
-  # Split into LATEST_MAJOR, LATEST_MINOR, LATEST_PATCH
-  latest_core_version=${LATEST_RELEASE_VERSION#v}
-  LATEST_MAJOR=$(echo "$latest_core_version" | cut -d. -f1)
-  LATEST_MINOR=$(echo "$latest_core_version" | cut -d. -f2)
+  UPDATE_MAIN_WITH_LATEST_PR_NAME="Update main with the latest ${RELEASE_VERSION}"
 
-  if (( MAJOR > LATEST_MAJOR )) || (( MAJOR == LATEST_MAJOR && MINOR >= LATEST_MINOR )); then
-    UPDATE_MAIN_WITH_LATEST_BRANCH="update-main-with-latest-${RELEASE_VERSION}"
-    declare -r UPDATE_MAIN_WITH_LATEST_BRANCH
-    UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE="${UPDATE_MAIN_WITH_LATEST_BRANCH}-$(date +%s)"
-    declare -r UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE
+  prepare_local_branch main "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
+  push_and_create_pr main "${UPDATE_MAIN_WITH_LATEST_BRANCH}" "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
 
-    UPDATE_MAIN_WITH_LATEST_PR_NAME="Update main with the latest ${RELEASE_VERSION}"
-
-    prepare_local_branch main "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
-    push_and_create_pr main "${UPDATE_MAIN_WITH_LATEST_BRANCH}" "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
+  PREPARE_MAIN_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${UPDATE_MAIN_WITH_LATEST_PR_NAME}" | awk '{print $1}' || true)
+  if [ -n "$PREPARE_MAIN_PR_NUMBER" ]; then
+    RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_MAIN -->/#${PREPARE_MAIN_PR_NUMBER}}
+    gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
+      echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
+    }
   fi
 fi
