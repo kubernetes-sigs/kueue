@@ -830,10 +830,10 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	var useBalancedPlacement bool
 	if features.Enabled(features.TASBalancedPlacement) && !state.required && !state.unconstrained {
 		var bestThreshold int32
-		currFitDomain, bestThreshold = findBestDomainsForBalancedPlacement(s, levelIdx, state.sliceLevelIdx, state.count, state.leaderCount, state.sliceSize)
+		currFitDomain, bestThreshold = findBestDomainsForBalancedPlacement(s, state)
 		useBalancedPlacement = bestThreshold > 0
 		if useBalancedPlacement {
-			currFitDomain, fitLevelIdx, reason = applyBalancedPlacementAlgorithm(s, levelIdx, state.sliceLevelIdx, state.count, state.leaderCount, state.sliceSize, bestThreshold, currFitDomain)
+			currFitDomain, fitLevelIdx, reason = applyBalancedPlacementAlgorithm(s, state, bestThreshold, currFitDomain)
 			if len(reason) > 0 {
 				return nil, reason
 			}
@@ -841,7 +841,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	if !useBalancedPlacement {
-		fitLevelIdx, currFitDomain, reason = s.findLevelWithFitDomains(levelIdx, state.required, state.count, state.leaderCount, state.sliceSize, state.unconstrained, state.stats)
+		fitLevelIdx, currFitDomain, reason = s.findLevelWithFitDomains(state.levelIdx, state)
 		if len(reason) > 0 {
 			return nil, reason
 		}
@@ -1076,47 +1076,43 @@ func findBestFitDomainBy(domains []*domain, needed int32, state domainState) *do
 
 func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 	levelIdx int,
-	required bool,
-	podSetSize int32,
-	leaderPodSetSize int32,
-	sliceSize int32,
-	unconstrained bool,
-	stats *ExclusionStats,
+	state *findTopologyAssignmentState,
 ) (int, []*domain, string) {
 	domains := s.domainsPerLevel[levelIdx]
 	if len(domains) == 0 {
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
-	sortedDomain := s.sortedDomainsWithLeader(levelDomains, unconstrained)
+	sortedDomain := s.sortedDomainsWithLeader(levelDomains, state.unconstrained)
 	topDomain := sortedDomain[0]
 
-	sliceCount := podSetSize / sliceSize
-	if useBestFitAlgorithm(unconstrained) && topDomain.sliceStateWithLeader >= sliceCount && topDomain.leaderState >= leaderPodSetSize {
+	sliceCount := state.count / state.sliceSize
+	if useBestFitAlgorithm(state.unconstrained) && topDomain.sliceStateWithLeader >= sliceCount && topDomain.leaderState >= state.leaderCount {
 		// optimize the potentially last domain
-		topDomain = findBestFitDomainForSlices(sortedDomain, sliceCount, leaderPodSetSize)
+		topDomain = findBestFitDomainForSlices(sortedDomain, sliceCount, state.leaderCount)
 	}
-	if useLeastFreeCapacityAlgorithm(unconstrained) {
+
+	if useLeastFreeCapacityAlgorithm(state.unconstrained) {
 		for _, candidateDomain := range sortedDomain {
 			if candidateDomain.sliceState >= sliceCount {
 				return levelIdx, []*domain{candidateDomain}, ""
 			}
 		}
-		if required {
+		if state.required {
 			maxCapacityFound := sortedDomain[len(sortedDomain)-1].state
-			return 0, nil, s.notFitMessage(maxCapacityFound, sliceCount, sliceSize, stats)
+			return 0, nil, s.notFitMessage(maxCapacityFound, sliceCount, state.sliceSize, state.stats)
 		}
 	}
-	if topDomain.sliceStateWithLeader < sliceCount || topDomain.leaderState < leaderPodSetSize {
-		if required {
-			return 0, nil, s.notFitMessage(topDomain.sliceState, sliceCount, sliceSize, stats)
+	if topDomain.sliceStateWithLeader < sliceCount || topDomain.leaderState < state.leaderCount {
+		if state.required {
+			return 0, nil, s.notFitMessage(topDomain.sliceState, sliceCount, state.sliceSize, state.stats)
 		}
-		if levelIdx > 0 && !unconstrained {
-			return s.findLevelWithFitDomains(levelIdx-1, required, podSetSize, leaderPodSetSize, sliceSize, unconstrained, stats)
+		if levelIdx > 0 && !state.unconstrained {
+			return s.findLevelWithFitDomains(levelIdx-1, state)
 		}
 		results := []*domain{}
 		remainingSliceCount := sliceCount
-		remainingLeaderCount := leaderPodSetSize
+		remainingLeaderCount := state.leaderCount
 
 		// Domains are sorted in a way that prioritizes domains with higher leader capacity.
 		// We want to assign leaders first. After we are assign all leaders, we sort the remaining
@@ -1125,7 +1121,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		idx := 0
 		for ; remainingLeaderCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].leaderState > 0; idx++ {
 			domain := sortedDomain[idx]
-			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].sliceStateWithLeader >= remainingSliceCount {
+			if useBestFitAlgorithm(state.unconstrained) && sortedDomain[idx].sliceStateWithLeader >= remainingSliceCount {
 				// optimize the last domain
 				domain = findBestFitDomainForSlices(sortedDomain[idx:], remainingSliceCount, remainingLeaderCount)
 			}
@@ -1135,15 +1131,15 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 			remainingSliceCount -= domain.sliceStateWithLeader
 		}
 		if remainingLeaderCount > 0 {
-			return 0, nil, s.notFitMessage(leaderPodSetSize-remainingLeaderCount, sliceCount, sliceSize, stats)
+			return 0, nil, s.notFitMessage(state.leaderCount-remainingLeaderCount, sliceCount, state.sliceSize, state.stats)
 		}
 
 		// At this point we have assigned all leaders, so we sort remaining domains based on worker capacity
 		// and assign remaining workers.
-		sortedDomain = s.sortedDomains(sortedDomain[idx:], unconstrained)
+		sortedDomain = s.sortedDomains(sortedDomain[idx:], state.unconstrained)
 		for idx := 0; remainingSliceCount > 0 && idx < len(sortedDomain); idx++ {
 			domain := sortedDomain[idx]
-			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].sliceState >= remainingSliceCount {
+			if useBestFitAlgorithm(state.unconstrained) && sortedDomain[idx].sliceState >= remainingSliceCount {
 				// optimize the last domain
 				domain = findBestFitDomainForSlices(sortedDomain[idx:], remainingSliceCount, 0)
 			}
@@ -1152,7 +1148,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 			remainingSliceCount -= domain.sliceState
 		}
 		if remainingSliceCount > 0 {
-			return 0, nil, s.notFitMessage(sliceCount-remainingSliceCount, sliceCount, sliceSize, stats)
+			return 0, nil, s.notFitMessage(sliceCount-remainingSliceCount, sliceCount, state.sliceSize, state.stats)
 		}
 		return levelIdx, results, ""
 	}

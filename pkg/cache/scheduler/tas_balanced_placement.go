@@ -237,16 +237,16 @@ func sortDomainsByCapacityAndEntropy(domains []*domain) {
 
 // findBestDomainsForBalancedPlacement evaluates domains for balanced placement.
 // It returns the best set of domains, the balance threshold, and whether a balanced placement is possible.
-func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLevelIdx int, count, leaderCount, sliceSize int32) ([]*domain, int32) {
+func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, state *findTopologyAssignmentState) ([]*domain, int32) {
 	// check if balanced placement is possible: look one level above the preferred level
 	// see if any (single) domain on that level fits the request and compute for each of
 	// them the balance threshold value
-	sliceCount := count / sliceSize
+	sliceCount := state.count / state.sliceSize
 	var requestedLevelDomainsToConsider [][]*domain
-	if levelIdx == 0 {
+	if state.levelIdx == 0 {
 		requestedLevelDomainsToConsider = [][]*domain{slices.Collect(maps.Values(s.domainsPerLevel[0]))}
 	} else {
-		for _, higherLevelDomain := range slices.Collect(maps.Values(s.domainsPerLevel[levelIdx-1])) {
+		for _, higherLevelDomain := range slices.Collect(maps.Values(s.domainsPerLevel[state.levelIdx-1])) {
 			requestedLevelDomainsToConsider = append(requestedLevelDomainsToConsider, higherLevelDomain.children)
 		}
 	}
@@ -256,15 +256,15 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLe
 	var currFitDomain []*domain
 
 	for _, requestedLevelSiblingDomains := range requestedLevelDomainsToConsider {
-		lowerLevelDomains := getLowerLevelDomains(s, requestedLevelSiblingDomains, levelIdx, sliceLevelIdx)
-		fits, selectedDomainsCount, lastDomainWithLeader, lastDomain := evaluateGreedyAssignment(s, lowerLevelDomains, sliceCount, leaderCount)
+		lowerLevelDomains := getLowerLevelDomains(s, requestedLevelSiblingDomains, state.levelIdx, state.sliceLevelIdx)
+		fits, selectedDomainsCount, lastDomainWithLeader, lastDomain := evaluateGreedyAssignment(s, lowerLevelDomains, sliceCount, state.leaderCount)
 		if !fits {
 			continue
 		}
 		threshold := balanceThresholdValue(sliceCount, selectedDomainsCount, lastDomainWithLeader, lastDomain)
 		if threshold >= bestThreshold {
-			s.pruneDomainsBelowThreshold(requestedLevelSiblingDomains, threshold, sliceSize, sliceLevelIdx, levelIdx)
-			_, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(s, requestedLevelSiblingDomains, sliceCount, leaderCount)
+			s.pruneDomainsBelowThreshold(requestedLevelSiblingDomains, threshold, state.sliceSize, state.sliceLevelIdx, state.levelIdx)
+			_, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(s, requestedLevelSiblingDomains, sliceCount, state.leaderCount)
 			if threshold > bestThreshold || (threshold == bestThreshold && requestedLevelDomainCount < bestDomainCountOnRequestedLevel) {
 				bestThreshold = threshold
 				bestDomainCountOnRequestedLevel = requestedLevelDomainCount
@@ -277,21 +277,21 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLe
 
 // applyBalancedPlacementAlgorithm applies the balanced placement algorithm to determine domain assignments
 // on the requested level(s)
-func applyBalancedPlacementAlgorithm(s *TASFlavorSnapshot, levelIdx, sliceLevelIdx int, count, leaderCount, sliceSize, bestThreshold int32, currFitDomain []*domain) ([]*domain, int, string) {
-	sliceCount := count / sliceSize
+func applyBalancedPlacementAlgorithm(s *TASFlavorSnapshot, state *findTopologyAssignmentState, bestThreshold int32, currFitDomain []*domain) ([]*domain, int, string) {
+	sliceCount := state.count / state.sliceSize
 	var fitLevelIdx int
-	if levelIdx < sliceLevelIdx {
-		resultDomains := selectOptimalDomainSetToFit(s, currFitDomain, sliceCount, leaderCount, sliceSize, true)
+	if state.levelIdx < state.sliceLevelIdx {
+		resultDomains := selectOptimalDomainSetToFit(s, currFitDomain, sliceCount, state.leaderCount, state.sliceSize, true)
 		if resultDomains == nil {
 			return nil, 0, "TAS Balanced Placement: Cannot find optimal domain set to fit the request"
 		}
 		currFitDomain = s.lowerLevelDomains(resultDomains)
-		fitLevelIdx = levelIdx + 1
+		fitLevelIdx = state.levelIdx + 1
 	} else {
-		fitLevelIdx = levelIdx
+		fitLevelIdx = state.levelIdx
 	}
 	var reason string
-	currFitDomain, reason = placeSlicesOnDomainsBalanced(s, currFitDomain, sliceCount, leaderCount, sliceSize, bestThreshold)
+	currFitDomain, reason = placeSlicesOnDomainsBalanced(s, currFitDomain, sliceCount, state.leaderCount, state.sliceSize, bestThreshold)
 	if len(reason) > 0 {
 		return nil, 0, reason
 	}
