@@ -227,7 +227,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			var wl *kueue.Workload
 			ginkgo.By("Create the pebuilt workload and the job adopting it", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-					Label(constants.PrebuiltWorkloadLabel, "prebuilt-wl").
+					PrebuiltWorkloadLabel("prebuilt-wl").
 					BackoffLimit(0).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletionFailOnExit).
 					TerminationGracePeriod(1).

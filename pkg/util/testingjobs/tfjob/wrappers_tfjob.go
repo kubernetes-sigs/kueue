@@ -175,6 +175,11 @@ func (j *TFJobWrapper) Queue(queue string) *TFJobWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *TFJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *TFJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Request adds a resource request to the default container.
 func (j *TFJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *TFJobWrapper {
 	j.Spec.TFReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)

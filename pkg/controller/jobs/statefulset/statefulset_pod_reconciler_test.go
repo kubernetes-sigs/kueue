@@ -122,9 +122,9 @@ func TestPodReconciler(t *testing.T) {
 					OwnerReference("sts", gvk).
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
-					PrebuiltWorkload(GetWorkloadName("sts-uid", "sts")).
+					PrebuiltWorkloadLabel(GetWorkloadName("sts-uid", "sts")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
@@ -149,10 +149,10 @@ func TestPodReconciler(t *testing.T) {
 					OwnerReference("sts", gvk).
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
 					Label(controllerconstants.WorkloadPriorityClassLabel, "high-priority").
-					PrebuiltWorkload(GetWorkloadName("sts-uid", "sts")).
+					PrebuiltWorkloadLabel(GetWorkloadName("sts-uid", "sts")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
@@ -171,7 +171,7 @@ func TestPodReconciler(t *testing.T) {
 				OwnerReference("sts", gvk).
 				Queue("queue").
 				ManagedByKueueLabel().
-				Group(GetWorkloadName("sts-uid", "sts")).
+				GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 				GroupTotalCount("3").
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -180,7 +180,7 @@ func TestPodReconciler(t *testing.T) {
 					OwnerReference("sts", gvk).
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Obj(),
@@ -196,7 +196,7 @@ func TestPodReconciler(t *testing.T) {
 				OwnerReference("sts", gvk).
 				Queue("old-queue").
 				ManagedByKueueLabel().
-				Group(GetWorkloadName("sts-uid", "sts")).
+				GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 				GroupTotalCount("3").
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -205,7 +205,7 @@ func TestPodReconciler(t *testing.T) {
 					OwnerReference("sts", gvk).
 					Queue("new-queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Obj(),
@@ -221,7 +221,7 @@ func TestPodReconciler(t *testing.T) {
 				OwnerReference("sts", gvk).
 				Queue("queue").
 				ManagedByKueueLabel().
-				Group(GetWorkloadName("", "sts")).
+				GroupNameLabel(GetWorkloadName("", "sts")).
 				GroupTotalCount("3").
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -233,7 +233,7 @@ func TestPodReconciler(t *testing.T) {
 					OwnerReference("sts", gvk).
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("", "sts")).
+					GroupNameLabel(GetWorkloadName("", "sts")).
 					GroupTotalCount("3").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Obj(),
@@ -257,9 +257,9 @@ func TestPodReconciler(t *testing.T) {
 					OwnerReference("sts", gvk).
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("", "sts")).
+					GroupNameLabel(GetWorkloadName("", "sts")).
 					GroupTotalCount("3").
-					PrebuiltWorkload(GetWorkloadName("", "sts")).
+					PrebuiltWorkloadLabel(GetWorkloadName("", "sts")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
@@ -282,9 +282,9 @@ func TestPodReconciler(t *testing.T) {
 				*testingjobspod.MakePod("pod", "ns").
 					OwnerReference("sts", gvk).
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("sts-uid", "sts")).
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
-					PrebuiltWorkload(GetWorkloadName("sts-uid", "sts")).
+					PrebuiltWorkloadLabel(GetWorkloadName("sts-uid", "sts")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).

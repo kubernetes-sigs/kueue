@@ -122,9 +122,9 @@ func TestPodReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					GroupNameLabel(GetWorkloadName(types.UID(testUID), "lws", "0")).
 					GroupTotalCount("1").
-					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					PrebuiltWorkloadLabel(GetWorkloadName(types.UID(testUID), "lws", "0")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
@@ -150,9 +150,9 @@ func TestPodReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					GroupNameLabel(GetWorkloadName(types.UID(testUID), "lws", "0")).
 					GroupTotalCount("1").
-					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					PrebuiltWorkloadLabel(GetWorkloadName(types.UID(testUID), "lws", "0")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
@@ -179,9 +179,9 @@ func TestPodReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					GroupNameLabel(GetWorkloadName(types.UID(testUID), "lws", "0")).
 					GroupTotalCount("1").
-					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					PrebuiltWorkloadLabel(GetWorkloadName(types.UID(testUID), "lws", "0")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(podconstants.RoleHashAnnotation, leaderPodSetName).
@@ -208,9 +208,9 @@ func TestPodReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					GroupNameLabel(GetWorkloadName(types.UID(testUID), "lws", "0")).
 					GroupTotalCount("1").
-					PrebuiltWorkload(GetWorkloadName(types.UID(testUID), "lws", "0")).
+					PrebuiltWorkloadLabel(GetWorkloadName(types.UID(testUID), "lws", "0")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
@@ -245,9 +245,9 @@ func TestPodReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Queue("queue").
 					ManagedByKueueLabel().
-					Group(GetWorkloadName("origin-uid", "lws", "0")).
+					GroupNameLabel(GetWorkloadName("origin-uid", "lws", "0")).
 					GroupTotalCount("1").
-					PrebuiltWorkload(GetWorkloadName("origin-uid", "lws", "0")).
+					PrebuiltWorkloadLabel(GetWorkloadName("origin-uid", "lws", "0")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).

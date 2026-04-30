@@ -148,6 +148,11 @@ func (j *PaddleJobWrapper) Queue(queue string) *PaddleJobWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job.
+func (j *PaddleJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *PaddleJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Request adds a resource request to the default container.
 func (j *PaddleJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *PaddleJobWrapper {
 	j.Spec.PaddleReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)

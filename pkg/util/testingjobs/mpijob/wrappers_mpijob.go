@@ -171,6 +171,11 @@ func (j *MPIJobWrapper) Queue(queue string) *MPIJobWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *MPIJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *MPIJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Request adds a resource request to the default container.
 func (j *MPIJobWrapper) Request(replicaType kfmpi.MPIReplicaType, r corev1.ResourceName, v string) *MPIJobWrapper {
 	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)

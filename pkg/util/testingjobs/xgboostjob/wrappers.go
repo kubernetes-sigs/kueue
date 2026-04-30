@@ -148,6 +148,11 @@ func (j *XGBoostJobWrapper) Queue(queue string) *XGBoostJobWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *XGBoostJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *XGBoostJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Request updates a resource request to the default container.
 func (j *XGBoostJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *XGBoostJobWrapper {
 	j.Spec.XGBReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
