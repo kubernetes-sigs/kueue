@@ -436,21 +436,12 @@ type topologyAssignmentPodRequirements struct {
 	selector                  labels.Selector
 	affinitySelector          *nodeaffinity.NodeSelector
 	requiredReplacementDomain utiltas.TopologyDomainID
-	stats                     *ExclusionStats
-	sliceSize                 int32
-	count                     int32
-	leaderCount               int32
-	levelIdx                  int
-	sliceLevelIdx             int
-	required                  bool
-	unconstrained             bool
 	simulateEmpty             bool
 }
 
 // topologyAssignmentParameters stores placement-specific inputs that remain
 // relevant after domain capacities are computed.
 type topologyAssignmentParameters struct {
-	sliceSizeAtLevel  map[int]int32
 	sliceSize         int32
 	count             int32
 	leaderCount       int32
