@@ -434,9 +434,11 @@ func (s *Scheduler) processEntry(
 		}
 	}
 
-	if lessFavorableSibling := s.getLessFavorableSibling(log, &e.Info, snapshot); features.Enabled(features.ConcurrentAdmission) && lessFavorableSibling != nil {
-		s.issueMigration(ctx, log, e, lessFavorableSibling)
-		return
+	if features.Enabled(features.ConcurrentAdmission) {
+		if lessFavorableSibling := s.getLessFavorableSibling(log, &e.Info, snapshot); lessFavorableSibling != nil {
+			s.issueMigration(ctx, log, e, lessFavorableSibling)
+			return
+		}
 	}
 
 	e.markNominated()
@@ -719,53 +721,6 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 		}
 	}
 	return fullAssignment, nil
-}
-
-func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) *preemption.Target {
-	if !features.Enabled(features.ConcurrentAdmission) {
-		return nil
-	}
-	parentUID := concurrentadmission.GetParentWorkloadUID(wl.Obj)
-	if parentUID == "" {
-		return nil
-	}
-
-	cq := snap.ClusterQueue(wl.ClusterQueue)
-	if cq == nil || len(cq.ResourceGroups) == 0 {
-		return nil
-	}
-	flavors := cq.ResourceGroups[0].Flavors
-
-	candidateFlavor := concurrentadmission.GetVariantFlavor(wl.Obj)
-	if candidateFlavor == "" {
-		return nil
-	}
-
-	for _, otherWl := range cq.Workloads {
-		if otherWl.Obj.UID == wl.Obj.UID {
-			continue
-		}
-		if concurrentadmission.GetParentWorkloadUID(otherWl.Obj) == parentUID && workload.IsAdmitted(otherWl.Obj) {
-			siblingFlavor := concurrentadmission.GetVariantFlavor(otherWl.Obj)
-			if siblingFlavor != "" && isLessFavorable(candidateFlavor, siblingFlavor, flavors) {
-				return &preemption.Target{
-					WorkloadInfo: otherWl,
-					WorkloadCq:   cq,
-					Reason:       kueue.WorkloadEvictedByFlavorMigration,
-				}
-			}
-		}
-	}
-	return nil
-}
-
-func isLessFavorable(candidate, sibling kueue.ResourceFlavorReference, flavors []kueue.ResourceFlavorReference) bool {
-	candidateIdx := slices.Index(flavors, candidate)
-	siblingIdx := slices.Index(flavors, sibling)
-	if candidateIdx == -1 || siblingIdx == -1 {
-		return false
-	}
-	return candidateIdx < siblingIdx
 }
 
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
@@ -1108,4 +1063,51 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 		s.queues.AfsEntryPenalties.Sub(lqKey, penalty)
 		log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", lqObjRef, "penalty", penalty)
 	}
+}
+
+func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) *preemption.Target {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return nil
+	}
+	parentUID := concurrentadmission.GetParentWorkloadUID(wl.Obj)
+	if parentUID == "" {
+		return nil
+	}
+
+	cq := snap.ClusterQueue(wl.ClusterQueue)
+	if cq == nil || len(cq.ResourceGroups) == 0 {
+		return nil
+	}
+	flavors := cq.ResourceGroups[0].Flavors
+
+	candidateFlavor := concurrentadmission.GetVariantFlavor(wl.Obj)
+	if candidateFlavor == "" {
+		return nil
+	}
+
+	for _, otherWl := range cq.Workloads {
+		if otherWl.Obj.UID == wl.Obj.UID {
+			continue
+		}
+		if concurrentadmission.GetParentWorkloadUID(otherWl.Obj) == parentUID && workload.IsAdmitted(otherWl.Obj) {
+			siblingFlavor := concurrentadmission.GetVariantFlavor(otherWl.Obj)
+			if siblingFlavor != "" && isLessFavorable(candidateFlavor, siblingFlavor, flavors) {
+				return &preemption.Target{
+					WorkloadInfo: otherWl,
+					WorkloadCq:   cq,
+					Reason:       kueue.WorkloadEvictedByFlavorMigration,
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func isLessFavorable(candidate, sibling kueue.ResourceFlavorReference, flavors []kueue.ResourceFlavorReference) bool {
+	candidateIdx := slices.Index(flavors, candidate)
+	siblingIdx := slices.Index(flavors, sibling)
+	if candidateIdx == -1 || siblingIdx == -1 {
+		return false
+	}
+	return candidateIdx < siblingIdx
 }
