@@ -1,9 +1,11 @@
 ---
 title: "Installation"
 linkTitle: "Installation"
-weight: 2
+weight: 1
 description: >
   Installing Kueue to a Kubernetes Cluster
+aliases:
+  - /docs/installation/
 ---
 
 <!-- toc -->
@@ -308,4 +310,5 @@ The ShortWorkloadNames features are available starting from versions 0.15.7 and 
 
 ## What's next
 
+- Follow the [Quick Start](/docs/getting-started/quick-start) guide to run your first Job with Kueue.
 - Read the [API reference](/docs/reference/kueue-config.v1beta1/#Configuration) for `Configuration`
