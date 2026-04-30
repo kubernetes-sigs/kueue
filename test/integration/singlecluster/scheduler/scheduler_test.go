@@ -2893,6 +2893,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.AfterEach(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, root, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, chLeft, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, chRight, true)
 		})
 
 		ginkgo.It("Should not admit from stale subtree quota after deleting sibling cohort", func() {
