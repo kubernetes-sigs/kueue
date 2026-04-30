@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -3025,8 +3024,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("deleting explicit cohort right while cq-b still references it")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, chRight, true)
-			// Wait for the cache to process the cohort deletion
-			time.Sleep(util.ConsistentDuration)
+
+			ginkgo.By("waiting for the cache to process the cohort deletion", func() {
+				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned(chRight.Name, onDemandFlavor.Name, corev1.ResourceCPU.String())
+			})
 
 			ginkgo.By("trying to admit extra workload on cq-a after deletion of cohort right")
 			// root cohort subtree quota should be properly recomputed after deletion of right cohort
