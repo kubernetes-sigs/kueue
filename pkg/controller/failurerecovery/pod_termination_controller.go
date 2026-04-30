@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
@@ -173,7 +174,9 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	)
 
 	err := utilclient.PatchStatus(ctx, r.client, pod, func() (bool, error) {
-		pod.Status.Phase = corev1.PodFailed
+		if !utilpod.IsTerminated(pod) {
+			pod.Status.Phase = corev1.PodFailed
+		}
 		pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
 			Type:    KueueFailureRecoveryConditionType,
 			Status:  corev1.ConditionTrue,
