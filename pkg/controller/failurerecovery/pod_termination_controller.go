@@ -41,7 +41,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
@@ -204,21 +203,7 @@ func podEligibleForTermination(p *corev1.Pod) bool {
 		return false
 	}
 
-	if p.DeletionTimestamp.IsZero() {
-		return false
-	}
-
-	// Do not filter out partially terminated (condition set, but not deleted) pods to handle
-	// partial executions of the controller caused by errors (for example network errors).
-	return isPodPartiallyForcefullyTerminated(p) || !utilpod.IsTerminated(p)
-}
-
-func isPodPartiallyForcefullyTerminated(p *corev1.Pod) bool {
-	return utilpod.HasCondition(p, &corev1.PodCondition{
-		Type:   KueueFailureRecoveryConditionType,
-		Reason: KueueForcefulTerminationReason,
-		Status: corev1.ConditionTrue,
-	})
+	return !p.DeletionTimestamp.IsZero()
 }
 
 func (r *TerminatingPodReconciler) mapNodeToPods(ctx context.Context, node *corev1.Node) []ctrl.Request {
