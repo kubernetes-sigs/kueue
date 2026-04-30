@@ -421,11 +421,6 @@ func (s *Scheduler) processEntry(
 	// Note: it is valid for either or both preemptionTargets and oldWorkloadSlice to be nil.
 	preemptionTargets, oldWorkloadSlice := workloadslicing.FindReplacedSliceTarget(e.Obj, e.preemptionTargets)
 
-	var migrationVictim *preemption.Target
-	if features.Enabled(features.ConcurrentAdmission) {
-		migrationVictim, preemptionTargets = findMigrationVictim(preemptionTargets)
-	}
-
 	if mode == flavorassigner.Preempt {
 		s.issuePreemptions(ctx, log, e, preemptionTargets)
 		return
@@ -439,8 +434,8 @@ func (s *Scheduler) processEntry(
 		}
 	}
 
-	if features.Enabled(features.ConcurrentAdmission) && migrationVictim != nil {
-		s.issueMigration(ctx, log, e, migrationVictim)
+	if lessFavorableSibling := s.getLessFavorableSibling(log, &e.Info, snapshot); features.Enabled(features.ConcurrentAdmission) && lessFavorableSibling != nil {
+		s.issueMigration(ctx, log, e, lessFavorableSibling)
 		return
 	}
 
@@ -469,17 +464,6 @@ func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *e
 	}
 }
 
-// findMigrationVictim identifies a target with reason FlavorMigration in preemptionTargets,
-// removes it from the targets slice, and returns it as the migration victim along with the remaining targets.
-func findMigrationVictim(targets []*preemption.Target) (*preemption.Target, []*preemption.Target) {
-	for i := range targets {
-		if targets[i].Reason == kueue.WorkloadEvictedByFlavorMigration {
-			return targets[i], append(targets[:i], targets[i+1:]...)
-		}
-	}
-	return nil, targets
-}
-
 // issueMigration evicts victim of migration to a more favorable ResourceFlavor.
 func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entry, migrationVictim *preemption.Target) {
 	log.V(3).Info("Migrating to more favorable resource flavor", "targetWorkload", klog.KObj(migrationVictim.WorkloadInfo.Obj), "evictorWorkload", klog.KObj(e.Obj))
@@ -496,7 +480,6 @@ func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entr
 	e.LastAssignment = nil
 	e.requeueReason = qcache.RequeueReasonPendingMigration
 	e.inadmissibleMsg += ". Pending the migration of 1 workload(s)"
-	return
 }
 
 func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *entry, preemptionTargets []*preemption.Target) {
@@ -703,10 +686,6 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
-	// Add less favorable siblings to preemption targets once here.
-	if lessFavorableSibling := s.getLessFavorableSibling(log, wl, fullAssignment, snap); lessFavorableSibling != nil {
-		preemptionTargets = append(preemptionTargets, lessFavorableSibling)
-	}
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
 		return fullAssignment, preemptionTargets
@@ -742,7 +721,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 	return fullAssignment, nil
 }
 
-func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, assignment flavorassigner.Assignment, snap *schdcache.Snapshot) *preemption.Target {
+func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) *preemption.Target {
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return nil
 	}
