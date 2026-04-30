@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
@@ -73,7 +72,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
@@ -84,7 +83,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
@@ -118,7 +117,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
@@ -141,7 +140,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
@@ -177,7 +176,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
@@ -196,7 +195,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote trainjob is deleted": {
 			workerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").

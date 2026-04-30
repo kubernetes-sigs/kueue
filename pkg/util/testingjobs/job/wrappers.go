@@ -150,6 +150,11 @@ func (j *JobWrapper) Queue(queue kueue.LocalQueueName) *JobWrapper {
 	return j.Label(constants.QueueLabel, string(queue))
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *JobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Label sets the label key and value
 func (j *JobWrapper) Label(key, value string) *JobWrapper {
 	if j.Labels == nil {

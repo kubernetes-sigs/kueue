@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -72,7 +71,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
@@ -83,7 +82,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
@@ -99,7 +98,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
@@ -113,7 +112,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
@@ -130,7 +129,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
@@ -140,7 +139,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote mpijob is deleted": {
 			workerMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},

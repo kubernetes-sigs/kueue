@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -69,7 +68,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid").
 					Obj(),
@@ -81,7 +80,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusReplicas(3).
 					ReadyReplicas(2).
@@ -96,7 +95,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusReplicas(3).
 					ReadyReplicas(2).
@@ -106,7 +105,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote statefulset is deleted": {
 			workerStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusReplicas(3).
 					ReadyReplicas(2).

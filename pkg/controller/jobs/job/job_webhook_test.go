@@ -58,7 +58,7 @@ const (
 var (
 	labelsPath                    = field.NewPath("metadata", "labels")
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
-	prebuiltWlNameLabelPath       = labelsPath.Key(constants.PrebuiltWorkloadLabel)
+	prebuiltWorkloadLabelPath     = labelsPath.Key(constants.PrebuiltWorkloadLabel)
 	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
@@ -178,11 +178,11 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJob("job", "default").
 				Parallelism(4).
 				Completions(4).
-				Label(constants.PrebuiltWorkloadLabel, "workload name").
+				PrebuiltWorkloadLabel("workload name").
 				Indexed(true).
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(prebuiltWlNameLabelPath, "workload name", invalidRFC1123Message),
+				field.Invalid(prebuiltWorkloadLabelPath, "workload name", invalidRFC1123Message),
 			},
 		},
 		{
@@ -190,7 +190,7 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJob("job", "default").
 				Parallelism(4).
 				Completions(4).
-				Label(constants.PrebuiltWorkloadLabel, "workload-name").
+				PrebuiltWorkloadLabel("workload-name").
 				Indexed(true).
 				Obj(),
 			wantValidationErrs: nil,
@@ -559,13 +559,13 @@ func TestValidateUpdate(t *testing.T) {
 			name: "immutable prebuilt workload ",
 			oldJob: testingutil.MakeJob("job", "default").
 				Suspend(true).
-				Label(constants.PrebuiltWorkloadLabel, "old-workload").
+				PrebuiltWorkloadLabel("old-workload").
 				Obj(),
 			newJob: testingutil.MakeJob("job", "default").
 				Suspend(false).
-				Label(constants.PrebuiltWorkloadLabel, "new-workload").
+				PrebuiltWorkloadLabel("new-workload").
 				Obj(),
-			wantValidationErrs: apivalidation.ValidateImmutableField("new-workload", "old-workload", prebuiltWlNameLabelPath),
+			wantValidationErrs: apivalidation.ValidateImmutableField("new-workload", "old-workload", prebuiltWorkloadLabelPath),
 		},
 		{
 			name: "immutable queue name not suspend",

@@ -42,7 +42,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -159,7 +158,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
@@ -491,7 +490,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
@@ -617,7 +616,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
@@ -654,7 +653,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
@@ -698,7 +697,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
@@ -724,7 +723,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Active(0).
 					Obj(),
@@ -775,7 +774,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
@@ -803,7 +802,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Active(1).
 					Obj(),
@@ -854,7 +853,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Active(1).
 					Obj(),
@@ -925,7 +924,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
@@ -994,7 +993,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
@@ -1032,7 +1031,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Active(1).
 					Obj(),
 			},
@@ -1069,7 +1068,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Active(1).
 					Obj(),
 			},
@@ -1107,7 +1106,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Active(1).
 					Obj(),
 			},
@@ -1142,7 +1141,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Active(1).
 					Obj(),
 			},
@@ -1176,7 +1175,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -1215,7 +1214,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -1241,7 +1240,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -1280,7 +1279,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -1308,7 +1307,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -1428,7 +1427,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 		},
@@ -1462,7 +1461,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -1475,7 +1474,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker2Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
@@ -1501,7 +1500,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 
@@ -1548,7 +1547,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -1582,7 +1581,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 		},
@@ -1614,7 +1613,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -1667,7 +1666,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -1696,7 +1695,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 		},
@@ -1733,7 +1732,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -1790,7 +1789,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -1819,7 +1818,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{

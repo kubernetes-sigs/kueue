@@ -175,6 +175,11 @@ func (j *PyTorchJobWrapper) Queue(queue string) *PyTorchJobWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *PyTorchJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *PyTorchJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Request adds a resource request to the default container.
 func (j *PyTorchJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *PyTorchJobWrapper {
 	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
