@@ -42,6 +42,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
@@ -50,6 +51,7 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -285,19 +287,26 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 }
 
 func (r *topologyUngater) Create(event event.TypedCreateEvent[*kueue.Workload]) bool {
-	return workload.IsAdmittedByTAS(event.Object)
+	return shouldReconcileWorkload(event.Object)
 }
 
 func (r *topologyUngater) Delete(event event.TypedDeleteEvent[*kueue.Workload]) bool {
-	return workload.IsAdmittedByTAS(event.Object)
+	return shouldReconcileWorkload(event.Object)
 }
 
 func (r *topologyUngater) Update(event event.TypedUpdateEvent[*kueue.Workload]) bool {
-	return workload.IsAdmittedByTAS(event.ObjectNew)
+	return shouldReconcileWorkload(event.ObjectNew)
 }
 
 func (r *topologyUngater) Generic(event.TypedGenericEvent[*kueue.Workload]) bool {
 	return false
+}
+
+func shouldReconcileWorkload(wl *kueue.Workload) bool {
+	if features.Enabled(features.ConcurrentAdmission) {
+		return workload.IsAdmittedByTAS(wl) && !concurrentadmission.IsVariant(wl)
+	}
+	return workload.IsAdmittedByTAS(wl)
 }
 
 func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceName string, psName kueue.PodSetReference) ([]*corev1.Pod, error) {

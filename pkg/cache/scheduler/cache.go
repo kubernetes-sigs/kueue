@@ -45,6 +45,7 @@ import (
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 var (
@@ -540,6 +541,8 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	return nil
 }
 
+// DeleteCohort removes the cohort from the cache and updates the SubtreeQuota
+// of ancestor cohorts to reflect the removal.
 func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	c.Lock()
 	defer c.Unlock()
@@ -552,7 +555,6 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	}
 
 	c.hm.DeleteCohort(cohortName)
-	c.handleParentUpdate(parent)
 
 	// If the cohort still exists after deletion, it means
 	// that it has one or more children referencing it.
@@ -560,6 +562,12 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		updateCohortResourceNode(cohort)
 	}
+
+	if parent != nil {
+		updateCohortTreeResourcesIfNoCycle(parent)
+	}
+
+	c.handleParentUpdate(parent)
 }
 
 func (c *Cache) handleParentUpdate(cachedParent *cohort) {
@@ -659,9 +667,23 @@ func (c *Cache) updateLqMetricLabels(newLq *kueue.LocalQueue) {
 	}
 }
 
+func (c *Cache) concurrentAdmissionEnabledForWithoutLock(wl *kueue.Workload) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
+	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
+	if cq == nil {
+		return false
+	}
+	return cq.ConcurrentAdmissionEnabled()
+}
+
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 	c.Lock()
 	defer c.Unlock()
+	if c.concurrentAdmissionEnabledForWithoutLock(w) && !concurrentadmission.IsVariant(w) {
+		return false
+	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(log, w)
 	if err != nil {
 		log.Error(err, "Updating workload in cache")
@@ -670,6 +692,9 @@ func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 }
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
+	if c.concurrentAdmissionEnabledForWithoutLock(wl) && !concurrentadmission.IsVariant(wl) {
+		return false, nil
+	}
 	wlKey := workload.Key(wl)
 	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
 

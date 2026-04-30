@@ -37,12 +37,14 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 var (
@@ -213,6 +215,9 @@ func (m *Manager) NotifyTopologyUpdateWatchers(oldTopology, newTopology *kueue.T
 }
 
 func (m *Manager) AddFinishedWorkload(wl *kueue.Workload) {
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl) {
+		return
+	}
 	m.Lock()
 	defer m.Unlock()
 	m.addFinishedWorkloadWithoutLock(wl)
@@ -331,6 +336,42 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		m.Broadcast()
 	}
 	return nil
+}
+
+func (m *Manager) ConcurrentAdmissionEnabledFor(wl *kueue.Workload) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
+	cqName, _ := m.ClusterQueueForWorkload(wl)
+	return m.ConcurrentAdmissionEnabled(cqName)
+}
+
+func (m *Manager) ConcurrentAdmissionEnabled(cqName kueue.ClusterQueueReference) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
+	m.RLock()
+	defer m.RUnlock()
+	return m.ConcurrentAdmissionEnabledWithoutLock(cqName)
+}
+
+func (m *Manager) ConcurrentAdmissionEnabledWithoutLock(cqName kueue.ClusterQueueReference) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return false
+	}
+	return cq.ConcurrentAdmissionEnabled()
+}
+
+func (m *Manager) IsConcurrentAdmissionParentWithoutLock(wl *kueue.Workload) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
+	cqName, _ := m.ClusterQueueForWorkloadWithoutLock(wl)
+	return m.ConcurrentAdmissionEnabledWithoutLock(cqName) && !concurrentadmission.IsVariant(wl)
 }
 
 func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue, specUpdated, labelsUpdated bool) error {
@@ -533,6 +574,10 @@ func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	m.RLock()
 	defer m.RUnlock()
+	return m.ClusterQueueForWorkloadWithoutLock(wl)
+}
+
+func (m *Manager) ClusterQueueForWorkloadWithoutLock(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	q, ok := m.localQueues[queue.KeyFromWorkload(wl)]
 	if !ok {
 		return "", false
@@ -546,6 +591,9 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
+	if features.Enabled(features.ConcurrentAdmission) && m.IsConcurrentAdmissionParentWithoutLock(w) {
+		return nil
+	}
 	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 }
 
@@ -708,6 +756,9 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 func (m *Manager) UpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
+	if features.Enabled(features.ConcurrentAdmission) && m.IsConcurrentAdmissionParentWithoutLock(w) {
+		return nil
+	}
 	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 }
 

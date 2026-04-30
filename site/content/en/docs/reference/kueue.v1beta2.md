@@ -1029,6 +1029,16 @@ if FairSharing is enabled in the Kueue configuration.</p>
    <p>admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing</p>
 </td>
 </tr>
+<tr><td><code>concurrentAdmissionPolicy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy"><code>ConcurrentAdmissionPolicy</code></a>
+</td>
+<td>
+   <p>concurrentAdmissionPolicy defines the configuration for ConcurrentAdmission feature.
+Its main capability is to allow Workloads pursuing multiple flavors at the same time, and starting on the first flavor that led to admission.
+Additionally after the admission, Workloads can still try to pursue capacity on the more preferable flavors while running.
+It enables them to migrate to more preferable, whenever capacity appears.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1252,6 +1262,111 @@ if FairSharing is enabled in the Kueue configuration.</p>
    <p>fairSharing contains the current state for this Cohort
 when participating in Fair Sharing.
 The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ConcurrentAdmissionConstraints`     {#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionConstraints}
+    
+
+**Appears in:**
+
+- [ConcurrentAdmissionMigration](#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigration)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>minPreferredFlavorName</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
+</td>
+<td>
+   <p>minPreferredFlavorName defines the minimal flavor a Workload can migrate to.
+The order is based on the order of flavors in ClusterQueue.
+It can only be used if the Mode is <code>TryPreferredFlavors</code>.
+If the Mode is <code>TryPreferredFlavors</code> and MinPreferredFlavorName is not specified, then
+Workload can migrate to any flavor that is more preferable than the one it was admitted to.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ConcurrentAdmissionMigration`     {#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigration}
+    
+
+**Appears in:**
+
+- [ConcurrentAdmissionPolicy](#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>mode</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigrationMode"><code>ConcurrentAdmissionMigrationMode</code></a>
+</td>
+<td>
+   <p>mode defines the mode of Workload's migration.
+The possible values are:</p>
+<ul>
+<li><code>TryPreferredFlavors</code> (default): a Workload will try to migrate to the preferred flavor after it's admitted and running.</li>
+</ul>
+</td>
+</tr>
+<tr><td><code>constraints</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionConstraints"><code>ConcurrentAdmissionConstraints</code></a>
+</td>
+<td>
+   <p>constraints defines the constraints of Workload's migration.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ConcurrentAdmissionMigrationMode`     {#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigrationMode}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ConcurrentAdmissionMigration](#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigration)
+
+
+
+
+
+## `ConcurrentAdmissionPolicy`     {#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy}
+    
+
+**Appears in:**
+
+- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta2-ClusterQueueSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>migration,omitzero</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigration"><code>ConcurrentAdmissionMigration</code></a>
+</td>
+<td>
+   <p>migration defines the constraints on Workload's migration.
+The mechanism itself creates &quot;Variants&quot; of the same Workload, each pursuing a different flavor.
+All Variants belong to the same &quot;Parent&quot; Workload, and are picked up by Kueue scheduler independently.
+Once one of the Variants is admitted, the Parent Workload gets also admitted. The Variants that pursue more
+favorable flavors keep trying to get admitted and if they succeed, the Workload migrates to the new flavor.
+The Variants that pursue less favorable flavors are deactivated.
+Flavor preferences are expressed through the order of flavors in the ClusterQueue.</p>
 </td>
 </tr>
 </tbody>
@@ -2911,6 +3026,8 @@ this time would be reset to null.</p>
 **Appears in:**
 
 - [AdmissionCheckStrategyRule](#kueue-x-k8s-io-v1beta2-AdmissionCheckStrategyRule)
+
+- [ConcurrentAdmissionConstraints](#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionConstraints)
 
 - [FlavorQuotas](#kueue-x-k8s-io-v1beta2-FlavorQuotas)
 

@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 type RequeueReason string
@@ -58,6 +59,7 @@ const (
 	RequeueReasonGeneric               RequeueReason = ""
 	RequeueReasonPreemptionGated       RequeueReason = "PreemptionGated"
 	RequeueReasonPendingPreemption     RequeueReason = "PendingPreemption"
+	RequeueReasonPendingMigration      RequeueReason = "PendingMigration"
 	RequeueReasonPreemptionFailed      RequeueReason = "PreemptionFailed"
 )
 
@@ -136,6 +138,8 @@ type ClusterQueue struct {
 	localQueuesInClusterQueue map[utilqueue.LocalQueueReference]bool
 
 	sw *stickyWorkload
+
+	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
@@ -250,6 +254,9 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	}
 	c.namespaceSelector = nsSelector
 	c.active = apimeta.IsStatusConditionTrue(apiCQ.Status.Conditions, kueue.ClusterQueueActive)
+	if features.Enabled(features.ConcurrentAdmission) {
+		c.ConcurrentAdmissionPolicy = apiCQ.Spec.ConcurrentAdmissionPolicy
+	}
 	return nil
 }
 
@@ -261,6 +268,10 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 	defer c.rwm.Unlock()
 	added := false
 	for _, info := range q.items {
+		if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(info.Obj) {
+			// Parent Workloads are not pushed onto heap
+			continue
+		}
 		if c.heap.PushIfNotPresent(info) {
 			added = true
 		}
@@ -272,9 +283,22 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 	return added
 }
 
+func (c *ClusterQueue) ConcurrentAdmissionEnabled() bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.ConcurrentAdmissionPolicy != nil
+}
+
 // PushOrUpdate pushes the workload to ClusterQueue.
 // If the workload is already present, updates with the new one.
 func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wInfo.Obj) {
+		// Parent Workloads are not pushed onto heap
+		return
+	}
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
@@ -731,7 +755,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	// schedule the same workload for BestEffortFIFO queues. See
 	// documentation of stickyWorkload for more details
 	log := ctrl.LoggerFrom(ctx)
-	if reason == RequeueReasonPendingPreemption && c.queueingStrategy == kueue.BestEffortFIFO {
+	if (reason == RequeueReasonPendingPreemption || reason == RequeueReasonPendingMigration) && c.queueingStrategy == kueue.BestEffortFIFO {
 		if logV := log.V(5); logV.Enabled() {
 			logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", workload.Key(wInfo.Obj))
 		}
@@ -744,6 +768,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	} else {
 		immediate = reason == RequeueReasonFailedAfterNomination ||
 			reason == RequeueReasonPendingPreemption ||
+			reason == RequeueReasonPendingMigration ||
 			reason == RequeueReasonPreemptionFailed
 	}
 	return c.requeueIfNotPresent(log, wInfo, immediate)

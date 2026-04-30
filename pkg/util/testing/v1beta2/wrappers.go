@@ -33,8 +33,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 // MakeDefaultOneLevelTopology creates a default topology with hostname level.
@@ -304,6 +306,10 @@ func (w *WorkloadWrapper) Label(k, v string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) ParentVariant() *WorkloadWrapper {
+	return w.Label(constants.ConcurrentAdmissionParentLabelKey, "true")
+}
+
 func (w *WorkloadWrapper) Annotation(k, v string) *WorkloadWrapper {
 	if w.ObjectMeta.Annotations == nil {
 		w.ObjectMeta.Annotations = make(map[string]string)
@@ -412,6 +418,16 @@ func (w *WorkloadWrapper) PreemptionGates(preemptionGates ...kueue.PreemptionGat
 
 func (w *WorkloadWrapper) PreemptionGateStates(preemptionGateStates ...kueue.PreemptionGateState) *WorkloadWrapper {
 	w.Status.PreemptionGates = preemptionGateStates
+	return w
+}
+
+// Set AllowedResourceFlavors annotation
+func (w *WorkloadWrapper) AllowedFlavors(flavors ...kueue.ResourceFlavorReference) *WorkloadWrapper {
+	if w.ObjectMeta.Annotations == nil {
+		w.ObjectMeta.Annotations = make(map[string]string, 1)
+	}
+	allowedFlavors := concurrentadmission.SerializeAllowedFlavors(utilslices.Map(flavors, func(f *kueue.ResourceFlavorReference) string { return string(*f) }))
+	w.ObjectMeta.Annotations[constants.WorkloadAllowedResourceFlavorAnnotation] = allowedFlavors
 	return w
 }
 
@@ -864,6 +880,12 @@ func (c *CohortWrapper) Annotation(k, v string) *CohortWrapper {
 	return c
 }
 
+func (c *CohortWrapper) GeneratedName(name string) *CohortWrapper {
+	c.GenerateName = name
+	c.Name = ""
+	return c
+}
+
 // ClusterQueueWrapper wraps a ClusterQueue.
 type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 
@@ -897,6 +919,26 @@ func (c *ClusterQueueWrapper) Obj() *kueue.ClusterQueue {
 // Cohort sets the borrowing cohort.
 func (c *ClusterQueueWrapper) Cohort(cohort kueue.CohortReference) *ClusterQueueWrapper {
 	c.Spec.CohortName = cohort
+	return c
+}
+
+func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdmissionMigrationMode) *ClusterQueueWrapper {
+	c.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
+		Migration: kueue.ConcurrentAdmissionMigration{
+			Mode: mode,
+		},
+	}
+	return c
+}
+
+func (c *ClusterQueueWrapper) MinPreferredFlavorName(name string) *ClusterQueueWrapper {
+	if c.Spec.ConcurrentAdmissionPolicy == nil {
+		c = c.ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors)
+	}
+	if c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints == nil {
+		c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints = &kueue.ConcurrentAdmissionConstraints{}
+	}
+	c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName = new(kueue.ResourceFlavorReference(name))
 	return c
 }
 

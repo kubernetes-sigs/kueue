@@ -83,6 +83,7 @@ var (
 		kueue.WorkloadRequeued,
 		kueue.WorkloadDeactivationTarget,
 		kueue.WorkloadFinished,
+		kueue.WorkloadPodsReady,
 	}
 )
 
@@ -964,6 +965,18 @@ func SetEvictedCondition(w *kueue.Workload, now time.Time, reason string, messag
 func SetFinishedCondition(w *kueue.Workload, now time.Time, reason string, message string) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadFinished,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: w.Generation,
+	}
+	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
+func SetAdmittedCondition(w *kueue.Workload, now time.Time, reason string, message string) bool {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadAdmitted,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.NewTime(now),
 		Reason:             reason,

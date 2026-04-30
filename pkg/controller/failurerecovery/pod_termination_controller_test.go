@@ -311,8 +311,21 @@ func TestReconciler(t *testing.T) {
 			wantPod: podToForcefullyDelete.
 				Clone().
 				StatusPhase(corev1.PodFailed).
+				StatusConditions(corev1.PodCondition{
+					Type:    KueueFailureRecoveryConditionType,
+					Status:  "True",
+					Reason:  KueueForcefulTerminationReason,
+					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				}).
 				Obj(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "pod"},
+					EventType: "Warning",
+					Reason:    KueueForcefulTerminationReason,
+					Message:   "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				},
+			},
 		},
 		"pod is in succeeded phase": {
 			testPod: podToForcefullyDelete.
@@ -324,8 +337,21 @@ func TestReconciler(t *testing.T) {
 			wantPod: podToForcefullyDelete.
 				Clone().
 				StatusPhase(corev1.PodSucceeded).
+				StatusConditions(corev1.PodCondition{
+					Type:    KueueFailureRecoveryConditionType,
+					Status:  "True",
+					Reason:  KueueForcefulTerminationReason,
+					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				}).
 				Obj(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "pod"},
+					EventType: "Warning",
+					Reason:    KueueForcefulTerminationReason,
+					Message:   "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				},
+			},
 		},
 		"pod is not scheduled on an unreachable node": {
 			testPod: podToForcefullyDelete.

@@ -221,4 +221,50 @@ var _ = ginkgo.Describe("Pod termination controller", func() {
 			g.Expect(podOnHealthyNode.Status.Phase).Should(gomega.Equal(corev1.PodPending))
 		}, forcefulTerminationCheckTimeout, util.ShortInterval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("should forcefully terminate failed pods that opt-in, scheduled on unreachable nodes", func() {
+		unreachableNode := testingnode.MakeNode("unreachable-node-failed-pod").
+			NotReady().
+			Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule}).
+			Obj()
+		util.MustCreate(ctx, k8sClient, unreachableNode)
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, unreachableNode, true)
+		})
+
+		matchingPod := matchingPodWrapper.Clone().
+			NodeName(unreachableNode.Name).
+			StatusPhase(corev1.PodFailed).
+			Obj()
+		util.MustCreate(ctx, k8sClient, matchingPod)
+		gomega.Expect(k8sClient.Delete(ctx, matchingPod)).To(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: matchingPod.Name, Namespace: matchingPod.Namespace}, matchingPod)).
+				To(utiltesting.BeNotFoundError())
+		}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should forcefully terminate succeeded pods that opt-in, scheduled on unreachable nodes", func() {
+		unreachableNode := testingnode.MakeNode("unreachable-node-succeeded-pod").
+			NotReady().
+			Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoSchedule}).
+			Obj()
+		util.MustCreate(ctx, k8sClient, unreachableNode)
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, unreachableNode, true)
+		})
+
+		matchingPod := matchingPodWrapper.Clone().
+			NodeName(unreachableNode.Name).
+			StatusPhase(corev1.PodSucceeded).
+			Obj()
+		util.MustCreate(ctx, k8sClient, matchingPod)
+		gomega.Expect(k8sClient.Delete(ctx, matchingPod)).To(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: matchingPod.Name, Namespace: matchingPod.Namespace}, matchingPod)).
+				To(utiltesting.BeNotFoundError())
+		}, forcefulTerminationCheckTimeout, util.Interval).Should(gomega.Succeed())
+	})
 })

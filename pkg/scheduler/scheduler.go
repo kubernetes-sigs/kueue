@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -433,6 +434,13 @@ func (s *Scheduler) processEntry(
 		}
 	}
 
+	if features.Enabled(features.ConcurrentAdmission) {
+		if lessFavorableSibling := s.getLessFavorableSibling(log, &e.Info, snapshot); lessFavorableSibling != nil {
+			s.issueMigration(ctx, log, e, lessFavorableSibling)
+			return
+		}
+	}
+
 	e.markNominated()
 	if err := s.admit(ctx, e, cq); err != nil {
 		e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
@@ -456,6 +464,24 @@ func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *e
 	if !preemption.CanAlwaysReclaim(cq) {
 		cq.AddUsage(resourcesToReserve(e, cq))
 	}
+}
+
+// issueMigration evicts victim of migration to a more favorable ResourceFlavor.
+func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entry, migrationVictim *preemption.Target) {
+	log.V(3).Info("Migrating to more favorable resource flavor", "targetWorkload", klog.KObj(migrationVictim.WorkloadInfo.Obj), "evictorWorkload", klog.KObj(e.Obj))
+	wlCopy := migrationVictim.WorkloadInfo.Obj.DeepCopy()
+	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
+	message := fmt.Sprintf("Evicted to accommodate a workload (UID: %s) due to migration to more favorable resource flavor", e.Obj.UID)
+	err := workload.Evict(
+		ctx, s.client, s.recorder, wlCopy, kueue.WorkloadEvictedByFlavorMigration, message, "", s.clock, exposeLqMetrics, s.roleTracker, s.customLabels,
+		workload.EvictWithLooseOnApply(), workload.EvictWithRetryOnConflictForPatch(),
+	)
+	if err != nil {
+		log.Error(err, "Failed to evict workload for migration")
+	}
+	e.LastAssignment = nil
+	e.requeueReason = qcache.RequeueReasonPendingMigration
+	e.inadmissibleMsg += ". Pending the migration of 1 workload(s)"
 }
 
 func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *entry, preemptionTargets []*preemption.Target) {
@@ -775,6 +801,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		// Ignore errors because the workload or clusterQueue could have been deleted
 		// by an event.
 		_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
+		s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
 		if afs.Enabled(s.admissionFairSharing) {
 			s.updateEntryPenalty(log, e, subtract)
 		}
@@ -1037,4 +1064,51 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 		s.queues.AfsEntryPenalties.Sub(lqKey, penalty)
 		log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", lqObjRef, "penalty", penalty)
 	}
+}
+
+func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) *preemption.Target {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return nil
+	}
+	parentUID := concurrentadmission.GetParentWorkloadUID(wl.Obj)
+	if parentUID == "" {
+		return nil
+	}
+
+	cq := snap.ClusterQueue(wl.ClusterQueue)
+	if cq == nil || len(cq.ResourceGroups) == 0 {
+		return nil
+	}
+	flavors := cq.ResourceGroups[0].Flavors
+
+	candidateFlavor := concurrentadmission.GetVariantFlavor(wl.Obj)
+	if candidateFlavor == "" {
+		return nil
+	}
+
+	for _, otherWl := range cq.Workloads {
+		if otherWl.Obj.UID == wl.Obj.UID {
+			continue
+		}
+		if concurrentadmission.GetParentWorkloadUID(otherWl.Obj) == parentUID && workload.IsAdmitted(otherWl.Obj) {
+			siblingFlavor := concurrentadmission.GetVariantFlavor(otherWl.Obj)
+			if siblingFlavor != "" && isLessFavorable(candidateFlavor, siblingFlavor, flavors) {
+				return &preemption.Target{
+					WorkloadInfo: otherWl,
+					WorkloadCq:   cq,
+					Reason:       kueue.WorkloadEvictedByFlavorMigration,
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func isLessFavorable(candidate, sibling kueue.ResourceFlavorReference, flavors []kueue.ResourceFlavorReference) bool {
+	candidateIdx := slices.Index(flavors, candidate)
+	siblingIdx := slices.Index(flavors, sibling)
+	if candidateIdx == -1 || siblingIdx == -1 {
+		return false
+	}
+	return candidateIdx < siblingIdx
 }

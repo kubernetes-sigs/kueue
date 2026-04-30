@@ -174,7 +174,9 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	)
 
 	err := utilclient.PatchStatus(ctx, r.client, pod, func() (bool, error) {
-		pod.Status.Phase = corev1.PodFailed
+		if !utilpod.IsTerminated(pod) {
+			pod.Status.Phase = corev1.PodFailed
+		}
 		pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
 			Type:    KueueFailureRecoveryConditionType,
 			Status:  corev1.ConditionTrue,
@@ -204,21 +206,7 @@ func podEligibleForTermination(p *corev1.Pod) bool {
 		return false
 	}
 
-	if p.DeletionTimestamp.IsZero() {
-		return false
-	}
-
-	// Do not filter out partially terminated (condition set, but not deleted) pods to handle
-	// partial executions of the controller caused by errors (for example network errors).
-	return isPodPartiallyForcefullyTerminated(p) || !utilpod.IsTerminated(p)
-}
-
-func isPodPartiallyForcefullyTerminated(p *corev1.Pod) bool {
-	return utilpod.HasCondition(p, &corev1.PodCondition{
-		Type:   KueueFailureRecoveryConditionType,
-		Reason: KueueForcefulTerminationReason,
-		Status: corev1.ConditionTrue,
-	})
+	return !p.DeletionTimestamp.IsZero()
 }
 
 func (r *TerminatingPodReconciler) mapNodeToPods(ctx context.Context, node *corev1.Node) []ctrl.Request {

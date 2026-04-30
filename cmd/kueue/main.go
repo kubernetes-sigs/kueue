@@ -61,6 +61,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/externalframeworks"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
+	"sigs.k8s.io/kueue/pkg/controller/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
@@ -500,6 +501,12 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 		if failedCtrl, err := elasticjobs.SetupWithManager(mgr, cfg, roleTracker); err != nil {
 			return fmt.Errorf("could not setup %s controller: %w", failedCtrl, err)
+		}
+	}
+
+	if features.Enabled(features.ConcurrentAdmission) {
+		if failedCtrl, err := concurrentadmission.SetupControllers(mgr, queues, cfg, roleTracker); err != nil {
+			return fmt.Errorf("could not setup ConcurrentAdmission controller %s: %w", failedCtrl, err)
 		}
 	}
 
