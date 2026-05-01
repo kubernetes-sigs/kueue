@@ -21,6 +21,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
@@ -28,7 +29,22 @@ var (
 	// +metricsdoc:group=tas
 	// +metricsdoc:labels=flavor="the resource flavor name",domain="topology level label key (e.g. kubernetes.io/hostname)",domain_id="value of the topology level label",resource="the resource name"
 	TASDomainUsage *prometheus.GaugeVec
+
+	tasExcludedLevels map[string]bool
 )
+
+// InitTASMetricsConfig configures per-level filtering for TAS domain usage metrics.
+// Call this before Register() when TASNodeMetrics is enabled.
+func InitTASMetricsConfig(cfg *configapi.TASMetrics) {
+	if cfg == nil || len(cfg.ExcludedTopologyLevels) == 0 {
+		tasExcludedLevels = nil
+		return
+	}
+	tasExcludedLevels = make(map[string]bool, len(cfg.ExcludedTopologyLevels))
+	for _, level := range cfg.ExcludedTopologyLevels {
+		tasExcludedLevels[level] = true
+	}
+}
 
 // RegisterTASMetrics registers TAS GaugeVecs with the controller-runtime registry and
 // records the initialization timestamp. Called from Register() only when TASNodeMetrics
@@ -49,6 +65,9 @@ func AddTASDomainUsage(flavorName kueue.ResourceFlavorReference, levels, values 
 		if i >= len(values) {
 			break
 		}
+		if tasExcludedLevels[level] {
+			continue
+		}
 		TASDomainUsage.WithLabelValues(string(flavorName), level, values[i], string(resource)).Add(float64(qty))
 	}
 }
@@ -62,6 +81,9 @@ func SubTASDomainUsage(flavorName kueue.ResourceFlavorReference, levels, values 
 	for i, level := range levels {
 		if i >= len(values) {
 			break
+		}
+		if tasExcludedLevels[level] {
+			continue
 		}
 		TASDomainUsage.WithLabelValues(string(flavorName), level, values[i], string(resource)).Sub(float64(qty))
 	}

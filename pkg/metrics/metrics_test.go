@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
@@ -507,11 +508,12 @@ func TestTASDomainUsage(t *testing.T) {
 		value                      float64
 	}
 	tests := []struct {
-		name       string
-		flavor     kueue.ResourceFlavorReference
-		ops        []gaugeOp
-		wantGauges []wantGauge
-		wantNone   bool
+		name           string
+		flavor         kueue.ResourceFlavorReference
+		excludedLevels []string
+		ops            []gaugeOp
+		wantGauges     []wantGauge
+		wantNone       bool
 	}{
 		{
 			name:   "add emits gauge at each topology level",
@@ -558,10 +560,37 @@ func TestTASDomainUsage(t *testing.T) {
 			},
 			wantNone: true,
 		},
+		{
+			name:           "add skips excluded level",
+			flavor:         "tas-add-excluded",
+			excludedLevels: []string{corev1.LabelHostname},
+			ops: []gaugeOp{
+				{levels: []string{rackLabel, corev1.LabelHostname}, values: []string{"rack-1", "node-1"}, resource: corev1.ResourceCPU, qty: 4000},
+			},
+			wantGauges: []wantGauge{
+				{domain: rackLabel, domainID: "rack-1", resource: string(corev1.ResourceCPU), value: 4000},
+			},
+		},
+		{
+			name:           "subtract skips excluded level",
+			flavor:         "tas-sub-excluded",
+			excludedLevels: []string{corev1.LabelHostname},
+			ops: []gaugeOp{
+				{levels: []string{rackLabel, corev1.LabelHostname}, values: []string{"rack-1", "node-1"}, resource: corev1.ResourceCPU, qty: 6000},
+				{sub: true, levels: []string{rackLabel, corev1.LabelHostname}, values: []string{"rack-1", "node-1"}, resource: corev1.ResourceCPU, qty: 2000},
+			},
+			wantGauges: []wantGauge{
+				{domain: rackLabel, domainID: "rack-1", resource: string(corev1.ResourceCPU), value: 4000},
+			},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Cleanup(func() { ClearTASFlavorUsage(tc.flavor) })
+			if len(tc.excludedLevels) > 0 {
+				InitTASMetricsConfig(&configapi.TASMetrics{ExcludedTopologyLevels: tc.excludedLevels})
+				t.Cleanup(func() { InitTASMetricsConfig(nil) })
+			}
 			for _, op := range tc.ops {
 				if op.sub {
 					SubTASDomainUsage(tc.flavor, op.levels, op.values, op.resource, op.qty)
@@ -576,6 +605,9 @@ func TestTASDomainUsage(t *testing.T) {
 			for _, g := range tc.wantGauges {
 				expectGaugeValue(t, TASDomainUsage, g.value,
 					"flavor", string(tc.flavor), "domain", g.domain, "domain_id", g.domainID, "resource", g.resource)
+			}
+			for _, excluded := range tc.excludedLevels {
+				expectFilteredMetricsCount(t, TASDomainUsage, 0, "flavor", string(tc.flavor), "domain", excluded)
 			}
 		})
 	}
@@ -598,4 +630,49 @@ func TestClearTASFlavorUsage(t *testing.T) {
 
 	expectFilteredMetricsCount(t, TASDomainUsage, 0, "flavor", string(flavor1))
 	expectFilteredMetricsCount(t, TASDomainUsage, 1, "flavor", string(flavor2))
+}
+
+func TestInitTASMetricsConfig(t *testing.T) {
+	t.Cleanup(func() { InitTASMetricsConfig(nil) })
+
+	tests := []struct {
+		name         string
+		cfg          *configapi.TASMetrics
+		wantExcluded map[string]bool
+	}{
+		{
+			name:         "nil config sets no filter",
+			cfg:          nil,
+			wantExcluded: nil,
+		},
+		{
+			name:         "empty ExcludedTopologyLevels sets no filter",
+			cfg:          &configapi.TASMetrics{},
+			wantExcluded: nil,
+		},
+		{
+			name:         "single excluded level",
+			cfg:          &configapi.TASMetrics{ExcludedTopologyLevels: []string{corev1.LabelHostname}},
+			wantExcluded: map[string]bool{corev1.LabelHostname: true},
+		},
+		{
+			name: "multiple excluded levels",
+			cfg: &configapi.TASMetrics{ExcludedTopologyLevels: []string{
+				corev1.LabelHostname,
+				"cloud.com/rack",
+			}},
+			wantExcluded: map[string]bool{
+				corev1.LabelHostname: true,
+				"cloud.com/rack":     true,
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			InitTASMetricsConfig(tc.cfg)
+			if diff := cmp.Diff(tc.wantExcluded, tasExcludedLevels); diff != "" {
+				t.Errorf("unexpected tasExcludedLevels (-want +got):\n%s", diff)
+			}
+		})
+	}
 }

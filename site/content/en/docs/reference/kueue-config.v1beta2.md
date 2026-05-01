@@ -506,6 +506,14 @@ Requires the CustomMetricLabels feature gate.</p>
    <p>LocalQueueMetrics is a configuration that provides LocalQueue metrics options.</p>
 </td>
 </tr>
+<tr><td><code>tasMetrics</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-TASMetrics"><code>TASMetrics</code></a>
+</td>
+<td>
+   <p>TASMetrics configures the TAS domain usage metrics.
+Only takes effect when the TASNodeMetrics feature gate is enabled.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1175,6 +1183,34 @@ This is intended to be a map with Input as the key (enforced by validation code)
 <td>
    <p>DeviceClassMappings defines mappings from device classes to logical resources
 for Dynamic Resource Allocation support.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TASMetrics`     {#config-kueue-x-k8s-io-v1beta2-TASMetrics}
+    
+
+**Appears in:**
+
+- [ControllerMetrics](#config-kueue-x-k8s-io-v1beta2-ControllerMetrics)
+
+
+<p>TASMetrics defines configuration options for TAS domain usage metrics.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>excludedTopologyLevels</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>ExcludedTopologyLevels lists topology level label keys to exclude from
+kueue_tas_domain_usage metrics (e.g. &quot;kubernetes.io/hostname&quot; to avoid
+high-cardinality node-level series in large clusters).</p>
 </td>
 </tr>
 </tbody>

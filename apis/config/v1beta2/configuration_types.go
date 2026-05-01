@@ -193,6 +193,11 @@ type ControllerMetrics struct {
 	// LocalQueueMetrics is a configuration that provides LocalQueue metrics options.
 	// +optional
 	LocalQueueMetrics *LocalQueueMetrics `json:"localQueueMetrics,omitempty"`
+
+	// TASMetrics configures the TAS domain usage metrics.
+	// Only takes effect when the TASNodeMetrics feature gate is enabled.
+	// +optional
+	TASMetrics *TASMetrics `json:"tasMetrics,omitempty"`
 }
 
 // ControllerMetricsCustomLabel defines a Kubernetes label or annotation to promote
@@ -227,6 +232,16 @@ type LocalQueueMetrics struct {
 	// LocalQueueSelector can be used to choose the local queues that need metrics to be collected.
 	// +optional
 	LocalQueueSelector *metav1.LabelSelector `json:"localQueueSelector,omitempty"`
+}
+
+// TASMetrics defines configuration options for TAS domain usage metrics.
+type TASMetrics struct {
+	// ExcludedTopologyLevels lists topology level label keys to exclude from
+	// kueue_tas_domain_usage metrics (e.g. "kubernetes.io/hostname" to avoid
+	// high-cardinality node-level series in large clusters).
+	// +optional
+	// +listType=set
+	ExcludedTopologyLevels []string `json:"excludedTopologyLevels,omitempty"`
 }
 
 // ControllerHealth defines the health configs.

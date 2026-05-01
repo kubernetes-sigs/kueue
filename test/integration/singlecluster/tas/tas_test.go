@@ -47,6 +47,7 @@ import (
 	pkgmetrics "sigs.k8s.io/kueue/pkg/metrics"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utilmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -6252,6 +6253,44 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(v).Should(gomega.Equal(float64(0)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should not emit usage gauge for excluded topology levels", func() {
+			ginkgo.By("configuring TAS metrics to exclude rack level")
+			pkgmetrics.InitTASMetricsConfig(&config.TASMetrics{
+				ExcludedTopologyLevels: []string{utiltesting.DefaultRackTopologyLevel},
+			})
+			ginkgo.DeferCleanup(func() { pkgmetrics.InitTASMetricsConfig(nil) })
+
+			ginkgo.By("creating a workload requesting 500m CPU at rack level")
+			wl := utiltestingapi.MakeWorkload("wl-tas-excluded-level", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).Obj()).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("waiting for the workload to be admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("checking TASDomainUsage gauge at block level is emitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+					tasFlavor.Name, utiltesting.DefaultBlockTopologyLevel, "block-1", string(corev1.ResourceCPU),
+				))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(v).Should(gomega.Equal(float64(500)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking TASDomainUsage gauge at rack level is not emitted")
+			gomega.Consistently(func(g gomega.Gomega) {
+				count := len(utilmetrics.CollectFilteredGaugeVec(pkgmetrics.TASDomainUsage,
+					map[string]string{
+						"flavor": tasFlavor.Name,
+						"domain": utiltesting.DefaultRackTopologyLevel,
+					}))
+				g.Expect(count).To(gomega.Equal(0))
+			}, util.ShortTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
