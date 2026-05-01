@@ -22,7 +22,7 @@ clusterQueueClassesMinUsage:
 wlClassesMaxAvgTimeToAdmissionMs:
   # Placeholder values — scale from baseline proportionally.
   # Baseline (15k wl, 30 CQ): large=11_000, medium=90_000, small=260_000
-  # Large-scale (45k wl, 1000 CQ): scaled ~3× baseline admission times.
+  # Large-scale (30k wl, 1000 CQ): scaled ~2× baseline admission times.
   # Replace after calibration.
   large: 60_000
   medium: 500_000

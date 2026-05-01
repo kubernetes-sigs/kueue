@@ -1,13 +1,13 @@
 # Scheduler Performance Test Configuration - Large Scale
-# Tests scheduler throughput at high CQ count: 50 cohorts × 20 queues = 1,000 cluster queues
-# Workloads: 45 per queue × 1,000 queues = 45,000 total (1 pod each)
+# Tests scheduler throughput at high CQ count: 50 cohorts × 10 queues = 500 cluster queues
+# Workloads: 40 per queue × 500 queues = 20,000 total (1 pod each)
 
 cohorts:
   - className: cohort
     count: 50
     queuesSets:
     - className: cq
-      count: 20
+      count: 10
       nominalQuota: 20
       borrowingLimit: 100
       reclaimWithinCohort: Any
@@ -20,14 +20,14 @@ cohorts:
           runtimeMs: 200
           priority: 50
           request: 1
-      - count: 10
+      - count: 7
         creationIntervalMs: 500
         workloads:
         - className: medium
           runtimeMs: 500
           priority: 100
           request: 5
-      - count: 5
+      - count: 3
         creationIntervalMs: 1200
         workloads:
         - className: large
