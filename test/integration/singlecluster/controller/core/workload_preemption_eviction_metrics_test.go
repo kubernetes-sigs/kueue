@@ -81,6 +81,7 @@ var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("co
 			Request(corev1.ResourceCPU, "1").
 			Obj()
 		util.MustCreate(ctx, k8sClient, lowWl)
+		util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
 
 		highWl := utiltestingapi.MakeWorkload("high-wl", ns.Name).
 			Queue(kueue.LocalQueueName(q.Name)).
@@ -89,7 +90,6 @@ var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("co
 			Obj()
 		util.MustCreate(ctx, k8sClient, highWl)
 
-		util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
 		util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
 
 		util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
