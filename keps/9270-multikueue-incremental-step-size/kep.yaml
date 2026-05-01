@@ -1,0 +1,35 @@
+title: MultiKueue Incremental Dispatcher Step Size
+kep-number: 9270
+authors:
+  - "@Mostafahassen1"
+status: provisional
+creation-date: "2026-05-01"
+reviewers:
+  - TBD
+approvers:
+  - TBD
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. Kueue typically uses 0.x versioning.
+latest-milestone: "v0.9"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.9"
+  beta: "v0.10"
+  stable: "v1.0"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: MultiKueueStepSize
+    components:
+      - kueue-controller-manager
+disable-supported: true
+
+# The following PRR answers are required at beta release
+metrics:
+  - kueue_multikueue_dispatched_workloads_total
