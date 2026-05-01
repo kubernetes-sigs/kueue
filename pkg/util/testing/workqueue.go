@@ -23,23 +23,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-// MockQueue captures enqueued reconcile requests for test assertions.
-type MockQueue struct {
+// MockTypedRateLimitingInterface captures enqueued reconcile requests for test assertions.
+type MockTypedRateLimitingInterface struct {
 	Items []reconcile.Request
 }
 
-var _ workqueue.TypedRateLimitingInterface[reconcile.Request] = (*MockQueue)(nil)
+var _ workqueue.TypedRateLimitingInterface[reconcile.Request] = (*MockTypedRateLimitingInterface)(nil)
 
-func (q *MockQueue) Add(item reconcile.Request)     { q.Items = append(q.Items, item) }
-func (q *MockQueue) Len() int                       { return len(q.Items) }
-func (q *MockQueue) Get() (reconcile.Request, bool) { return reconcile.Request{}, false }
-func (q *MockQueue) Done(reconcile.Request)         {}
-func (q *MockQueue) ShutDown()                      {}
-func (q *MockQueue) ShutDownWithDrain()             {}
-func (q *MockQueue) ShuttingDown() bool             { return false }
-func (q *MockQueue) AddAfter(item reconcile.Request, _ time.Duration) {
+func (q *MockTypedRateLimitingInterface) Add(item reconcile.Request) {
 	q.Items = append(q.Items, item)
 }
-func (q *MockQueue) AddRateLimited(item reconcile.Request) { q.Items = append(q.Items, item) }
-func (q *MockQueue) Forget(reconcile.Request)              {}
-func (q *MockQueue) NumRequeues(reconcile.Request) int     { return 0 }
+func (q *MockTypedRateLimitingInterface) Len() int { return len(q.Items) }
+func (q *MockTypedRateLimitingInterface) Get() (reconcile.Request, bool) {
+	return reconcile.Request{}, false
+}
+func (q *MockTypedRateLimitingInterface) Done(reconcile.Request) {}
+func (q *MockTypedRateLimitingInterface) ShutDown()              {}
+func (q *MockTypedRateLimitingInterface) ShutDownWithDrain()     {}
+func (q *MockTypedRateLimitingInterface) ShuttingDown() bool     { return false }
+func (q *MockTypedRateLimitingInterface) AddAfter(item reconcile.Request, _ time.Duration) {
+	q.Items = append(q.Items, item)
+}
+func (q *MockTypedRateLimitingInterface) AddRateLimited(item reconcile.Request) {
+	q.Items = append(q.Items, item)
+}
+func (q *MockTypedRateLimitingInterface) Forget(reconcile.Request)          {}
+func (q *MockTypedRateLimitingInterface) NumRequeues(reconcile.Request) int { return 0 }

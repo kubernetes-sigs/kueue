@@ -1897,7 +1897,7 @@ func TestConfigHandlerUpdate(t *testing.T) {
 
 			fakeClient := clientBuilder.Build()
 			handler := &configHandler{client: fakeClient, eventsBatchPeriod: time.Second}
-			mockQ := &utiltesting.MockQueue{}
+			mockQ := &utiltesting.MockTypedRateLimitingInterface{}
 
 			updateEvent := event.UpdateEvent{
 				ObjectOld: tc.oldConfig,
@@ -1935,7 +1935,7 @@ func TestConfigHandlerDelete(t *testing.T) {
 	fakeClient := clientBuilder.Build()
 
 	handler := &configHandler{client: fakeClient, eventsBatchPeriod: time.Second}
-	mockQ := &utiltesting.MockQueue{}
+	mockQ := &utiltesting.MockTypedRateLimitingInterface{}
 
 	config := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj()
 	deleteEvent := event.DeleteEvent{

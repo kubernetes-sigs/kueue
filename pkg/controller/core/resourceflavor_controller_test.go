@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -326,7 +327,7 @@ func TestCqHandlerGeneric(t *testing.T) {
 
 	cases := map[string]struct {
 		cq           *kueue.ClusterQueue
-		cacheSetup   func(ctx context.Context, cache *schdcache.Cache)
+		cacheSetup   func(t *testing.T, ctx context.Context, cache *schdcache.Cache)
 		wantEnqueued []string
 	}{
 		"empty CQ name is a no-op": {
@@ -339,20 +340,20 @@ func TestCqHandlerGeneric(t *testing.T) {
 		},
 		"does not enqueue flavors still used by another CQ": {
 			cq: makeCQWithFlavors("cq", "flavor-shared"),
-			cacheSetup: func(ctx context.Context, cache *schdcache.Cache) {
+			cacheSetup: func(t *testing.T, ctx context.Context, cache *schdcache.Cache) {
 				other := makeCQWithFlavors("other-cq", "flavor-shared")
 				if err := cache.AddClusterQueue(ctx, other); err != nil {
-					panic("failed to add ClusterQueue: " + err.Error())
+					t.Fatal("failed to add ClusterQueue: " + err.Error())
 				}
 			},
 			wantEnqueued: nil,
 		},
 		"enqueues only orphaned flavors when CQ has multiple": {
 			cq: makeCQWithFlavors("cq", "flavor-orphan", "flavor-shared"),
-			cacheSetup: func(ctx context.Context, cache *schdcache.Cache) {
+			cacheSetup: func(t *testing.T, ctx context.Context, cache *schdcache.Cache) {
 				other := makeCQWithFlavors("other-cq", "flavor-shared")
 				if err := cache.AddClusterQueue(ctx, other); err != nil {
-					panic("failed to add ClusterQueue: " + err.Error())
+					t.Fatal("failed to add ClusterQueue: " + err.Error())
 				}
 			},
 			wantEnqueued: []string{"flavor-orphan"},
@@ -366,11 +367,11 @@ func TestCqHandlerGeneric(t *testing.T) {
 			cqCache := schdcache.New(cl)
 
 			if tc.cacheSetup != nil {
-				tc.cacheSetup(ctx, cqCache)
+				tc.cacheSetup(t, ctx, cqCache)
 			}
 
 			h := &cqHandler{cache: cqCache}
-			q := &utiltesting.MockQueue{}
+			q := &utiltesting.MockTypedRateLimitingInterface{}
 			h.Generic(ctx, event.GenericEvent{Object: tc.cq}, q)
 
 			var gotNames []string
@@ -406,7 +407,7 @@ func TestResourceFlavors(t *testing.T) {
 		want []kueue.ResourceFlavorReference
 	}{
 		"empty resource groups": {
-			cq:   utiltestingapi.MakeClusterQueue("cq").Obj(),
+			cq:   makeCQ(),
 			want: nil,
 		},
 		"single group single flavor": {
@@ -429,11 +430,9 @@ func TestResourceFlavors(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := resourceFlavors(tc.cq)
-			gotSlice := got.UnsortedList()
+			got := sets.List(resourceFlavors(tc.cq))
 
-			if diff := cmp.Diff(tc.want, gotSlice,
-				cmpopts.SortSlices(func(a, b kueue.ResourceFlavorReference) bool { return a < b }),
+			if diff := cmp.Diff(tc.want, got,
 				cmpopts.EquateEmpty(),
 			); diff != "" {
 				t.Errorf("resourceFlavors mismatch (-want +got):\n%s", diff)
