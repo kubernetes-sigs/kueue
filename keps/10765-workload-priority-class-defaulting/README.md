@@ -19,6 +19,7 @@
   - [Graduation Criteria](#graduation-criteria)
 - [Alternatives](#alternatives)
   - [globalDefault field on WorkloadPriorityClass](#globaldefault-field-on-workloadpriorityclass)
+  - [Defaulting in the Workload rather than in the Job webhook](#defaulting-in-the-workload-rather-than-in-the-job-webhook)
 <!-- /toc -->
 
 ## Summary
@@ -172,6 +173,8 @@ necessary to implement this enhancement.
 **Beta:**
 - Feature gate enabled by default.
 - Address feedback from Alpha usage.
+- Re-evaluate whether defaulting should move from the Job webhook to the
+  Workload level based on user feedback and integration complexity.
 
 **GA:**
 - Feature gate locked to true.
@@ -185,3 +188,23 @@ mirroring Kubernetes' `PriorityClass.GlobalDefault`. This was rejected in favor
 of the simpler convention-based approach for consistency with
 `LocalQueueDefaulting`. The convention-based approach requires no API changes and
 is simpler for both implementation and users to understand.
+
+### Defaulting in the Workload rather than in the Job webhook
+
+Instead of defaulting the `kueue.x-k8s.io/priority-class` label in the Job
+mutating webhook, the default `WorkloadPriorityClass` could be resolved at the
+time of Workload creation in the reconciler.
+
+This approach has some advantages: it would be implemented in a single place,
+agnostic of the actual Job type, avoiding code duplication across all job-type
+webhooks. It also avoids the webhook hot path and makes it straightforward to
+emit an event for debuggability when the default is applied.
+
+However, the webhook approach was chosen for Alpha to maintain consistency with
+`LocalQueueDefaulting`, which already sets the `kueue.x-k8s.io/queue-name`
+label via `ApplyDefaultLocalQueue` in the webhook. The webhook implementation is
+simple, already exercised by the existing `LocalQueueDefaulting` pattern, and
+provides immediate visibility to the user through the label on the Job object.
+
+This decision will be re-evaluated before Beta based on user feedback and the
+integration complexity observed during Alpha.

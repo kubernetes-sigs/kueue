@@ -4,8 +4,12 @@ authors:
   - "@atosatto"
 status: implementable
 creation-date: 2026-04-27
-reviewers: []
-approvers: []
+reviewers:
+  - "@vladikkuzn"
+  - "@mwielgus"
+  - "@tenzen-y"
+approvers:
+  - "@mimowo"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
