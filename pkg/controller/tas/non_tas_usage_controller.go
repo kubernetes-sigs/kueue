@@ -66,15 +66,14 @@ func (r *NonTasUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if client.IgnoreNotFound(err) != nil {
 			return ctrl.Result{}, err
 		}
-		log.V(5).Info("Idempotently deleting not found pod")
-		r.cache.TASCache().DeletePodByKey(req.NamespacedName, log)
+		r.cache.TASCache().DeletePodByKey(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 
 	if belongsToNonTASCache(&pod) {
 		r.cache.TASCache().Update(&pod, log)
 	} else {
-		r.cache.TASCache().DeletePodByKey(req.NamespacedName, log)
+		r.cache.TASCache().DeletePodByKey(req.NamespacedName)
 	}
 	return ctrl.Result{}, nil
 }
@@ -109,7 +108,11 @@ func (r *NonTasUsageReconciler) Update(e event.TypedUpdateEvent[*corev1.Pod]) bo
 }
 
 func (r *NonTasUsageReconciler) Delete(e event.TypedDeleteEvent[*corev1.Pod]) bool {
-	return belongsToNonTASCache(e.Object)
+	// Don't filter on terminal phase: if the informer skips the Running→Terminated
+	// Update and delivers only the Delete event with the pod already Succeeded/Failed,
+	// the pod's usage would never be removed from the cache. DeletePodByKey is
+	// idempotent, so double-removal is safe.
+	return len(e.Object.Spec.NodeName) > 0 && !utiltas.IsTAS(e.Object)
 }
 
 func (r *NonTasUsageReconciler) Generic(event.TypedGenericEvent[*corev1.Pod]) bool {

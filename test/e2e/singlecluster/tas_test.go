@@ -769,5 +769,62 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 			clusterQueue = nil
 			onDemandRF = nil
 		})
+
+		ginkgo.It("should include non-TAS pod usage in kueue_tas_domain_usage", func() {
+			blockLevel := topology.Spec.Levels[0].NodeLabel
+			rackLevel := topology.Spec.Levels[1].NodeLabel
+			hostnameLevel := topology.Spec.Levels[2].NodeLabel
+
+			ginkgo.By("submitting a TAS workload consuming 700m CPU")
+			wl := utiltestingapi.MakeWorkload("wl-combined-metrics", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).Obj()).
+				Request(corev1.ResourceCPU, "700m").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("waiting for the workload to be admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("verifying kueue_tas_domain_usage emits TAS-only 700m (confirms flavor cache is ready)")
+			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, testPod.Name, testPodContainer, [][]string{
+				{"kueue_tas_domain_usage", onDemandRF.Name, hostnameLevel, nodeHostname, "cpu", " 700"},
+			})
+
+			ginkgo.By("creating a non-TAS pod on the on-demand node consuming 500m CPU")
+			nonTasPod := testingpod.MakePod("non-tas-metrics-pod", ns.Name).
+				NodeName(nodeHostname).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Request(corev1.ResourceCPU, "500m").
+				Obj()
+			util.MustCreate(ctx, k8sClient, nonTasPod)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, nonTasPod, true)
+			})
+
+			ginkgo.By("verifying kueue_tas_domain_usage reflects combined TAS + non-TAS usage (1200m)")
+			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, testPod.Name, testPodContainer, [][]string{
+				{"kueue_tas_domain_usage", onDemandRF.Name, blockLevel, "b1", "cpu", " 1200"},
+				{"kueue_tas_domain_usage", onDemandRF.Name, rackLevel, "r1", "cpu", " 1200"},
+				{"kueue_tas_domain_usage", onDemandRF.Name, hostnameLevel, nodeHostname, "cpu", " 1200"},
+			})
+
+			ginkgo.By("finishing the TAS workload and verifying gauge drops to 500m (non-TAS only)")
+			util.FinishWorkloads(ctx, k8sClient, wl)
+			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, testPod.Name, testPodContainer, [][]string{
+				{"kueue_tas_domain_usage", onDemandRF.Name, blockLevel, "b1", "cpu", " 500"},
+				{"kueue_tas_domain_usage", onDemandRF.Name, rackLevel, "r1", "cpu", " 500"},
+				{"kueue_tas_domain_usage", onDemandRF.Name, hostnameLevel, nodeHostname, "cpu", " 500"},
+			})
+
+			ginkgo.By("deleting the non-TAS pod and verifying gauge drops to 0")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, nonTasPod, true)
+			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, testPod.Name, testPodContainer, [][]string{
+				{"kueue_tas_domain_usage", onDemandRF.Name, blockLevel, "b1", "cpu", " 0"},
+				{"kueue_tas_domain_usage", onDemandRF.Name, rackLevel, "r1", "cpu", " 0"},
+				{"kueue_tas_domain_usage", onDemandRF.Name, hostnameLevel, nodeHostname, "cpu", " 0"},
+			})
+		})
 	})
 })

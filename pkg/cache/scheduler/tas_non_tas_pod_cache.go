@@ -24,9 +24,21 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
+
+// podMetricCoord holds the pre-computed metric coordinates for one flavor that
+// matched a non-TAS pod's node at add time. Storing these avoids a nodesCache
+// lookup at subtract time, so the subtract is correct even if the node has since
+// left nodesCache (e.g. marked unschedulable by a cluster autoscaler after TAS
+// workload pods departed).
+type podMetricCoord struct {
+	flavorName kueue.ResourceFlavorReference
+	levels     []string
+	values     []string
+}
 
 // nonTasUsageCache caches pod usage, to avoid
 // the hot path documented in kueue#8449.
@@ -37,49 +49,64 @@ type nonTasUsageCache struct {
 }
 
 type podUsageValue struct {
-	node  string
-	usage resources.Requests
+	node string
+	// coords holds pre-computed metric coordinates per matching flavor, set when
+	// the pod is first added. nil means the node was absent from nodesCache at add
+	// time; in that case no metric is emitted for add or subtract.
+	coords []podMetricCoord
+	usage  resources.Requests
 }
 
-// update may add a pod to the cache, or
-// delete a terminated pod.
-func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
+// update may add a pod to the cache, or delete a terminated pod.
+// coords should be the pre-computed metric coordinates for the pod's node (see
+// podMetricCoord). Returns the removed entry (if any) and the added entry (if any)
+// so the caller can emit metric deltas without re-reading the cache.
+func (n *nonTasUsageCache) update(pod *corev1.Pod, coords []podMetricCoord, log logr.Logger) (removed, added *podUsageValue) {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
 	key := client.ObjectKeyFromObject(pod)
 
-	// delete terminated pods as they no longer use any capacity.
 	if utilpod.IsTerminated(pod) {
 		log.V(5).Info("Deleting terminated pod from the cache")
 		if old, found := n.podUsage[key]; found {
-			n.removeNodeUsage(old.node, old.usage, log)
+			delete(n.podUsage, key)
+			return &old, nil
 		}
-		delete(n.podUsage, key)
-		return
-	}
-
-	// Remove old entry if pod already exists (handles node migration, resource resize).
-	if old, found := n.podUsage[key]; found {
-		n.removeNodeUsage(old.node, old.usage, log)
+		return nil, nil
 	}
 
 	log.V(5).Info("Adding non-TAS pod to the cache")
-	requests := resources.NewRequestsFromPodSpec(&pod.Spec)
-	n.podUsage[key] = podUsageValue{
-		node:  pod.Spec.NodeName,
-		usage: requests,
+	old, existed := n.podUsage[key]
+
+	c := coords
+	if existed && len(old.coords) > 0 {
+		// Preserve coords from when the pod was first cached; topology coordinates
+		// are stable for the lifetime of a scheduled pod.
+		c = old.coords
 	}
-	n.addNodeUsage(pod.Spec.NodeName, requests)
+
+	newEntry := podUsageValue{
+		node:   pod.Spec.NodeName,
+		coords: c,
+		usage:  resources.NewRequestsFromPodSpec(&pod.Spec),
+	}
+	n.podUsage[key] = newEntry
+	if existed {
+		return &old, &newEntry
+	}
+	return nil, &newEntry
 }
 
-func (n *nonTasUsageCache) delete(key client.ObjectKey, log logr.Logger) {
+// delete removes a pod from the cache and returns its entry, or nil if absent.
+func (n *nonTasUsageCache) delete(key client.ObjectKey) *podUsageValue {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 	if old, found := n.podUsage[key]; found {
-		n.removeNodeUsage(old.node, old.usage, log)
+		delete(n.podUsage, key)
+		return &old
 	}
-	delete(n.podUsage, key)
+	return nil
 }
 
 func (n *nonTasUsageCache) usagePerNode() map[string]resources.Requests {

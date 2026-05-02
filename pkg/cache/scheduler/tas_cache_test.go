@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
@@ -6619,6 +6620,147 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ---- TAS metrics: nonTAS pod usage tests ----
+
+func TestNonTASPodUsageMetric(t *testing.T) {
+	const (
+		flavorName   = kueue.ResourceFlavorReference("nontas-test-flavor")
+		topologyName = kueue.TopologyReference("nontas-test-topology")
+		nodeName     = "hostname-1"
+		otherNode    = "hostname-2"
+	)
+
+	makeCache := func() *tasCache {
+		tc := NewTASCache(utiltesting.NewFakeClient())
+		tc.AddTopology(utiltestingapi.MakeTopology(string(topologyName)).
+			Levels(corev1.LabelHostname).Obj())
+		tc.AddFlavor(utiltestingapi.MakeResourceFlavor(string(flavorName)).
+			TopologyName(string(topologyName)).Obj())
+		node := testingnode.MakeNode(nodeName).
+			Label(corev1.LabelHostname, nodeName).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("8"),
+			}).
+			Ready().Obj()
+		tc.SyncNode(node)
+		return &tc
+	}
+
+	hostLabels := prometheus.Labels{
+		"flavor":    string(flavorName),
+		"domain":    corev1.LabelHostname,
+		"domain_id": nodeName,
+		"resource":  string(corev1.ResourceCPU),
+	}
+
+	tests := []struct {
+		name      string
+		ops       func(tc *tasCache, log logr.Logger)
+		wantValue float64
+	}{
+		{
+			name: "pod added emits usage",
+			ops: func(tc *tasCache, log logr.Logger) {
+				pod := testingpod.MakePod("p1", "ns").NodeName(nodeName).
+					Request(corev1.ResourceCPU, "2").Obj()
+				tc.Update(pod, log)
+			},
+			wantValue: 2000, // millicores
+		},
+		{
+			name: "pod deleted subtracts usage",
+			ops: func(tc *tasCache, log logr.Logger) {
+				pod := testingpod.MakePod("p1", "ns").NodeName(nodeName).
+					Request(corev1.ResourceCPU, "2").Obj()
+				tc.Update(pod, log)
+				tc.DeletePodByKey(client.ObjectKeyFromObject(pod))
+			},
+			wantValue: 0,
+		},
+		{
+			name: "two pods on same node accumulate",
+			ops: func(tc *tasCache, log logr.Logger) {
+				p1 := testingpod.MakePod("p1", "ns").NodeName(nodeName).
+					Request(corev1.ResourceCPU, "2").Obj()
+				p2 := testingpod.MakePod("p2", "ns").NodeName(nodeName).
+					Request(corev1.ResourceCPU, "3").Obj()
+				tc.Update(p1, log)
+				tc.Update(p2, log)
+			},
+			wantValue: 5000,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.TASNodeMetrics: true,
+			})
+			t.Cleanup(func() { pkgmetrics.ClearTASFlavorUsage(flavorName) })
+
+			_, log := utiltesting.ContextWithLog(t)
+			tc.ops(makeCache(), log)
+
+			expectGaugeValue(t, pkgmetrics.TASDomainUsage, hostLabels, tc.wantValue)
+		})
+	}
+}
+
+func TestNonTASPodOnUnknownNodeEmitsNothing(t *testing.T) {
+	const (
+		flavorName   = kueue.ResourceFlavorReference("nontas-unknown-node-flavor")
+		topologyName = kueue.TopologyReference("nontas-unknown-node-topology")
+	)
+
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.TASNodeMetrics: true,
+	})
+	t.Cleanup(func() { pkgmetrics.ClearTASFlavorUsage(flavorName) })
+
+	tc := NewTASCache(utiltesting.NewFakeClient())
+	tc.AddTopology(utiltestingapi.MakeTopology(string(topologyName)).
+		Levels(corev1.LabelHostname).Obj())
+	tc.AddFlavor(utiltestingapi.MakeResourceFlavor(string(flavorName)).
+		TopologyName(string(topologyName)).Obj())
+	// no SyncNode — node is not in nodesCache
+
+	_, log := utiltesting.ContextWithLog(t)
+	pod := testingpod.MakePod("p1", "ns").NodeName("unknown-node").
+		Request(corev1.ResourceCPU, "4").Obj()
+	tc.Update(pod, log)
+
+	expectGaugeCount(t, pkgmetrics.TASDomainUsage, 0, prometheus.Labels{"flavor": string(flavorName)})
+}
+
+func TestNonTASPodUsageMetricDisabledFeatureGate(t *testing.T) {
+	const (
+		flavorName   = kueue.ResourceFlavorReference("nontas-gate-flavor")
+		topologyName = kueue.TopologyReference("nontas-gate-topology")
+		nodeName     = "hostname-1"
+	)
+
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.TASNodeMetrics: false,
+	})
+	t.Cleanup(func() { pkgmetrics.ClearTASFlavorUsage(flavorName) })
+
+	tasCache := NewTASCache(utiltesting.NewFakeClient())
+	tasCache.AddTopology(utiltestingapi.MakeTopology(string(topologyName)).
+		Levels(corev1.LabelHostname).Obj())
+	tasCache.AddFlavor(utiltestingapi.MakeResourceFlavor(string(flavorName)).
+		TopologyName(string(topologyName)).Obj())
+	tasCache.SyncNode(testingnode.MakeNode(nodeName).
+		Label(corev1.LabelHostname, nodeName).
+		StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")}).
+		Ready().Obj())
+
+	_, log := utiltesting.ContextWithLog(t)
+	pod := testingpod.MakePod("p1", "ns").NodeName(nodeName).Request(corev1.ResourceCPU, "2").Obj()
+	tasCache.Update(pod, log)
+
+	expectGaugeCount(t, pkgmetrics.TASDomainUsage, 0, prometheus.Labels{"flavor": string(flavorName)})
 }
 
 // ---- TAS metrics: DeleteFlavor / DeleteTopology tests ----

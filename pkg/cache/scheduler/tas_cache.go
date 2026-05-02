@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -131,14 +132,69 @@ func (t *tasCache) deleteFlavorFromCache(name kueue.ResourceFlavorReference) {
 	}
 }
 
-// Update may add a pod to the cache, or
-// delete a terminated pod.
-func (t *tasCache) Update(pod *corev1.Pod, log logr.Logger) {
-	t.nonTasUsageCache.update(pod, log)
+// emitNonTASUsageByCoords updates kueue_tas_domain_usage using pre-computed metric
+// coordinates stored at pod-add time. Using stored coords avoids a nodesCache lookup,
+// so the subtract is correct even when the node has since left nodesCache.
+func (t *tasCache) emitNonTASUsageByCoords(coords []podMetricCoord, usage resources.Requests, op usageOp) {
+	if len(coords) == 0 {
+		return
+	}
+	t.RLock()
+	defer t.RUnlock()
+	for _, coord := range coords {
+		if _, exists := t.flavorCache[coord.flavorName]; !exists {
+			// Flavor was deleted; ClearTASFlavorUsage already zeroed its metrics.
+			continue
+		}
+		for resource, qty := range usage {
+			if op == add {
+				metrics.AddTASDomainUsage(coord.flavorName, coord.levels, coord.values, resource, qty)
+			} else {
+				metrics.SubTASDomainUsage(coord.flavorName, coord.levels, coord.values, resource, qty)
+			}
+		}
+	}
 }
 
-func (t *tasCache) DeletePodByKey(key client.ObjectKey, log logr.Logger) {
-	t.nonTasUsageCache.delete(key, log)
+// Update may add a pod to the cache, or delete a terminated pod.
+func (t *tasCache) Update(pod *corev1.Pod, log logr.Logger) {
+	var coords []podMetricCoord
+	if features.Enabled(features.TASNodeMetrics) && !utilpod.IsTerminated(pod) {
+		t.RLock()
+		if node := t.nodesCache.findByHostname(pod.Spec.NodeName); node != nil {
+			for flavorName, fc := range t.flavorCache {
+				if !utiltas.NodeMatchesFlavor(node.Labels, fc.flavor.NodeLabels, fc.topology.Levels) {
+					continue
+				}
+				coords = append(coords, podMetricCoord{
+					flavorName: flavorName,
+					levels:     fc.topology.Levels,
+					values:     utiltas.LevelValues(fc.topology.Levels, node.Labels),
+				})
+			}
+		}
+		t.RUnlock()
+	}
+
+	removed, added := t.nonTasUsageCache.update(pod, coords, log)
+	if features.Enabled(features.TASNodeMetrics) {
+		if removed != nil {
+			t.emitNonTASUsageByCoords(removed.coords, removed.usage, subtract)
+		}
+		if added != nil {
+			t.emitNonTASUsageByCoords(added.coords, added.usage, add)
+		}
+	}
+}
+
+func (t *tasCache) DeletePodByKey(key client.ObjectKey) {
+	removed := t.nonTasUsageCache.delete(key)
+	if removed == nil {
+		return
+	}
+	if features.Enabled(features.TASNodeMetrics) {
+		t.emitNonTASUsageByCoords(removed.coords, removed.usage, subtract)
+	}
 }
 
 func (t *tasCache) SyncNode(node *corev1.Node) {
