@@ -18,9 +18,11 @@ package metrics
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -145,6 +147,19 @@ func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 1, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
+}
+
+func TestReportAndCleanupWorkloadEvictionLatency(t *testing.T) {
+	ReportWorkloadEvictionLatency("cq-preempt-unique", kueue.WorkloadEvictedByPreemption, time.Second, nil, nil)
+	n := testutil.CollectAndCount(WorkloadEvictionLatencySeconds)
+	if n == 0 {
+		t.Fatal("expected workload_eviction_latency_seconds histogram to emit metrics")
+	}
+	ClearClusterQueueMetrics("cq-preempt-unique")
+	nAfter := testutil.CollectAndCount(WorkloadEvictionLatencySeconds)
+	if nAfter >= n {
+		t.Fatalf("expected fewer histogram metrics after clear, before=%d after=%d", n, nAfter)
+	}
 }
 
 func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {

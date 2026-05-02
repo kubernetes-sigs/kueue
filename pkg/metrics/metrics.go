@@ -188,6 +188,10 @@ var (
 	// +metricsdoc:labels=preempting_cluster_queue="the ClusterQueue executing preemption",reason="eviction or preemption reason",replica_role="one of `leader`, `follower`, or `standalone`"
 	PreemptedWorkloadsTotal *prometheus.CounterVec
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the evicted workload's ClusterQueue from status.admission on the workload before quota was released (only present when the metric records a sample)",reason="eviction or preemption reason (same values as evicted_workloads_total)",replica_role="one of `leader`, `follower`, or `standalone`"
+	WorkloadEvictionLatencySeconds *prometheus.HistogramVec
+
 	// Metrics tied to the cache.
 
 	// +metricsdoc:group=clusterqueue
@@ -628,6 +632,26 @@ The label 'reason' can have the following values:
 		}, append([]string{"preempting_cluster_queue", "reason", "replica_role"}, extraLabels...),
 	)
 
+	WorkloadEvictionLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "workload_eviction_latency_seconds",
+			Help: `The time from workload eviction (WorkloadEvicted condition becomes True) until the workload returns to Pending (quota released).
+Observed on status transition from admitted or quota-reserved to pending while WorkloadEvicted remains True.
+Each matching update observes one latency sample (seconds) into this histogram; Prometheus aggregates samples across workloads.
+Uses the eviction condition LastTransitionTime on the updated object as the start time; cluster_queue is taken from status.admission.cluster_queue on the pre-update object when set and non-empty (otherwise no sample is recorded for that update).
+The label 'reason' can have the following values:
+- "Preempted" means that the workload was evicted in order to free resources for a workload with a higher priority or reclamation of nominal quota.
+- "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.
+- "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.
+- "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
+- "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
+- "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
+- "Deactivated" means that the workload was evicted because spec.active is set to false.`,
+			Buckets: generateExponentialBuckets(14),
+		}, append([]string{"cluster_queue", "reason", "replica_role"}, extraLabels...),
+	)
+
 	ReservingActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -913,6 +937,16 @@ func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmiss
 	PendingWorkloads.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
 }
 
+// ReportWorkloadEvictionLatency records latency from eviction (WorkloadEvicted True) until the workload returns to Pending (quota released).
+func ReportWorkloadEvictionLatency(cqName kueue.ClusterQueueReference, reason string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), reason, roletracker.GetRole(tracker)}, customLabelValues...)
+	// LastTransitionTime comes from the API object (apiserver clock). This path compares it to the
+	// controller's clock.Now(), so skew between apiserver and controller (or delayed watch delivery)
+	// can make the transition time appear after "now" and yield a negative duration. Clamp to zero.
+	seconds := max(0, latency.Seconds())
+	WorkloadEvictionLatencySeconds.WithLabelValues(labels...).Observe(seconds)
+}
+
 func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	role := roletracker.GetRole(tracker)
 	activeLabels := append([]string{string(lq.Name), lq.Namespace, PendingStatusActive, role}, customLabelValues...)
@@ -955,6 +989,7 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 
 func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	cqName := string(cq)
+	// Clears all cluster_queue-scoped gauges for cqName.
 	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueue, prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -968,6 +1003,8 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	EvictedWorkloadsOnceTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
+	// Histogram vec, not cleared by gauge cleanup above.
+	WorkloadEvictionLatencySeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
 func ClearClusterQueueMetricsOnLabelChange(cq kueue.ClusterQueueReference) {
@@ -1242,6 +1279,7 @@ func Register() {
 		EvictedWorkloadsTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
+		WorkloadEvictionLatencySeconds,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
 		ClusterQueueByStatus,
