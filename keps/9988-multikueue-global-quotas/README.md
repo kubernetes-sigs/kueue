@@ -12,7 +12,6 @@
     - [Story 1](#story-1)
     - [Story 2](#story-2)
     - [Story 3](#story-3)
-    - [Story 4 (left unaddressed)](#story-4-left-unaddressed)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
     - [Factors influencing desired manager quota](#factors-influencing-desired-manager-quota)
       - [Potential reasons for increasing manager quota](#potential-reasons-for-increasing-manager-quota)
@@ -30,18 +29,13 @@
     - [Integration Tests](#integration-tests)
     - [E2e Tests](#e2e-tests)
   - [Possible Follow-ups](#possible-follow-ups)
-    - [Introduce a MultiKueue manager ClusterQueue quota reservation overbooking multiplier](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier)
     - [Use cached remote clients for low-volume resource kinds](#use-cached-remote-clients-for-low-volume-resource-kinds)
-    - [Add metrics for multiplier usage](#add-metrics-for-multiplier-usage)
   - [Graduation Criteria](#graduation-criteria)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
   - [Support quota automation for multiple manager-side ResourceFlavors](#support-quota-automation-for-multiple-manager-side-resourceflavors)
   - [Support quota automation for no manager-side ResourceFlavors (auto-create one)](#support-quota-automation-for-no-manager-side-resourceflavors-auto-create-one)
-  - [Avoid the quota automation multiplier](#avoid-the-quota-automation-multiplier)
   - [Different handling of many-to-many relationships between manager-side and worker-side ClusterQueues](#different-handling-of-many-to-many-relationships-between-manager-side-and-worker-side-clusterqueues)
-  - [Make the <code>MultiKueueManagerQuotaAutomation</code> Condition message more informative](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative)
-  - [Expose &quot;non-multiplied&quot; total quotas in the manager ClusterQueue object](#expose-non-multiplied-total-quotas-in-the-manager-clusterqueue-object)
   - [Take Cohorts into account](#take-cohorts-into-account)
 <!-- /toc -->
 
@@ -89,7 +83,6 @@ While this approach offers simplicity and network savings, it also leads to prob
 
 * Make the manager cluster aware of worker's quotas.
 * Enable automated maintenance of manager quotas to keep it in sync with total worker quotas.
-* Make the above automation configurable enough to fit, at least roughly, various use cases.
 
 ### Non-Goals
 
@@ -107,12 +100,6 @@ We will add an **optional** feature of **auto-aggregating quotas** from the work
 
 1. Compute the **sum** of quotas for `R` in **all** _related_ worker ClusterQueues, across **all** ResourceFlavors.
 
-1. Multiply the above sum by a user-configurable **multiplier**. \
-   (This is intended to address several [reasons for adjusting the manager quota](#factors-influencing-desired-manager-quota), and thus cover most cases of [User Story 1](#story-1). Also, specifying a very large multiplier is technically a way to cover [User Story 2](#story-2)).
-
-1. Last, add the requests of all (manager-side) Workloads which are currently Admitted in `Q` but their remote cluster is currently unreachable. \
-   (This is to avoid exaggerated reduction of quotas for `Q` in case when a worker cluster disconnects temporarily, and the workloads running on it still hold quota on `Q`, until `workerLostTimeout` elapses).
-
 Enabling this feature will be controlled by an API field (not just by a feature gate), as we want to permanently retain a way to opt out (see [User Story 3](#story-3)).
 
 Enabling this feature will **require** that the manager ClusterQueue `Q` has **exactly one ResourceFlavor**. (See [Treatment of ResourceFlavors](#treatment-of-resourceflavors) for rationale).
@@ -126,9 +113,6 @@ As a Batch Admin, I want to maintain manager quotas  **reasonably synced** to to
 Here, the meaning of "reasonably synced" can vary by use case:
 
 * The **baseline approach** (most intuitive, and currently recommended in MultiKueue documentation) is to keep the manager quota **equal to the sum** of worker quotas.
-
-* Yet, there are several reasons for which the user may want to keep the manager quota **higher or lower** than the abovementioned sum. \
-  See [Factors influencing desired manager quota](#factors-influencing-desired-manager-quota) for more details.
 
 #### Story 2
 
@@ -144,18 +128,7 @@ This could be because:
 
 * I need multiple manager ResourceFlavors (due to e.g. using a special dispatcher or a heterogenous topology across the workers; see [Treatment of ResourceFlavors](#treatment-of-resourceflavors) for details).
 
-* I need to fine-tune the manager gate-keeping functionality in a way which cannot be easily expressed as "total workers capacity with a multiplier".
-
 * I want to control the manager quotas manually (e.g. to make them more stable, or less confusing).
-
-#### Story 4 (left unaddressed)
-
-_This Story is left unaddressed in this KEP - however, we keep it mentioned here to enhance the discussion._ \
-_Addressing this Story is a goal of [#10105](https://github.com/kubernetes-sigs/kueue/issues/10105)._
-
-As a MultiKueue user (Workload Owner or Batch Admin), I want to see a summary of resource availability and usage of my whole MultiKueue setup, surfaced by the manager cluster (which I'm treating as my single control plane).
-
-In particular, I may want to see this summary broken down per worker-side ResourceFlavors.
 
 ### Notes/Constraints/Caveats
 
@@ -232,10 +205,7 @@ Our proposal for now is to leave this cases unsupported. (Some other ideas are d
 
 The main risks of this proposal are the following:
 
-1. User confusion - the users may be surprised by, and have troubles understanding, several aspects:
-   
-   1. ClusterQueue quotas being adjusted automatically, without their initiative;
-   2. divergences between the "official" quotas on the manager and worker sides, caused by the quota automation multiplier.
+1. User confusion - the users may be surprised by ClusterQueue quotas being adjusted automatically, without their initiative.
 
 2. Introducing management of ClusterQueue quotas which some users may consider undesired (see [User Story 3](#story-3)).
 
@@ -243,12 +213,12 @@ The main risks of this proposal are the following:
 
 For these, we propose the following mitigations:
 
-* Risks 1.i and 1.ii are mitigated by a dedicated ClusterQueue condition, explaining the automation process as well as the multiplier.
+* Risk 1 is mitigated by a dedicated ClusterQueue condition, explaining the automation process.
 
 * Risks 1 and 2 are mitigated by introducing feature gates combined with the opt-in/opt-out API. \
   This also mitigates Risk 3, as long as we pay attention to skip computations which are not necessary per the ClusterQueue configuration.
 
-* Risk 3 is considered low (see our [guiding principles](#guiding-principles-for-the-implementation)). If needed, it can be substantially mitigated by caching the relevant information. \
+* Risk 3 is considered low. If needed, it can be substantially mitigated by caching the relevant information. \
   While this would require introducing a new MultiKueue-specific cache, such a cache seems anyway needed for other tasks approaching, including [#10105](https://github.com/kubernetes-sigs/kueue/issues/10105), [#10614](https://github.com/kubernetes-sigs/kueue/issues/10614) and dispatching improvements (see item 3 [here](#manager-vs-workers-separation)). Hence, potential mitigations to Risk 3 will likely take the form of re-using that cache, possibly combined with extending its content.
 
 ## Design details
@@ -272,12 +242,6 @@ type QuotaAutomation struct {
    // should be automatically set based on worker-side quotas.
    // The default value depends on the feature gate MultiKueueManagerQuotaAutomation.
    Enabled *bool `json:"enabled,omitEmpty"`
-
-   // quotaMultiplier will be applied on top of the total worker-side quotas
-   // in order to define the manager-side quota to be automatically set.
-   // This value is ignored if the quota automation feature is disabled.
-   // Defaults to 3.
-   QuotaMultiplier *float32 `json:"quotaMultiplier,omitEmpty"`
 }
 ```
 
@@ -289,7 +253,7 @@ When quota automation is requested and supported, the condition will look like t
 type: MultiKueueManagerQuotaAutomation
 status: True
 reason: QuotaAutomated
-message: ClusterQueue quota is automatically managed based on MultiKueue workers. Applying total worker capacity with a multiplier specified in MultiKueueConfig.QuotaAutomation.QuotaMultiplier.
+message: ClusterQueue quota is automatically managed based on MultiKueue workers.
 lastTransitionTime: 2026-01-01T00:00:00Z
 ```
 
@@ -314,6 +278,7 @@ reason: MultipleFlavors
 message: MultiKueue manager quota automation does not support ClusterQueues with multiple ResourceFlavors.
 lastTransitionTime: 2026-01-01T00:00:00Z
 ```
+
 
 ### Guiding principles for the implementation
 
@@ -366,18 +331,13 @@ Reconciling a manager ClusterQueue `Q` will proceed as follows:
 
 6. Fetch all worker LocalQueues of those names (using unfiltered remote API `.List()` calls, one per worker).
 
-7. Fetch all worker ClusterQueues connected to those LocalQueues (using unfilterd remote API `.List()` calls, at most one per worker).
+7. Fetch all worker ClusterQueues connected to those LocalQueues (using unfiltered remote API `.List()` calls, at most one per worker).
 
-8. Check if there are currently disconnected remote clients (using their [`.connecting`](https://github.com/kubernetes-sigs/kueue/blob/76676f599fc87883156c81516ea91b9b65cc70fd/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L102) field).
+8. Determine the new quota values for `Q` (using the recipe described [here](#proposal), with `QuotaMultiplier` used as the multiplier).
 
-9. For every disconnected client for a remote cluster `R`, fetch all manager Workloads which are Admitted on `Q`, and last seen running on `R` \
-   (using a filtered local API `.List()` call, based on `.Status.Admission.ClusterQueue` as well as `.Status.ClusterName`).
+9. If `MultiKueueManagerQuotaAutomation` is not `True`, set it to `True`.
 
-10. Determine the new quota values for `Q` (using the recipe described [here](#proposal), with `QuotaMultiplier` used as the multiplier).
-
-11. If `MultiKueueManagerQuotaAutomation` is not `True`, set it to `True`.
-
-12. Update quotas for `Q` if the desired values differ from the current ones.
+10. Update quotas for `Q` if the desired values differ from the current ones.
 
 (See the "Takeaway" part [here](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative) for the rationale for the ordering of the last 2 steps).
 
@@ -421,73 +381,19 @@ to implement this enhancement.
 
 #### Unit Tests
 
-* For the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler): 
-
-  * Test the reconcile logic with all exit paths (similarly to e.g. [this suite](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload_test.go#L60)).
-
-  * Test all additional triggering paths from local watchers in the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler) (similarly to e.g. [this suite](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload_test.go#L2266))
-
-  * Test the _non-triggering_ paths, e.g. a ClusterQueue event touching only irrelevant fields.
-
-* For the [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler):
-
-  * Test triggering vs. _non-triggering_ paths (by just verifying the content of the event channel, analogous to [`wlUpdateCh`](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L95)).
+* Test the reconcile logic with all exit paths.
+* Test all additional triggering paths from local watchers.
 
 #### Integration Tests
 
-* For the integration between [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler) and [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler):
-
-  * Test triggering the latter by changes in remote LocalQueues and ClusterQueues. \
-    (This could be also unit-tested, by a well-crafted watch interceptor similarly as [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/multikueuecluster_test.go#L69-L70) - but an integration test feels a much cleaner way).
+* Test triggering the MultiKueue ClusterQueue reconciler by changes in remote LocalQueues and ClusterQueues.
 
 #### E2e Tests
 
-* Test the scenario of a ClusterQueue having quota automation disabled -> then enabled (and reacting to some change) -> then disabled. Verify that:
-
-  * Manager quota is adjusted, as intended, upon:
-
-    - adding a new worker in MultiKueueConfig
-    - changing a remote ClusterQueueQuota
-    - (if we decide to support that) a worker cluster becoming unreachable
-
-  * New jobs can be admitted at all 3 phases of this scenario (quota automation disabled, then enabled, then disabled again).
-
-* Verify that manager quota auto-adjustments (in either direction: increases and decreases) promptly trigger the expected re-assignments of Workloads.
+* Test the scenario of a ClusterQueue having quota automation disabled -> then enabled (and reacting to some change) -> then disabled.
+* Verify that manager quota auto-adjustments promptly trigger the expected re-assignments of Workloads.
 
 ### Possible Follow-ups
-
-#### Introduce a MultiKueue manager ClusterQueue quota reservation overbooking multiplier
-
-That is, an analogue of the proposed quota mutliplier - but differing in that:
-
-* it would **not affect** the [nominal ClusterQueue quota](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/apis/kueue/v1beta2/clusterqueue_types.go#L250) value,
-* it would **not increase** the "total volume" of workloads which can be **admitted** by the manager,
-* it would **only** affect the "total volume" of workloads can **reserve quota** on the manager-side ClusterQueue (and hence, get dispatched to the workers).
-
-For example, if there are 2 workers, each with 10 CPU capacity, the `QuotaMultiplier` (as proposed in this KEP) is 0.8 (to leave 20% of worker capacity for "stray workloads"), and the Quota Reservation Overbooking Multiplier (as discussed here) is 3.0, then the manager-side ClusterQueue:
-
-* will have nominal quota set to (10 + 10) * 0.8 = 16,
-* will admit workloads requesting at most 16 CPU in total,
-* will reserve quota (and hence - dispatch to workers) workloads requesting up to 16 * 3 = 48 CPU in total.
-
-As weird as it seems, this opens a way to "reconcile" various, otherwise clashing, design factors for this KEP; specifically:
-
-* seamless dispatching vs. per-team allocations (see [Drawback #3](#drawbacks)),
-* (if `QuotaMultiplier` from this KEP is `1.0`) seamless dispatching vs. intuitive quotas (see [Drawback #2](#drawbacks)).
-
-Yet, this comes with some **disadvantages**:
-
-* Adding another form of user confusion ("why this ClusterQueue reserved quota above its nominal limit, despite using no borrowing?").
-
-* Adding complexity to Kueue behavior.
-  * In particular, we'd need to carefully plan how to enforce the "don't admit over the quota" constraint. \
-    One approach would be to make the workers ask the manager for a green light before admitting the workload (in some resemblance with [KEP-8303](https://github.com/kubernetes-sigs/kueue/blob/main/keps/8303-multikueue-orchestrated-preemption/README.md)).
-
-* Adding conceptual complexity. (As demonstrated by the length of the name of this section).
-
-* Blurring separation of concerns, by introducing new ways of MultiKueue awareness to core Kueue code.
-
-Therefore, this idea is **shelved** for now. We may consider it later, depending on the feedback.
 
 #### Use cached remote clients for low-volume resource kinds
 
@@ -501,17 +407,6 @@ This could be implemented by equipping the internal [`remoteClient` structure](h
 
 We **postpone** this as doing it right may still involve some complexity. For example, it's not clear how to avoid duplicating API watches (see item 3 in the description of [#10629](http://github.com/kubernetes-sigs/kueue/issues/10629)).
 
-#### Add metrics for multiplier usage
-
-Such metrics could help users determine an optimal value of the multiplier (see [Drawback #1](#drawbacks)).
-
-Example ideas:
-
-* "Multiplier usage": Whenever the manager _reserves quota_ for a workload, emit the quotient between the total quota reserved on the manager side and the total quota on the workers side.
-
-* "Effective multiplier usage": Whenever the manager _admits_ a workload, emit the "multiplier usage" value from the time when that workload obtained _quota reserved_ on the manager. \
-  (Rationale: this measure is "effective" in that, if the manager ClusterQueue were configured with a multiplier below the emitted metric value, it would actually have prevented admitting that workload at that time).
-
 ### Graduation Criteria
 
 * **Alpha:**
@@ -522,9 +417,8 @@ Example ideas:
 * **Beta:**
   * The feature gate is enabled by default.
   * The feature has been succesfully used in production environment.
-  * No warning signs on performance were seen (in particular, no news of any external automation of worker ClusterQueue quotas; see [here](#guiding-principles-for-the-implementation)) - or, if any were, they have been addressed.
-  * The "guiding principles" (see [here](#guiding-principles-for-the-implementation)) are considered fully aligned on.
-  * Issue [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) (see [Drawback #4](#drawbacks)) is diagnosed, its impact on quota automation is understood and any mitigations deemed necessary are implemented.
+  * No warning signs on performance were seen (in particular, no news of any external automation of worker ClusterQueue quotas) - or, if any were, they have been addressed.
+  * Issue [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) (see [Drawback #1](#drawbacks)) is diagnosed, its impact on quota automation is understood and any mitigations deemed necessary are implemented.
 
 * **Stable:**
   * The feature (offered functionality, API surface and implementation) has stabilized, without raising concerns.
@@ -533,25 +427,6 @@ Example ideas:
 ## Drawbacks
 
 Besides introducing some risks (see [Risks and Mitigations](#risks-and-mitigations)), the proposed solution feels suboptimal mostly in the following ways:
-
-1. The `QuotaMultiplier` value feels very arbitrary, and it may be difficult to determine its optimal value (even for a specific use case). Two approaches coming to mind are:
-
-   1. An experienced Batch Admin can try out various values and judge the effects by observing overall system efficiency. (That, of course, assumes no other factors substantially interfering in such experimenting).
-
-   1. A more data-driven approach could be based on metrics, considered in [this possible follow-up](#add-metrics-for-multiplier-usage).
-
-1. With the `QuotaMultiplier`, the manager-side quota can effectively tell "what amount of workloads we want to dispatch" but may get _very divergent_ from "what amount of workloads we want to execute".
-
-   This is largely counter-intuitive, as the latter is the more "fundamental" meaning of a ClusterQueue quota, likely the most intuitive one for many users.
-
-   This drawback is the main motivation for the possible follow-up idea of [quota reservation overbooking](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier).
-
-1. While the `QuotaMultiplier` allows addressing individual [reasons for increasing manager quota](#potential-reasons-for-increasing-manager-quota) or [for decreasing it](#potential-reasons-for-decreasing-manager-quota), some combinations of those reasons remain not supportable in the most efficient way.
-
-   For example, in the "Per-team quotas on the manager" scenario discussed [here](#potential-reasons-for-decreasing-manager-quota), the Batch Admin will be able to configure manager-side ClusterQuotas for teams A / B / C to have 50% / 30% / 20% of the total workers quota respectively, but then each of the teams will be vulnerable to scheduling delays resulting from quota fragmentation, as explained in the "Divergence of quota reservation" scenario [here](#potential-reasons-for-increasing-manager-quota). \
-   Conversely, an attempt to increase the quotas for each of the teams would allow individual teams to consume more quotas than intended. For example, if the Batch Admin applied our default multiplier (3.0) on top of the initial per-team assignments discussed above, team B would be able to consume 90% of the total worker capacity.
-
-   Just like Drawback #2, this may be addressable by the [quota reservation overbooking](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier) idea, if used _together_ with the nominal quota multiplier as in the current proposal. Yet, the overall complexity of such solution feels unacceptable for now. We may consider it later depending on the feedback.
 
 1. The proposed solution fails to react to some types of detectable worker connection issues. \
    See [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) which describes this problem in more detail, and speculates that it may already affect existing MultiKueue reconcilers (e.g. the one for Workloads).
@@ -564,7 +439,7 @@ Besides introducing some risks (see [Risks and Mitigations](#risks-and-mitigatio
 
 ### Support quota automation for multiple manager-side ResourceFlavors
 
-The proposed constraint that quota automation requires a single ResourceFlavor on the manager side may feel inconvenient; for example, it's an obstacle (independent from the quota multiplier) for supporting [User Story 4](#story-4-left-unaddressed) in its full scope ("broken down per worker-side ResourceFlavors") via the manager ClusterQueue quota, which would be the most intuitive place.
+The proposed constraint that quota automation requires a single ResourceFlavor on the manager side may feel inconvenient; for example, it's an obstacle for supporting total quota visibility via the manager ClusterQueue quota, which would be the most intuitive place.
 
 **Reasons for discarding**
 
@@ -589,51 +464,9 @@ Then, we could auto-create a single ResourceFlavor, with quotas determined by au
 
 This would become problematic in combination with TAS. Supporting TAS workloads requires the manager-side ResourceFlavor to be compatible with the worker-side TAS levels. Therefore, automatic setup of manager-side ResourceFlavor would need to either leave TAS use cases unsupported (which feels poor) or fetch topology setups from the workers (leading to questions how to deal with any inconsistencies between them). This feels overly complex, at least for the start.
 
-### Avoid the quota automation multiplier
-
-The proposed multiplier mechanism is admittedly quite counter-intuitive, and we've considered various approaches to avoid it, for example:
-
-1. Abandon quota automation altogether. (Focus on exposing visibility).
-
-2. Implement quota automation but abandon the multiplier. \
-   (This seems appealing at the first glance, as it would allow addressing [User Story 4](#story-4-left-unaddressed) via the ClusterQueue quotas, which is the most intuitive place - even if without the breakdown per worker-side flavor).
-
-3. Use the "quota reservation overbooking multiplier" (see [this possible follow-up idea](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier)) _instead_ of the multiplier in the current proposal.
-
-**Reasons for discarding/deferring**
-
-* For #1, our assessment is that the value of quota automation justifies introducing it, especially given our mitigations to make the multiplier possibly understandable, and the permanent option to opt-out.
-
-* For #2, we choose to introduce the multiplier, given the [numerous potential reasons](#factors-influencing-desired-manager-quota) for using it.
-
-  The strongest of these reasons is the "Divergence of quota reservation" case which - let us stress this - applies essentially to every user of MultiKueue. This means that implementing quota automation without the multiplier would be a _regression_ for _most_ users. This feels unacceptable.
-
-  Theoretically, the "Divergence of quota reservation" case could be addressed _differently_ - by changing the general MultiKueue flow of handling workloads to enforce alignment of `QuotaReserved` condition between the manager and workers, for example:
-
-  1. Detach dispatching to workloads from the `QuotaReserved` condition on the manager.
-  2. Remove `QuotaReserved` on the manager if a workload failed to get quota on the workers.
-  3. Only dispatch to workers if it's known that some of them will reserve quota.
-
-  However, all these approaches mean substantial changes which seem:
-  
-  - risky for overall MultiKueue performance,
-  - likely infeasible, 
-  - even if feasible, complex enough to be out of the scope here.
-
-  In particular, while (iii) is related to the goal of "more effective dispatching" mentioned in [Motivation](#motivation), it takes that goal to such a high level that it could easily lead to putting too much scheduling work on the manager side, thus slowing down MultiKueue in largest cases.
-
-* For #3, see the disadvantages discussed [here](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier). \
-  Also, using that multiplier _instead_ of `QuotaMultiplier` from the main proposal brings two additional subtle disadvantages:
-
-  * Removing a way to address the "Borrowing on a worker" case discussed [here](#potential-reasons-for-increasing-manager-quota) - because that case is caused by divergence of _admission_, not just _quota reservation_.
-
-  * Making the quota automation feature dependent on the `MultiKueueWaitForWorkloadAdmitted` feature gate (as a fix of [#8585](https://github.com/kubernetes-sigs/kueue/issues/8585)).
-
 ### Different handling of many-to-many relationships between manager-side and worker-side ClusterQueues
 
 The "MultiKueue relationship" between manager-side and worker-side ClusterQueues may be in general [many-to-many](#defining-related-worker-clusterqueues), and our proposal of handling it (for a manager-side ClusterQueue `Q`, rely on the _sum_ of quotas of _all_ related worker ClusterQueues) may lead to _distorting the totals_ between the manager and the workers, which may be perceived as misleading.
-
-For a full context, such a distortion will likely happen anyway, due to the quota multipler. However, multiplier-based distortion may be mitigable (e.g. by setting the multiplier to 1, or potentially in the future by switching to the [overbooking multiplier](#introduce-a-multikueue-manager-clusterqueue-quota-reservation-overbooking-multiplier) follow-up), and in those cases our treatment of many-to-many relationships would become a major factor for the distortion.
 
 We've considered 2 ways to work around that:
 
@@ -649,6 +482,7 @@ We've considered 2 ways to work around that:
 
 * Option 2 may be more accurate in describing the _admitting potential_ of manager ClusterQueues in case of _omnipresent scarcity_ of resources. \
   However, it fails to describe the _upper bound_ of what can be admitted to a specific manager ClusterQueue, which feels incorrect, and potentially leading to scheduling delays.
+
 
 ### Make the `MultiKueueManagerQuotaAutomation` Condition message more informative
 
@@ -675,21 +509,6 @@ The ClusterQueue quotas (part of `.Spec`) and Conditions (part of `.Status`) can
 While our proposed design does not _fully eliminate_ the above inconsistencies (when enabling quota automation for a pre-existing ClusterQueue, we'll still need to update the quota and the Condition _separately_, in some order), it decreases its frequency, and makes it less confusing. \
 In particular, if we choose to update the Condition before the quota, the intermediate state can be still interpreted as the Condition saying "quota management has been [just] enabled [but hasn't yet managed to act]", which may be considered legitimate.
 
-### Expose "non-multiplied" total quotas in the manager ClusterQueue object
-
-This may feel natural, and would come closer to addressing [User Story 4](#story-4-left-unaddressed).
-
-**Reasons for discarding/deferring**
-
-* There is no clear place for such a field:
-
-  * Choosing `.Spec` feels semantically improper as this field would exist only for visibility, without influencing the resource behavior.
-
-  * Choosing `.Status` would bring the issue of non-atomicity with `.Spec.ResourceGroups`, with all its consequences (see discussion [here](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative)).
-
-* This may be perceived as cluttering the ClusterQueue API which is already mature. \
-  In particular, it's not obvious how to name the new field for best clarity.
-
 ### Take Cohorts into account
 
 When a ClusterQueue belongs to a Cohort, it may reserve quota above its nominal capacity, by using _shared Cohort quota_ (Cohort's `.nominalQuota`) or by _borrowing_.
@@ -707,7 +526,6 @@ There are many difficulties in defining the desired behavior. Example questions:
     Do we want to support quota automation for _some resources_ in a case of _partial compatibility_?
 
   * Even assuming "full compatibility" in the above sense, the result could be considered confusing, due to possible per-workload inconsistencies (e.g. a ClusterQueue could borrow from one sibling on the manager but from another one on a worker, or it could use shared Cohort quota on the worker but not on the manager). \
-    These inconsistencies would be likely amplified by using a non-trivial quota multiplier. \
     Do we accept this?
 
 * What if Cohorts exist only on the workers, or are "badly incompatible" between the workers? \
@@ -719,7 +537,7 @@ There are many difficulties in defining the desired behavior. Example questions:
     * Suppose there's a manager and 2 workers, which all have `lq1`, `lq2`, `lq3`, pointing to ClusterQueues `cq1`, `cq2`, `cq3` respectively. \
       Also suppose both workers have a Cohort `coh1`, to which all those ClusterQueues belong. \
       `coh1` declares a shared `nominalQuota` of 30 CPU. \
-      Shall this (before applying potential multiplier(s)) count as:
+      Shall this count as:
 
       - extra 30 CPU for each of the manager-side ClusterQueues (to reflect the actual upper bound of what can run on them)?
       - extra 10 CPU for each of them (so that "manager's total matches all workers' total")?
@@ -739,4 +557,4 @@ There are many difficulties in defining the desired behavior. Example questions:
 
   * If yes, what should we do if that relationship is many-to-many?
 
-* How should we manage quota automation settings (enablement, multiplier) for Cohorts if they may diverge for the underlying ClusterQueues?
+* How should we manage quota automation enablement for Cohorts if it may diverge for the underlying ClusterQueues?
