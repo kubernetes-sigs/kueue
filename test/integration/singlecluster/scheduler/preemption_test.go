@@ -19,6 +19,7 @@ package scheduler
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -150,7 +151,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 
 		ginkgo.It("Should retry on failed preemptions", func() {
-			attempt := 0
+			var attempt atomic.Int32
+			var allowPreemption atomic.Bool
 			fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
 				wl, ok := obj.(*kueue.Workload)
 				if !ok {
@@ -164,8 +166,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 					return fallThrough, nil
 				}
 
-				attempt++
-				if attempt < 3 {
+				attempt.Add(1)
+				if !allowPreemption.Load() {
 					return emitResponse, errors.New("simulate API server error while preempting workload")
 				}
 				return fallThrough, nil
@@ -188,10 +190,23 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Obj()
 			util.MustCreate(ctx, k8sClient, highWl)
 
+			ginkgo.By("Waiting for failed preemption to be recorded")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highWl), highWl)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(highWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("Preempting"))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("failed, will retry"))
+				g.Expect(attempt.Load()).To(gomega.BeNumerically(">=", 1))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			allowPreemption.Store(true)
 			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
+			gomega.Expect(attempt.Load()).To(gomega.BeNumerically(">=", 2))
 		})
 
 		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", framework.SlowSpec, func() {
