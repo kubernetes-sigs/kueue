@@ -7261,6 +7261,66 @@ func TestRequeueAndUpdate(t *testing.T) {
 	}
 }
 
+func TestEntryMarkPreemptionOutcome(t *testing.T) {
+	assignmentState := &workload.AssignmentClusterQueueState{}
+
+	cases := map[string]struct {
+		preempted             int
+		errors                int
+		wantMessage           string
+		wantRequeueReason     qcache.RequeueReason
+		wantLastAssignmentNil bool
+	}{
+		"pending preemption": {
+			preempted:             2,
+			wantMessage:           "fits with preemption. Pending the preemption of 2 workload(s)",
+			wantRequeueReason:     qcache.RequeueReasonPendingPreemption,
+			wantLastAssignmentNil: true,
+		},
+		"failed preemption": {
+			errors:                2,
+			wantMessage:           "fits with preemption. Preempting 2 workload(s) failed, will retry.",
+			wantRequeueReason:     qcache.RequeueReasonPreemptionFailed,
+			wantLastAssignmentNil: true,
+		},
+		"preempted takes precedence over errors": {
+			preempted:             1,
+			errors:                1,
+			wantMessage:           "fits with preemption. Pending the preemption of 1 workload(s)",
+			wantRequeueReason:     qcache.RequeueReasonPendingPreemption,
+			wantLastAssignmentNil: true,
+		},
+		"no outcome": {
+			wantMessage:           "fits with preemption",
+			wantRequeueReason:     qcache.RequeueReasonGeneric,
+			wantLastAssignmentNil: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := entry{
+				inadmissibleMsg: "fits with preemption",
+				Info: workload.Info{
+					LastAssignment: assignmentState,
+				},
+			}
+
+			e.markPreemptionOutcome(tc.preempted, tc.errors)
+
+			if e.inadmissibleMsg != tc.wantMessage {
+				t.Errorf("Unexpected inadmissible message\nwant: %q\ngot:  %q", tc.wantMessage, e.inadmissibleMsg)
+			}
+			if e.requeueReason != tc.wantRequeueReason {
+				t.Errorf("Unexpected requeue reason\nwant: %q\ngot:  %q", tc.wantRequeueReason, e.requeueReason)
+			}
+			if got := e.LastAssignment == nil; got != tc.wantLastAssignmentNil {
+				t.Errorf("Unexpected LastAssignment nil status\nwant: %v\ngot:  %v", tc.wantLastAssignmentNil, got)
+			}
+		})
+	}
+}
+
 func TestEntryComparerLess(t *testing.T) {
 	now := time.Now()
 	cohort := kueue.CohortReference("test-cohort")
