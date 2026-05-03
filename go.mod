@@ -15,7 +15,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.3
 	github.com/onsi/gomega v1.40.0
 	github.com/open-policy-agent/cert-controller v0.16.0
-	github.com/project-codeflare/appwrapper v1.2.0
+	github.com/project-codeflare/appwrapper v1.2.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.67.5
