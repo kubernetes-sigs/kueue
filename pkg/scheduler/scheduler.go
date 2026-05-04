@@ -382,6 +382,14 @@ func (s *Scheduler) processEntry(
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Attempting to schedule workload")
 
+	if features.Enabled(features.ConcurrentAdmission) {
+		if moreFavorableSibling := s.getMoreFavorableSibling(log, &e.Info, snapshot); moreFavorableSibling != nil {
+			log.V(3).Info("Skipping workload as a more favorable variant is already admitted", "moreFavorableVariant", klog.KObj(moreFavorableSibling.Obj))
+			e.markSkipped("A more favorable variant is already admitted")
+			return
+		}
+	}
+
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
@@ -1099,7 +1107,7 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	}
 }
 
-func (s *Scheduler) getLessFavorableSibling(wl *workload.Info, snap *schdcache.Snapshot) *workload.Info {
+func (s *Scheduler) getSiblingVariant(wl *workload.Info, snap *schdcache.Snapshot, matchFunc func(candidate, sibling kueue.ResourceFlavorReference, flavors []kueue.ResourceFlavorReference) bool) *workload.Info {
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return nil
 	}
@@ -1125,12 +1133,30 @@ func (s *Scheduler) getLessFavorableSibling(wl *workload.Info, snap *schdcache.S
 		}
 		if concurrentadmission.GetParentWorkloadUID(otherWl.Obj) == parentUID && workload.IsAdmitted(otherWl.Obj) {
 			siblingFlavor := concurrentadmission.GetVariantFlavor(otherWl.Obj)
-			if siblingFlavor != "" && isLessFavorable(candidateFlavor, siblingFlavor, flavors) {
+			if siblingFlavor != "" && matchFunc(candidateFlavor, siblingFlavor, flavors) {
 				return otherWl
 			}
 		}
 	}
 	return nil
+}
+
+func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) *preemption.Target {
+	sibling := s.getSiblingVariant(wl, snap, isLessFavorable)
+	if sibling == nil {
+		return nil
+	}
+	return &preemption.Target{
+		WorkloadInfo: sibling,
+		WorkloadCq:   snap.ClusterQueue(wl.ClusterQueue),
+		Reason:       kueue.WorkloadEvictedByFlavorMigration,
+	}
+}
+
+func (s *Scheduler) getMoreFavorableSibling(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) *workload.Info {
+	return s.getSiblingVariant(wl, snap, func(candidate, sibling kueue.ResourceFlavorReference, flavors []kueue.ResourceFlavorReference) bool {
+		return isLessFavorable(sibling, candidate, flavors)
+	})
 }
 
 func isLessFavorable(candidate, sibling kueue.ResourceFlavorReference, flavors []kueue.ResourceFlavorReference) bool {

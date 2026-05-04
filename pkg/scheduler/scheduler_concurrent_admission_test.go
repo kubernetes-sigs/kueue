@@ -52,8 +52,26 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 		utiltestingapi.MakeResourceFlavor("on-demand").Obj(),
 		utiltestingapi.MakeResourceFlavor("spot").Obj(),
 	}
-	var clusterQueues []kueue.ClusterQueue
-	var queues []kueue.LocalQueue
+	clusterQueues := []kueue.ClusterQueue{
+		*utiltestingapi.MakeClusterQueue("concurrent-cq").
+			NamespaceSelector(&metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key:      "dep",
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{"eng"},
+				}},
+			}).
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("on-demand").
+					Resource(corev1.ResourceCPU, "10").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("spot").
+					Resource(corev1.ResourceCPU, "10").Obj(),
+			).
+			Obj(),
+	}
+	queues := []kueue.LocalQueue{
+		*utiltestingapi.MakeLocalQueue("concurrent-queue", "eng-alpha").ClusterQueue("concurrent-cq").Obj(),
+	}
 
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
@@ -68,26 +86,6 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 		wantLeft        map[kueue.ClusterQueueReference][]workload.Reference
 	}{
 		"concurrent admission: more favorable variant evicts less favorable sibling": {
-			additionalClusterQueues: []kueue.ClusterQueue{
-				*utiltestingapi.MakeClusterQueue("concurrent-cq").
-					NamespaceSelector(&metav1.LabelSelector{
-						MatchExpressions: []metav1.LabelSelectorRequirement{{
-							Key:      "dep",
-							Operator: metav1.LabelSelectorOpIn,
-							Values:   []string{"eng"},
-						}},
-					}).
-					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas("on-demand").
-							Resource(corev1.ResourceCPU, "10").Obj(),
-						*utiltestingapi.MakeFlavorQuotas("spot").
-							Resource(corev1.ResourceCPU, "10").Obj(),
-					).
-					Obj(),
-			},
-			additionalLocalQueues: []kueue.LocalQueue{
-				*utiltestingapi.MakeLocalQueue("concurrent-queue", "eng-alpha").ClusterQueue("concurrent-cq").Obj(),
-			},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("sibling-less-favorable", "eng-alpha").
 					UID("sibling-uid").
@@ -100,14 +98,14 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 						Obj(), now).
 					AdmittedAt(true, now).
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
-					Annotation("kueue.x-k8s.io/workload-allowed-resource-flavors", "spot").
+					AllowedFlavors("spot").
 					Obj(),
 				*utiltestingapi.MakeWorkload("candidate-more-favorable", "eng-alpha").
 					UID("candidate-uid").
 					Queue("concurrent-queue").
 					Request(corev1.ResourceCPU, "10").
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
-					Annotation("kueue.x-k8s.io/workload-allowed-resource-flavors", "on-demand").
+					AllowedFlavors("on-demand").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -116,7 +114,7 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 					Queue("concurrent-queue").
 					Request(corev1.ResourceCPU, "10").
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
-					Annotation("kueue.x-k8s.io/workload-allowed-resource-flavors", "on-demand").
+					AllowedFlavors("on-demand").
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
@@ -142,7 +140,7 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 						Obj(), now).
 					AdmittedAt(true, now).
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
-					Annotation("kueue.x-k8s.io/workload-allowed-resource-flavors", "spot").
+					AllowedFlavors("spot").
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
@@ -160,6 +158,76 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 				"eng-alpha/sibling-less-favorable": *utiltestingapi.MakeAdmission("concurrent-cq").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, "spot", "10").
+						Obj()).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+		},
+		"concurrent admission: less favorable variant is skipped when more favorable sibling is admitted": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("sibling-more-favorable", "eng-alpha").
+					UID("sibling-uid").
+					Queue("concurrent-queue").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("concurrent-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "10").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					AllowedFlavors("on-demand").
+					Obj(),
+				*utiltestingapi.MakeWorkload("candidate-less-favorable", "eng-alpha").
+					UID("candidate-uid").
+					Queue("concurrent-queue").
+					Request(corev1.ResourceCPU, "10").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					AllowedFlavors("spot").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("sibling-more-favorable", "eng-alpha").
+					UID("sibling-uid").
+					Queue("concurrent-queue").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("concurrent-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "10").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					AllowedFlavors("on-demand").
+					Obj(),
+				*utiltestingapi.MakeWorkload("candidate-less-favorable", "eng-alpha").
+					UID("candidate-uid").
+					Queue("concurrent-queue").
+					Request(corev1.ResourceCPU, "10").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					AllowedFlavors("spot").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "A more favorable variant is already admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("10"),
+						},
+					}).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"concurrent-cq": {"eng-alpha/candidate-less-favorable"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/sibling-more-favorable": *utiltestingapi.MakeAdmission("concurrent-cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "10").
 						Obj()).
 					Obj(),
 			},
@@ -259,6 +327,7 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 					cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 					cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion", "ObjectMeta.CreationTimestamp"),
 					cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
+					cmpopts.SortSlices(func(a, b kueue.Workload) bool { return a.Name < b.Name }),
 				}
 
 				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
