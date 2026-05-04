@@ -22,9 +22,9 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design details](#design-details)
   - [API surface](#api-surface)
-  - [Guiding principles for the implementation](#guiding-principles-for-the-implementation)
   - [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler)
   - [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler)
+  - [A note on client usage](#a-note-on-client-usage)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration Tests](#integration-tests)
@@ -288,99 +288,35 @@ message: MultiKueue manager quota automation does not support ClusterQueues with
 lastTransitionTime: 2026-01-01T00:00:00Z
 ```
 
-
-### Guiding principles for the implementation
-
-The implementation details discussed below are based on the following guiding principles:
-
-1. Generously tolerate API calls for resources which typically don't exist in large numbers.
-
-   * This includes: LocalQueues, ClusterQueues, AdmissionChecks, and MultiKueueConfigs.
-
-   * This includes `.Get()`, `.List()` and `.Watch()` calls, even on remote clients.
-
-   If this seems overly simplistic, keep in mind that:
-
-   * We only add new API calls in infrequently running procedures (and thus have much less need for sophisticated caching than, say, Kueue scheduler code). \
-     This **may need revisiting** in a (hypothetical) scenario when some automation external to Kueue frequently updates e.g. worker ClusterQueue quotas.
-
-   * This feels in line with the current MultiKueue approach, in which we e.g. tolerate remote `.Get()` calls [here](https://github.com/kubernetes-sigs/kueue/blob/161a2abc9e484b9fe0d6b3025c0bcac4fb8ef3a4/pkg/controller/admissionchecks/multikueue/workload.go#L314) inside the MultiKueue Workload Reconciler, even if they may be redundant (see [#10629](https://github.com/kubernetes-sigs/kueue/issues/10629)).
-
-   * If this approach ever turns too relaxed, we have numerous ways to win more efficiency with caching.
-
-2. Generally tolerate local API calls, as they use cached clients.
-
-Still, to keep up with Kueue code standards, we will:
-
-3. When possible, make `.List()` calls filtered (by API fields), and (for local calls) make sure that these filters are covered by client indexes.
-
-4. When feasible, pre-guard reconcile routines and `.Watches()` calls with predicates, ensuring that a reconcile is not triggered by an update which only changed irrelevant fields. \
-   (Such predicates will be clearly indicated in the recipes below).
-
-5. When feasible, replace multiple remote `.Get()`s with a single `.List()` call.
-
-   Even if this means increased amount of data transferred, the benefit is reduction of actual API QPS, as well as combining good latency with code simplicity (no need to parallelize for multiple `.Get()` calls).
-
 ### MultiKueue ClusterQueue Reconciler
 
-Besides the [existing MultiKueue reconcilers](https://github.com/kubernetes-sigs/kueue/blob/161a2abc9e484b9fe0d6b3025c0bcac4fb8ef3a4/pkg/controller/admissionchecks/multikueue/controllers.go#L151-L165), we'll add a new one for ClusterQueue objects (mostly on the manager side). Its operation will be enabled by the `MultiKueueManagerQuotaAutomation` feature gate.
+We will introduce a new reconciler for manager-side ClusterQueue objects. Reconciling a manager ClusterQueue `Q` will proceed as follows:
 
-Reconciling a manager ClusterQueue `Q` will proceed as follows:
+1. **Verify enablement:** Fetch `Q`, its associated MultiKueue AdmissionCheck, and MultiKueueConfig. Verify that quota automation is requested and supported (e.g., `Q` must have exactly one ResourceFlavor).
 
-1. Fetch `Q` from the API client.
+2. **Update the Condition:** If needed, update the `MultiKueueManagerQuotaAutomation` status Condition.
 
-2. Find the MultiKueue AdmissionCheck for `Q` (using an unfiltered local API `.List()` call). \
-   Then, fetch the MultiKueueConfig for `Q` from the API client. \
-   If any of this fails, clear the `MultiKueueManagerQuotaAutomation` Condition (if present) and exit.
+3. **Aggregate quotas:** Find all [related worker ClusterQueues](#defining-related-worker-clusterqueues). Sum their quotas and update `Q`'s quotas accordingly.
 
-3. Determine whether quota automation has been requested and can be supported for `Q` (based on the MultiKueueConfig, the feature gate, and the number of ResourceFlavors). \
-   If not, set the `MultiKueueManagerQuotaAutomation` Condition accordingly (to `False`) and exit.
-
-5. Find all manager LocalQueues connected to `Q` (using a filtered local API `.List()` call).
-
-6. Fetch all worker LocalQueues of those names (using unfiltered remote API `.List()` calls, one per worker).
-
-7. Fetch all worker ClusterQueues connected to those LocalQueues (using unfiltered remote API `.List()` calls, at most one per worker).
-
-8. Determine the new quota values for `Q` (using the recipe described [here](#proposal), with `QuotaMultiplier` used as the multiplier).
-
-9. If `MultiKueueManagerQuotaAutomation` is not `True`, set it to `True`.
-
-10. Update quotas for `Q` if the desired values differ from the current ones.
-
-(See the "Takeaway" part [here](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative) for the rationale for the ordering of the last 2 steps).
-
-This reconciler will be triggered in the following ways:
-
-1. For (manager) ClusterQueue events (creations, deletions, changes of `.Spec.ResourceGroups` or of `.Spec.AdmissionChecksStrategy`).
-
-2. For (manager) LocalQueue events (creations, deletions), where the update handler function will:
-   1. Trigger reconcile for the corresponding ClusterQueue.
-
-3. For (manager) AdmissionCheck events (creations, deletions, changes of "does `.Spec.ControllerName` indicate MultiKueue?" or, if it does, of `.Spec.Parameters`), where the update handler function will:
-   1. Find all manager ClusterQueues using it (using a filtered API `.List` call).
-   2. Trigger reconcile for all those ClusterQueues.
-
-4. For (manager) MultiKueueConfig events (creations, deletions, changes of `.Spec.QuotaAutomation`), where the update handler function will:
-   1. Find all manager ClusterQueues using it (using 2 levels of filtered API `.List` calls, similarly as [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload.go#L880-L890)).
-   2. Trigger reconcile for all those ClusterQueues.
-
-5. For remote objects events, propagated from the [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler) (see there for details).
-
-Cases 2-4 will be implemented by additional `.Watches()` calls on the reconciler (like e.g. [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload.go#L915)). Case 5 will be implemented by watching a custom channel (like [here](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/workload.go#L914)).
+The reconciler will be triggered by:
+* **Manager events:** Creation, deletion, or relevant updates to ClusterQueues, LocalQueues, AdmissionChecks, or MultiKueueConfigs.
+* **Remote events:** Propagated from the [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler) when remote LocalQueues or ClusterQueues change.
 
 ### MultiKueue Cluster Reconciler
 
-In `multikueuecluster.go`, where the `startWatcher()` method calls `.Watch()` on the remote clusters [for Workloads](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L178) as well as [for the supported job types](https://github.com/kubernetes-sigs/kueue/blob/25538a4ea2979d975d75792c1f9a7124a0475c4a/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L190), we'll add additional `.Watch()` calls:
+In `multikueuecluster.go`, we will add watches on remote clusters for **LocalQueue** and **ClusterQueue** events. When any of those change, we'll find all [related manager ClusterQueues](#defining-related-worker-clusterqueues), and trigger the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler) for each of them.
 
-1. For (remote) LocalQueue events (creations, deletions), where the update handler function will:
-   1. Fetch the corresponding manager LocalQueue from the API client, and check its ClusterQueue.
-   2. Trigger the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler) for that ClusterQueue.
+### A note on client usage
 
-2. For (remote) ClusterQueue events (creations, deletions, changes of `.Spec.ResourceGroups`), where the update handler function will, for a ClusterQueue `Q` on worker `W`:
-   1. Find all LocalQueues on `W` pointing to `Q` (using a filtered remote `.List` API call).
-   2. Find all manager ClusterQueues connected with manager LocalQueues of the same names (using a single unfiltered local `.List` API call).
-   3. Trigger the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler) for all those ClusterQueues.
+In the above reconcilers, we generally intend to happily tolerate K8s client calls, without introducing any custom caching.
+
+This is because:
+
+1. Local clients are already cached.
+2. Remote calls will be made only for "memory-light" resource kinds (LocalQueues and ClusterQueues), which typically do not exist in large numbers.
+3. The reconcilers involved are not expected to run frequently.
+
+Item 3 may not hold if worker clusters use any tooling (external to Kueue) for automated management of their queue quotas. If this is ever observed, we may need to optimize, e.g. by [caching our remote calls](#use-cached-remote-clients-for-low-volume-resource-kinds).
 
 ### Test Plan
 
