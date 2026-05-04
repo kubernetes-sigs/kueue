@@ -30,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -46,7 +45,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -912,26 +910,9 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	// supporting preferred or required placement constraints.
 	if clusterName := workload.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
 		nominatedWorkers = []string{clusterName}
-	} else if w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
-		for workerName := range group.remotes {
-			nominatedWorkers = append(nominatedWorkers, workerName)
-		}
-
-		// group.remotes is a map, so iteration order is non-deterministic; sort only
-		// when we are about to persist, for a stable stored nomination.
-		slices.Sort(nominatedWorkers)
-		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-			if sets.New(wl.Status.NominatedClusterNames...).Equal(sets.New(nominatedWorkers...)) {
-				return false, nil
-			}
-			wl.Status.NominatedClusterNames = nominatedWorkers
-			return true, nil
-		}); err != nil {
-			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
-			return reconcile.Result{}, err
-		}
 	} else {
-		// Incremental dispatcher and External dispatcher path
+		// Dispatcher (AllAtOnce, Incremental, or External) is responsible for
+		// populating Status.NominatedClusterNames; the synchronizer just reads it.
 		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
