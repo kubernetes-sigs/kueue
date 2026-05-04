@@ -127,7 +127,7 @@ spec:
       serviceAccountName: {{ .Release.Name }}-kueue-hook-sa
       containers:
       - name: kubectl-apply
-        image: registry.k8s.io/kubectl:v1.33.6
+        image: {{ include "kueue-populator.kubectlImage" . }}
         command:
         - kubectl
         - apply
