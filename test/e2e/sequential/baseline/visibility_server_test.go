@@ -73,16 +73,20 @@ var _ = ginkgo.Describe("Visibility Server", func() {
 
 	ginkgo.AfterEach(func() {
 		ginkgo.By("Restoring the original deployment")
-		latestDeployment := &appsv1.Deployment{}
-		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, latestDeployment)).To(gomega.Succeed())
-		latestDeployment.Spec = originalDeployment.Spec
-		gomega.Expect(k8sClient.Update(ctx, latestDeployment)).To(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			latestDeployment := &appsv1.Deployment{}
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, latestDeployment)).To(gomega.Succeed())
+			latestDeployment.Spec = originalDeployment.Spec
+			g.Expect(k8sClient.Update(ctx, latestDeployment)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Restoring the original service")
-		latestService := &corev1.Service{}
-		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueVisibilityServerName, Namespace: kueueNS}, latestService)).To(gomega.Succeed())
-		latestService.Spec.Ports = originalService.Spec.Ports
-		gomega.Expect(k8sClient.Update(ctx, latestService)).To(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			latestService := &corev1.Service{}
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueVisibilityServerName, Namespace: kueueNS}, latestService)).To(gomega.Succeed())
+			latestService.Spec.Ports = originalService.Spec.Ports
+			g.Expect(k8sClient.Update(ctx, latestService)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
@@ -153,32 +157,32 @@ var _ = ginkgo.Describe("Visibility Server", func() {
 		}
 		util.MustCreate(ctx, k8sClient, authReaderBinding)
 
-		patchedDeployment := originalDeployment.DeepCopy()
-
 		ginkgo.By("Mounting the ConfigMap and the Custom SA Token Secret")
-		patchedDeployment.Spec.Template.Spec.Volumes = append(patchedDeployment.Spec.Template.Spec.Volumes,
-			corev1.Volume{
-				Name:         kubeconfigVolName,
-				VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: configMapName}}},
-			},
-			corev1.Volume{
-				Name:         customSAVolName,
-				VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: customSecretName}},
-			},
-		)
-
-		for i, c := range patchedDeployment.Spec.Template.Spec.Containers {
-			if c.Name == "manager" {
-				container := &patchedDeployment.Spec.Template.Spec.Containers[i]
-				container.VolumeMounts = append(c.VolumeMounts,
-					corev1.VolumeMount{Name: kubeconfigVolName, MountPath: "/etc/kubeconfig", ReadOnly: true},
-					corev1.VolumeMount{Name: customSAVolName, MountPath: customSAMountPath, ReadOnly: true},
-				)
-				container.Args = append(c.Args, "--kubeconfig=/etc/kubeconfig/config")
+		gomega.Eventually(func(g gomega.Gomega) {
+			patchedDeployment := &appsv1.Deployment{}
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, patchedDeployment)).To(gomega.Succeed())
+			patchedDeployment.Spec.Template.Spec.Volumes = append(patchedDeployment.Spec.Template.Spec.Volumes,
+				corev1.Volume{
+					Name:         kubeconfigVolName,
+					VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: configMapName}}},
+				},
+				corev1.Volume{
+					Name:         customSAVolName,
+					VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: customSecretName}},
+				},
+			)
+			for i, c := range patchedDeployment.Spec.Template.Spec.Containers {
+				if c.Name == "manager" {
+					container := &patchedDeployment.Spec.Template.Spec.Containers[i]
+					container.VolumeMounts = append(c.VolumeMounts,
+						corev1.VolumeMount{Name: kubeconfigVolName, MountPath: "/etc/kubeconfig", ReadOnly: true},
+						corev1.VolumeMount{Name: customSAVolName, MountPath: customSAMountPath, ReadOnly: true},
+					)
+					container.Args = append(c.Args, "--kubeconfig=/etc/kubeconfig/config")
+				}
 			}
-		}
-
-		gomega.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
+			g.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		// NEGATIVE TEST: The custom SA lacks 'system:auth-delegator'. The visibility server
@@ -221,23 +225,29 @@ var _ = ginkgo.Describe("Visibility Server", func() {
 
 	ginkgo.It("Should use the custom port from the --visibility-server-port flag", func() {
 		ginkgo.By("Updating the visibility-server service's targetPort")
-		patchedService := originalService.DeepCopy()
-		for i, p := range patchedService.Spec.Ports {
-			if p.Name == "https" {
-				patchedService.Spec.Ports[i].TargetPort = intstr.FromInt32(customVisibilityPort)
+		gomega.Eventually(func(g gomega.Gomega) {
+			patchedService := &corev1.Service{}
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueVisibilityServerName, Namespace: kueueNS}, patchedService)).To(gomega.Succeed())
+			for i, p := range patchedService.Spec.Ports {
+				if p.Name == "https" {
+					patchedService.Spec.Ports[i].TargetPort = intstr.FromInt32(customVisibilityPort)
+				}
 			}
-		}
-		gomega.Expect(k8sClient.Update(ctx, patchedService)).To(gomega.Succeed())
+			g.Expect(k8sClient.Update(ctx, patchedService)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Updating the visibility-server deployment's port")
-		patchedDeployment := originalDeployment.DeepCopy()
-		for i, c := range patchedDeployment.Spec.Template.Spec.Containers {
-			if c.Name == "manager" {
-				container := &patchedDeployment.Spec.Template.Spec.Containers[i]
-				container.Args = append(c.Args, fmt.Sprintf("--visibility-server-port=%d", customVisibilityPort))
+		gomega.Eventually(func(g gomega.Gomega) {
+			patchedDeployment := &appsv1.Deployment{}
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, patchedDeployment)).To(gomega.Succeed())
+			for i, c := range patchedDeployment.Spec.Template.Spec.Containers {
+				if c.Name == "manager" {
+					container := &patchedDeployment.Spec.Template.Spec.Containers[i]
+					container.Args = append(c.Args, fmt.Sprintf("--visibility-server-port=%d", customVisibilityPort))
+				}
 			}
-		}
-		gomega.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
+			g.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		ginkgo.By("Verifying requests succeed on the custom port")
