@@ -30,9 +30,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func TestValidate(t *testing.T) {
@@ -970,10 +972,11 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestValidateFeatureGates(t *testing.T) {
+func TestLoadAndValidateFeatureGates(t *testing.T) {
 	cases := map[string]struct {
 		featureGatesCLI string
 		featureGateMap  map[string]bool
+		gatesToRestore  map[featuregate.Feature]bool
 		errorStr        string
 	}{
 		"no feature gates is null": {
@@ -982,33 +985,57 @@ func TestValidateFeatureGates(t *testing.T) {
 			errorStr:        "",
 		},
 		"feature gate cli": {
-			featureGatesCLI: "test:true",
-			featureGateMap:  nil,
-			errorStr:        "",
+			featureGatesCLI: string(features.DynamicResourceAllocation) + "=false",
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation: false,
+			},
 		},
 		"cannot specify both feature gates": {
-			featureGatesCLI: "test:true",
-			featureGateMap:  map[string]bool{"test": true},
-
+			featureGatesCLI: string(features.DynamicResourceAllocation) + "=false",
+			featureGateMap: map[string]bool{
+				string(features.DynamicResourceAllocation): false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.DynamicResourceAllocation: false,
+			},
 			errorStr: "feature gates for CLI and configuration cannot both specified",
 		},
 		"cannot specify more than one TAS profile using GateMap": {
 			featureGateMap: map[string]bool{"TASProfileMixed": true,
 				"TASProfileLeastFreeCapacity": true},
-			errorStr: "Cannot use more than one TAS profiles",
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASProfileMixed:             true,
+				features.TASProfileLeastFreeCapacity: false,
+			},
+			errorStr: "cannot use more than one TAS profiles",
 		},
 		"cannot specify more than one TAS profile using GatesCLI": {
-			featureGatesCLI: "TASProfileLeastFreeCapacity:true,TASProfileMixed:true",
-			errorStr:        "Cannot use more than one TAS profiles",
+			featureGatesCLI: "TASProfileLeastFreeCapacity=true,TASProfileMixed=true",
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASProfileLeastFreeCapacity: false,
+				features.TASProfileMixed:             true,
+			},
+			errorStr: "cannot use more than one TAS profiles",
 		},
 		"cannot set TAS profile with TAS disabled": {
-			featureGateMap: map[string]bool{"TASProfileLeastFreeCapacity": true},
-			errorStr:       "Cannot use a TAS profile with TAS disabled",
+			featureGateMap: map[string]bool{
+				string(features.TASProfileLeastFreeCapacity): true,
+				string(features.TASProfileMixed):             false,
+				string(features.TopologyAwareScheduling):     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASProfileLeastFreeCapacity: false,
+				features.TASProfileMixed:             true,
+				features.TopologyAwareScheduling:     true,
+			},
+			errorStr: "cannot use a TAS profile with TAS disabled",
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := ValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
+			// Ensure clean up is registered for the feature gates to their default values
+			features.SetFeatureGatesDuringTest(t, tc.gatesToRestore)
+			got := LoadAndValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
 			if got != nil && tc.errorStr != got.Error() {
 				t.Errorf("Unexpected result from ValidateFeatureGates\nwant:\n%v\ngot:%v\n", tc.errorStr, got.Error())
 			}
