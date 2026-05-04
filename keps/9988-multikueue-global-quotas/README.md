@@ -12,6 +12,7 @@
     - [Story 1](#story-1)
     - [Story 2](#story-2)
     - [Story 3](#story-3)
+    - [Story 4](#story-4)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
     - [Factors influencing desired manager quota](#factors-influencing-desired-manager-quota)
       - [Potential reasons for increasing manager quota](#potential-reasons-for-increasing-manager-quota)
@@ -30,12 +31,16 @@
     - [E2e Tests](#e2e-tests)
   - [Possible Follow-ups](#possible-follow-ups)
     - [Use cached remote clients for low-volume resource kinds](#use-cached-remote-clients-for-low-volume-resource-kinds)
+    - [Add a way to adjust the manager-side quota](#add-a-way-to-adjust-the-manager-side-quota)
+    - [Change the treatment of ResourceFlavors](#change-the-treatment-of-resourceflavors)
+    - [Account for temporarily unavailable workers](#account-for-temporarily-unavailable-workers)
   - [Graduation Criteria](#graduation-criteria)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
   - [Support quota automation for multiple manager-side ResourceFlavors](#support-quota-automation-for-multiple-manager-side-resourceflavors)
   - [Support quota automation for no manager-side ResourceFlavors (auto-create one)](#support-quota-automation-for-no-manager-side-resourceflavors-auto-create-one)
   - [Different handling of many-to-many relationships between manager-side and worker-side ClusterQueues](#different-handling-of-many-to-many-relationships-between-manager-side-and-worker-side-clusterqueues)
+  - [Make the <code>MultiKueueManagerQuotaAutomation</code> Condition message more informative](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative)
   - [Take Cohorts into account](#take-cohorts-into-account)
 <!-- /toc -->
 
@@ -130,6 +135,10 @@ This could be because:
 
 * I want to control the manager quotas manually (e.g. to make them more stable, or less confusing).
 
+#### Story 4
+
+As a Batch Admin using MultiKueue, I want to see the total worker capacity for a manager-side ClusterQueue, without a need to connect to the worker clusters.
+
 ### Notes/Constraints/Caveats
 
 #### Factors influencing desired manager quota
@@ -192,9 +201,9 @@ Therefore, for a given manager ClusterQueue `Q`, the set of **related worker Clu
 
 MultiKueue enforces **no relationships** between ResourceFlavors on the manager and worker sides. The flavors on both sides may have different names; they may even be differently grouped into ResourceGroups.
 
-If a MultiKueue AdmissionCheck is attached to a manger ClusterQueue with multiple ResourceFlavors, it must apply to **all** those flavors (since [#2047](https://github.com/kubernetes-sigs/kueue/pull/2047)). Then, the selection of ResourceFlavor on the manager side has typically **no effect** on the remotes - it doesn't affect neither the built-in dispatchers nor scheduling on the worker side.
+Even if the flavor names on both sides agree, having multiple flavors on the manager side may likely lead to **manager/worker flavor skew**, where a workload could be admitted on flavor A on the manager but on flavor B on a worker (as the manager's flavor assignment has typically no effect on the remotes). As long as such skews can happen, aggregating quotas per flavor would be meaningless.
 
-Therefore, the proposed restriction of the quota automation feature to single-flavor manager configs is _very mild_: multiple flavors on the manager side _should not be needed for most users_. Theoretical cases when it would be needed include:
+As a result, multiple flavors on the manager side _should not be needed for most users_. Yet, they still may be needed in some special cases, for example:
 
 * Using a flavor-aware custom MultiKueue dispatcher.
 * Using TAS on the workers, with incompatible names of topology levels on different workers.
@@ -407,6 +416,35 @@ This could be implemented by equipping the internal [`remoteClient` structure](h
 
 We **postpone** this as doing it right may still involve some complexity. For example, it's not clear how to avoid duplicating API watches (see item 3 in the description of [#10629](http://github.com/kubernetes-sigs/kueue/issues/10629)).
 
+#### Add a way to adjust the manager-side quota
+
+As explained in [Factors influencing desired manager quota](#factors-influencing-desired-manager-quota), some users may want to keep their manager-side quota higher or lower than the sum of worker quotas. A configurable **quota multiplier** seems robust enough to address most use cases.
+
+Our initial idea was to let it affect the manager-side `nominalQuota`; however, that was considered confusing by most reviewers. 
+
+Another option is to re-use the concept of "effective quota", or "accessible quota" in terms of [KEP-8826](https://github.com/kubernetes-sigs/kueue/pull/8864); that is, leave `nominalQuota` unchanged but apply the mulitplier on the level of "accessible quota" which would be the one actually enforced. This would allow to keep `nominalQuota` serving [User Story 4](#story-4) while letting the multiplier affect the quota automation behavior.
+
+#### Change the treatment of ResourceFlavors
+
+While the proposed treatment (require a single flavor on the manager; aggregate all worker quotas into it) is the simplest one which avoids the [issue of manager/worker flavor skew](#treatment-of-resourceflavors), it may be too simplistic for some use cases involving _mutually exclusive_ flavors on the workers (e.g. CPU-only vs. GPU-only, or TAS flavors based on mutually incompatible topologies). In those cases, the flavor skew can't occur; on the other hand, a single manager-side flavor combining all the worker flavors could be misleading, or even impossible to define.
+
+To handle such cases well, without introducing confusion in the other cases, we'd need roughly to:
+
+- capture the "mutually exclusive" relationship among ResourceFlavors with a strict definition;
+- replace the constraint guarding quota automation with a more complex one, in the spirit of "there's exactly on manager-side flavor _in every equivalence class of being not mutually exclusive_".
+
+This seems promising but needs more discussion and research of use cases to hammer out the details.
+
+#### Account for temporarily unavailable workers
+
+When a worker cluster becomes unreachable (e.g. due to network issues), its admitted workloads are still considered admitted on the manager side, until `workerLostTimeout` expires. On the other hand, our proposed approach for determining total worker-side quotas (relying on fetching `nominalQuota` from all workers) will not include quotas of any disconnected worker clusters. 
+
+This discrepancy may lead to temporary under-utilization of the fleet resources. For example, if there are 3 workers, each with 10 CPU capacity, and we're running a single workload, consuming 7 CPU, on `worker1` which gets disconnected, then the manager ClusterQueue will have its `nominalQuota` set to 20, with 7 of that already used, leaving just 13 CPU for new workloads on `worker2` and `worker3` which are both empty.
+
+To cover for that, we increase the manager-side quota by the sum of requests of all workloads which are admitted on the manager but their assigned worker clusters have remote clients which are currently `.connecting`. (Notably, all this info is available on the manager side, without querying the workers).
+
+We postpone this because it adds some complexity, and the impact feels minor.
+
 ### Graduation Criteria
 
 * **Alpha:**
@@ -439,13 +477,13 @@ Besides introducing some risks (see [Risks and Mitigations](#risks-and-mitigatio
 
 ### Support quota automation for multiple manager-side ResourceFlavors
 
-The proposed constraint that quota automation requires a single ResourceFlavor on the manager side may feel inconvenient; for example, it's an obstacle for supporting total quota visibility via the manager ClusterQueue quota, which would be the most intuitive place.
+The proposed constraint that quota automation requires a single ResourceFlavor on the manager side may feel inconvenient, or counter-intuitive.
 
 **Reasons for discarding**
 
-* As explained [here](#treatment-of-resourceflavors), ResourceFlavors on the manager side are typically meaningless for MultiKueue scheduling. Even if we enforced alignment between ResourceFlavors on the manager and worker sides (e.g. two ResourceFlavors A, B on both sides), there could easily exist workloads e.g. admitted on A on the manager but on B on the worker, which would be unnecessarily confusing.
+* Aggregating quotas per ResourceFlavor is generally risky due to the possibility of manager/worker flavor skews, as explained [here](#treatment-of-resourceflavors).
 
-* Even if we introduced an enforced alignment of flavor assignments between the manager and workers (to address the above issue), this would open a new set of difficult questions:
+* Even if we introduced an enforced alignment of flavor assignments between the manager and workers (to address the above risk), this would open a new set of difficult questions:
 
   * What should determine the flavor assignment on the ClusterQueue side? \
     (It could be manager-side scheduler logic or the outcome of MultiKueue dispatching, neither option perfect).
@@ -453,6 +491,8 @@ The proposed constraint that quota automation requires a single ResourceFlavor o
   * What if the flavors setup is conflicting across the workers, so that no compatible manager-side arrangement exists? \
     (For example, worker1 has `flavorA` covering `cpu` and `flavorB` covering `memory` while worker2 has only `flavorA` covering both. A "naive aggregation" on the manager would produce `flavorA` covering both and `flavorB` covering just `memory`, which is invalid inside `.Spec.ResourceGroups` of a ClusterQueue). \
     Should we disable quota automation in those cases? Or validate against them? (Again, neither option perfect).
+
+* This direction can make sense in some special cases (as discussed in [this follow-up idea](#change-the-treatment-of-resourceflavors)); yet, this is postponed as it requires more deep thought.
 
 ### Support quota automation for no manager-side ResourceFlavors (auto-create one)
 
