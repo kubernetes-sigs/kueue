@@ -25,19 +25,24 @@ import (
 )
 
 func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
-	if *cfg.MultiKueue.DispatcherName != configapi.MultiKueueDispatcherModeIncremental {
-		return "", nil
-	}
-
 	helper, err := admissioncheck.NewMultiKueueStoreHelper(mgr.GetClient())
 	if err != nil {
 		return "", err
 	}
 
-	idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, roleTracker)
-	err = idRec.SetupWithManager(mgr, cfg)
-	if err != nil {
-		return "multikueue-incremental-dispatcher", err
+	switch *cfg.MultiKueue.DispatcherName {
+	case configapi.MultiKueueDispatcherModeIncremental:
+		idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, roleTracker)
+		if err := idRec.SetupWithManager(mgr, cfg); err != nil {
+			return "multikueue-incremental-dispatcher", err
+		}
+	case configapi.MultiKueueDispatcherModeAllAtOnce:
+		aRec := NewAllAtOnceDispatcherReconciler(mgr.GetClient(), helper, roleTracker)
+		if err := aRec.SetupWithManager(mgr, cfg); err != nil {
+			return "multikueue-all-at-once-dispatcher", err
+		}
+	default:
+		// External dispatcher mode: no built-in controller is registered.
 	}
 
 	return "", nil
