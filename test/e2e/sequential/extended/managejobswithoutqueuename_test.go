@@ -884,7 +884,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("checking that pods are running and gated", func() {
+			ginkgo.By("checking that pods are gated", func() {
 				pods := &corev1.PodList{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
