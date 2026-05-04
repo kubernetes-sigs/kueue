@@ -492,7 +492,7 @@ func TestPendingResources(t *testing.T) {
 	}
 
 	// Empty queue returns empty map.
-	if got := cq.PendingResources(); len(got) != 0 {
+	if got := cq.pendingResources(); len(got) != 0 {
 		t.Errorf("expected empty PendingResources on empty queue, got %v", got)
 	}
 
@@ -510,7 +510,7 @@ func TestPendingResources(t *testing.T) {
 		t.Fatal("expected to pop a workload")
 	}
 
-	got := cq.PendingResources()
+	got := cq.pendingResources()
 
 	// All three workloads (heap + inadmissible + inflight) should be counted.
 	if got[corev1.ResourceCPU] == 0 {

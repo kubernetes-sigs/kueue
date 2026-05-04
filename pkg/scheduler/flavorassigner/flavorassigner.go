@@ -581,11 +581,13 @@ type indexedPodSet struct {
 }
 
 func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignment {
-	var requests []workload.PodSetResources
+	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
 	if len(counts) == 0 {
-		requests = a.wl.TotalRequests
+		for i, ps := range a.wl.TotalRequests {
+			requests[i] = ps
+			requests[i].Requests = maps.Clone(ps.Requests)
+		}
 	} else {
-		requests = make([]workload.PodSetResources, len(a.wl.TotalRequests))
 		for i := range a.wl.TotalRequests {
 			requests[i] = *a.wl.TotalRequests[i].ScaledTo(counts[i])
 		}
