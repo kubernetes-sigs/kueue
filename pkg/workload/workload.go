@@ -45,6 +45,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -342,6 +343,11 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	shape := map[string]any{
 		"podSets":  podSetShapes,
 		"priority": effectivePriority,
+	}
+	if features.Enabled(features.ConcurrentAdmission) {
+		if val, ok := wl.GetAnnotations()[controllerconstants.WorkloadAllowedResourceFlavorAnnotation]; ok {
+			shape["allowedFlavors"] = val
+		}
 	}
 	shapeJSON, err := json.Marshal(shape)
 	if err != nil {
