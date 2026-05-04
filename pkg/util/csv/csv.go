@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+<<<<<<<< HEAD:pkg/util/csv/csv.go
 package csv
 
 import "strings"
@@ -34,4 +35,19 @@ func Parse(s string) []string {
 // Serialize joins a slice of strings with commas.
 func Serialize(elems []string) string {
 	return strings.Join(elems, ",")
+========
+package internalversion
+
+import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/conversion"
+)
+
+func Convert_v1_ListOptions_To_internalversion_ListOptions(in *v1.ListOptions, out *ListOptions, s conversion.Scope) error {
+	return autoConvert_v1_ListOptions_To_internalversion_ListOptions(in, out, s)
+}
+
+func Convert_internalversion_ListOptions_To_v1_ListOptions(in *ListOptions, out *v1.ListOptions, s conversion.Scope) error {
+	return autoConvert_internalversion_ListOptions_To_v1_ListOptions(in, out, s)
+>>>>>>>> a227e98c2 (vendor):vendor/k8s.io/apimachinery/pkg/apis/meta/internalversion/conversion.go
 }

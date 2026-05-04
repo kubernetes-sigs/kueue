@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+<<<<<<<< HEAD:test/e2e/tas/extended/helpers_test.go
 package extended
 
 const (
@@ -21,3 +22,10 @@ const (
 	tasNodeGroupLabel = "cloud.provider.com/node-group"
 	extraResource     = "example.com/gpu"
 )
+========
+// +k8s:deepcopy-gen=package
+// +k8s:conversion-gen=k8s.io/apiserver/pkg/admission/plugin/policy/config/apis/policyconfig
+
+// Package v1 is the v1 version of the API.
+package v1 // import "k8s.io/apiserver/pkg/admission/plugin/policy/config/apis/policyconfig/v1"
+>>>>>>>> a227e98c2 (vendor):vendor/k8s.io/apiserver/pkg/admission/plugin/policy/config/apis/policyconfig/v1/doc.go
