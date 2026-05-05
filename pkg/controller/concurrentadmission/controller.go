@@ -250,7 +250,7 @@ func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Wo
 			return err
 		}
 		log.V(3).Info("Variant created", "variant", klog.KObj(variant), "flavor", flavor)
-		r.recorder.Eventf(parent, corev1.EventTypeNormal, ReasonCreatedVariant, "Variant Workload %s created", variant.Name)
+		r.recorder.Eventf(parent, corev1.EventTypeNormal, ReasonCreatedVariant, "Variant Workload %s created", klog.KObj(variant))
 	}
 	return nil
 }
@@ -369,7 +369,7 @@ func (r *variantReconciler) deactivateVariants(
 		log.V(2).Info("Parent is not active, deactivating all variants", "parent", klog.KObj(parent))
 		for i := range variants {
 			v := &variants[i]
-			if err := r.deactivateVariant(ctx, v, fmt.Sprintf("Parent Workload: %s/%s not active", parent.Namespace, parent.Name)); err != nil {
+			if err := r.deactivateVariant(ctx, v, fmt.Sprintf("Parent Workload %s/%s not active", parent.Namespace, parent.Name)); err != nil {
 				return err
 			}
 		}
@@ -475,7 +475,7 @@ func (r *variantReconciler) activateWl(ctx context.Context, wl *kueue.Workload, 
 	if err := r.client.Update(ctx, wl); err != nil {
 		return err
 	}
-	r.recorder.Eventf(wl, corev1.EventTypeNormal, ReasonActivatedVariant, "Activated Workload: %s", message)
+	r.recorder.Eventf(wl, corev1.EventTypeNormal, ReasonActivatedVariant, "Variant Workload activated due to %s", message)
 	return nil
 }
 
@@ -487,7 +487,7 @@ func (r *variantReconciler) deactivateWl(ctx context.Context, wl *kueue.Workload
 	if err := r.client.Update(ctx, wl); err != nil {
 		return err
 	}
-	r.recorder.Eventf(wl, corev1.EventTypeNormal, ReasonDeactivatedVariant, "Deactivated Workload: %s", message)
+	r.recorder.Eventf(wl, corev1.EventTypeNormal, ReasonDeactivatedVariant, "Variant Workload deactivated due to %s", message)
 	return nil
 }
 
