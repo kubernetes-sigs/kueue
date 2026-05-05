@@ -13,7 +13,7 @@ You will create the Kueue infrastructure, submit a Job, and observe its progress
 
 Make sure the following conditions are met:
 
-- A Kubernetes cluster is running.
+- A running Kubernetes cluster. For quick start, we recommend [KIND](https://kind.sigs.k8s.io/docs/user/quick-start/).
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/getting-started/installation).
 
