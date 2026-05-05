@@ -23,9 +23,11 @@ import (
 	"strconv"
 	"strings"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -59,6 +61,18 @@ func truncate(s string, n int) string {
 		return s[:n]
 	}
 	return s
+}
+
+// GetOriginUID returns the UID to use for workload name calculation.
+// For MultiKueue remote objects it returns the origin UID from the annotation;
+// otherwise it returns the object's own UID.
+func GetOriginUID(obj metav1.Object) types.UID {
+	if _, isRemote := obj.GetLabels()[kueue.MultiKueueOriginLabel]; isRemote {
+		if originUID, ok := obj.GetAnnotations()[kueue.MultiKueueOriginUIDAnnotation]; ok {
+			return types.UID(originUID)
+		}
+	}
+	return obj.GetUID()
 }
 
 func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {

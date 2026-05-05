@@ -6326,3 +6326,75 @@ func TestStop(t *testing.T) {
 		})
 	}
 }
+
+func TestPrepare(t *testing.T) {
+	testCases := map[string]struct {
+		pod       *corev1.Pod
+		info      podset.PodSetInfo
+		wantGates []corev1.PodSchedulingGate
+	}{
+		"merge does not re-add gates removed by another controller": {
+			pod: testingpod.MakePod("test-pod", "ns").
+				// Pod originally had both gates, but TAS ungater already
+				// removed TopologySchedulingGate — only kueue gate remains.
+				KueueSchedulingGate().
+				Obj(),
+			info: podset.PodSetInfo{
+				// PodSetInfo carries the TAS gate (from admission assignment).
+				// Without the fix, Merge would re-add it on the live pod.
+				SchedulingGates: []corev1.PodSchedulingGate{
+					{Name: kueue.TopologySchedulingGate},
+				},
+				Labels:      map[string]string{constants.PodSetLabel: "main"},
+				Annotations: map[string]string{},
+			},
+			// After prepare: kueue gate is removed by Ungate, and the
+			// TopologySchedulingGate stays in info so it is NOT removed.
+			// But crucially it was never on the live pod, so the result
+			// must be no gates at all (not re-added by Merge).
+			wantGates: nil,
+		},
+		"ungate removes kueue gate and preserves TAS gate when in assignment": {
+			pod: testingpod.MakePod("test-pod", "ns").
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Obj(),
+			info: podset.PodSetInfo{
+				SchedulingGates: []corev1.PodSchedulingGate{
+					{Name: kueue.TopologySchedulingGate},
+				},
+				Labels:      map[string]string{},
+				Annotations: map[string]string{},
+			},
+			// Kueue gate removed, TAS gate kept because it is in the assignment.
+			wantGates: []corev1.PodSchedulingGate{
+				{Name: kueue.TopologySchedulingGate},
+			},
+		},
+		"ungate removes both gates when TAS not in assignment": {
+			pod: testingpod.MakePod("test-pod", "ns").
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Obj(),
+			info: podset.PodSetInfo{
+				Labels:      map[string]string{},
+				Annotations: map[string]string{},
+			},
+			// No TAS gate in assignment → both gates are removed.
+			wantGates: nil,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			err := prepare(tc.pod, tc.info)
+			if err != nil {
+				t.Fatalf("prepare() returned unexpected error: %v", err)
+			}
+
+			if diff := cmp.Diff(tc.wantGates, tc.pod.Spec.SchedulingGates, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("SchedulingGates mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

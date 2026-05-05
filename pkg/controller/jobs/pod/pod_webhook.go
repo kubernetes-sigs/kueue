@@ -20,7 +20,9 @@ import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -29,12 +31,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	lwsconstants "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset/constants"
+	lwsworkloadname "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset/workloadname"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -181,6 +186,43 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 				pod.pod.Labels[kueue.PodGroupPodIndexLabel] = pod.pod.Labels[val]
 			}
 			utilpod.Gate(&pod.pod, kueue.TopologySchedulingGate)
+
+			if lwsName, hasLWS := pod.pod.Labels[leaderworkersetv1.SetNameLabelKey]; hasLWS {
+				groupIndex, hasGroupIndex := pod.pod.Labels[leaderworkersetv1.GroupIndexLabelKey]
+				if !hasGroupIndex {
+					// Leader pods are created by the StatefulSet before the LWS
+					// controller adds the group-index label. Fall back to the
+					// StatefulSet ordinal which equals the group index.
+					groupIndex, hasGroupIndex = pod.pod.Labels[appsv1.PodIndexLabel]
+				}
+				if hasGroupIndex {
+					lws := &leaderworkersetv1.LeaderWorkerSet{}
+					if err := w.client.Get(ctx, client.ObjectKey{Namespace: pod.pod.GetNamespace(), Name: lwsName}, lws); err != nil {
+						if apierrors.IsNotFound(err) {
+							return fmt.Errorf("looking up LeaderWorkerSet %s/%s for TAS defaulting: %w", pod.pod.GetNamespace(), lwsName, err)
+						}
+						return fmt.Errorf("looking up LeaderWorkerSet %s/%s: %w", pod.pod.GetNamespace(), lwsName, err)
+					}
+					ownerUID := jobframework.GetOriginUID(lws)
+					workloadName := lwsworkloadname.Get(ownerUID, lws.Name, groupIndex)
+					if pod.pod.Annotations == nil {
+						pod.pod.Annotations = make(map[string]string)
+					}
+					pod.pod.Annotations[kueue.WorkloadAnnotation] = workloadName
+
+					// Use the canonical leader detection: workers carry the
+					// LeaderPodNameAnnotationKey annotation; leaders do not.
+					// Guard on LeaderTemplate != nil — without a separate
+					// leader template all pods belong to a single podset.
+					if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+						if _, isWorker := pod.pod.Annotations[leaderworkersetv1.LeaderPodNameAnnotationKey]; isWorker {
+							pod.pod.Labels[constants.PodSetLabel] = lwsconstants.WorkerPodSetName
+						} else {
+							pod.pod.Labels[constants.PodSetLabel] = lwsconstants.LeaderPodSetName
+						}
+					}
+				}
+			}
 		}
 		if err := pod.addRoleHash(); err != nil {
 			return err

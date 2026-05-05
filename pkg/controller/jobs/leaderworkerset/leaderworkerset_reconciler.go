@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	lwsconstants "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset/constants"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/equality"
@@ -59,8 +60,8 @@ import (
 )
 
 const (
-	leaderPodSetName = "leader"
-	workerPodSetName = "worker"
+	leaderPodSetName = lwsconstants.LeaderPodSetName
+	workerPodSetName = lwsconstants.WorkerPodSetName
 	lwsDomainPrefix  = "leaderworkerset.sigs.k8s.io"
 	lwsNameLabel     = "leaderworkerset.sigs.k8s.io/name"
 )

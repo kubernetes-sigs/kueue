@@ -1430,9 +1430,17 @@ func isGated(pod *corev1.Pod) bool {
 }
 
 func prepare(pod *corev1.Pod, info podset.PodSetInfo) error {
+	// Preserve scheduling gates before Merge. Unlike Job templates (where Merge
+	// legitimately injects gates into the template spec), here we are patching an
+	// existing pod. K8s only allows gate deletion on existing pods — Merge may
+	// re-add gates that another controller (e.g. the TAS ungater) already removed,
+	// causing a Forbidden API error. Restore original gates after Merge so that
+	// only the Ungate calls below modify them.
+	originalGates := slices.Clone(pod.Spec.SchedulingGates)
 	if err := podset.Merge(&pod.ObjectMeta, &pod.Spec, info); err != nil {
 		return err
 	}
+	pod.Spec.SchedulingGates = originalGates
 	utilpod.Ungate(pod, podconstants.SchedulingGateName)
 	// Remove the TopologySchedulingGate if the Pod is scheduled without using TAS
 	found := slices.ContainsFunc(info.SchedulingGates, func(g corev1.PodSchedulingGate) bool {

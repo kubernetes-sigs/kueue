@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -73,10 +72,5 @@ func SetupIndexes(context.Context, client.FieldIndexer) error {
 // GetOwnerUID returns the UID to use for workload name calculation.
 // In MultiKueue remote scenarios, it returns the origin UID from the annotation.
 func GetOwnerUID(lws *leaderworkersetv1.LeaderWorkerSet) types.UID {
-	if _, isMultiKueueRemote := lws.Labels[kueue.MultiKueueOriginLabel]; isMultiKueueRemote {
-		if originUID, ok := lws.Annotations[kueue.MultiKueueOriginUIDAnnotation]; ok {
-			return types.UID(originUID)
-		}
-	}
-	return lws.UID
+	return jobframework.GetOriginUID(lws)
 }

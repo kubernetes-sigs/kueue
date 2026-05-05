@@ -45,3 +45,4 @@ cmd/experimental/kueue-populator/charts/kueue-populator/charts
 cmd/experimental/kueue-populator/charts/kueue-populator/Chart.lock
 
 CLAUDE.md
+.scratch

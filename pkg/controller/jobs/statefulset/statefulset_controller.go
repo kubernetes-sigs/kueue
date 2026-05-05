@@ -26,7 +26,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
@@ -72,12 +71,7 @@ func SetupIndexes(context.Context, client.FieldIndexer) error {
 }
 
 func GetOwnerUID(sts *appsv1.StatefulSet) types.UID {
-	if _, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]; isMultiKueueRemote {
-		if originUID, ok := sts.Annotations[kueue.MultiKueueOriginUIDAnnotation]; ok {
-			return types.UID(originUID)
-		}
-	}
-	return sts.UID
+	return jobframework.GetOriginUID(sts)
 }
 
 // managedByAnotherFramework checks if the StatefulSet is managed by a framework other than the current one.

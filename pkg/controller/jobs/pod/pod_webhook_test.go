@@ -17,6 +17,7 @@ limitations under the License.
 package pod
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -27,6 +28,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -35,12 +37,16 @@ import (
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	lwsconstants "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset/constants"
+	lwsworkloadname "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset/workloadname"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -206,7 +212,7 @@ func TestDefault(t *testing.T) {
 						Name:      "parent-ray-cluster",
 						Namespace: defaultNamespace.Name,
 						Labels: map[string]string{
-							constants.QueueLabel: "test-queue",
+							ctrlconstants.QueueLabel: "test-queue",
 						},
 					},
 				},
@@ -422,6 +428,140 @@ func TestDefault(t *testing.T) {
 				TopologySchedulingGate().
 				Obj(),
 		},
+		"LWS leader pod with TAS gets workload annotation and podset label": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			initObjects: []client.Object{
+				defaultNamespace,
+				&leaderworkersetv1.LeaderWorkerSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-lws",
+						Namespace: defaultNamespace.Name,
+						UID:       types.UID("test-lws-uid"),
+					},
+					Spec: leaderworkersetv1.LeaderWorkerSetSpec{
+						LeaderWorkerTemplate: leaderworkersetv1.LeaderWorkerTemplate{
+							LeaderTemplate: &corev1.PodTemplateSpec{},
+							WorkerTemplate: corev1.PodTemplateSpec{},
+						},
+					},
+				},
+			},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-lws-0", defaultNamespace.Name).
+				Queue("test-queue").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				// SetNameLabelKey identifies this as an LWS pod.
+				Label(leaderworkersetv1.SetNameLabelKey, "test-lws").
+				// Leader pods may not have GroupIndexLabelKey yet; fall back to StatefulSet ordinal.
+				Label(appsv1.PodIndexLabel, "0").
+				Obj(),
+			want: func() *corev1.Pod {
+				wlName := lwsworkloadname.Get(types.UID("test-lws-uid"), "test-lws", "0")
+				return testingpod.MakePod("test-lws-0", defaultNamespace.Name).
+					Queue("test-queue").
+					Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					Label(leaderworkersetv1.SetNameLabelKey, "test-lws").
+					Label(appsv1.PodIndexLabel, "0").
+					Label(constants.PodSetLabel, lwsconstants.LeaderPodSetName).
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					RoleHash("a9f06f3a").
+					KueueSchedulingGate().
+					TopologySchedulingGate().
+					Obj()
+			}(),
+		},
+		"LWS worker pod with TAS gets workload annotation and worker podset label": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			initObjects: []client.Object{
+				defaultNamespace,
+				&leaderworkersetv1.LeaderWorkerSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-lws",
+						Namespace: defaultNamespace.Name,
+						UID:       types.UID("test-lws-uid"),
+					},
+					Spec: leaderworkersetv1.LeaderWorkerSetSpec{
+						LeaderWorkerTemplate: leaderworkersetv1.LeaderWorkerTemplate{
+							LeaderTemplate: &corev1.PodTemplateSpec{},
+							WorkerTemplate: corev1.PodTemplateSpec{},
+						},
+					},
+				},
+			},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-lws-0-1", defaultNamespace.Name).
+				Queue("test-queue").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				// Workers carry the leader-name annotation.
+				Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "test-lws-0").
+				Label(leaderworkersetv1.SetNameLabelKey, "test-lws").
+				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Obj(),
+			want: func() *corev1.Pod {
+				wlName := lwsworkloadname.Get(types.UID("test-lws-uid"), "test-lws", "0")
+				return testingpod.MakePod("test-lws-0-1", defaultNamespace.Name).
+					Queue("test-queue").
+					Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+					Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "test-lws-0").
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					Label(leaderworkersetv1.SetNameLabelKey, "test-lws").
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Label(constants.PodSetLabel, lwsconstants.WorkerPodSetName).
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					RoleHash("a9f06f3a").
+					KueueSchedulingGate().
+					TopologySchedulingGate().
+					Obj()
+			}(),
+		},
+		"LWS pod without LeaderTemplate does not get podset label": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			initObjects: []client.Object{
+				defaultNamespace,
+				&leaderworkersetv1.LeaderWorkerSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-lws",
+						Namespace: defaultNamespace.Name,
+						UID:       types.UID("test-lws-uid"),
+					},
+					Spec: leaderworkersetv1.LeaderWorkerSetSpec{
+						LeaderWorkerTemplate: leaderworkersetv1.LeaderWorkerTemplate{
+							// No LeaderTemplate — all pods share a single podset.
+							WorkerTemplate: corev1.PodTemplateSpec{},
+						},
+					},
+				},
+			},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-lws-0", defaultNamespace.Name).
+				Queue("test-queue").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Label(leaderworkersetv1.SetNameLabelKey, "test-lws").
+				Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+				Obj(),
+			want: func() *corev1.Pod {
+				wlName := lwsworkloadname.Get(types.UID("test-lws-uid"), "test-lws", "0")
+				return testingpod.MakePod("test-lws-0", defaultNamespace.Name).
+					Queue("test-queue").
+					Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					Label(leaderworkersetv1.SetNameLabelKey, "test-lws").
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					// No PodSetLabel — single podset mode.
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					RoleHash("a9f06f3a").
+					KueueSchedulingGate().
+					TopologySchedulingGate().
+					Obj()
+			}(),
+		},
 		"default queue is created, pod has no queue label": {
 			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects:       []client.Object{defaultNamespace},
@@ -558,7 +698,7 @@ func TestDefault(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
-			builder := utiltesting.NewClientBuilder(rayv1.AddToScheme, kfmpi.AddToScheme, kftraining.AddToScheme, appsv1.AddToScheme)
+			builder := utiltesting.NewClientBuilder(rayv1.AddToScheme, kfmpi.AddToScheme, kftraining.AddToScheme, appsv1.AddToScheme, leaderworkersetv1.AddToScheme)
 			builder = builder.WithObjects(tc.initObjects...)
 			cli := builder.Build()
 
@@ -680,6 +820,39 @@ func TestGetRoleHash(t *testing.T) {
 				previousHash = hash
 			}
 		})
+	}
+}
+
+func TestDefaultReturnsErrorIfLWSCannotBeFoundForTAS(t *testing.T) {
+	defaultNamespace := utiltesting.MakeNamespaceWrapper("test-ns").Label(corev1.LabelMetadataName, "test-ns").Obj()
+	pod := testingpod.MakePod("test-lws-0", defaultNamespace.Name).
+		Queue("test-queue").
+		Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+		Label(leaderworkersetv1.SetNameLabelKey, "missing-lws").
+		Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+		Obj()
+
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: true})
+	builder := utiltesting.NewClientBuilder(appsv1.AddToScheme, leaderworkersetv1.AddToScheme).
+		WithObjects(defaultNamespace)
+	cli := builder.Build()
+
+	queueManager := qcache.NewManagerForUnitTests(cli, schdcache.New(cli))
+	ctx, _ := utiltesting.ContextWithLog(t)
+	w := &PodWebhook{
+		client: cli,
+		queues: queueManager,
+	}
+
+	err := w.Default(ctx, pod)
+	if err == nil {
+		t.Fatalf("Expected Default to fail when referenced LeaderWorkerSet does not exist")
+	}
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("Expected NotFound error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "looking up LeaderWorkerSet test-ns/missing-lws") {
+		t.Fatalf("Unexpected error message: %v", err)
 	}
 }
 

@@ -18,7 +18,6 @@ package leaderworkerset
 
 import (
 	"context"
-	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -34,6 +33,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	lwsworkloadname "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset/workloadname"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
@@ -212,8 +212,7 @@ func (wh *Webhook) ValidateDelete(_ context.Context, _ *leaderworkersetv1.Leader
 }
 
 func GetWorkloadName(uid types.UID, name string, groupIndex string) string {
-	// Workload name should be unique by group index.
-	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", name, groupIndex), uid, gvk)
+	return lwsworkloadname.Get(uid, name, groupIndex)
 }
 
 func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
