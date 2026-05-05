@@ -115,9 +115,9 @@
     version: "0.17"
 - name: KueueDRAIntegration
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.18"
 - name: KueueDRAIntegrationExtendedResource
   versionedSpecs:
