@@ -1085,6 +1085,21 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"KueueDRARejectWorkloadsWhenDRADisabled cannot be disabled when KueueDRAIntegration is disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                    false,
+				features.KueueDRARejectWorkloadsWhenDRADisabled: false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -1247,6 +1262,23 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"KueueDRARejectWorkloadsWhenDRADisabled cannot be disabled when KueueDRAIntegration is disabled": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegration):                    false,
+				string(features.KueueDRARejectWorkloadsWhenDRADisabled): false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                    false,
+				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRARejectWorkloadsWhenDRADisabled cannot be disabled when KueueDRAIntegration is disabled",
 				},
 			},
 		},

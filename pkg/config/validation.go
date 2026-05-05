@@ -583,6 +583,14 @@ func validateDRAFeatureGateDependencies() field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(featureGatesPath, "KueueDRAIntegrationExtendedResource", "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled"))
 		}
 	}
+	if !features.Enabled(features.KueueDRAIntegration) {
+		if !features.Enabled(features.KueueDRARejectWorkloadsWhenDRADisabled) {
+			allErrs = append(
+				allErrs,
+				field.Invalid(featureGatesPath, "KueueDRARejectWorkloadsWhenDRADisabled", "KueueDRARejectWorkloadsWhenDRADisabled cannot be disabled when KueueDRAIntegration is disabled"),
+			)
+		}
+	}
 	return allErrs
 }
 
