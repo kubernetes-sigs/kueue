@@ -132,6 +132,39 @@ func TestDefault(t *testing.T) {
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
+		"queue-name on templates overridden by top-level queue": {
+			defaultLqExist: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "user-queue").
+				WorkerTemplateSpecLabel(constants.QueueLabel, "user-queue").
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "test-queue").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.QueueLabel, "test-queue").
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
+				Obj(),
+		},
+		"queue-name on worker template overridden when no leader template": {
+			defaultLqExist: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				Queue("test-queue").
+				WorkerTemplateSpecLabel(constants.QueueLabel, "user-queue").
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				Queue("test-queue").
+				WorkerTemplateSpecLabel(constants.QueueLabel, "test-queue").
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Obj(),
+		},
 		"LWS with PodSetGroupName set, no offset annotation": {
 			defaultLqExist: true,
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
