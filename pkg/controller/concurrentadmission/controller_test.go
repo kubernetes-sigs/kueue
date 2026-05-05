@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -91,6 +90,7 @@ func TestReconcile(t *testing.T) {
 		variantWorkloads     []kueue.Workload
 		wantParentWorkload   *kueue.Workload
 		wantVariantWorkloads []kueue.Workload
+		wantEvents           []utiltesting.EventRecord
 		req                  reconcile.Request
 	}{
 		"workload not found": {
@@ -126,6 +126,22 @@ func TestReconcile(t *testing.T) {
 					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonCreatedVariant,
+					Message:   "Variant Workload parent-variant-spot-545ad created",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonCreatedVariant,
+					Message:   "Variant Workload parent-variant-on-demand-39893 created",
+				},
+			},
+			wantResult: reconcile.Result{},
+			wantErr:    false,
 		},
 		"parent workload with missing variants; creates missing": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -155,6 +171,16 @@ func TestReconcile(t *testing.T) {
 					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonCreatedVariant,
+					Message:   "Variant Workload parent-variant-on-demand-39893 created",
+				},
+			},
+			wantResult: reconcile.Result{},
+			wantErr:    false,
 		},
 		"admitted variant syncs admission to parent": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -364,7 +390,7 @@ func TestReconcile(t *testing.T) {
 					AllowedFlavors("on-demand").
 					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
-					Active(false).
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -411,7 +437,7 @@ func TestReconcile(t *testing.T) {
 					AllowedFlavors("on-demand").
 					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
-					Active(true).
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
 					Obj(),
 			},
 		},
@@ -492,6 +518,14 @@ func TestReconcile(t *testing.T) {
 					AdmittedAt(true, metav1.Now().Time).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-on-demand"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Deactivated Workload: Variant default/parent-variant-on-demand below minPreferredFlavor: reservation",
+				},
+			},
 		},
 		"with minTargetFlavor=reservation, variant admitted on on-demand, deactivate spot": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -569,6 +603,14 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-spot"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Deactivated Workload: Variant default/parent-variant-spot below minPreferredFlavor: reservation",
+				},
 			},
 		},
 		"with minTargetFlavor=reservation, variant admitted on reservation, deactivate spot and on-demand": {
@@ -648,6 +690,20 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-on-demand"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Deactivated Workload: Variant default/parent-variant-on-demand below minPreferredFlavor: reservation",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-spot"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Deactivated Workload: Variant default/parent-variant-spot below minPreferredFlavor: reservation",
+				},
 			},
 		},
 		"without minTargetFlavor, variant admitted on spot, nothing deactivated": {
@@ -804,6 +860,14 @@ func TestReconcile(t *testing.T) {
 					Active(false).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-spot"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Deactivated Workload: Variant default/parent-variant-spot below admitted variant default/parent-variant-on-demand",
+				},
+			},
 		},
 		"without minTargetFlavor, variant admitted on reservation, deactivate spot and on-demand": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -882,6 +946,20 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-on-demand"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Deactivated Workload: Variant default/parent-variant-on-demand below admitted variant default/parent-variant-reservation",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-spot"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Deactivated Workload: Variant default/parent-variant-spot below admitted variant default/parent-variant-reservation",
+				},
 			},
 		},
 		"parent marked finished, mark all variants finished": {
@@ -991,6 +1069,22 @@ func TestReconcile(t *testing.T) {
 					Active(false).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-spot"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Deactivated Workload: Parent Workload: default/parent-12345 not active",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-on-demand"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Deactivated Workload: Parent Workload: default/parent-12345 not active",
+				},
+			},
+			wantResult: reconcile.Result{},
+			wantErr:    false,
 		},
 		"parent changes WaitForPodsReady from False to True, syncs to admitted variant": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -1280,7 +1374,7 @@ func TestReconcile(t *testing.T) {
 				queues:      qManager,
 				roleTracker: roleTracker,
 				clock:       testingclock.NewFakeClock(metav1.Now().Time),
-				recorder:    record.NewFakeRecorder(10),
+				recorder:    &utiltesting.EventRecorder{},
 			}
 
 			req := tc.req
@@ -1326,6 +1420,11 @@ func TestReconcile(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantVariantWorkloads, gotVariants, workloadCmpOpts); diff != "" {
 				t.Errorf("Unexpected variant workloads (-want +got):\n%s", diff)
+			}
+
+			gotEvents := r.recorder.(*utiltesting.EventRecorder).RecordedEvents
+			if diff := cmp.Diff(tc.wantEvents, gotEvents, cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
+				t.Errorf("Unexpected events (-want +got):\n%s", diff)
 			}
 		})
 	}
