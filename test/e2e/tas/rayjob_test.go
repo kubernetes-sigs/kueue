@@ -59,7 +59,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
-					Resource(corev1.ResourceCPU, "1").
+					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "8Gi").
 					Resource(extraResource, "8").
 					Obj(),
@@ -103,10 +103,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 										Name: "head-container",
 										Resources: corev1.ResourceRequirements{
 											Requests: corev1.ResourceList{
-												corev1.ResourceCPU: resource.MustParse("200m"),
+												corev1.ResourceCPU: resource.MustParse("1"),
 											},
 											Limits: corev1.ResourceList{
-												corev1.ResourceCPU: resource.MustParse("200m"),
+												corev1.ResourceCPU: resource.MustParse("1"),
 											},
 										},
 									},
