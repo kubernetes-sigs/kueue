@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -282,7 +281,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme).WithObjects()
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			kClient := clientBuilder.WithObjects(tc.trainJob, testCtr).Build()
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			_, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithManageJobsWithoutQueueName(true))
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)
@@ -459,7 +458,7 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)

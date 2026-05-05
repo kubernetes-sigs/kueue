@@ -113,7 +113,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+			mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}

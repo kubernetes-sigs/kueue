@@ -72,7 +72,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
+			mgr.GetEventRecorder(constants.JobControllerName),
 			opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = paddlejob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -112,7 +112,7 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}

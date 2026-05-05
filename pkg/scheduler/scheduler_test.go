@@ -31,9 +31,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
@@ -45,7 +43,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -7061,7 +7058,6 @@ func TestLastSchedulingContext(t *testing.T) {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", tc.name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				ctx, log := utiltesting.ContextWithLog(t)
-				scheme := runtime.NewScheme()
 
 				testWls := make([]kueue.Workload, 0, len(tc.workloads))
 				for _, wl := range tc.workloads {
@@ -7080,9 +7076,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 				cl := clientBuilder.Build()
-				broadcaster := record.NewBroadcaster()
-				recorder := broadcaster.NewRecorder(scheme,
-					corev1.EventSource{Component: constants.AdmissionName})
+				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
 				qManager, watcher := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache)
 				// Workloads are loaded into queues or clusterQueues as we add them.
@@ -7295,7 +7289,6 @@ func TestRequeueAndUpdate(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			scheme := runtime.NewScheme()
 
 			updates := 0
 			objs := []client.Object{w1, q1, utiltesting.MakeNamespace("ns1")}
@@ -7305,8 +7298,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 					return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 				},
 			}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
-			broadcaster := record.NewBroadcaster()
-			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+			recorder := &utiltesting.EventRecorder{}
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))

@@ -23,7 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -52,7 +52,7 @@ type PodReconciler struct {
 
 const podControllerName = "statefulset_pod"
 
-func NewPodReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewPodReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 	return &PodReconciler{
 		client:                     client,

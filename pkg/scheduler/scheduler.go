@@ -33,7 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -77,7 +77,7 @@ type Scheduler struct {
 	queues                  *qcache.Manager
 	cache                   *schdcache.Cache
 	client                  client.Client
-	recorder                record.EventRecorder
+	recorder                events.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
@@ -167,7 +167,7 @@ func WithQuotaCheckStrategy(qcs config.QuotaCheckStrategy) Option {
 	}
 }
 
-func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
+func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder events.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -949,7 +949,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	if s.queues.QueueSecondPassIfNeeded(ctx, e.Obj, e.SecondPassIteration) {
 		log.V(2).
 			Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
-		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "SecondPassFailed", api.TruncateEventMessage(e.inadmissibleMsg))
+		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "SecondPassFailed", "SecondPassFailed", api.TruncateEventMessage(e.inadmissibleMsg))
 		return
 	}
 
@@ -970,7 +970,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
-		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
+		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "Pending", "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
 	}
 }
 
@@ -993,7 +993,7 @@ func (s *Scheduler) recordQuotaReservationMetrics(log logr.Logger, newWorkload, 
 		quotaReservedEventMessage += fmt.Sprintf("; Flavors considered: %s", consideredFlavors)
 	}
 
-	s.recorder.Event(newWorkload, corev1.EventTypeNormal, "QuotaReserved", api.TruncateEventMessage(quotaReservedEventMessage))
+	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "QuotaReserved", "QuotaReserved", api.TruncateEventMessage(quotaReservedEventMessage))
 
 	priorityClassName := workload.PriorityClassName(newWorkload)
 	metrics.QuotaReservedWorkload(admission.ClusterQueue, priorityClassName, waitTime, s.customLabels.CQGet(admission.ClusterQueue), s.roleTracker)
@@ -1009,7 +1009,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 		return
 	}
 
-	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
+	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 
 	priorityClassName := workload.PriorityClassName(newWorkload)
 	cqCustomLabels := s.customLabels.CQGet(admission.ClusterQueue)
@@ -1055,7 +1055,7 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 	}
 
 	log.V(3).Info("Replaced", "old slice", klog.KObj(oldSlice), "new slice", klog.KObj(newSlice), "reason", reason, "message", message, "old-queue", klog.KRef("", string(oldQueue)))
-	s.recorder.Eventf(oldSlice, corev1.EventTypeNormal, reason, message)
+	s.recorder.Eventf(oldSlice, nil, corev1.EventTypeNormal, reason, "Replaced", message)
 	metrics.ReportReplacedWorkloadSlices(oldQueue, s.customLabels.CQGet(oldQueue), s.roleTracker)
 	return nil
 }

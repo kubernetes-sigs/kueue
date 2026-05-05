@@ -64,7 +64,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	terminatingPodReconciler := failurerecovery.NewTerminatingPodReconciler(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.PodTerminationControllerName),
+		mgr.GetEventRecorder(constants.PodTerminationControllerName),
 		failurerecovery.WithForcefulTerminationGracePeriod(time.Millisecond),
 	)
 

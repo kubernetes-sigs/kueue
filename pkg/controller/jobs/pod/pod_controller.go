@@ -35,7 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
@@ -102,7 +102,7 @@ func init() {
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods/status,verbs=get;patch
 // +kubebuilder:rbac:groups="",resources=pods/finalizers,verbs=get;update
@@ -140,7 +140,7 @@ func NewJob() jobframework.GenericJob {
 	return NewPod()
 }
 
-func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, record record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, record events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	return &Reconciler{
 		JobReconciler:     jobframework.NewReconciler(c, record, opts...),
 		expectationsStore: expectations.NewStore("finalizedPods"),
@@ -258,7 +258,7 @@ func (p *Pod) Suspend() {
 }
 
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder record.EventRecorder, msg string) error {
+func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if !p.isGroup {
@@ -277,7 +277,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 
 		if recorder != nil {
-			recorder.Event(&p.pod, corev1.EventTypeNormal, jobframework.ReasonStarted, msg)
+			recorder.Eventf(&p.pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
 		return nil
@@ -316,7 +316,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 
 		if recorder != nil {
-			recorder.Event(pod, corev1.EventTypeNormal, jobframework.ReasonStarted, msg)
+			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 		return nil
 	})
@@ -773,7 +773,7 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 }
 
 // validatePodGroupMetadata validates metadata of all members of the pod group
-func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []corev1.Pod) error {
+func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []corev1.Pod) error {
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
 		return err
@@ -789,7 +789,7 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 
 	if !useFastAdmission && len(activePods) < groupTotalCount {
 		errMsg := fmt.Sprintf("'%s' group has fewer runnable pods than expected", podGroupName(p.pod))
-		r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, errMsg)
+		r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", errMsg)
 		return jobframework.UnretryableError(errMsg)
 	}
 
@@ -935,7 +935,7 @@ func removePodFinalizers(ctx context.Context, c client.Client, pod *corev1.Pod) 
 	return removed, err
 }
 
-func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.EventRecorder, extraPods []corev1.Pod) error {
+func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.EventRecorder, extraPods []corev1.Pod) error {
 	if len(extraPods) == 0 {
 		return nil
 	}
@@ -967,7 +967,7 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
-			r.Event(pod, corev1.EventTypeNormal, ReasonExcessPodDeleted, "Excess pod deleted")
+			r.Eventf(pod, nil, corev1.EventTypeNormal, ReasonExcessPodDeleted, "ExcessPodDeleted", "Excess pod deleted")
 		}
 		return nil
 	})
@@ -1006,7 +1006,7 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 	return nil
 }
 
-func (p *Pod) EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r record.EventRecorder, workload *kueue.Workload) error {
+func (p *Pod) EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r events.EventRecorder, workload *kueue.Workload) error {
 	if !p.isGroup {
 		return jobframework.EnsurePrebuiltWorkloadOwnership(ctx, c, workload, &p.pod)
 	}
@@ -1023,7 +1023,7 @@ func (p *Pod) EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Clie
 		log.V(4).Info("Adding owner references for workload", "count", addedOwnersCnt)
 		err := c.Update(ctx, workload)
 		if err == nil {
-			r.Eventf(workload, corev1.EventTypeNormal, ReasonOwnerReferencesAdded, fmt.Sprintf("Added %d owner reference(s)", addedOwnersCnt))
+			r.Eventf(workload, nil, corev1.EventTypeNormal, ReasonOwnerReferencesAdded, "OwnerReferencesAdded", "Added %d owner reference(s)", addedOwnersCnt)
 		}
 		return err
 	}
@@ -1053,7 +1053,7 @@ func (p *Pod) getWorkloadLabels(labelKeysToCopy []string) (map[string]string, er
 	return workloadLabels, nil
 }
 
-func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error) {
+func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r events.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error) {
 	if !p.isGroup {
 		return jobframework.ConstructWorkload(ctx, c, p, labelKeysToCopy)
 	}
@@ -1087,7 +1087,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	podSets, err := jobframework.JobPodSets(ctx, p)
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
-			r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, err.Error())
+			r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", err.Error())
 		}
 		return nil, err
 	}
@@ -1152,7 +1152,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 	return workloads, nil
 }
 
-func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {
+func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r events.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	groupName := podGroupName(p.pod)

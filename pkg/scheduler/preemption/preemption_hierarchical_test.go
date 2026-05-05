@@ -25,15 +25,12 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -1842,12 +1839,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					}
 				}
 
-				broadcaster := record.NewBroadcaster()
-				scheme := runtime.NewScheme()
-				if err := kueue.AddToScheme(scheme); err != nil {
-					t.Fatalf("Failed adding kueue scheme: %v", err)
-				}
-				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+				recorder := &utiltesting.EventRecorder{}
 				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)

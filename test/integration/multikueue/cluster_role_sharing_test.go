@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -265,10 +266,10 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				`The workload got reservation on "worker1"`,
 			)
 
-			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-				Reason:  "MultiKueue",
-				Type:    corev1.EventTypeNormal,
-				Message: `The workload got reservation on "worker1"`,
+			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+				Reason: "MultiKueue",
+				Type:   corev1.EventTypeNormal,
+				Note:   `The workload got reservation on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -448,10 +449,10 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				`The workload got reservation on "worker1"`,
 			)
 
-			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-				Reason:  "MultiKueue",
-				Type:    corev1.EventTypeNormal,
-				Message: `The workload got reservation on "worker1"`,
+			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+				Reason: "MultiKueue",
+				Type:   corev1.EventTypeNormal,
+				Note:   `The workload got reservation on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {

@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,14 +46,14 @@ func SingleContainerForRequest(request map[corev1.ResourceName]string) []corev1.
 func CheckEventRecordedFor(ctx context.Context, k8sClient client.Client,
 	eventReason string, eventType string, eventMessage string,
 	ref types.NamespacedName) (bool, error) {
-	events := &corev1.EventList{}
+	events := &eventsv1.EventList{}
 	if err := k8sClient.List(ctx, events, client.InNamespace(ref.Namespace)); err != nil {
 		return false, err
 	}
 
 	for i := range events.Items {
 		item := &events.Items[i]
-		if item.InvolvedObject.Name == ref.Name && item.Reason == eventReason && item.Type == eventType && item.Message == eventMessage {
+		if item.Regarding.Name == ref.Name && item.Reason == eventReason && item.Type == eventType && item.Note == eventMessage {
 			return true, nil
 		}
 	}
@@ -61,9 +62,9 @@ func CheckEventRecordedFor(ctx context.Context, k8sClient client.Client,
 }
 
 // HasMatchingEvents returns the matching events
-func HasMatchingEvents(ctx context.Context, k8sClient client.Client, matcher func(*corev1.Event) bool) ([]corev1.Event, error) {
-	events := &corev1.EventList{}
-	var result []corev1.Event
+func HasMatchingEvents(ctx context.Context, k8sClient client.Client, matcher func(*eventsv1.Event) bool) ([]eventsv1.Event, error) {
+	events := &eventsv1.EventList{}
+	var result []eventsv1.Event
 	if err := k8sClient.List(ctx, events, &client.ListOptions{}); err != nil {
 		return nil, err
 	}
@@ -76,20 +77,20 @@ func HasMatchingEvents(ctx context.Context, k8sClient client.Client, matcher fun
 }
 
 // HasMatchingEventAppearedTimes returns how many times the event has appeared.
-func HasMatchingEventAppearedTimes(ctx context.Context, k8sClient client.Client, matcher func(*corev1.Event) bool) (int, error) {
+func HasMatchingEventAppearedTimes(ctx context.Context, k8sClient client.Client, matcher func(*eventsv1.Event) bool) (int, error) {
 	events, err := HasMatchingEvents(ctx, k8sClient, matcher)
 	return len(events), err
 }
 
 // HasMatchingEventAppeared returns if an event has been emitted
-func HasMatchingEventAppeared(ctx context.Context, k8sClient client.Client, matcher func(*corev1.Event) bool) (bool, error) {
+func HasMatchingEventAppeared(ctx context.Context, k8sClient client.Client, matcher func(*eventsv1.Event) bool) (bool, error) {
 	count, err := HasMatchingEventAppearedTimes(ctx, k8sClient, matcher)
 	return count > 0, err
 }
 
 // HasEventAppeared returns if an event has been emitted
-func HasEventAppeared(ctx context.Context, k8sClient client.Client, event corev1.Event) (bool, error) {
-	return HasMatchingEventAppeared(ctx, k8sClient, func(item *corev1.Event) bool {
-		return item.Reason == event.Reason && item.Type == event.Type && item.Message == event.Message
+func HasEventAppeared(ctx context.Context, k8sClient client.Client, event eventsv1.Event) (bool, error) {
+	return HasMatchingEventAppeared(ctx, k8sClient, func(item *eventsv1.Event) bool {
+		return item.Reason == event.Reason && item.Type == event.Type && item.Note == event.Note
 	})
 }

@@ -24,17 +24,14 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -974,9 +971,7 @@ func TestFairPreemptions(t *testing.T) {
 				}
 			}
 
-			broadcaster := record.NewBroadcaster()
-			scheme := runtime.NewScheme()
-			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+			recorder := &utiltesting.EventRecorder{}
 			preemptor := New(cl, workload.Ordering{}, recorder, &config.FairSharing{
 				PreemptionStrategies: tc.strategies,
 			}, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)

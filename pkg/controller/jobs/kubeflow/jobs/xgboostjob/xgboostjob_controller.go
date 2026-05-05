@@ -63,7 +63,7 @@ func init() {
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=xgboostjobs,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=kubeflow.org,resources=xgboostjobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=xgboostjobs/finalizers,verbs=get;update

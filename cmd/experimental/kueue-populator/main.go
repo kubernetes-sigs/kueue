@@ -94,7 +94,7 @@ func start(configFile string) error {
 
 	if err = controller.NewKueuePopulatorReconciler(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("kueue-populator"),
+		mgr.GetEventRecorder("kueue-populator"),
 		reconcilerOpts...,
 	).SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "KueuePopulator")

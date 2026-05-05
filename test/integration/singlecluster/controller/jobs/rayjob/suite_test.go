@@ -71,7 +71,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
+			mgr.GetEventRecorder(constants.JobControllerName),
 			opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = rayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -107,13 +107,13 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		err = rayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		r, _ := rayjob.NewReconciler(ctx, mgr.GetClient(), mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName), opts...)
+			mgr.GetEventRecorder(constants.JobControllerName), opts...)
 		err = r.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = rayjob.SetupRayJobWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}

@@ -128,7 +128,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	return reconcile.Result{}, nil
 }
 
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch

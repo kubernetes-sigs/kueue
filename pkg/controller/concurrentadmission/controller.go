@@ -26,7 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -61,7 +61,7 @@ type variantReconciler struct {
 	logName     string
 	queues      *qcache.Manager
 	client      client.Client
-	recorder    record.EventRecorder
+	recorder    events.EventRecorder
 	roleTracker *roletracker.RoleTracker
 	clock       clock.Clock
 }
@@ -69,7 +69,7 @@ type variantReconciler struct {
 var _ reconcile.Reconciler = (*variantReconciler)(nil)
 var _ predicate.TypedPredicate[*kueue.Workload] = (*variantReconciler)(nil)
 
-func newVariantReconciler(c client.Client, queues *qcache.Manager, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *variantReconciler {
+func newVariantReconciler(c client.Client, queues *qcache.Manager, recorder events.EventRecorder, roleTracker *roletracker.RoleTracker) *variantReconciler {
 	return &variantReconciler{
 		logName:     ConcurrentAdmissionController,
 		client:      c,
@@ -81,7 +81,7 @@ func newVariantReconciler(c client.Client, queues *qcache.Manager, recorder reco
 }
 
 func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
-	recorder := mgr.GetEventRecorderFor(ConcurrentAdmissionController)
+	recorder := mgr.GetEventRecorder(ConcurrentAdmissionController)
 	variantRec := newVariantReconciler(mgr.GetClient(), queues, recorder, roleTracker)
 	if ctrlName, err := variantRec.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
@@ -250,7 +250,7 @@ func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Wo
 			return err
 		}
 		log.V(3).Info("Variant created", "variant", klog.KObj(variant), "flavor", flavor)
-		r.recorder.Eventf(parent, corev1.EventTypeNormal, ReasonCreatedVariant, "Variant Workload %q created", klog.KObj(variant))
+		r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonCreatedVariant, ReasonCreatedVariant, "Variant Workload %q created", klog.KObj(variant))
 	}
 	return nil
 }
@@ -475,7 +475,7 @@ func (r *variantReconciler) activateWl(ctx context.Context, wl *kueue.Workload, 
 	if err := r.client.Update(ctx, wl); err != nil {
 		return err
 	}
-	r.recorder.Eventf(wl, corev1.EventTypeNormal, ReasonActivatedVariant, "Variant Workload activated due to %s", message)
+	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, ReasonActivatedVariant, ReasonActivatedVariant, "Variant Workload activated due to %s", message)
 	return nil
 }
 
@@ -487,7 +487,7 @@ func (r *variantReconciler) deactivateWl(ctx context.Context, wl *kueue.Workload
 	if err := r.client.Update(ctx, wl); err != nil {
 		return err
 	}
-	r.recorder.Eventf(wl, corev1.EventTypeNormal, ReasonDeactivatedVariant, "Variant Workload deactivated due to %s", message)
+	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, ReasonDeactivatedVariant, ReasonDeactivatedVariant, "Variant Workload deactivated due to %s", message)
 	return nil
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -180,7 +181,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 		})
 
 		ginkgo.It("Failed Pod can be replaced in group", func() {
-			eventList := corev1.EventList{}
+			eventList := eventsv1.EventList{}
 			eventWatcher, err := k8sClient.Watch(ctx, &eventList, &client.ListOptions{
 				Namespace: ns.Name,
 			})
@@ -269,8 +270,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 					util.MustCreate(ctx, k8sClient, excess)
 				})
 				ginkgo.By("Use events to observe the excess pods are getting stopped", func() {
-					util.ExpectEventsForObjectsWithTimeout(eventWatcher, excessPods, func(e *corev1.Event) bool {
-						return e.InvolvedObject.Namespace == ns.Name && e.Reason == pod.ReasonExcessPodDeleted
+					util.ExpectEventsForObjectsWithTimeout(eventWatcher, excessPods, func(e *eventsv1.Event) bool {
+						return e.Regarding.Namespace == ns.Name && e.Reason == pod.ReasonExcessPodDeleted
 					}, util.MediumTimeout)
 				})
 				ginkgo.By("Verify the excess pod is deleted", func() {
@@ -296,7 +297,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 		})
 
 		ginkgo.It("Unscheduled Pod which is deleted can be replaced in group", func() {
-			eventList := corev1.EventList{}
+			eventList := eventsv1.EventList{}
 			eventWatcher, err := k8sClient.Watch(ctx, &eventList, &client.ListOptions{
 				Namespace: ns.Name,
 			})
@@ -418,7 +419,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 		})
 
 		ginkgo.It("should allow to preempt the lower priority group", func() {
-			eventList := corev1.EventList{}
+			eventList := eventsv1.EventList{}
 			eventWatcher, err := k8sClient.Watch(ctx, &eventList, &client.ListOptions{
 				Namespace: ns.Name,
 			})
@@ -488,8 +489,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 
 			ginkgo.By("Use events to observe the default-priority pods are getting preempted", func() {
-				util.ExpectEventsForObjectsWithTimeout(eventWatcher, defaultGroupPods, func(e *corev1.Event) bool {
-					return e.InvolvedObject.Namespace == ns.Name && e.Reason == jobframework.ReasonStopped && strings.Contains(e.Message, "Preempted")
+				util.ExpectEventsForObjectsWithTimeout(eventWatcher, defaultGroupPods, func(e *eventsv1.Event) bool {
+					return e.Regarding.Namespace == ns.Name && e.Reason == jobframework.ReasonStopped && strings.Contains(e.Note, "Preempted")
 				}, util.MediumTimeout)
 			})
 
