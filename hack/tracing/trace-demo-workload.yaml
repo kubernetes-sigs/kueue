@@ -1,0 +1,57 @@
+# Minimal Kueue objects + Job to generate Workload reconcile spans (optional demo).
+# Requires tracing-enabled Kueue (see hack/tracing/patch-kueue-for-local-jaeger.sh).
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: trace-demo-flavor
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: trace-demo-cq
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+    - coveredResources: ["cpu", "memory", "pods"]
+      flavors:
+        - name: trace-demo-flavor
+          resources:
+            - name: "cpu"
+              nominalQuota: "10"
+            - name: "memory"
+              nominalQuota: 10Gi
+            - name: "pods"
+              nominalQuota: "20"
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: trace-demo-lq
+  namespace: default
+spec:
+  clusterQueue: trace-demo-cq
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trace-demo-job
+  namespace: default
+spec:
+  suspend: false
+  parallelism: 1
+  completions: 1
+  template:
+    metadata:
+      labels:
+        kueue.x-k8s.io/queue-name: trace-demo-lq
+    spec:
+      containers:
+        - name: c
+          image: registry.k8s.io/e2e-test-images/agnhost:2.52
+          args: ["pause"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 50Mi
+      restartPolicy: Never

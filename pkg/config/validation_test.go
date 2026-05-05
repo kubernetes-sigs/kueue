@@ -1005,6 +1005,28 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"invalid tracing.samplingRatio": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					Tracing: &configapi.Tracing{Enable: true, SamplingRatio: ptr.To(1.5)},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "tracing.samplingRatio",
+				},
+			},
+		},
+		"valid tracing configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					Tracing: &configapi.Tracing{Enable: true, SamplingRatio: ptr.To(0.25)},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {

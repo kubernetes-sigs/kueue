@@ -19,6 +19,7 @@ package core
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"time"
@@ -31,7 +32,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
@@ -66,6 +67,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	kueuetrace "sigs.k8s.io/kueue/pkg/util/tracing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -144,6 +146,15 @@ type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
 
+// WithInstrumenter sets the OpenTelemetry instrumenter for Workload reconciliation.
+func WithInstrumenter(value kueuetrace.Instrumenter) Option {
+	return func(r *WorkloadReconciler) {
+		if value != nil {
+			r.instrumenter = value
+		}
+	}
+}
+
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
 	logName                string
@@ -160,6 +171,7 @@ type WorkloadReconciler struct {
 	roleTracker            *roletracker.RoleTracker
 	preemptionExpectations *expectations.Store
 	customLabels           *metrics.CustomLabels
+	instrumenter           kueuetrace.Instrumenter
 }
 
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
@@ -174,6 +186,7 @@ func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *
 		recorder:            recorder,
 		clock:               realClock,
 		draReconcileChannel: make(chan event.TypedGenericEvent[*kueue.Workload], updateChBuffer),
+		instrumenter:        kueuetrace.NewNoOp(),
 	}
 	for _, option := range options {
 		option(r)
@@ -203,6 +216,50 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	log := ctrl.LoggerFrom(ctx)
+
+	hasTraceAnnotation := wl.Annotations != nil && wl.Annotations[kueuetrace.TraceContextAnnotation] != ""
+	tr := r.instrumenter
+	if tr != nil {
+		curStatus := workload.Status(&wl)
+		var endTrace func()
+		var otelStatusAnn string
+		var patchOtelStatus bool
+		attrs := map[string]string{
+			"k8s.namespace.name":    wl.Namespace,
+			"k8s.workload.name":     wl.Name,
+			"kueue.workload.status": curStatus,
+		}
+		ctx, endTrace = tr.StartSpan(ctx, &wl, "ReconcileWorkload", attrs)
+		otelStatusAnn, patchOtelStatus = kueuetrace.PrepareWorkloadStatusObservation(tr, ctx, r.clock.Now(), wl.Annotations, curStatus)
+		defer func() {
+			if tr.IsRecording(ctx) {
+				annMap := map[string]string{}
+				if !hasTraceAnnotation {
+					if tc := tr.GetTraceContext(ctx); tc != "" {
+						annMap[kueuetrace.TraceContextAnnotation] = tc
+					}
+				}
+				if patchOtelStatus && otelStatusAnn != "" {
+					annMap[kueuetrace.OtelLastWorkloadStatusAnnotation] = otelStatusAnn
+				}
+				if len(annMap) > 0 {
+					patch := map[string]interface{}{
+						"metadata": map[string]interface{}{
+							"annotations": annMap,
+						},
+					}
+					patchBytes, err := json.Marshal(patch)
+					if err == nil {
+						if err := r.client.Patch(ctx, &wl, client.RawPatch(apitypes.MergePatchType, patchBytes)); err != nil {
+							log.V(2).Info("could not persist tracing annotations on workload", "error", err)
+						}
+					}
+				}
+			}
+			endTrace()
+		}()
+	}
+
 	log.V(2).Info("Reconcile Workload")
 
 	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
@@ -252,6 +309,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
 	if finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
 		if r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
+			if tr := r.instrumenter; tr != nil && tr.IsRecording(ctx) {
+				tr.AddEvent(ctx, "WorkloadFinished", map[string]string{"reason": finishedCond.Reason})
+			}
 			return ctrl.Result{}, nil
 		}
 
@@ -394,15 +454,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if workload.IsActive(&wl) {
 		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
-			wl.Spec.Active = new(false)
+			wl.Spec.Active = ptr.To(false)
 			err := r.client.Update(ctx, &wl)
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
-			if requeueAfter := new(wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())); *requeueAfter > 0 {
-				log.V(3).Info("Waiting for backoff to finish", "backoff", *requeueAfter)
-				return reconcile.Result{RequeueAfter: *requeueAfter}, nil
+			requeueAfter := wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())
+			if requeueAfter > 0 {
+				log.V(3).Info("Waiting for backoff to finish", "backoff", requeueAfter)
+				return reconcile.Result{RequeueAfter: requeueAfter}, nil
 			}
 
 			if workload.Status(&wl) == workload.StatusPending {
@@ -525,7 +586,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	lq := kueue.LocalQueue{}
-	err := r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: string(wl.Spec.QueueName)}, &lq)
+	err := r.client.Get(ctx, apitypes.NamespacedName{Namespace: wl.Namespace, Name: string(wl.Spec.QueueName)}, &lq)
 	if client.IgnoreNotFound(err) != nil {
 		return ctrl.Result{}, err
 	}
@@ -548,7 +609,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if cqOk {
 		// because we need to react to API cluster cq events, the list of checks from a cache can lead to race conditions
 		cq := kueue.ClusterQueue{}
-		if err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, &cq); err != nil {
+		if err := r.client.Get(ctx, apitypes.NamespacedName{Name: string(cqName)}, &cq); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		// If stopped cluster queue is started we need to set the WorkloadRequeued condition to true.
@@ -769,6 +830,9 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		}
 		log.V(3).Info("Workload is deactivated due to rejected admission checks", "workload", klog.KObj(wl), "rejectedChecks", rejectedChecks)
 		r.recorder.Event(wl, corev1.EventTypeWarning, "AdmissionCheckRejected", fmt.Sprintf("Deactivated due to %s", message))
+		if tr := r.instrumenter; tr != nil && tr.IsRecording(ctx) {
+			tr.AddEvent(ctx, "AdmissionCheckRejected", map[string]string{"message": message})
+		}
 		return true, nil
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
@@ -870,7 +934,7 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 
 func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Context, wl *kueue.Workload, cqName kueue.ClusterQueueReference) (bool, error) {
 	cq := kueue.ClusterQueue{}
-	err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, &cq)
+	err := r.client.Get(ctx, apitypes.NamespacedName{Name: string(cqName)}, &cq)
 	if client.IgnoreNotFound(err) != nil {
 		return false, err
 	}
@@ -1316,7 +1380,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		)).
 		WatchesRawSource(source.Channel(r.draReconcileChannel, deh)).
 		WithOptions(controller.Options{
-			NeedLeaderElection:      new(false),
+			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "workload-reconciler"),
 		}).
@@ -1447,7 +1511,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 
 		if dra.NeedsDRAReconcile(wlCopy) {
 			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
+				NamespacedName: apitypes.NamespacedName{
 					Name:      wlCopy.Name,
 					Namespace: wlCopy.Namespace,
 				},
@@ -1559,7 +1623,7 @@ func (w *workloadQueueHandler) queueReconcileForWorkloadsOfLocalQueue(ctx contex
 	for _, wl := range lst.Items {
 		log := log.WithValues("workload", klog.KObj(&wl))
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
+			NamespacedName: apitypes.NamespacedName{
 				Name:      wl.Name,
 				Namespace: wl.Namespace,
 			},
@@ -1584,7 +1648,7 @@ func (h *draEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*
 
 func (h *draEventHandler) Generic(ctx context.Context, e event.TypedGenericEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	reconcileReq := reconcile.Request{
-		NamespacedName: types.NamespacedName{
+		NamespacedName: apitypes.NamespacedName{
 			Name:      e.Object.Name,
 			Namespace: e.Object.Namespace,
 		},

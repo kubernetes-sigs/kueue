@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/tracing"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
@@ -40,7 +41,10 @@ const (
 // SetupControllers sets up the core controllers. It returns the name of the
 // controller that failed to create and an error, if any.
 func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker,
-	preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels) (string, error) {
+	preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels, instrumenter tracing.Instrumenter) (string, error) {
+	if instrumenter == nil {
+		instrumenter = tracing.NewNoOp()
+	}
 	lqMetrics := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
 	rfRec := NewResourceFlavorReconciler(mgr.GetClient(), qManager, cc, roleTracker)
 	if err := rfRec.SetupWithManager(mgr, cfg); err != nil {
@@ -99,6 +103,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithPreemptionExpectations(preemptionExpectations),
 		WithWorkloadCustomLabels(customLabels),
 		WithAdmissionFairSharing(cfg.AdmissionFairSharing),
+		WithInstrumenter(instrumenter),
 	)
 	if features.Enabled(features.DynamicResourceAllocation) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())

@@ -151,6 +151,27 @@ type ControllerManager struct {
 	// (webhooks, metrics, and visibility).
 	// +optional
 	TLS *TLSOptions `json:"tls,omitempty"`
+
+	// Tracing contains OpenTelemetry tracing configuration for the controller manager.
+	// +optional
+	Tracing *Tracing `json:"tracing,omitempty"`
+}
+
+// Tracing configures OpenTelemetry trace export for Workload reconciliation.
+type Tracing struct {
+	// Enable starts the OTLP gRPC trace exporter and instruments Workload reconciliation.
+	// Endpoint, TLS, and headers follow OpenTelemetry environment variables
+	// (OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_INSECURE, OTEL_EXPORTER_OTLP_HEADERS, etc.).
+	// +optional
+	Enable bool `json:"enable,omitempty"`
+
+	// SamplingRatio is the probability that a new trace (without remote parent) is sampled.
+	// Valid range is 0.0 to 1.0 inclusive. When omitted, defaults to 0.01 (1%).
+	// Child spans follow the parent sampling decision.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
+	SamplingRatio *float64 `json:"samplingRatio,omitempty"`
 }
 
 // ControllerWebhook defines the webhook server for the controller.
