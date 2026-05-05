@@ -435,7 +435,7 @@ func (s *Scheduler) processEntry(
 	}
 
 	if features.Enabled(features.ConcurrentAdmission) {
-		if lessFavorableSibling := s.getLessFavorableSibling(log, &e.Info, snapshot); lessFavorableSibling != nil {
+		if lessFavorableSibling := s.getLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
 			s.issueMigration(ctx, log, e, lessFavorableSibling)
 			return
 		}
@@ -1066,7 +1066,7 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	}
 }
 
-func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) *workload.Info {
+func (s *Scheduler) getLessFavorableSibling(wl *workload.Info, snap *schdcache.Snapshot) *workload.Info {
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return nil
 	}
