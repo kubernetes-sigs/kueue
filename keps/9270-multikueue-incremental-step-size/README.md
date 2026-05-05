@@ -1,5 +1,5 @@
  
-# KEP-9270: MultiKueue Incremental Dispatcher Step Size
+# KEP-9270: Introduce configuration for the MultiKueue Incremental Dispatcher
 <!-- toc -->
 - [Summary](#summary)
 - [Motivation](#motivation)
@@ -17,24 +17,23 @@
     - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
+- [Possible Follow-ups](#possible-follow-ups)
 - [Drawbacks](#drawbacks)
 <!-- /toc -->
 
 ## Summary
 
-This proposal introduces a new configuration field called `stepSize` to the MultiKueue Incremental Dispatcher. This setting will control the number of worker clusters that the Manager Cluster will attempt to dispatch a workload to concurrently.
+This proposal introduces a new configuration structure for the MultiKueue Incremental Dispatcher, starting with a stepSize field. This setting will control the number of worker clusters that the Manager Cluster will attempt to dispatch a workload to concurrently.
 
 ## Motivation
 
-Currently, when MultiKueue attempts to schedule a workload across multiple worker clusters, the Incremental Dispatcher has a limitation. If it checks clusters one by one, the process is too slow and delays job execution. If it attempts to dispatch to all clusters simultaneously, it generates unnecessary API traffic, increases the load on the Manager Cluster, and can lead to race conditions where multiple clusters try to admit the same job at the same time.
-
+Currently, the MultiKueue Incremental Dispatcher has a hardcoded batch size `batchSize := 3` when attempting to schedule a workload across multiple worker clusters. The primary limitation is that this value is not configurable. For administrators managing a massive fleet of worker clusters, a fixed batch size of 3 is too slow and delays job execution. Conversely, if administrators were to theoretically increase this to query all clusters simultaneously to speed things up, it would generate heavy API traffic and increase the risk of race conditions. By making this step size configurable, administrators can find the optimal balance between dispatch speed and Manager Cluster resource usage for their specific environment.
 Introducing a `stepSize` allows cluster administrators to configure a "batch size" for this process, finding the perfect balance between speed and system stability.
 
 ### Goals
 
-* Add a `stepSize` parameter to the `MultiKueueConfig` API.
+* Add an `IncrementalDispatcherConfig` struct to the `MultiKueueConfig` API containing a `stepSize` parameter
 * Update the Workload Controller's dispatching loop to process worker clusters in batches defined by the `stepSize`.
-* Ensure that if a workload is admitted in a batch, the remaining pending proxy workloads in that batch are cleanly removed.
 
 ### Non-Goals
 
@@ -43,40 +42,57 @@ Introducing a `stepSize` allows cluster administrators to configure a "batch siz
 
 ## Proposal
 
-We propose updating the `MultiKueueConfig` API to accept an optional integer for the step size, and updating the Workload Controller to respect this batch limit when iterating through the list of available worker clusters.
-
+We propose updating the `MultiKueueConfig` API to introduce an `IncrementalDispatcherConfig` struct containing an optional integer for the step size, and updating the Workload Controller to respect this batch limit when iterating through the list of available worker clusters.
 
 ### Risks and Mitigations
 
 **Risk:** An administrator might set the `stepSize` to an extremely high number (e.g., equal to the total number of clusters), which effectively recreates the heavy load issues of the `AllAtOnce` dispatcher and increases the chance of race conditions where multiple clusters admit the job at the exact same time.
-**Mitigation:** Provide clear API documentation regarding best practices. The Workload Controller's conflict resolution logic (which deletes duplicate proxy workloads once one is admitted) will naturally handle race conditions, just as it already does for the `AllAtOnce` strategy. 
+
+**Mitigation:** Provide clear API documentation regarding best practices. The Workload Controller's conflict resolution logic will naturally handle race conditions, just as it already does for the `AllAtOnce` strategy.
 
 ## Design Details
 
 ### API Changes
-We will update the `MultiKueueConfigSpec` struct to include the new field. This change will be backwards compatible by defaulting the step size to `1` (which matches the current one-by-one behavior).
+
+We will update the global `Configuration` API (specifically the `MultiKueue` struct) to include a new configuration struct, rather than placing it in `MultiKueueConfigSpec`. This keeps the incremental dispatcher configuration co-located with the `DispatcherName` selection.
+
+The field will be named `IncrementalDispatcherConfig` and will contain a `StepSize` field. To ensure backwards compatibility and preserve existing system behavior, the default value for `StepSize` will be `3`.
+
+We will also use Kubebuilder validation markers (e.g., CEL rules) to enforce that this struct can only be populated if `DispatcherName` is set to the incremental dispatcher.
 
 ```go
-type MultiKueueConfigSpec struct {
-    // Other existing fields...
+type MultiKueue struct {
+       // Other existing fields...
 
-    // StepSize defines the number of worker clusters the Incremental 
-    // Dispatcher will query at the same time. 
-    // Minimum value is 1. If not set, it defaults to 1.
-    // +optional
-    // +kubebuilder:default=1
-    // +kubebuilder:validation:Minimum=1
-    StepSize *int32 `json:"stepSize,omitempty"`
+      // DispatcherName defines the type of dispatcher to use.
+      DispatcherName *string `json:"dispatcherName,omitempty"`
+
+      // IncrementalDispatcherConfig contains the configuration for the incremental dispatcher.
+      // This field is only valid when DispatcherName is set to the incremental dispatcher.
+      // Note: This field is going to be ignored when the MultiKueueIncrementalDispatcher feature gate is disabled.
+      // +optional
+      IncrementalDispatcherConfig *IncrementalDispatcherConfig `json:"incrementalDispatcherConfig,omitempty"`
+}
+
+type IncrementalDispatcherConfig struct {
+      // StepSize defines the number of worker clusters the Incremental 
+      // Dispatcher will query simultaneously. 
+      // Minimum value is 1. If not set, it defaults to 3.
+      // +optional
+      // +kubebuilder:default=3
+      // +kubebuilder:validation:Minimum=1
+      StepSize *int32 `json:"stepSize,omitempty"`
 }
 ```
 
 ### Execution Loop
-The core logic change will take place inside the MultiKueue Workload Controller's reconciliation loop:
-1. When a workload is ready for dispatch, the controller reads the `stepSize` from the `MultiKueueConfig`.
-2. The controller takes the full list of available worker clusters and divides them into groups (batches) equal to the `stepSize`.
-3. The controller loops through the first batch, creating proxy workloads on those specific worker clusters simultaneously.
-4. If a cluster in the batch admits the job, the controller immediately deletes the proxy workloads from the other clusters in that same batch and stops the loop.
-5. If no cluster in the batch admits the job, the controller moves on to the next batch of clusters.
+The core logic change is minimal because the batching mechanism is already implemented in the Incremental Dispatcher (`pkg/controller/workloaddispatcher/incrementaldispatcher.go`).
+
+The update will simply modify the existing logic to:
+1. Read the `stepSize` value from the `MultiKueueConfig`.
+2. Replace the hardcoded `batchSize := 3` variable with this dynamically configured `stepSize` parameter.
+
+The existing loop and conflict resolution mechanisms will naturally handle the rest of the execution based on this new size, meaning no major architectural changes are required to the dispatching loop itself.
 
 ### Test Plan
 
@@ -89,7 +105,7 @@ No major prerequisite testing updates are required. Current mock worker cluster 
 #### Unit tests
 
 - `pkg/controller/core/workload_controller_test.go`: Verify that the worker cluster list is correctly divided into chunks matching the `stepSize`.
-- `pkg/controller/core/workload_controller_test.go`: Verify that the default value remains `1` if the user does not specify a `stepSize`.
+- `pkg/controller/core/workload_controller_test.go`: Verify that the default value remains `3` if the user does not specify a `stepSize`.
 
 #### Integration tests
 
@@ -105,7 +121,8 @@ Standard E2E multi-cluster tests will be updated to include an iteration where `
     * API fields added.
     * Workload Controller updated to support batching.
     * Unit tests and EnvTest integration tests passing.
-* **Beta:** * Gather feedback from the community.
+* **Beta:** 
+    * Gather feedback from the community.
     * E2E tests added and passing consistently.
 * **Stable:**
     * Feature has been in Beta for at least one release cycle with no major bugs reported.
@@ -114,6 +131,15 @@ Standard E2E multi-cluster tests will be updated to include an iteration where `
 
 - 2026-05-01: KEP proposed and initial draft created.
 
+## Possible Follow-ups
+
+By introducing the `IncrementalDispatcherConfig` structure, we pave the way for extending the configuration of the incremental dispatcher in the future without breaking API compatibility.
+
+Possible future configurations that could be added to this struct include:
+
+* `timeout`: To configure how long the dispatcher waits before moving to the next batch of clusters.
+
+* `stepSizeAsPercent`: To define the batch size as a percentage of the total available worker clusters rather than a static integer.
 ## Drawbacks
 
 This adds slight code complexity to the existing Incremental Dispatcher loop and introduces one additional configuration parameter for administrators to manage and tune.
