@@ -61,6 +61,10 @@ spec:
 在称为[准入](/docs/concepts#admission)的流程中，Kueue 会为[工作负载 Pod 集合](/docs/concepts/workload#pod-sets)分配每个所需资源的规格。
 Kueue 会优先分配 ClusterQueue `.spec.resourceGroups[*].flavors` 列表中第一个拥有足够未用 `nominalQuota` 的规格，无论是在本 ClusterQueue 还是其[队列组](#cohort)中。
 
+当为 ClusterQueue 启用[并发准入](/docs/tasks/manage/setup_concurrent_admission)时，
+Kueue 可以同时尝试多个规格。`.spec.resourceGroups[*].flavors` 的顺序也会定义规格偏好：
+列表中的第一个规格是迁移时最优先的规格。
+
 {{% alert title="注意" color="primary" %}}
 在 ClusterQueue 配额中使用 `pods` 资源名来限制可接纳的 Pod 数量。
 

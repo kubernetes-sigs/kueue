@@ -70,6 +70,11 @@ Kueue assigns the first flavor in the ClusterQueue's `.spec.resourceGroups[*].fl
 list that has enough unused `nominalQuota` quota in the ClusterQueue or the
 ClusterQueue's [cohort](#cohort).
 
+When [Concurrent Admission](/docs/tasks/manage/setup_concurrent_admission) is
+enabled for a ClusterQueue, Kueue can try more than one flavor at the same time.
+The order of `.spec.resourceGroups[*].flavors` also defines flavor preference:
+the first flavor is the most preferred flavor for migration.
+
 {{% alert title="Note" color="primary" %}}
 Use the `pods` resource name in the ClusterQueue quotas to limit the number of pods that can be admitted.
 
