@@ -1475,8 +1475,9 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 	}
 	assignment.Levels = s.levelKeys[levelIdx:]
 	for _, domain := range domains {
-		if domain.state == 0 {
-			// It may happen when PodSet count is 0 or when using LeastFreeCapacity algorithm.
+		if domain.state <= 0 {
+			// == 0: It may happen when PodSet count is 0 or when using LeastFreeCapacity algorithm.
+			// <  0: Defensive clamp: negative state would cause apiserver CRD validation to reject
 			continue
 		}
 		assignment.Domains = append(assignment.Domains, utiltas.TopologyDomainAssignment{
@@ -1626,6 +1627,10 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		}
 		var limitingRes corev1.ResourceName
 		leaf.state, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity)
+		// apiserver CRD validation silently rejects (Individual >= 1).
+		if leaf.state < 0 {
+			leaf.state = 0
+		}
 
 		// Track resource exclusions: if this node can't fit even one pod,
 		// identify which resource is the bottleneck.

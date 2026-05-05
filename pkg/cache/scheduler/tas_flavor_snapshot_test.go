@@ -22,6 +22,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/labels"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -733,6 +735,171 @@ func TestTruncateAssignment(t *testing.T) {
 			got := tas.TruncateAssignment(tc.assignment, tc.newCount)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("TruncateAssignment() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestBuildTopologyAssignmentForLevels_DropsNonPositiveStateDomains is a regression
+// test for the over-subscription bug where a leaf domain whose tasUsage exceeds
+// freeCapacity (typical when a higher-priority workload is admitted in preempt
+// mode while a lower-priority one is still being evicted) caused
+// CountInWithLimitingResource to return a negative count. That negative count
+// was previously written verbatim into TopologyDomainAssignment.Count, which
+// the apiserver rejects via CRD validation (`Individual` requires >= 1). This
+// test asserts the defensive output-side filter in
+// buildTopologyAssignmentForLevels: any domain with state <= 0 must be skipped,
+// never emitted with a non-positive Count.
+func TestBuildTopologyAssignmentForLevels_DropsNonPositiveStateDomains(t *testing.T) {
+	levels := []string{"level-1", corev1.LabelHostname}
+	s := &TASFlavorSnapshot{
+		levelKeys: levels,
+	}
+
+	domains := []*domain{
+		{id: "positive", levelValues: []string{"a", "x"}, state: 2},
+		{id: "zero", levelValues: []string{"a", "y"}, state: 0},
+		{id: "negative", levelValues: []string{"b", "z"}, state: -3},
+	}
+
+	got := s.buildTopologyAssignmentForLevels(domains, 0)
+
+	want := &tas.TopologyAssignment{
+		Levels: levels,
+		Domains: []tas.TopologyDomainAssignment{
+			{Values: []string{"a", "x"}, Count: 2},
+		},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("unexpected assignment (-want,+got):\n%s", diff)
+	}
+	for _, d := range got.Domains {
+		if d.Count <= 0 {
+			t.Errorf("emitted TopologyDomainAssignment with non-positive Count=%d for values=%v; "+
+				"apiserver CRD validation requires Individual >= 1", d.Count, d.Values)
+		}
+	}
+}
+
+// TestFillInCounts_ClampsNegativeRemainingCapacity is a regression test for the
+// source of the negative-Count bug. When the sum of tasUsage and assumedUsage
+// exceeds freeCapacity for a leaf, remainingCapacity goes negative and
+// CountInWithLimitingResource returns a negative int32. That value used to be
+// stored on leaf.state and propagate through fillInCountsHelper
+// (childrenCapacity += child.state) all the way to the emitted
+// TopologyDomainAssignment. fillInCounts must clamp leaf.state to 0 in that
+// case, since a leaf with negative remaining capacity can fit zero pods
+// (not minus-one).
+func TestFillInCounts_ClampsNegativeRemainingCapacity(t *testing.T) {
+	levels := []string{corev1.LabelHostname}
+	allocatable := corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("4"),
+		corev1.ResourceMemory: resource.MustParse("8Gi"),
+	}
+	n := node.MakeNode("host-a").
+		Label(corev1.LabelHostname, "host-a").
+		StatusAllocatable(allocatable).
+		Obj()
+
+	cases := map[string]struct {
+		tasUsage     resources.Requests
+		assumedUsage map[tas.TopologyDomainID]resources.Requests
+		requests     resources.Requests
+		// wantState is the value we expect leaf.state to be clamped to.
+		wantState int32
+	}{
+		"under-subscribed: positive state preserved": {
+			tasUsage: resources.Requests{
+				corev1.ResourceCPU:    1000, // 1 core used; 3 free
+				corev1.ResourceMemory: 1 * 1024 * 1024 * 1024,
+			},
+			requests: resources.Requests{
+				corev1.ResourceCPU:    1000,
+				corev1.ResourceMemory: 1 * 1024 * 1024 * 1024,
+			},
+			wantState: 3,
+		},
+		"exactly-subscribed via tasUsage: state == 0 (no negative)": {
+			tasUsage: resources.Requests{
+				corev1.ResourceCPU:    4000,
+				corev1.ResourceMemory: 8 * 1024 * 1024 * 1024,
+			},
+			requests: resources.Requests{
+				corev1.ResourceCPU:    1000,
+				corev1.ResourceMemory: 1 * 1024 * 1024 * 1024,
+			},
+			wantState: 0,
+		},
+		"over-subscribed via tasUsage: clamped to 0, never negative": {
+			tasUsage: resources.Requests{
+				corev1.ResourceCPU:    6000, // 2 cores over capacity
+				corev1.ResourceMemory: 9 * 1024 * 1024 * 1024,
+			},
+			requests: resources.Requests{
+				corev1.ResourceCPU:    1000,
+				corev1.ResourceMemory: 1 * 1024 * 1024 * 1024,
+			},
+			wantState: 0,
+		},
+		"over-subscribed via assumedUsage (preempt-mode pattern): clamped to 0": {
+			tasUsage: resources.Requests{
+				corev1.ResourceCPU:    3000,
+				corev1.ResourceMemory: 6 * 1024 * 1024 * 1024,
+			},
+			assumedUsage: map[tas.TopologyDomainID]resources.Requests{
+				"host-a": {
+					corev1.ResourceCPU:    3000, // pushes remaining negative
+					corev1.ResourceMemory: 4 * 1024 * 1024 * 1024,
+				},
+			},
+			requests: resources.Requests{
+				corev1.ResourceCPU:    1000,
+				corev1.ResourceMemory: 1 * 1024 * 1024 * 1024,
+			},
+			wantState: 0,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+			s.addNode(newNodeInfo(n))
+			s.initialize()
+
+			leaf, ok := s.leaves["host-a"]
+			if !ok {
+				t.Fatalf("expected leaf domain host-a to exist")
+			}
+			leaf.tasUsage = tc.tasUsage
+
+			stats := newExclusionStats()
+			requirements := &topologyAssignmentPodRequirements{
+				requests:     tc.requests,
+				assumedUsage: tc.assumedUsage,
+				selector:     labels.Everything(),
+			}
+			state := &findTopologyAssignmentState{
+				topologyAssignmentParameters: topologyAssignmentParameters{
+					sliceSize:     1,
+					sliceLevelIdx: 0,
+				},
+				stats: stats,
+			}
+			s.fillInCounts(requirements, state)
+
+			if leaf.state != tc.wantState {
+				t.Errorf("leaf.state = %d, want %d (must never be negative regardless of over-subscription)", leaf.state, tc.wantState)
+			}
+			if leaf.state < 0 {
+				t.Errorf("leaf.state = %d is negative; this would cause apiserver CRD validation to reject the resulting TopologyDomainAssignment", leaf.state)
+			}
+
+			assignment := s.buildAssignment([]*domain{&leaf.domain})
+			for _, d := range assignment.Domains {
+				if d.Count <= 0 {
+					t.Errorf("emitted TopologyDomainAssignment.Count = %d for values=%v; must be >= 1 (output-side filter regressed)", d.Count, d.Values)
+				}
 			}
 		})
 	}
