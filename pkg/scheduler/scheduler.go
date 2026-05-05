@@ -467,9 +467,9 @@ func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *e
 }
 
 // issueMigration evicts victim of migration to a more favorable ResourceFlavor.
-func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entry, migrationVictim *preemption.Target) {
-	log.V(3).Info("Migrating to more favorable resource flavor", "targetWorkload", klog.KObj(migrationVictim.WorkloadInfo.Obj), "evictorWorkload", klog.KObj(e.Obj))
-	wlCopy := migrationVictim.WorkloadInfo.Obj.DeepCopy()
+func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entry, migrationVictim *workload.Info) {
+	log.V(3).Info("Migrating to more favorable resource flavor", "targetWorkload", klog.KObj(migrationVictim.Obj), "evictorWorkload", klog.KObj(e.Obj))
+	wlCopy := migrationVictim.Obj.DeepCopy()
 	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 	message := fmt.Sprintf("Evicted to accommodate a workload (UID: %s) due to migration to more favorable resource flavor", e.Obj.UID)
 	err := workload.Evict(
@@ -1066,7 +1066,7 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	}
 }
 
-func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) *preemption.Target {
+func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) *workload.Info {
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return nil
 	}
@@ -1093,11 +1093,7 @@ func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, 
 		if concurrentadmission.GetParentWorkloadUID(otherWl.Obj) == parentUID && workload.IsAdmitted(otherWl.Obj) {
 			siblingFlavor := concurrentadmission.GetVariantFlavor(otherWl.Obj)
 			if siblingFlavor != "" && isLessFavorable(candidateFlavor, siblingFlavor, flavors) {
-				return &preemption.Target{
-					WorkloadInfo: otherWl,
-					WorkloadCq:   cq,
-					Reason:       kueue.WorkloadEvictedByFlavorMigration,
-				}
+				return otherWl
 			}
 		}
 	}
