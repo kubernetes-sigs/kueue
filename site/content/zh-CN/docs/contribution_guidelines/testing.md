@@ -62,7 +62,8 @@ make test-e2e-sequential-extended
 make test-e2e-sequential-baseline
 make test-e2e-certmanager
 make test-e2e-kueueviz
-make test-multikueue-e2e
+make test-multikueue-e2e-main
+make test-multikueue-e2e-sequential
 ```
 
 你可以通过设置 `E2E_K8S_FULL_VERSION` 变量来指定用于运行 e2e 测试的 Kubernetes 版本：
@@ -129,7 +130,7 @@ func TestValidateClusterQueue(t *testing.T) {
 E2E_MODE=dev make kind-image-build test-e2e
 
 # MultiKueue 的 dev 模式
-E2E_MODE=dev make kind-image-build test-multikueue-e2e
+E2E_MODE=dev make kind-image-build test-multikueue-e2e-main
 
 # 循环运行（直到失败），同时保留集群
 E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e
@@ -140,7 +141,7 @@ E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e
 ```shell
 # 已发布版本
 E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e
-E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e-main
 
 # 预发布镜像（例如来自 PR 或每日构建）
 E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-e2e
@@ -169,7 +170,7 @@ E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
     ```
 
 ### 旧方式：交互式附加模式
-运行 `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` 并等待 `Do you want to cleanup? [Y/n] ` 出现（CI 风格行为）。
+运行 `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-main` 并等待 `Do you want to cleanup? [Y/n] ` 出现（CI 风格行为）。
 
 集群已准备就绪，现在你可以从另一个终端运行测试：
 ```shell

@@ -62,7 +62,8 @@ make test-e2e-sequential-extended
 make test-e2e-sequential-baseline
 make test-e2e-certmanager
 make test-e2e-kueueviz
-make test-multikueue-e2e
+make test-multikueue-e2e-main
+make test-multikueue-e2e-sequential
 ```
 
 You can specify the Kubernetes version used for running the e2e tests by setting the `E2E_K8S_FULL_VERSION` variable:
@@ -129,14 +130,14 @@ Use `E2E_MODE=dev` to create-or-reuse a kind cluster, rebuild/redeploy Kueue, ru
 E2E_MODE=dev make kind-image-build test-e2e
 
 # MultiKueue dev mode
-E2E_MODE=dev make kind-image-build test-multikueue-e2e
+E2E_MODE=dev make kind-image-build test-multikueue-e2e-main
 
 # Loop a suite (until it fails) while keeping the cluster
 E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e
 
 # Skip reinstallation of kueue (works only in dev mode)
 E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-e2e
-E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e
+E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e-main
 
 # Skip re-pulling dependency images and re-importing them into kind when already present (dev mode only)
 E2E_MODE=dev E2E_SKIP_IMAGE_RELOAD=true make kind-image-build test-e2e
@@ -147,7 +148,7 @@ To use a **released** or **staging** Kueue image instead of building from source
 ```shell
 # Released version
 E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e
-E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e-main
 
 # Staging image (e.g. from a PR or nightly)
 E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-e2e
@@ -184,7 +185,7 @@ To delete the kept cluster(s) afterwards:
     ```
 
 ### Legacy: interactive attach mode
-Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` and wait for the `Do you want to cleanup? [Y/n] ` to appear (CI-style behavior).
+Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-main` and wait for the `Do you want to cleanup? [Y/n] ` to appear (CI-style behavior).
 
 The cluster is ready, and now you can run tests from another terminal:
 ```shell
