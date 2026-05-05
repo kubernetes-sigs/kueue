@@ -146,6 +146,11 @@ func (j *JAXJobWrapper) Queue(queue string) *JAXJobWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *JAXJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JAXJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Request adds a resource request to the default container.
 func (j *JAXJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *JAXJobWrapper {
 	j.Spec.JAXReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)

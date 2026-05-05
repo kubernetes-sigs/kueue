@@ -66,9 +66,11 @@ func TestDefault(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("default").
 				WorkloadPriorityClass("high-priority").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "default").
 				LeaderTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "high-priority").
 				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
 				WorkerTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "high-priority").
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
@@ -83,8 +85,10 @@ func TestDefault(t *testing.T) {
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("default").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "default").
 				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
@@ -99,8 +103,10 @@ func TestDefault(t *testing.T) {
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "test-queue").
 				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.QueueLabel, "test-queue").
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
@@ -121,6 +127,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				Queue("default").
+				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
@@ -134,7 +141,9 @@ func TestDefault(t *testing.T) {
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("default").
+				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
 				WorkerTemplateSpecAnnotation(kueue.PodSetGroupName, "test-group").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "default").
 				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
@@ -832,10 +841,21 @@ func TestValidateUpdate(t *testing.T) {
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 		},
-		"change queue name": {
+		"change queue name when suspended": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("new-test-queue").
+				Obj(),
+		},
+		"change queue name when replicas ready": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				ReadyReplicas(int32(1)).
 				Obj(),
 			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1259,6 +1279,38 @@ func TestValidateUpdate(t *testing.T) {
 					Field: workerTemplatePath.Child("spec", "initContainers").Index(0).Child("resources", "requests").String(),
 				},
 			}.ToAggregate(),
+		},
+		"change nodeSelector": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						NodeSelector: map[string]string{},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						NodeSelector: map[string]string{},
+					},
+				}).
+				Queue("test-queue").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						NodeSelector: map[string]string{"test": "test"},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						NodeSelector: map[string]string{"test": "test"},
+					},
+				}).
+				Queue("test-queue").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
 		},
 		"set valid topology request": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").

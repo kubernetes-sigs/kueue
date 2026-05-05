@@ -112,6 +112,11 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *JobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 func (j *JobWrapper) RequestWorkerGroup(name corev1.ResourceName, quantity string) *JobWrapper {
 	c := &j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0]
 	if c.Resources.Requests == nil {
@@ -339,7 +344,7 @@ func (j *JobWrapper) Annotation(key string, value string) *JobWrapper {
 func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
 	enable := true
 	aggressive := rayv1.UpscalingMode("Aggressive")
-	idleTimeoutSeconds := int32(5)
+	idleTimeoutSeconds := int32(60)
 	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = &enable
 	j.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
 		UpscalingMode:      &aggressive,

@@ -42,6 +42,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -207,17 +208,10 @@ func (r *variantReconciler) getVariantsForParent(ctx context.Context, parent *ku
 		return nil, fmt.Errorf("workload %s/%s is not a parent variant", parent.Namespace, parent.Name)
 	}
 	list := &kueue.WorkloadList{}
-	if err := r.client.List(ctx, list, client.InNamespace(parent.Namespace)); err != nil {
-		// TODO: Index variants
+	if err := r.client.List(ctx, list, client.InNamespace(parent.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: string(parent.UID)}); err != nil {
 		return nil, err
 	}
-	variants := make([]kueue.Workload, 0)
-	for i := range list.Items {
-		if concurrentadmission.GetParentWorkloadName(&list.Items[i]) == parent.Name {
-			variants = append(variants, list.Items[i])
-		}
-	}
-	return variants, nil
+	return list.Items, nil
 }
 
 func (r *variantReconciler) getClusterQueue(ctx context.Context, wl *kueue.Workload) (*kueue.ClusterQueue, error) {

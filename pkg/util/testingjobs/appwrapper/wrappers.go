@@ -83,6 +83,11 @@ func (aw *AppWrapperWrapper) Queue(q string) *AppWrapperWrapper {
 	return aw.Label(constants.QueueLabel, q)
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the AppWrapperWrapper
+func (aw *AppWrapperWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *AppWrapperWrapper {
+	return aw.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Name updates the name of the AppWrapper
 func (aw *AppWrapperWrapper) Name(n string) *AppWrapperWrapper {
 	aw.ObjectMeta.Name = n

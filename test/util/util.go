@@ -485,6 +485,25 @@ func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Clie
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are pending", wlObjects...))
 }
 
+func ExpectWorkloadsToBeInadmissibleByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	wlKeys = uniqueKeys(wlKeys)
+	wlObjects := make([]*kueue.Workload, len(wlKeys))
+	gomega.Eventually(func(g gomega.Gomega) {
+		inadmissible := make([]client.ObjectKey, 0, len(wlKeys))
+		for i, wlKey := range wlKeys {
+			wl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" {
+				inadmissible = append(inadmissible, wlKey)
+			}
+			wlObjects[i] = wl
+		}
+		g.Expect(inadmissible).Should(gomega.Equal(wlKeys))
+	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are inadmissible", wlObjects...))
+}
+
 func getWorkloadsByWlKeys(ctx context.Context, g gomega.Gomega, k8sClient client.Client, wlKeys []client.ObjectKey) (workloads []*kueue.Workload) {
 	ginkgo.GinkgoHelper()
 	workloads = make([]*kueue.Workload, len(wlKeys))

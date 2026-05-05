@@ -69,7 +69,6 @@ Kueue controls the `spec.suspend` field of the RayService. When a RayService is 
 
 ### d. Limitations
 - Limited Worker Groups: Because a Kueue workload can have a maximum of 8 PodSets, the maximum number of `spec.rayClusterConfig.workerGroupSpecs` is 7
-- In-Tree Autoscaling Disabled: Kueue manages resource allocation for the RayService; therefore, the internal autoscaling mechanisms need to be disabled
 
 ## Example RayService
 

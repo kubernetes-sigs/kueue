@@ -14,7 +14,7 @@ COPY . .
 # Build
 RUN make importer-build GO_BUILD_ENV='CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARGETARCH}'
 
-FROM --platform=${BUILDPLATFORM} ${BASE_IMAGE}
+FROM ${BASE_IMAGE}
 WORKDIR /
 COPY --from=builder /workspace/bin/importer .
 USER 65532:65532

@@ -41,6 +41,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -3033,6 +3034,25 @@ func TestSchedulingHash(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing: true,
 				features.PriorityBoost:                true,
+			},
+		},
+		"same spec, different allowed flavors annotation, concurrent admission enabled produces different hash": {
+			wl1: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("wl1", "ns").
+					Request(corev1.ResourceCPU, "1").Obj()
+				wl.Annotations = map[string]string{controllerconstants.WorkloadAllowedResourceFlavorAnnotation: "flavor1"}
+				return wl
+			}(),
+			wl2: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("wl2", "ns").
+					Request(corev1.ResourceCPU, "1").Obj()
+				wl.Annotations = map[string]string{controllerconstants.WorkloadAllowedResourceFlavorAnnotation: "flavor2"}
+				return wl
+			}(),
+			wantSame: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.ConcurrentAdmission:          true,
 			},
 		},
 	}

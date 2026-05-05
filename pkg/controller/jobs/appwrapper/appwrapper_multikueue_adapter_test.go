@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -78,7 +77,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerAppWrappers: []awv1beta2.AppWrapper{
 				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
@@ -89,7 +88,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerAppWrappers: []awv1beta2.AppWrapper{
 				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
@@ -106,7 +105,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerAppWrappers: []awv1beta2.AppWrapper{
 				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
@@ -118,7 +117,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerAppWrappers: []awv1beta2.AppWrapper{
 				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
@@ -135,7 +134,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerAppWrappers: []awv1beta2.AppWrapper{
 				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
@@ -144,7 +143,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote appwrapper is deleted": {
 			workerAppWrappers: []awv1beta2.AppWrapper{
 				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},

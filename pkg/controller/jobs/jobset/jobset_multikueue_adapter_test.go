@@ -30,7 +30,6 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -73,7 +72,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
@@ -84,7 +83,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						jobsetapi.ReplicatedJobStatus{
@@ -122,7 +121,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						jobsetapi.ReplicatedJobStatus{
@@ -147,7 +146,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
@@ -187,7 +186,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
@@ -208,7 +207,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote jobset is deleted": {
 			workerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						jobsetapi.ReplicatedJobStatus{

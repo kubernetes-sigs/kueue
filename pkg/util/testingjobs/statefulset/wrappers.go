@@ -106,6 +106,11 @@ func (ss *StatefulSetWrapper) Queue(q string) *StatefulSetWrapper {
 	return ss.Label(controllerconstants.QueueLabel, q)
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the StatefulSet
+func (ss *StatefulSetWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *StatefulSetWrapper {
+	return ss.Label(controllerconstants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Name updated the name of the StatefulSet
 func (ss *StatefulSetWrapper) Name(n string) *StatefulSetWrapper {
 	ss.ObjectMeta.Name = n

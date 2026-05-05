@@ -115,8 +115,10 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 }
 
 func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, error) {
-	// If queue label already exist nothing to update.
-	if _, ok := pod.Labels[controllerconstants.QueueLabel]; ok {
+	log := ctrl.LoggerFrom(ctx)
+
+	if _, ok := pod.Labels[constants.ManagedByKueueLabelKey]; ok {
+		log.V(3).Info("Pod already has managed-by-kueue label, skipping")
 		return false, nil
 	}
 
@@ -131,16 +133,9 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 		return false, client.IgnoreNotFound(err)
 	}
 
-	queueName := jobframework.QueueNameForObject(lws)
-	// Ignore LeaderWorkerSet without queue name.
-	if queueName == "" {
-		return false, nil
-	}
-
 	wlName := GetWorkloadName(GetOwnerUID(lws), lws.Name, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
 
 	pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-	pod.Labels[controllerconstants.QueueLabel] = string(queueName)
 	pod.Labels[podconstants.GroupNameLabel] = wlName
 	pod.Labels[controllerconstants.PrebuiltWorkloadLabel] = wlName
 	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))

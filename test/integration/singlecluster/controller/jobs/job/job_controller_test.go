@@ -345,7 +345,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 	ginkgo.When("The parent job is managed by kueue", func() {
 		ginkgo.It("Should suspend a job if the parent workload does not exist", func() {
 			ginkgo.By("creating the parent job")
-			parentJob := testingjob.MakeJob(parentJobName, ns.Name).Label(constants.PrebuiltWorkloadLabel, "missing").Obj()
+			parentJob := testingjob.MakeJob(parentJobName, ns.Name).PrebuiltWorkloadLabel("missing").Obj()
 			util.MustCreate(ctx, k8sClient, parentJob)
 
 			ginkgo.By("Creating the child job which uses the parent workload annotation")
@@ -448,7 +448,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 		ginkgo.It("Should get suspended if the workload is not found", func() {
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
-				Label(constants.PrebuiltWorkloadLabel, "missing-workload").
+				PrebuiltWorkloadLabel("missing-workload").
 				Obj()
 			util.MustCreate(ctx, k8sClient, job)
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -467,7 +467,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
-				Label(constants.PrebuiltWorkloadLabel, "wl").
+				PrebuiltWorkloadLabel("wl").
 				Containers(*container.DeepCopy()).
 				Obj()
 
@@ -516,7 +516,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
-				Label(constants.PrebuiltWorkloadLabel, "wl").
+				PrebuiltWorkloadLabel("wl").
 				Containers(*container.DeepCopy()).
 				Obj()
 			util.MustCreate(ctx, k8sClient, job)
