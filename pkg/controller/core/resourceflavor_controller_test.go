@@ -17,8 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"context"
-	"slices"
 	"testing"
 	"time"
 
@@ -43,6 +41,15 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
+type rfEventType string
+
+const (
+	rfEventCreate  rfEventType = "create"
+	rfEventDelete  rfEventType = "delete"
+	rfEventUpdate  rfEventType = "update"
+	rfEventGeneric rfEventType = "generic"
+)
+
 func newTestRFReconciler(cl *fake.ClientBuilder) *ResourceFlavorReconciler {
 	c := cl.Build()
 	cqCache := schdcache.New(c)
@@ -53,11 +60,10 @@ func newTestRFReconciler(cl *fake.ClientBuilder) *ResourceFlavorReconciler {
 
 func TestResourceFlavorPredicates(t *testing.T) {
 	flavor := utiltestingapi.MakeResourceFlavor("test-flavor").Obj()
-	deletedFlavor := utiltestingapi.MakeResourceFlavor("test-flavor").Obj()
-	deletedFlavor.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+	deletedFlavor := utiltestingapi.MakeResourceFlavor("test-flavor").DeletionTimestamp(time.Now()).Obj()
 
 	cases := map[string]struct {
-		eventType string
+		eventType rfEventType
 		oldRF     *kueue.ResourceFlavor
 		newRF     *kueue.ResourceFlavor
 		wantBool  bool
@@ -65,21 +71,21 @@ func TestResourceFlavorPredicates(t *testing.T) {
 		wantNew   *kueue.ResourceFlavor
 	}{
 		"create returns true and notifies with nil old": {
-			eventType: "create",
+			eventType: rfEventCreate,
 			newRF:     flavor,
 			wantBool:  true,
 			wantOld:   nil,
 			wantNew:   flavor,
 		},
 		"delete returns false and notifies with nil new": {
-			eventType: "delete",
+			eventType: rfEventDelete,
 			oldRF:     flavor,
 			wantBool:  false,
 			wantOld:   flavor,
 			wantNew:   nil,
 		},
 		"update without deletion timestamp returns false": {
-			eventType: "update",
+			eventType: rfEventUpdate,
 			oldRF:     flavor,
 			newRF:     flavor,
 			wantBool:  false,
@@ -87,7 +93,7 @@ func TestResourceFlavorPredicates(t *testing.T) {
 			wantNew:   flavor,
 		},
 		"update with deletion timestamp returns true": {
-			eventType: "update",
+			eventType: rfEventUpdate,
 			oldRF:     flavor,
 			newRF:     deletedFlavor,
 			wantBool:  true,
@@ -95,7 +101,7 @@ func TestResourceFlavorPredicates(t *testing.T) {
 			wantNew:   deletedFlavor,
 		},
 		"generic returns true without notifying": {
-			eventType: "generic",
+			eventType: rfEventGeneric,
 			newRF:     flavor,
 			wantBool:  true,
 		},
@@ -108,22 +114,22 @@ func TestResourceFlavorPredicates(t *testing.T) {
 			watcher := mockscore.NewMockResourceFlavorUpdateWatcher(ctrl)
 			reconciler.AddUpdateWatcher(watcher)
 
-			if tc.eventType != "generic" {
+			if tc.eventType != rfEventGeneric {
 				watcher.EXPECT().NotifyResourceFlavorUpdate(tc.wantOld, tc.wantNew)
 			}
 
 			var got bool
 			switch tc.eventType {
-			case "create":
+			case rfEventCreate:
 				got = reconciler.Create(event.TypedCreateEvent[*kueue.ResourceFlavor]{Object: tc.newRF})
-			case "delete":
+			case rfEventDelete:
 				got = reconciler.Delete(event.TypedDeleteEvent[*kueue.ResourceFlavor]{Object: tc.oldRF})
-			case "update":
+			case rfEventUpdate:
 				got = reconciler.Update(event.TypedUpdateEvent[*kueue.ResourceFlavor]{
 					ObjectOld: tc.oldRF,
 					ObjectNew: tc.newRF,
 				})
-			case "generic":
+			case rfEventGeneric:
 				got = reconciler.Generic(event.TypedGenericEvent[*kueue.ResourceFlavor]{Object: tc.newRF})
 			}
 
@@ -136,55 +142,39 @@ func TestResourceFlavorPredicates(t *testing.T) {
 
 func TestResourceFlavorReconcile(t *testing.T) {
 	cases := map[string]struct {
-		setupFlavor   func() *kueue.ResourceFlavor
-		setupCache    func(ctx context.Context, cache *schdcache.Cache)
+		flavor        *kueue.ResourceFlavor
+		clusterQueues []*kueue.ClusterQueue
 		skipStore     bool
-		wantFinalizer bool
+		wantFlavor    *kueue.ResourceFlavor
 		wantDeleted   bool
 		wantError     bool
 	}{
 		"adds finalizer when missing": {
-			setupFlavor:   func() *kueue.ResourceFlavor { return utiltestingapi.MakeResourceFlavor("flavor").Obj() },
-			wantFinalizer: true,
+			flavor:     utiltestingapi.MakeResourceFlavor("flavor").Obj(),
+			wantFlavor: utiltestingapi.MakeResourceFlavor("flavor").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 		},
 		"no-op when finalizer already present": {
-			setupFlavor: func() *kueue.ResourceFlavor {
-				f := utiltestingapi.MakeResourceFlavor("flavor").Obj()
-				f.Finalizers = []string{kueue.ResourceInUseFinalizerName}
-				return f
-			},
-			wantFinalizer: true,
+			flavor:     utiltestingapi.MakeResourceFlavor("flavor").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
+			wantFlavor: utiltestingapi.MakeResourceFlavor("flavor").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 		},
 		"removes finalizer when deleted and not in use": {
-			setupFlavor: func() *kueue.ResourceFlavor {
-				f := utiltestingapi.MakeResourceFlavor("flavor").Obj()
-				f.Finalizers = []string{kueue.ResourceInUseFinalizerName}
-				return f
-			},
-			// The test will call cl.Delete to trigger the deletion flow.
+			flavor:      utiltestingapi.MakeResourceFlavor("flavor").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 			wantDeleted: true,
 		},
 		"keeps finalizer when deleted but still in use": {
-			setupFlavor: func() *kueue.ResourceFlavor {
-				f := utiltestingapi.MakeResourceFlavor("flavor").Obj()
-				f.Finalizers = []string{kueue.ResourceInUseFinalizerName}
-				return f
-			},
-			setupCache: func(ctx context.Context, cache *schdcache.Cache) {
-				cq := utiltestingapi.MakeClusterQueue("cq-using-flavor").
+			flavor: utiltestingapi.MakeResourceFlavor("flavor").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-using-flavor").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor").
 						Resource(corev1.ResourceCPU, "10").
 						Obj()).
-					Obj()
-				if err := cache.AddClusterQueue(ctx, cq); err != nil {
-					panic("failed to add ClusterQueue to cache: " + err.Error())
-				}
+					Obj(),
 			},
-			wantFinalizer: true,
+			wantFlavor: utiltestingapi.MakeResourceFlavor("flavor").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 		},
 		"ignores not-found flavor": {
-			setupFlavor: func() *kueue.ResourceFlavor { return utiltestingapi.MakeResourceFlavor("flavor").Obj() },
-			skipStore:   true,
+			flavor:    utiltestingapi.MakeResourceFlavor("flavor").Obj(),
+			skipStore: true,
 		},
 	}
 
@@ -192,10 +182,9 @@ func TestResourceFlavorReconcile(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			flavor := tc.setupFlavor()
 			builder := utiltesting.NewClientBuilder()
 			if !tc.skipStore {
-				builder = builder.WithObjects(flavor)
+				builder = builder.WithObjects(tc.flavor)
 			}
 			cl := builder.Build()
 
@@ -204,18 +193,19 @@ func TestResourceFlavorReconcile(t *testing.T) {
 			tracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 			reconciler := NewResourceFlavorReconciler(cl, qManager, cqCache, tracker)
 
-			if tc.setupCache != nil {
-				tc.setupCache(ctx, cqCache)
+			for _, cq := range tc.clusterQueues {
+				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("failed to add ClusterQueue to cache: %v", err)
+				}
 			}
 
 			if tc.wantDeleted {
-				// Trigger Kubernetes deletion flow (sets DeletionTimestamp, keeps finalizer).
-				if err := cl.Delete(ctx, flavor); err != nil {
+				if err := cl.Delete(ctx, tc.flavor); err != nil {
 					t.Fatalf("failed to delete ResourceFlavor: %v", err)
 				}
 			}
 
-			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: flavor.Name}}
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.flavor.Name}}
 			_, err := reconciler.Reconcile(ctx, req)
 
 			if tc.wantError && err == nil {
@@ -229,7 +219,7 @@ func TestResourceFlavorReconcile(t *testing.T) {
 			}
 
 			got := &kueue.ResourceFlavor{}
-			getErr := cl.Get(ctx, types.NamespacedName{Name: flavor.Name}, got)
+			getErr := cl.Get(ctx, types.NamespacedName{Name: tc.flavor.Name}, got)
 
 			if tc.wantDeleted {
 				if !apierrors.IsNotFound(getErr) {
@@ -242,9 +232,11 @@ func TestResourceFlavorReconcile(t *testing.T) {
 				t.Fatalf("failed to get ResourceFlavor: %v", getErr)
 			}
 
-			hasFinalizer := slices.Contains(got.Finalizers, kueue.ResourceInUseFinalizerName)
-			if hasFinalizer != tc.wantFinalizer {
-				t.Errorf("finalizer present: got %v, want %v", hasFinalizer, tc.wantFinalizer)
+			if diff := cmp.Diff(tc.wantFlavor, got,
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+				cmpopts.EquateEmpty(),
+			); diff != "" {
+				t.Errorf("unexpected ResourceFlavor (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -262,37 +254,37 @@ func TestNotifyClusterQueueUpdate(t *testing.T) {
 	cases := map[string]struct {
 		oldCQ       *kueue.ClusterQueue
 		newCQ       *kueue.ClusterQueue
-		wantChannel bool
+		expectEvent bool
 	}{
 		"create event (oldCQ nil) does not send": {
 			oldCQ:       nil,
 			newCQ:       makeCQWithFlavors("cq", "flavor-a"),
-			wantChannel: false,
+			expectEvent: false,
 		},
 		"delete event (newCQ nil) sends old CQ to channel": {
 			oldCQ:       makeCQWithFlavors("cq", "flavor-a"),
 			newCQ:       nil,
-			wantChannel: true,
+			expectEvent: true,
 		},
 		"update with same flavors does not send": {
 			oldCQ:       makeCQWithFlavors("cq", "flavor-a"),
 			newCQ:       makeCQWithFlavors("cq", "flavor-a"),
-			wantChannel: false,
+			expectEvent: false,
 		},
 		"update with added flavor sends": {
 			oldCQ:       makeCQWithFlavors("cq", "flavor-a"),
 			newCQ:       makeCQWithFlavors("cq", "flavor-a", "flavor-b"),
-			wantChannel: true,
+			expectEvent: true,
 		},
 		"update with removed flavor sends": {
 			oldCQ:       makeCQWithFlavors("cq", "flavor-a", "flavor-b"),
 			newCQ:       makeCQWithFlavors("cq", "flavor-a"),
-			wantChannel: true,
+			expectEvent: true,
 		},
 		"update with replaced flavor sends": {
 			oldCQ:       makeCQWithFlavors("cq", "flavor-a"),
 			newCQ:       makeCQWithFlavors("cq", "flavor-b"),
-			wantChannel: true,
+			expectEvent: true,
 		},
 	}
 
@@ -304,11 +296,11 @@ func TestNotifyClusterQueueUpdate(t *testing.T) {
 
 			select {
 			case <-reconciler.cqUpdateCh:
-				if !tc.wantChannel {
+				if !tc.expectEvent {
 					t.Error("unexpected event sent to channel")
 				}
 			default:
-				if tc.wantChannel {
+				if tc.expectEvent {
 					t.Error("expected event in channel but channel was empty")
 				}
 			}
@@ -326,9 +318,9 @@ func TestCqHandlerGeneric(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		cq           *kueue.ClusterQueue
-		cacheSetup   func(t *testing.T, ctx context.Context, cache *schdcache.Cache)
-		wantEnqueued []string
+		cq            *kueue.ClusterQueue
+		clusterQueues []*kueue.ClusterQueue
+		wantEnqueued  []string
 	}{
 		"empty CQ name is a no-op": {
 			cq:           &kueue.ClusterQueue{},
@@ -340,21 +332,15 @@ func TestCqHandlerGeneric(t *testing.T) {
 		},
 		"does not enqueue flavors still used by another CQ": {
 			cq: makeCQWithFlavors("cq", "flavor-shared"),
-			cacheSetup: func(t *testing.T, ctx context.Context, cache *schdcache.Cache) {
-				other := makeCQWithFlavors("other-cq", "flavor-shared")
-				if err := cache.AddClusterQueue(ctx, other); err != nil {
-					t.Fatal("failed to add ClusterQueue: " + err.Error())
-				}
+			clusterQueues: []*kueue.ClusterQueue{
+				makeCQWithFlavors("other-cq", "flavor-shared"),
 			},
 			wantEnqueued: nil,
 		},
 		"enqueues only orphaned flavors when CQ has multiple": {
 			cq: makeCQWithFlavors("cq", "flavor-orphan", "flavor-shared"),
-			cacheSetup: func(t *testing.T, ctx context.Context, cache *schdcache.Cache) {
-				other := makeCQWithFlavors("other-cq", "flavor-shared")
-				if err := cache.AddClusterQueue(ctx, other); err != nil {
-					t.Fatal("failed to add ClusterQueue: " + err.Error())
-				}
+			clusterQueues: []*kueue.ClusterQueue{
+				makeCQWithFlavors("other-cq", "flavor-shared"),
 			},
 			wantEnqueued: []string{"flavor-orphan"},
 		},
@@ -366,8 +352,10 @@ func TestCqHandlerGeneric(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().Build()
 			cqCache := schdcache.New(cl)
 
-			if tc.cacheSetup != nil {
-				tc.cacheSetup(t, ctx, cqCache)
+			for _, cq := range tc.clusterQueues {
+				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("failed to add ClusterQueue to cache: %v", err)
+				}
 			}
 
 			h := &cqHandler{cache: cqCache}

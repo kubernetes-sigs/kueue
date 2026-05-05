@@ -1252,6 +1252,18 @@ func (rf *ResourceFlavorWrapper) Creation(t time.Time) *ResourceFlavorWrapper {
 	return rf
 }
 
+// DeletionTimestamp sets a deletion timestamp for the ResourceFlavor.
+func (rf *ResourceFlavorWrapper) DeletionTimestamp(t time.Time) *ResourceFlavorWrapper {
+	rf.ResourceFlavor.DeletionTimestamp = &metav1.Time{Time: t}
+	return rf
+}
+
+// Finalizers sets the finalizers on the ResourceFlavor.
+func (rf *ResourceFlavorWrapper) Finalizers(fin ...string) *ResourceFlavorWrapper {
+	rf.ObjectMeta.Finalizers = fin
+	return rf
+}
+
 // TopologyWrapper wraps a Topology.
 type TopologyWrapper struct{ kueue.Topology }
 
