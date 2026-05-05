@@ -751,17 +751,6 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 	notifyRetryInadmissibleWithoutLock(m, sets.New(cq.name))
 }
 
-// UpdateWorkload updates the workload to the corresponding queue or adds it if
-// it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
-	m.Lock()
-	defer m.Unlock()
-	if features.Enabled(features.ConcurrentAdmission) && m.IsConcurrentAdmissionParentWithoutLock(w) {
-		return nil
-	}
-	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
-}
-
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting
 // on elements to be available. It should be called before doing any calls to
 // Heads.

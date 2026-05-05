@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -80,7 +79,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
@@ -91,7 +90,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Active(2).
 					Obj(),
@@ -105,7 +104,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Active(2).
 					Obj(),
@@ -119,7 +118,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					Active(2).
@@ -135,7 +134,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					Active(2).
@@ -148,7 +147,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
@@ -164,7 +163,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
@@ -173,7 +172,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote job is deleted": {
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Active(2).
 					Obj(),
@@ -329,7 +328,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			want: want{
 				localJob: newJob().ManagedBy("parent").Obj(),
 				remoteJob: newJob().Label(kueue.MultiKueueOriginLabel, "").
-					Label(constants.PrebuiltWorkloadLabel, "").
+					PrebuiltWorkloadLabel("").
 					Obj(),
 			},
 		},
@@ -438,7 +437,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj()).Build(),
 				key:          client.ObjectKeyFromObject(newJob().Obj()),
@@ -451,7 +450,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 				remoteJob: newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj(),
 			},
@@ -468,7 +467,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj()).Build(),
 				key:          client.ObjectKeyFromObject(newJob().Obj()),
@@ -482,7 +481,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 				remoteJob: newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj(),
 			},
@@ -527,7 +526,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj()).Build(),
 				key:          client.ObjectKeyFromObject(newJob().Obj()),
@@ -542,7 +541,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				remoteJob: newJob().
 					ResourceVersion("1").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Parallelism(1).
 					Condition(runningJobCondition).
 					Obj(),
@@ -560,7 +559,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
@@ -579,7 +578,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 				remoteJob: newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj(),
 			},

@@ -1228,7 +1228,7 @@ func TestUpdateWorkload(t *testing.T) {
 			}
 			wl := tc.workloads[0].DeepCopy()
 			tc.update(wl)
-			err := manager.UpdateWorkload(log, wl)
+			err := manager.AddOrUpdateWorkload(log, wl)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected UpdatedWorkload returned error (-want,+got):\n%s", diff)
 			}
@@ -1498,7 +1498,7 @@ func TestHeadsAsync(t *testing.T) {
 				}
 				go func() {
 					log := logr.FromContextOrDiscard(ctx)
-					if err := mgr.UpdateWorkload(log, &wl); err != nil {
+					if err := mgr.AddOrUpdateWorkload(log, &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
 				}()
