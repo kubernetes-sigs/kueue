@@ -50,7 +50,7 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 		actions   []string
 		wantOrder []kueue.ClusterQueueReference
 	}{
-		"no cohort: preemptor CQ yielded for in-CQ preemption": {
+		"no cohort: preemptor CQ yielded for in-CQ preemption; repro for nil pointer panic issue": {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("preemptor").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
@@ -249,8 +249,7 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 				}
 				actionIdx++
 				if len(gotOrder) > 50 {
-					t.Fatal("exceeded 50 iterations, likely an infinite loop")
-					break
+					t.Error("exceeded 50 iterations, likely an infinite loop")
 				}
 			}
 
