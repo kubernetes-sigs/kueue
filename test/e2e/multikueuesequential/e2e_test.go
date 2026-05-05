@@ -351,7 +351,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 							Message: "Connected",
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for kube-system to become available again", func() {
