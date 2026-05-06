@@ -28,8 +28,10 @@ const (
 	AdmissionName                = KueueName + "-admission"
 	ReclaimablePodsMgr           = KueueName + "-reclaimable-pods"
 
-	// UpdatesBatchPeriod is the batch period to hold workload updates
-	// before syncing a Queue and ClusterQueue objects.
+	// UpdatesBatchPeriod is the duration used to delay the enqueueing of a reconcile request
+	// after an event occurs. This facilitates "batching" multiple rapid updates into
+	// a single reconciliation loop, reducing unnecessary API pressure and preventing
+	// redundant processing during high-churn periods (e.g., mass Pod deletions or updates).
 	UpdatesBatchPeriod = time.Second
 
 	// DefaultPriority is used to set priority of workloads
