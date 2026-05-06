@@ -8,6 +8,7 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
+  - [Example](#example)
   - [User stories](#user-stories)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
@@ -108,6 +109,117 @@ We will add an **optional** feature of **auto-aggregating quotas** from the work
 Enabling this feature will be controlled by an API field (not just by a feature gate), as we want to permanently retain a way to opt out (see [User Story 3](#story-3)).
 
 Enabling this feature will **require** that the manager ClusterQueue `Q` has **exactly one ResourceFlavor**. (See [Treatment of ResourceFlavors](#treatment-of-resourceflavors) for rationale).
+
+### Example
+
+Suppose we have a MultiKueue setup with a manager cluster and two worker clusters (`worker1` and `worker2`), using the following configuration for LocalQueues (LQ) and ClusterQueues (CQ):
+
+```mermaid
+graph BT
+    subgraph Manager ["Manager Cluster"]
+        m_cq["cq"]
+        m_lq1["lq1"]
+        m_lq2["lq2"]
+        m_lq1 --> m_cq
+        m_lq2 --> m_cq
+    end
+
+    subgraph Worker2 ["Worker 2"]
+        w2_cq["cq"]
+        w2_lq1["lq1"]
+        w2_lq2["lq2"]
+        w2_lq1 --> w2_cq
+        w2_lq2 --> w2_cq
+    end
+
+    subgraph Worker1 ["Worker 1"]
+        w1_cq1["cq1"]
+        w1_cq2["cq2"]
+        w1_lq1["lq1"]
+        w1_lq2["lq2"]
+        w1_lq1 --> w1_cq1
+        w1_lq2 --> w1_cq2
+    end
+
+    m_lq1 -.-> w1_lq1
+    m_lq1 -.-> w2_lq1
+    m_lq2 -.-> w1_lq2
+    m_lq2 -.-> w2_lq2
+```
+
+
+On `worker1`, both related ClusterQueues are configured with CPU and memory (in `default-flavor`):
+
+*   `cq1`:
+    ```yaml
+    resourceGroups:
+    - coveredResources: ["cpu", "memory"]
+      flavors:
+      - name: "default-flavor"
+        resources:
+        - name: "cpu"
+          nominalQuota: 6
+        - name: "memory"
+          nominalQuota: 24Gi
+    ```
+*   `cq2`:
+    ```yaml
+    resourceGroups:
+    - coveredResources: ["cpu", "memory"]
+      flavors:
+      - name: "default-flavor"
+        resources:
+        - name: "cpu"
+          nominalQuota: 7
+        - name: "memory"
+          nominalQuota: 28Gi
+    ```
+
+On `worker2`, the related ClusterQueue `cq` handles both `lq1` and `lq2`, and is configured with CPU, memory, and GPU resources:
+
+*   `cq`:
+    ```yaml
+    resourceGroups:
+    - coveredResources: ["cpu", "memory"]
+      flavors:
+      - name: "default-flavor"
+        resources:
+        - name: "cpu"
+          nominalQuota: 8
+        - name: "memory"
+          nominalQuota: 32Gi
+    - coveredResources: ["nvidia.com/gpu"]
+      flavors:
+      - name: "gpu-a4"
+        resources:
+        - name: "nvidia.com/gpu"
+          nominalQuota: 5
+      - name: "gpu-h100"
+        resources:
+        - name: "nvidia.com/gpu"
+          nominalQuota: 7
+    ```
+
+When quota aggregation is enabled on the manager-side ClusterQueue `cq`, the aggregated limits combine all resources from the related worker ClusterQueues (`cq1` and `cq2` on `worker1`, and `cq` on `worker2`), summing their limits across all worker-side flavors:
+
+```yaml
+resourceGroups:
+- coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
+  flavors:
+  - name: "default-flavor"
+    resources:
+    - name: "cpu"
+      nominalQuota: 21  // 6 + 7 + 8
+    - name: "memory"
+      nominalQuota: 84Gi  // 24 + 28 + 32
+    - name: "nvidia.com/gpu"
+      nominalQuota: 12  // 5 + 7
+```
+
+This will work only if:
+
+* `cq` on the manager is configured with a single flavor, and
+* The `coveredResources` for this flavor contains all involved resources (CPU, memory and GPU).
 
 ### User stories
 
@@ -283,7 +395,12 @@ message: MultiKueue manager quota automation has not been requested.
 lastTransitionTime: 2026-01-01T00:00:00Z
 ```
 
-Enabling quota automation will be subject to a **constraint** that the manager ClusterQueue has exactly one ResourceFlavor. This constraint will **not** be enforced via validation (e.g. a webhook) but by Kueue controllers code (similarly to [analogous existing AdmissionCheck-related constraints](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/pkg/cache/scheduler/clusterqueue.go#L284-L307), evaluated in the core ClusterQueue controller). A violation of this new constraint will **not** make the ClusterQueue Inactive (as is the case for the existing analogous constraints). In this case of a violation, the queue itself will be still operational, just not supportable by the quota automation feature. This will be communicated as an error of that feature, by its status Condition:
+Enabling quota automation will be subject to a **constraint** that:
+
+* The manager ClusterQueue has exactly one ResourceFlavor.
+* Also, the `coveredResources` of the ResourceGroup containing that flavor must contain all resources which appear in the quotas of any related worker ClusterQueue.
+
+This constraint will **not** be enforced via validation (e.g. a webhook) but by Kueue controllers code (similarly to [analogous existing AdmissionCheck-related constraints](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/pkg/cache/scheduler/clusterqueue.go#L284-L307), evaluated in the core ClusterQueue controller). A violation of this new constraint will **not** make the ClusterQueue Inactive (as is the case for the existing analogous constraints). In this case of a violation, the queue itself will be still operational, just not supportable by the quota automation feature. This will be communicated as an error of that feature, by its status Condition, for example:
 
 ```yaml
 type: MultiKueueManagerQuotaAutomation
