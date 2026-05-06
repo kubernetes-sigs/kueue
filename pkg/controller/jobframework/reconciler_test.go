@@ -1038,21 +1038,10 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 }
 
 func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
-	metrics.JobToWorkloadLatency.Reset()
 	var (
 		testJobName        = "test-job"
 		testLocalQueueName = kueue.LocalQueueName("test-lq")
 	)
-
-	ctx, _ := utiltesting.ContextWithLog(t)
-	mockctrl := gomock.NewController(t)
-
-	jobCreationTime := time.Now().Add(-10 * time.Second)
-	job := testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
-		UID(testJobName).
-		Queue(testLocalQueueName).
-		Obj()
-	job.CreationTimestamp = metav1.NewTime(jobCreationTime)
 
 	basePodSets := []kueue.PodSet{
 		*utiltestingapi.MakePodSet("main", 1).Obj(),
@@ -1061,36 +1050,69 @@ func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
 	uniqueJobKind := "TestJobKind"
 	testGVKWithUniqueKind := batchv1.SchemeGroupVersion.WithKind(uniqueJobKind)
 
-	mgj := mocks.NewMockGenericJob(mockctrl)
-	mgj.EXPECT().Object().Return(job).AnyTimes()
-	mgj.EXPECT().GVK().Return(testGVKWithUniqueKind).AnyTimes()
-	mgj.EXPECT().IsSuspended().Return(false).AnyTimes()
-	mgj.EXPECT().IsActive().Return(false).AnyTimes()
-	mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-	mgj.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
-	mgj.EXPECT().Suspend().AnyTimes()
-
-	cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
-		WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault)).
-		WithObjects(job).
-		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVKWithUniqueKind), indexer.WorkloadOwnerIndexFunc(testGVKWithUniqueKind)).
-		Build()
-
-	recorder := &utiltesting.EventRecorder{}
-	rec := NewReconciler(cl, recorder)
-
-	_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{
-		NamespacedName: types.NamespacedName{Name: testJobName, Namespace: metav1.NamespaceDefault},
-	}, mgj)
-	if err != nil {
-		t.Fatalf("Failed to Reconcile GenericJob: %v", err)
+	testCases := map[string]struct {
+		role     string
+		wantRole string
+	}{
+		"standalone role": {
+			role:     roletracker.RoleStandalone,
+			wantRole: roletracker.RoleStandalone,
+		},
+		"leader role": {
+			role:     roletracker.RoleLeader,
+			wantRole: roletracker.RoleLeader,
+		},
 	}
 
-	count, err := testutil.GetHistogramMetricCount(metrics.JobToWorkloadLatency.WithLabelValues(uniqueJobKind, roletracker.RoleStandalone))
-	if err != nil {
-		t.Fatalf("Failed to get histogram metric count: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("Expecting 1 metric observation, got %d", count)
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			metrics.JobToWorkloadLatency.Reset()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			mockctrl := gomock.NewController(t)
+
+			jobCreationTime := time.Now().Add(-10 * time.Second)
+			job := testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
+				UID(testJobName).
+				Queue(testLocalQueueName).
+				Obj()
+			job.CreationTimestamp = metav1.NewTime(jobCreationTime)
+
+			mgj := mocks.NewMockGenericJob(mockctrl)
+			mgj.EXPECT().Object().Return(job).AnyTimes()
+			mgj.EXPECT().GVK().Return(testGVKWithUniqueKind).AnyTimes()
+			mgj.EXPECT().IsSuspended().Return(false).AnyTimes()
+			mgj.EXPECT().IsActive().Return(false).AnyTimes()
+			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+			mgj.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
+			mgj.EXPECT().Suspend().AnyTimes()
+
+			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault)).
+				WithObjects(job).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVKWithUniqueKind), indexer.WorkloadOwnerIndexFunc(testGVKWithUniqueKind)).
+				Build()
+
+			recorder := &utiltesting.EventRecorder{}
+			var options []Option
+			if tc.role != "" {
+				options = append(options, WithRoleTracker(roletracker.NewFakeRoleTracker(tc.role)))
+			}
+			rec := NewReconciler(cl, recorder, options...)
+
+			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{
+				NamespacedName: types.NamespacedName{Name: testJobName, Namespace: metav1.NamespaceDefault},
+			}, mgj)
+			if err != nil {
+				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
+			}
+
+			count, err := testutil.GetHistogramMetricCount(metrics.JobToWorkloadLatency.WithLabelValues(uniqueJobKind, tc.wantRole))
+			if err != nil {
+				t.Fatalf("Failed to get histogram metric count: %v", err)
+			}
+			if count != 1 {
+				t.Errorf("Expecting 1 metric observation, got %d", count)
+			}
+		})
 	}
 }
