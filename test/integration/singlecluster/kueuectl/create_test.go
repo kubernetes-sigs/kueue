@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -115,7 +114,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -153,7 +152,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -182,7 +181,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -231,7 +230,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -272,7 +271,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -321,7 +320,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -365,7 +364,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)

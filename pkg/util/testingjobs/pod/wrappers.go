@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -77,7 +76,7 @@ func (p *PodWrapper) ResourceVersion(version string) *PodWrapper {
 func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
 	var pods []*corev1.Pod
 	for i := range count {
-		pod := p.Clone().Group(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
+		pod := p.Clone().GroupNameLabel(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
 		pod.Pod.Name += fmt.Sprintf("-%d", i)
 		pods = append(pods, pod.Obj())
 	}
@@ -87,7 +86,7 @@ func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
 func (p *PodWrapper) MakePodGroupWrappers(count int) []*PodWrapper {
 	var pods []*PodWrapper
 	for i := range count {
-		pod := p.Clone().Group(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
+		pod := p.Clone().GroupNameLabel(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
 		pod.Pod.Name += fmt.Sprintf("-%d", i)
 		pods = append(pods, pod)
 	}
@@ -99,7 +98,7 @@ func (p *PodWrapper) MakeIndexedGroup(count int) []*corev1.Pod {
 	var pods []*corev1.Pod
 	for i := range count {
 		pod := p.Clone().
-			Group(p.Pod.Name).
+			GroupNameLabel(p.Pod.Name).
 			GroupTotalCount(strconv.Itoa(count)).
 			GroupIndex(strconv.Itoa(i))
 		pod.Pod.Name += fmt.Sprintf("-%d", i)
@@ -122,7 +121,7 @@ func (p *PodWrapper) SuspendedByParent(controller string) *PodWrapper {
 	return p.Annotation(podconstants.SuspendedByParentAnnotation, controller)
 }
 
-func (p *PodWrapper) PrebuiltWorkload(name string) *PodWrapper {
+func (p *PodWrapper) PrebuiltWorkloadLabel(name string) *PodWrapper {
 	return p.Label(controllerconsts.PrebuiltWorkloadLabel, name)
 }
 
@@ -144,8 +143,8 @@ func (p *PodWrapper) Namespace(n string) *PodWrapper {
 	return p
 }
 
-// Group updates the pod.GroupNameLabel of the Pod
-func (p *PodWrapper) Group(g string) *PodWrapper {
+// GroupNameLabel updates GroupNameLabel of the Pod
+func (p *PodWrapper) GroupNameLabel(g string) *PodWrapper {
 	return p.Label(podconstants.GroupNameLabel, g)
 }
 
@@ -266,7 +265,7 @@ func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *PodWrapper {
-	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return p
 }
 

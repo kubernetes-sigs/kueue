@@ -22,7 +22,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -377,43 +376,43 @@ func TestHasLevel(t *testing.T) {
 		},
 		"required": {
 			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
-				Required: ptr.To("level-1"),
+				Required: new("level-1"),
 			},
 			want: true,
 		},
 		"required – invalid level": {
 			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
-				Required: ptr.To("invalid-level"),
+				Required: new("invalid-level"),
 			},
 			want: false,
 		},
 		"preferred": {
 			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
-				Preferred: ptr.To("level-1"),
+				Preferred: new("level-1"),
 			},
 			want: true,
 		},
 		"preferred – invalid level": {
 			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
-				Preferred: ptr.To("invalid-level"),
+				Preferred: new("invalid-level"),
 			},
 			want: false,
 		},
 		"unconstrained": {
 			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
-				Unconstrained: ptr.To(true),
+				Unconstrained: new(true),
 			},
 			want: true,
 		},
 		"slice-only": {
 			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
-				PodSetSliceRequiredTopology: ptr.To("level-1"),
+				PodSetSliceRequiredTopology: new("level-1"),
 			},
 			want: true,
 		},
 		"slice-only – invalid level": {
 			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
-				PodSetSliceRequiredTopology: ptr.To("invalid-level"),
+				PodSetSliceRequiredTopology: new("invalid-level"),
 			},
 			want: false,
 		},

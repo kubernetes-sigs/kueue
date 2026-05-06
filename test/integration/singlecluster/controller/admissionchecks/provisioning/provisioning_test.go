@@ -29,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -345,7 +344,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
-					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
+					Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -405,7 +404,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "AdmissionCheckRejected",
 						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
+						Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 					})
 
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -453,7 +452,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "AdmissionCheckRejected",
 						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
+						Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 					})
 
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -1065,7 +1064,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 						Message: "Reset to Pending after eviction. Previously: Rejected",
 					}
 					if !features.Enabled(features.WorkloadRequestUseMergePatch) {
-						wantState.RetryCount = ptr.To(int32(1))
+						wantState.RetryCount = new(int32(1))
 					}
 					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(wantState,
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates", "RequeueAfterSeconds"))))
@@ -1074,7 +1073,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
 					Reason:  "AdmissionCheckRejected",
 					Type:    corev1.EventTypeWarning,
-					Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
+					Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {

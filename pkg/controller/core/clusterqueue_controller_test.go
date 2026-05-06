@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -335,6 +334,24 @@ func resourceDataPoint(cohort, name, flavor, res string, v float64) testingmetri
 	}
 }
 
+func workloadForReservation(cqName string, reservation []kueue.FlavorUsage) *kueue.Workload {
+	now := time.Now()
+	psa := utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName)
+	for _, fu := range reservation {
+		for _, ru := range fu.Resources {
+			psa = psa.Assignment(ru.Name, fu.Name, ru.Total.String())
+		}
+	}
+	return utiltestingapi.MakeWorkload("test-wl", "").
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission(cqName).
+				PodSets(psa.Obj()).Obj(),
+			now,
+		).
+		AdmittedAt(true, now).
+		Obj()
+}
+
 func TestRecordResourceMetrics(t *testing.T) {
 	baseQueue := &kueue.ClusterQueue{
 		ObjectMeta: metav1.ObjectMeta{
@@ -352,7 +369,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 								{
 									Name:           corev1.ResourceCPU,
 									NominalQuota:   resource.MustParse("1"),
-									BorrowingLimit: ptr.To(resource.MustParse("2")),
+									BorrowingLimit: new(resource.MustParse("2")),
 								},
 							},
 						},
@@ -412,7 +429,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
-				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].BorrowingLimit = ptr.To(resource.MustParse("1"))
+				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].BorrowingLimit = new(resource.MustParse("1"))
 				ret.Status.FlavorsReservation[0].Resources[0].Total = resource.MustParse("3")
 				return ret
 			}(),
@@ -545,6 +562,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
+				UsageDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 0),
+				},
 			},
 		},
 	}
@@ -556,14 +576,32 @@ func TestRecordResourceMetrics(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			recordResourceMetrics(tc.queue, nil, nil)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			cl := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cl)
+			r := &ClusterQueueReconciler{cache: cqCache}
+			err := cqCache.AddClusterQueue(ctx, tc.queue)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			wl := workloadForReservation("name", tc.queue.Status.FlavorsReservation)
+			cqCache.AddOrUpdateWorkload(log, wl)
+
+			cqCache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(tc.queue.Name))
 			gotMetrics := allMetricsForQueue(tc.queue.Name)
 			if diff := cmp.Diff(tc.wantMetrics, gotMetrics, opts...); len(diff) != 0 {
 				t.Errorf("Unexpected metrics (-want,+got):\n%s", diff)
 			}
 
 			if tc.updatedQueue != nil {
-				updateResourceMetrics(tc.queue, tc.updatedQueue, nil, nil)
+				wl := workloadForReservation("name", tc.updatedQueue.Status.FlavorsReservation)
+				cqCache.AddOrUpdateWorkload(log, wl)
+				if err := cqCache.UpdateClusterQueue(log, tc.updatedQueue); err != nil {
+					t.Fatalf("Updating clusterQueue in cache: %v", err)
+				}
+				r.updateResourceMetrics(log, tc.queue, tc.updatedQueue)
 				gotMetricsAfterUpdate := allMetricsForQueue(tc.queue.Name)
 				if diff := cmp.Diff(tc.wantUpdatedMetrics, gotMetricsAfterUpdate, opts...); len(diff) != 0 {
 					t.Errorf("Unexpected metrics (-want,+got):\n%s", diff)

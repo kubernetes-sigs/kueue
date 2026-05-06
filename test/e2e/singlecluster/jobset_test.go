@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package e2e
+package singlecluster
 
 import (
 	"github.com/onsi/ginkgo/v2"
@@ -26,7 +26,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/util"
@@ -95,14 +94,10 @@ var _ = ginkgo.Describe("JobSet", ginkgo.Label("area:singlecluster", "feature:jo
 				util.MustCreate(ctx, k8sClient, jobSet)
 			})
 
-			createdLeaderWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
 
 			ginkgo.By("Waiting for the jobSet to finish", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(createdLeaderWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 			})
 		})
 	})
@@ -182,7 +177,7 @@ var _ = ginkgo.Describe("JobSet", ginkgo.Label("area:singlecluster", "feature:jo
 				jobKey := client.ObjectKeyFromObject(jobSet)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, jobSet)).To(gomega.Succeed())
-					g.Expect(jobSet.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(false)))
+					g.Expect(jobSet.Spec.Suspend).Should(gomega.BeEquivalentTo(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -205,7 +200,7 @@ var _ = ginkgo.Describe("JobSet", ginkgo.Label("area:singlecluster", "feature:jo
 				jobKey := client.ObjectKeyFromObject(jobSet)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, jobSet)).To(gomega.Succeed())
-					g.Expect(jobSet.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(true)))
+					g.Expect(jobSet.Spec.Suspend).Should(gomega.BeEquivalentTo(new(true)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

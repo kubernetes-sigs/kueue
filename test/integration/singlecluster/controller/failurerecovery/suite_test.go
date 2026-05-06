@@ -30,6 +30,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
+	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -43,11 +44,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"Failure Recovery Suite",
-	)
+	util.RunSuite(t, "Failure Recovery Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -61,19 +58,17 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
+func managerSetup(ctx context.Context, mgr manager.Manager) {
+	err := indexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-})
 
-func managerSetup(_ context.Context, mgr manager.Manager) {
 	terminatingPodReconciler := failurerecovery.NewTerminatingPodReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.PodTerminationControllerName),
 		failurerecovery.WithForcefulTerminationGracePeriod(time.Millisecond),
 	)
 
-	_, err := terminatingPodReconciler.SetupWithManager(mgr, &configapi.Configuration{})
+	_, err = terminatingPodReconciler.SetupWithManager(mgr, &configapi.Configuration{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	failedWebhook, err := webhooks.Setup(mgr, nil)

@@ -255,8 +255,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					},
 					completedJobCondition)
 				createdJob.Status.Succeeded = 1
-				createdJob.Status.StartTime = ptr.To(now)
-				createdJob.Status.CompletionTime = ptr.To(now)
+				createdJob.Status.StartTime = new(now)
+				createdJob.Status.CompletionTime = new(now)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -369,7 +369,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				createdJob.Status.Active = 0
 				createdJob.Status.Ready = ptr.To[int32](0)
 				createdJob.Status.Succeeded = 1
-				createdJob.Status.CompletionTime = ptr.To(now)
+				createdJob.Status.CompletionTime = new(now)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1514,7 +1514,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
 					Name:       kueue.AdmissionCheckReference(multiKueueAC.Name),
 					State:      kueue.CheckStatePending,
-					RetryCount: ptr.To(int32(1)),
+					RetryCount: new(int32(1)),
 				}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
 
 				g.Expect(createdWorkload.Status.Conditions).ToNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
@@ -1626,9 +1626,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			Obj()
 		testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobSet.Spec)
 		trainJob := testingtrainjob.MakeTrainJob("trainjob1", managerNs.Name).RuntimeRef(kftrainer.RuntimeRef{
-			APIGroup: ptr.To("trainer.kubeflow.org"),
+			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "test",
-			Kind:     ptr.To("ClusterTrainingRuntime"),
+			Kind:     new("ClusterTrainingRuntime"),
 		}).
 			Queue(managerLq.Name).
 			Obj()
@@ -1713,7 +1713,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("observe: the job is created in the manager cluster", func() {
 			getJob(manager.ctx, manager.client, job)
-			gomega.Expect(job.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
+			gomega.Expect(job.Spec.Suspend).To(gomega.Equal(new(true)))
 		})
 
 		ginkgo.By("observe: a new workload is created in the manager cluster")
@@ -1755,7 +1755,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				remoteJob := job.DeepCopy()
 				getJob(worker1.ctx, worker1.client, remoteJob)
-				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
+				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(new(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1773,7 +1773,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("observe: job is no longer suspended in the manager cluster", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				getJob(manager.ctx, manager.client, job)
-				g.Expect(job.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
+				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1783,7 +1783,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("scale-up the job", func() {
 			getJob(manager.ctx, manager.client, job)
-			job.Spec.Parallelism = ptr.To(int32(2))
+			job.Spec.Parallelism = new(int32(2))
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(manager.client.Update(manager.ctx, job)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1840,8 +1840,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("observe: the remote job is still active and has old parallelism count", func() {
 			remoteJob := job.DeepCopy()
 			getJob(worker1.ctx, worker1.client, remoteJob)
-			gomega.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
-			gomega.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(1))))
+			gomega.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(new(false)))
+			gomega.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(new(int32(1))))
 		})
 
 		ginkgo.By("admit the new workload replacing the old workload in the worker1 cluster", func() {
@@ -1869,8 +1869,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				remoteJob := job.DeepCopy()
 				getJob(worker1.ctx, worker1.client, remoteJob)
-				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
-				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(2))))
+				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(new(false)))
+				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(new(int32(2))))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1880,7 +1880,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		*/
 		ginkgo.By("scale-down the job", func() {
 			getJob(manager.ctx, manager.client, job)
-			job.Spec.Parallelism = ptr.To(int32(1))
+			job.Spec.Parallelism = new(int32(1))
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(manager.client.Update(manager.ctx, job)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1901,7 +1901,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			remoteJob := job.DeepCopy()
 			gomega.Eventually(func(g gomega.Gomega) {
 				getJob(worker1.ctx, worker1.client, remoteJob)
-				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(1))))
+				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(new(int32(1))))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.By("observe: there are no new workloads created in response to scale-down even in the worker1 cluster", func() {
@@ -1944,8 +1944,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 						Message:            "Reached expected number of succeeded pods",
 					})
 				remoteJob.Status.Succeeded = 1
-				remoteJob.Status.StartTime = ptr.To(now)
-				remoteJob.Status.CompletionTime = ptr.To(now)
+				remoteJob.Status.StartTime = new(now)
+				remoteJob.Status.CompletionTime = new(now)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, remoteJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -2211,7 +2211,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					g.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
 						Name:       kueue.AdmissionCheckReference(multiKueueAC.Name),
 						State:      kueue.CheckStatePending,
-						RetryCount: ptr.To(int32(1)),
+						RetryCount: new(int32(1)),
 					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})

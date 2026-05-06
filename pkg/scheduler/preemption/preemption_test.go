@@ -4534,21 +4534,21 @@ func TestCandidatesOrdering(t *testing.T) {
 		ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 		Priority(1).
 		Obj())
-	wlLowUsageLq.LocalQueueFSUsage = ptr.To(0.1)
+	wlLowUsageLq.LocalQueueFSUsage = new(0.1)
 
 	wlMidUsageLq := workload.NewInfo(utiltestingapi.MakeWorkload("mid_lq_usage", "").
 		Queue("mid_usage_lq").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
 		Priority(10).
 		Obj())
-	wlMidUsageLq.LocalQueueFSUsage = ptr.To(0.5)
+	wlMidUsageLq.LocalQueueFSUsage = new(0.5)
 
 	wlHighUsageLqDifCQ := workload.NewInfo(utiltestingapi.MakeWorkload("high_lq_usage_different_cq", "").
 		Queue("high_usage_lq_different_cq").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("different_cq").Obj(), now).
 		Priority(1).
 		Obj())
-	wlHighUsageLqDifCQ.LocalQueueFSUsage = ptr.To(1.0)
+	wlHighUsageLqDifCQ.LocalQueueFSUsage = new(1.0)
 
 	cases := map[string]struct {
 		candidates     []workload.Info

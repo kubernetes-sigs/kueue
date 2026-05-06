@@ -2,6 +2,7 @@
 
 [![GoReport Widget]][GoReport Status]
 [![Latest Release](https://img.shields.io/github/v/release/kubernetes-sigs/kueue?include_prereleases)](https://github.com/kubernetes-sigs/kueue/releases/latest)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kubernetes-sigs/kueue)
 
 [GoReport Widget]: https://goreportcard.com/badge/sigs.k8s.io/kueue
 [GoReport Status]: https://goreportcard.com/report/sigs.k8s.io/kueue
@@ -43,7 +44,8 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
     [1.35](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-35),
     on Kind.
   - ✔️ E2E TAS Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-main)
-  - ✔️ E2E Custom Configs Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-customconfigs-main)
+  - ✔️ E2E Sequential Baseline Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-baseline-main)
+  - ✔️ E2E Sequential Extended Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-extended-main)
   - ✔️ E2E Cert Manager Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-certmanager-main)
   - ✔️ Performance Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-scheduling-perf-main)
 - ✔️ Scalability verification via [performance tests](https://github.com/kubernetes-sigs/kueue/tree/main/test/performance).
@@ -62,7 +64,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.0/manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.2/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.

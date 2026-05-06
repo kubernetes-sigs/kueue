@@ -120,7 +120,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
 
 			ginkgo.By("Verifying workload finished successfully")
-			util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
+			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 		})
 
 		ginkgo.It("Should keep job suspended when DRA quota is exceeded", func() {
@@ -154,7 +154,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			createdJob := &batchv1.Job{}
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying workload does not get admitted")
@@ -223,7 +223,7 @@ var _ = ginkgo.Describe("DRA", func() {
 					Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
 					Namespace: ns.Name,
 				}
-				util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 			}
 		})
 
@@ -279,7 +279,7 @@ var _ = ginkgo.Describe("DRA", func() {
 				Name:      workloadjob.GetWorkloadNameForJob(job3.Name, job3.UID),
 				Namespace: ns.Name,
 			}
-			util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey3)
+			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey3, util.LongTimeout)
 		})
 
 		ginkgo.It("Should correctly calculate DRA resources for multi-pod jobs", func() {
@@ -315,7 +315,7 @@ var _ = ginkgo.Describe("DRA", func() {
 
 				assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
 				// Verify pod count is 2
-				g.Expect(assignment.Count).To(gomega.Equal(ptr.To(int32(2))))
+				g.Expect(assignment.Count).To(gomega.Equal(new(int32(2))))
 				// Verify total GPU usage is 2 (1 GPU per pod * 2 pods)
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu")))
 				g.Expect(assignment.ResourceUsage["gpu"]).To(gomega.Equal(resource.MustParse("2")))
@@ -427,7 +427,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
 
 			ginkgo.By("Verifying workload finished successfully")
-			util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
+			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 		})
 
 		ginkgo.It("Should keep job suspended when extended resource DRA quota is exceeded", func() {
@@ -456,7 +456,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			createdJob := &batchv1.Job{}
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying workload does not get admitted")

@@ -98,7 +98,7 @@ func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
 		var retryCount *int32
 		if checks[i].State == kueue.CheckStateRetry {
 			tmpRetryCount := ptr.Deref(checks[i].RetryCount, 0) + 1
-			retryCount = ptr.To(tmpRetryCount)
+			retryCount = new(tmpRetryCount)
 		}
 		checks[i] = kueue.AdmissionCheckState{
 			Name:                checks[i].Name,
@@ -139,16 +139,26 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	return true
 }
 
-// RejectedChecks returns the list of Rejected admission checks
-func RejectedChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
-	rejectedChecks := make([]kueue.AdmissionCheckState, 0, len(wl.Status.AdmissionChecks))
+// matchingChecks returns the list of admission checks in the given state.
+func matchingChecks(wl *kueue.Workload, s kueue.CheckState) []kueue.AdmissionCheckState {
+	matching := make([]kueue.AdmissionCheckState, 0, len(wl.Status.AdmissionChecks))
 	for i := range wl.Status.AdmissionChecks {
 		ac := wl.Status.AdmissionChecks[i]
-		if ac.State == kueue.CheckStateRejected {
-			rejectedChecks = append(rejectedChecks, ac)
+		if ac.State == s {
+			matching = append(matching, ac)
 		}
 	}
-	return rejectedChecks
+	return matching
+}
+
+// RejectedChecks returns the list of Rejected admission checks
+func RejectedChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
+	return matchingChecks(wl, kueue.CheckStateRejected)
+}
+
+// RetryChecks returns the list of Retry admission checks
+func RetryChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
+	return matchingChecks(wl, kueue.CheckStateRetry)
 }
 
 // HasAllChecksReady returns true if all the checks of the workload are ready.
@@ -263,5 +273,5 @@ func UpdateAdmissionCheckRequeueState(acState *kueue.AdmissionCheckState, backof
 	backoff := wait.NewBackoff(time.Duration(backoffBaseSeconds)*time.Second, time.Duration(backoffMaxSeconds)*time.Second, 2, 0.0001)
 	waitDuration := backoff.WaitTime(int(requeuingCount))
 
-	acState.RequeueAfterSeconds = ptr.To(int32(waitDuration.Truncate(time.Second).Seconds()))
+	acState.RequeueAfterSeconds = new(int32(waitDuration.Truncate(time.Second).Seconds()))
 }

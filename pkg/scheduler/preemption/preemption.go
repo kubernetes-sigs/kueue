@@ -129,7 +129,7 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
 	var tasRequests schdcache.WorkloadTASRequests
 	if features.Enabled(features.TopologyAwareScheduling) {
-		tasRequests = assignment.WorkloadsTopologyRequests(&wl, cq)
+		tasRequests = assignment.WorkloadsTopologyRequests(log, &wl, cq)
 	}
 	return p.getTargets(&preemptionCtx{
 		clock:             p.clock,
@@ -140,7 +140,7 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 		tasRequests:       tasRequests,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
-			Quota: assignment.TotalRequestsFor(&wl),
+			Quota: assignment.TotalRequestsFor(log, &wl),
 			TAS:   wl.TASUsage(),
 		},
 	})

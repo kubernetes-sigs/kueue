@@ -31,7 +31,6 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/kubectl/pkg/util/templates"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -391,9 +390,9 @@ func toResourceQuota(spec, quotaType string) (kueue.ResourceQuota, error) {
 	case nominalQuota:
 		rq.NominalQuota = quantity
 	case borrowingLimit:
-		rq.BorrowingLimit = ptr.To(quantity)
+		rq.BorrowingLimit = new(quantity)
 	case lendingLimit:
-		rq.LendingLimit = ptr.To(quantity)
+		rq.LendingLimit = new(quantity)
 	}
 
 	return rq, nil

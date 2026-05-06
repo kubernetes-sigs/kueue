@@ -85,7 +85,7 @@ func (j *SparkApplication) IsActive() bool {
 }
 
 func (j *SparkApplication) Suspend() {
-	j.Spec.Suspend = ptr.To(true)
+	j.Spec.Suspend = new(true)
 }
 
 func (j *SparkApplication) GVK() schema.GroupVersionKind {
@@ -155,7 +155,7 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, podSetsInfo [
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.Suspend = ptr.To(false)
+	j.Spec.Suspend = new(false)
 
 	mutatePodSetInfoFor := func(role string) error {
 		var podSetInfo podset.PodSetInfo
@@ -278,7 +278,7 @@ func (j *SparkApplication) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) b
 		}
 
 		if role == sparkcommon.SparkRoleExecutor {
-			j.Spec.Executor.Instances = ptr.To(podSetInfo.Count)
+			j.Spec.Executor.Instances = new(podSetInfo.Count)
 		}
 
 		return changed

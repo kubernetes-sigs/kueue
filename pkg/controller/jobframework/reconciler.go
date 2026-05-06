@@ -450,7 +450,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if jobact, ok := job.(JobWithCustomWorkloadActivation); wl != nil && ok {
 		active := jobact.IsWorkloadActive()
 		if workload.IsActive(wl) != active {
-			wl.Spec.Active = ptr.To(active)
+			wl.Spec.Active = new(active)
 			if err := r.client.Update(ctx, wl); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -1207,7 +1207,8 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearMinCountsIfFeatureDisabled(getPodSets)
 
-	opts := make([]equality.ComparePodSetsOption, 0, 1)
+	opts := make([]equality.ComparePodSetsOption, 0, 2)
+	opts = append(opts, equality.WithIgnoreNodeSelector())
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
 	}

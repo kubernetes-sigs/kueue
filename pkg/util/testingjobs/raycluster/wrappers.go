@@ -82,7 +82,7 @@ func MakeCluster(name, ns string) *ClusterWrapper {
 					},
 				},
 			},
-			Suspend: ptr.To(true),
+			Suspend: new(true),
 		},
 	}}
 }
@@ -131,6 +131,11 @@ func (j *ClusterWrapper) Queue(queue string) *ClusterWrapper {
 	}
 	j.Labels[constants.QueueLabel] = queue
 	return j
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *ClusterWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *ClusterWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
 }
 
 func (j *ClusterWrapper) SetAnnotation(key, content string) *ClusterWrapper {

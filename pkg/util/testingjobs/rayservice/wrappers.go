@@ -41,7 +41,7 @@ func MakeService(name, ns string) *ServiceWrapper {
 		Spec: rayv1.RayServiceSpec{
 			RayClusterSpec: rayv1.RayClusterSpec{
 				RayVersion: utiltesting.TestRayVersion(),
-				Suspend:    ptr.To(true),
+				Suspend:    new(true),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{
@@ -96,7 +96,7 @@ func (j *ServiceWrapper) Obj() *rayv1.RayService {
 
 // Suspend updates the suspend status of the RayService
 func (j *ServiceWrapper) Suspend(s bool) *ServiceWrapper {
-	j.Spec.RayClusterSpec.Suspend = ptr.To(s)
+	j.Spec.RayClusterSpec.Suspend = new(s)
 	return j
 }
 
@@ -107,6 +107,11 @@ func (j *ServiceWrapper) Queue(queue string) *ServiceWrapper {
 	}
 	j.Labels[constants.QueueLabel] = queue
 	return j
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of RayService
+func (j *ServiceWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *ServiceWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
 }
 
 // Request adds a resource request to the default container.
@@ -252,6 +257,18 @@ func (j *ServiceWrapper) RayVersion(rv string) *ServiceWrapper {
 // ManagedBy sets the ManagedBy field on the RayService spec.
 func (j *ServiceWrapper) ManagedBy(c string) *ServiceWrapper {
 	j.Spec.ManagedBy = &c
+	return j
+}
+
+// EnableInTreeAutoscaling enables in-tree autoscaling on the RayService.
+func (j *ServiceWrapper) EnableInTreeAutoscaling() *ServiceWrapper {
+	aggressive := rayv1.UpscalingMode("Aggressive")
+	idleTimeoutSeconds := int32(5)
+	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = new(true)
+	j.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
+		UpscalingMode:      &aggressive,
+		IdleTimeoutSeconds: &idleTimeoutSeconds,
+	}
 	return j
 }
 

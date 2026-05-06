@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
-	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
+	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -139,7 +139,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				_, err = dispatcher.SetupControllers(mgr, configuration, nil)
+				_, err = workloaddispatcher.SetupControllers(mgr, configuration, nil)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			})
 		})

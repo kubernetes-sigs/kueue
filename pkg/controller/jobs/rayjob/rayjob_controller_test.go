@@ -769,7 +769,7 @@ func TestGetCustomAnnotations(t *testing.T) {
 	workerGroup := func(name string, replicas int32) rayv1.WorkerGroupSpec {
 		return rayv1.WorkerGroupSpec{
 			GroupName: name,
-			Replicas:  ptr.To(replicas),
+			Replicas:  new(replicas),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: name + "_c"}}},
 			},
@@ -787,7 +787,7 @@ func TestGetCustomAnnotations(t *testing.T) {
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 5)).
@@ -804,7 +804,7 @@ func TestGetCustomAnnotations(t *testing.T) {
 				Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":5}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 5)).
@@ -821,7 +821,7 @@ func TestGetCustomAnnotations(t *testing.T) {
 				Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":6}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 4)).
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 4)).
@@ -838,7 +838,7 @@ func TestGetCustomAnnotations(t *testing.T) {
 				Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"group1","count":5}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 5)).

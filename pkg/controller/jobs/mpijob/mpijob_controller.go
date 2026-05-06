@@ -98,7 +98,7 @@ func (j *MPIJob) IsActive() bool {
 }
 
 func (j *MPIJob) Suspend() {
-	j.Spec.RunPolicy.Suspend = ptr.To(true)
+	j.Spec.RunPolicy.Suspend = new(true)
 }
 
 func (j *MPIJob) GVK() schema.GroupVersionKind {
@@ -132,7 +132,7 @@ func (j *MPIJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 }
 
 func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
-	j.Spec.RunPolicy.Suspend = ptr.To(false)
+	j.Spec.RunPolicy.Suspend = new(false)
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 
 	if len(podSetsInfo) != len(orderedReplicaTypes) {

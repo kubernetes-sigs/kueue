@@ -434,12 +434,12 @@ func TestReconciler(t *testing.T) {
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					PodSets(
 						*utiltestingapi.MakePodSet("replicated-job-1", 1).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),
 						*utiltestingapi.MakePodSet("replicated-job-2", 4).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](2)).
 							Obj(),
@@ -477,7 +477,7 @@ func TestReconciler(t *testing.T) {
 					Priority(100).
 					PodSets(
 						*utiltestingapi.MakePodSet("replicated-job-1", 1).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),
@@ -515,7 +515,7 @@ func TestReconciler(t *testing.T) {
 					Priority(200).
 					PodSets(
 						*utiltestingapi.MakePodSet("replicated-job-1", 1).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),
@@ -553,7 +553,7 @@ func TestReconciler(t *testing.T) {
 					Priority(100).
 					PodSets(
 						*utiltestingapi.MakePodSet("replicated-job-1", 1).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),

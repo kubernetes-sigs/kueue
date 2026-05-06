@@ -46,8 +46,8 @@ IMAGE_TAG_KUEUEVIZ_BACKEND := $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(GIT_TAG)
 IMAGE_TAG_KUEUEVIZ_FRONTEND := $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(GIT_TAG)
 IMAGE_TAG_KUEUE_POPULATOR := $(IMAGE_REPO_KUEUE_POPULATOR):$(GIT_TAG)
 
-RAY_VERSION := 2.41.0
-RAYMINI_VERSION ?= 0.0.1
+RAY_VERSION := 2.53.0
+RAYMINI_VERSION ?= 0.0.2
 
 CLUSTERPROFILE_PLUGIN_IMAGE_VERSION ?= 0.0.1
 
@@ -91,7 +91,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.17.0
+RELEASE_VERSION=v0.17.2
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)

@@ -40,7 +40,8 @@ import (
 )
 
 var (
-	labelsPath         = field.NewPath("metadata", "labels")
+	metadataPath       = field.NewPath("metadata")
+	labelsPath         = metadataPath.Child("labels")
 	queueNameLabelPath = labelsPath.Key(constants.QueueLabel)
 )
 
@@ -63,7 +64,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name:    "with prebuilt workload",
-			job:     testingutil.MakeJobSet("job", "default").Queue("queue").Label(constants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			job:     testingutil.MakeJobSet("job", "default").Queue("queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr: nil,
 		},
 		{
@@ -527,7 +528,7 @@ func TestDefault(t *testing.T) {
 			name: "TestDefault_UserSpecifiedManagedBy",
 			jobSet: &jobset.JobSet{
 				Spec: jobset.JobSetSpec{
-					ManagedBy: ptr.To("example.com/foo"),
+					ManagedBy: new("example.com/foo"),
 				},
 				ObjectMeta: ctrl.ObjectMeta{
 					Labels: map[string]string{
@@ -551,7 +552,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To("example.com/foo"),
+			wantManagedBy: new("example.com/foo"),
 		},
 		{
 			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",

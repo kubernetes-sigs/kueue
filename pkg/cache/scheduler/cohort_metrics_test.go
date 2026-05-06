@@ -113,12 +113,12 @@ func TestRecordCohortMetrics_Guards(t *testing.T) {
 					{
 						cohort: cohortLeft,
 						fr:     fr,
-						quota:  float64(cache.hm.Cohort(cohortLeft).resourceNode.SubtreeQuota[fr]),
+						quota:  resourceFloat(fr.Resource, cache.hm.Cohort(cohortLeft).resourceNode.SubtreeQuota[fr]),
 					},
 					{
 						cohort: cohortRoot,
 						fr:     fr,
-						quota:  float64(cache.hm.Cohort(cohortRoot).resourceNode.SubtreeQuota[fr]),
+						quota:  resourceFloat(fr.Resource, cache.hm.Cohort(cohortRoot).resourceNode.SubtreeQuota[fr]),
 					},
 				}
 			},
@@ -229,13 +229,13 @@ func TestRecordCohortMetrics_QuotaHierarchyLikeIntegration(t *testing.T) {
 		cache.RecordCohortMetrics(log, "ch2")
 		cache.RecordCohortMetrics(log, "ch3")
 
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch1", frDefaultCPU), 30_000)
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 20_000)
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch3", frFlavor1CPU), 5_000)
+		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch1", frDefaultCPU), 30)
+		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 20)
+		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch3", frFlavor1CPU), 5)
 		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch3", frFlavor1GPU), 1)
 
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 50_000)
-		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1CPU), 25_000)
+		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 50)
+		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1CPU), 25)
 		expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frFlavor1GPU), 6)
 	})
 }
@@ -282,30 +282,30 @@ func TestRecordCohortMetrics_ReservationsChildParentLikeIntegration(t *testing.T
 		{cqName: "cqa", fr: frDefaultCPU, val: 6_000},
 	})
 	cache.RecordCohortMetrics(log, "ch1")
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch1", frDefaultCPU), 6_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 6_000)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch1", frDefaultCPU), 6)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 6)
 
 	addTestUsage(cache, []usageChange{
 		{cqName: "cqa", fr: frDefaultCPU, val: 16_000},
 	})
 	cache.RecordCohortMetrics(log, "ch1")
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch1", frDefaultCPU), 16_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 16_000)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch1", frDefaultCPU), 16)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 16)
 
 	addTestUsage(cache, []usageChange{
 		{cqName: "cqb", fr: frDefaultCPU, val: 7_000},
 	})
 	cache.RecordCohortMetrics(log, "ch2")
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch2", frDefaultCPU), 7_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 23_000)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch2", frDefaultCPU), 7)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 23)
 
 	addTestUsage(cache, []usageChange{
 		{cqName: "cqa", fr: frDefaultCPU, val: 6_000},
 	})
 	cache.RecordCohortMetrics(log, "ch1")
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch1", frDefaultCPU), 6_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch2", frDefaultCPU), 7_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 13_000)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch1", frDefaultCPU), 6)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch2", frDefaultCPU), 7)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 13)
 }
 
 func TestClearCohortMetrics_ClearsTargetAndAncestors(t *testing.T) {
@@ -352,18 +352,18 @@ func TestClearCohortMetrics_ClearsTargetAndAncestors(t *testing.T) {
 
 	cache.RecordCohortMetrics(log, "ch1")
 	cache.RecordCohortMetrics(log, "ch2")
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch1", frDefaultCPU), 18_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 14_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 62_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 13_000)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch1", frDefaultCPU), 18)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 14)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 62)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 13)
 
 	cache.ClearCohortMetrics(log, "ch1")
 	expectGaugeCount(t, kueuemetrics.CohortSubtreeQuota, 0, cohortMetricLabels("ch1", frDefaultCPU))
 	expectGaugeCount(t, kueuemetrics.CohortSubtreeResourceReservations, 0, cohortMetricLabels("ch1", frDefaultCPU))
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 14_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch2", frDefaultCPU), 7_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 44_000)
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 7_000)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("ch2", frDefaultCPU), 14)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("ch2", frDefaultCPU), 7)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortMetricLabels("root", frDefaultCPU), 44)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortMetricLabels("root", frDefaultCPU), 7)
 }
 
 type cohortMetricsFixture struct {

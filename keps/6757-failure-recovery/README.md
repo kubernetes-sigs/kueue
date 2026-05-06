@@ -33,7 +33,9 @@
 ## Summary
 
 This KEP introduces an opt-in mechanism of timeout-based graceful handling of zombie pods,
-i.e. pods that are stuck in the `Pending`/`Running` state due to a node-level failure.
+i.e. pods that cannot be fully deleted and remain stuck on the cluster due to a node-level failure regardless of their operational phase.
+In this KEP, "unhealthy" nodes are defined as those tainted with `node.kubernetes.io/unreachable`,
+which typically occurs due to a network partition or an unresponsive kubelet service.
 
 ## Motivation
 
@@ -213,20 +215,18 @@ Enabling the `FailureRecoveryPolicy` feature gate will turn on a controller, whi
 The controller has to **ignore** updates to pods that:
 1. Are not terminating.
     * `pod.DeletionTimestamp == nil`
-1. Are in a terminal phase, but do not have the `KueueFailureRecovery` Condition with `KueueForcefullyTerminated` reason.
-    * The condition check handles partial success of the reconciler - the pod is transitioned to `Failed` and assigned the condition,
-    but the forceful deletion failed.
-    * `pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending`
 1. Are not annotated with the new `kueue.x-k8s.io/safe-to-forcefully-delete` annotation.
 1. Are **not** scheduled on a node tainted with `node.kubernetes.io/unreachable`.
     * This explicitly ignores pods assigned to nodes that still have a running kubelet.
     For example, nodes with the `node.kubernetes.io/not-ready` taint experiencing resource pressure
     that makes pod termination take longer.
 
+Additionally, the controller watches `Node` events to trigger reconciliations for pods on nodes that receive the `node.kubernetes.io/unreachable` taint. This prevents pods from getting stuck if their node becomes unreachable only after their forceful termination timeout has already elapsed.
+
 For relevant (not ignored) terminating pods, the reconciliation behaves in the following way:
 1. It computes the amount of time elapsed since the the pod's `gracefulTerminationGracePeriod` elapsed:
     1. If it's below the default timeout of **1 minute**, the reconciler will requeue the object to be re-evaluated once the thershold is reached.
-    1. Otherwise, if the threshold of **1 minute** was reached, the pod will be deemed "zombie", transitioned into the `PodFailed` phase and deleted without grace period.
+    1. Otherwise, if the threshold of **1 minute** was reached, the pod will be deemed "zombie", transitioned into the `PodFailed` phase (if not already in a terminal phase) and deleted without grace period.
 
 ### Test Plan
 
@@ -239,15 +239,16 @@ to implement this enhancement.
 The proposal will be covered with unit tests for:
 1. Configuration parsing.
 1. Controller behavior:
-    1. Whether it ignores irrelevant pods (not terminating, already failed/succeeded, not annotated).
+    1. Whether it ignores irrelevant pods (not terminating, not annotated).
     1. Whether it correctly schedules a reconciliation for when the grace period elapses.
-    1. Whether it updates the pod's phase to `Failed` after the grace period elapses.
+    1. Whether it updates the pod's phase to `Failed` (if not already in a terminal phase) and forcefully deletes the pod after the grace period elapses.
 
 #### Integration Tests
 
 The proposal will be covered with integrations tests that check whether:
 1. Adding a deletion timestamp to the pod requeues a reconciliation loop for when the grace period elapses.
 1. After the grace period elapses, the pod is marked as `Failed` and deleted.
+1. Tainting a node as unreachable triggers a reconciliation for affected pods on that node.
 1. Replacement pods are scheduled in the place of the failed pod (optional, technically 1+2 is sufficient to prove this).
 
 Existing integration tests should prove that this feature does not impact Kueue during normal operation.
@@ -276,6 +277,10 @@ Existing integration tests should prove that this feature does not impact Kueue 
 to handle [foreground propagated deletion](https://github.com/kubernetes-sigs/kueue/issues/9649).
 Additionally, the annotation used by the feature was renamed from `kueue.x-k8s.io/safe-to-forcefully-terminate` to `kueue.x-k8s.io/safe-to-forcefully-delete`
 in versions `>=0.15.6`, `>=0.16.3` and `>=0.17.0`. Previous releases retain the old behaviour and annotation name.
+
+2026-04-15: The controller is [changed](https://github.com/kubernetes-sigs/kueue/pull/10463) to watch `Node` events to trigger failure recovery reconciliations for pods on nodes that become unreachable.
+
+2026-04-30: The controller is [changed](https://github.com/kubernetes-sigs/kueue/pull/10853) to forcefully delete eligible terminating pods that are stuck in a terminal phase (`Failed` or `Succeeded`). This prevents them from blocking foreground cascading deletions of parent resources (like `JobSet`).
 
 ## Drawbacks
 

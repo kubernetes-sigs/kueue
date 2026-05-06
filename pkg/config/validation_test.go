@@ -60,8 +60,9 @@ func TestValidate(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		cfg     *configapi.Configuration
-		wantErr field.ErrorList
+		cfg          *configapi.Configuration
+		featureGates map[featuregate.Feature]bool
+		wantErr      field.ErrorList
 	}{
 		"empty": {
 			cfg: &configapi.Configuration{},
@@ -306,7 +307,7 @@ func TestValidate(t *testing.T) {
 					RecoveryTimeout: &metav1.Duration{
 						Duration: 3,
 					},
-					BlockAdmission: ptr.To(false),
+					BlockAdmission: new(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
 						BackoffLimitCount:  ptr.To[int32](10),
@@ -403,7 +404,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					Origin: ptr.To("=]"),
+					Origin: new("=]"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -420,7 +421,7 @@ func TestValidate(t *testing.T) {
 					GCInterval: &metav1.Duration{
 						Duration: time.Second,
 					},
-					Origin: ptr.To("valid"),
+					Origin: new("valid"),
 					WorkerLostTimeout: &metav1.Duration{
 						Duration: 2 * time.Second,
 					},
@@ -699,8 +700,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:            ptr.To(true),
-					WebhookSecretName: ptr.To(":)"),
+					Enable:            new(true),
+					WebhookSecretName: new(":)"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -714,8 +715,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
-					WebhookServiceName: ptr.To("0-invalid"),
+					Enable:             new(true),
+					WebhookServiceName: new("0-invalid"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -729,8 +730,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(false),
-					WebhookServiceName: ptr.To("0-invalid"),
+					Enable:             new(false),
+					WebhookServiceName: new("0-invalid"),
 				},
 			},
 		},
@@ -738,9 +739,9 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
-					WebhookServiceName: ptr.To("webhook-svc"),
-					WebhookSecretName:  ptr.To("webhook-sec"),
+					Enable:             new(true),
+					WebhookServiceName: new("webhook-svc"),
+					WebhookSecretName:  new("webhook-sec"),
 				},
 			},
 		},
@@ -814,7 +815,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: -1}),
+						AfterFinished: new(metav1.Duration{Duration: -1}),
 					},
 				},
 			},
@@ -830,7 +831,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: 0}),
+						AfterFinished: new(metav1.Duration{Duration: 0}),
 					},
 				},
 			},
@@ -840,7 +841,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: 1}),
+						AfterFinished: new(metav1.Duration{Duration: 1}),
 					},
 				},
 			},
@@ -850,7 +851,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: -1}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: -1}),
 					},
 				},
 			},
@@ -866,7 +867,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 0}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: 0}),
 					},
 				},
 			},
@@ -876,7 +877,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 1}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: 1}),
 					},
 				},
 			},
@@ -965,7 +966,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
-					BindAddress: ptr.To("invalid"),
+					BindAddress: new("invalid"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -979,7 +980,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
-					BindAddress: ptr.To("127.0.0.1"),
+					BindAddress: new("127.0.0.1"),
 				},
 			},
 		},
@@ -1005,11 +1006,76 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"quotaCheckStrategy with value ignoreUndeclared not allowed with excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+					ExcludeResourcePrefixes: []string{"foo.com/device"},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.quotaCheckStrategy",
+					Detail: "excludeResourcePrefixes is not allowed when quotaCheckStrategy is IgnoreUndeclared",
+				},
+			},
+		},
+		"quotaCheckStrategy with value ignoreundeclared allowed without excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+		},
+		"quotaCheckStrategy with value blockundeclared allowed with excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckBlockUndeclared),
+					ExcludeResourcePrefixes: []string{"foo.com/device"},
+				},
+			},
+		},
+		"quotaCheckStrategy with unsupported value": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "resources.quotaCheckStrategy",
+				},
+			},
+		},
+		"quotaCheckStrategy validation skipped when feature gate disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(tc.wantErr, validate(tc.cfg, testScheme), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
 			}
 		})

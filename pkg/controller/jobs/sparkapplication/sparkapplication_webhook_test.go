@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -52,9 +51,9 @@ func TestValidateCreate(t *testing.T) {
 		"dynamicAllocation without elastic job feature": {
 			sparkApp: testSparkApp.Clone().Queue("local-queue").DynamicAllocation(&sparkappv1beta2.DynamicAllocation{
 				Enabled:          true,
-				MinExecutors:     ptr.To(int32(1)),
-				InitialExecutors: ptr.To(int32(2)),
-				MaxExecutors:     ptr.To(int32(3)),
+				MinExecutors:     new(int32(1)),
+				InitialExecutors: new(int32(2)),
+				MaxExecutors:     new(int32(3)),
 			}).Obj(),
 			wantErr: field.ErrorList{field.Invalid(
 				dynamicAllocationEnabledPath,
@@ -68,9 +67,9 @@ func TestValidateCreate(t *testing.T) {
 				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
 			).DynamicAllocation(&sparkappv1beta2.DynamicAllocation{
 				Enabled:          true,
-				MinExecutors:     ptr.To(int32(1)),
-				InitialExecutors: ptr.To(int32(2)),
-				MaxExecutors:     ptr.To(int32(3)),
+				MinExecutors:     new(int32(1)),
+				InitialExecutors: new(int32(2)),
+				MaxExecutors:     new(int32(3)),
 			}).Obj(),
 			wantErr: field.ErrorList{field.Invalid(
 				elasticJobEnabledPath,

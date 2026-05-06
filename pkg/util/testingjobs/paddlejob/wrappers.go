@@ -40,7 +40,7 @@ func MakePaddleJob(name, ns string) *PaddleJobWrapper {
 		},
 		Spec: kftraining.PaddleJobSpec{
 			RunPolicy: kftraining.RunPolicy{
-				Suspend: ptr.To(true),
+				Suspend: new(true),
 			},
 			PaddleReplicaSpecs: make(map[kftraining.ReplicaType]*kftraining.ReplicaSpec),
 		},
@@ -58,7 +58,7 @@ type PaddleReplicaSpecRequirement struct {
 func (j *PaddleJobWrapper) PaddleReplicaSpecs(replicaSpecs ...PaddleReplicaSpecRequirement) *PaddleJobWrapper {
 	j.PaddleReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
-		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Replicas = new(rs.ReplicaCount)
 		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
 		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "paddle"
@@ -148,6 +148,11 @@ func (j *PaddleJobWrapper) Queue(queue string) *PaddleJobWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job.
+func (j *PaddleJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *PaddleJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Request adds a resource request to the default container.
 func (j *PaddleJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *PaddleJobWrapper {
 	j.Spec.PaddleReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
@@ -170,7 +175,7 @@ func (j *PaddleJobWrapper) Args(args []string) *PaddleJobWrapper {
 
 // Parallelism updates job parallelism.
 func (j *PaddleJobWrapper) Parallelism(p int32) *PaddleJobWrapper {
-	j.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Replicas = ptr.To(p)
+	j.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Replicas = new(p)
 	return j
 }
 

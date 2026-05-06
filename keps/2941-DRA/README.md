@@ -40,6 +40,8 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Device Class Resolution and Conflict Prevention](#device-class-resolution-and-conflict-prevention)
     - [Device Class Mapping Uniqueness](#device-class-mapping-uniqueness)
   - [RBAC Requirements](#rbac-requirements)
+  - [CEL Expression Validation](#cel-expression-validation)
+    - [Performance Implications](#performance-implications)
   - [Workloads](#workloads)
     - [DRA-Specific Workload Processing](#dra-specific-workload-processing)
     - [Workload Processing Flow](#workload-processing-flow)
@@ -53,6 +55,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Late DeviceClass Creation](#late-deviceclass-creation)
   - [Architecture Details](#architecture-details)
     - [Queue Manager Extensions](#queue-manager-extensions)
+  - [Integration with Admission Fair Sharing](#integration-with-admission-fair-sharing)
   - [MultiKueue Integration](#multikueue-integration)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -264,6 +267,14 @@ administrator configures DeviceClasses with `extendedResourceName`.
 - **When a DeviceClass is referenced by both `deviceClassMappings` and has an
   `extendedResourceName`, Kueue unifies quota** using the `deviceClassMappings` logical
   name as the quota key for both paths, preventing over-allocation.
+
+- CEL selectors in ResourceClaimTemplates are validated against cluster devices (ResourceSlices) at quota reservation
+  time on a best-effort basis. Workloads with CEL selectors that match fewer devices than requested are rejected
+  to prevent quota leaks. This validation uses the upstream DRA CEL compiler from [`k8s.io/dynamic-resource-allocation/cel`](https://github.com/kubernetes/dynamic-resource-allocation/tree/master/cel).
+  On the other hand, devices can be allocated between Kueue's check and scheduling, and new ResourceSlices published after
+  validation can make previously-unsatisfiable workloads satisfiable without triggering re-evaluation until the
+  next periodic `queueInadmissibleWorkloads` cycle. `WaitForPodsReady` serves as the safety net for cases where
+  the validation state diverges from actual device availability at scheduling time.
 
 ### Risks and Mitigations
 
@@ -482,19 +493,77 @@ rules:
   resources: ["resourceclaimtemplates"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["resource.k8s.io"]
-  resources: ["deviceclasses"]
+  resources: ["resourceslices", "deviceclasses"]
   verbs: ["get", "list", "watch"]
 ```
 
 **Required Permissions:**
 - `resourceclaims`: Read access to validate ResourceClaim references (though not supported for quota)
 - `resourceclaimtemplates`: Read access to process ResourceClaimTemplates and extract device class information
-- `deviceclasses`: Read access to look up `extendedResourceName` for Extended Resources
+- `resourceslices`: Read access to list cluster devices for CEL selector validation
+- `deviceclasses`: Read access to resolve DeviceClass selectors for device pre-filtering during CEL evaluation
 
 **Security Considerations:**
 - Kueue only requires read permissions - no create, update, or delete access to DRA resources
 - Permissions are cluster-scoped to allow processing workloads across all namespaces
 - No elevated privileges required beyond standard Kueue controller permissions
+
+### CEL Expression Validation
+
+ResourceClaimTemplates may include CEL (Common Expression Language) selectors that constrain which devices
+can satisfy a request. Kueue validates these CEL selectors before admitting a workload to prevent quota from
+being consumed by workloads whose pods can never be scheduled.
+
+The validation has two stages:
+
+1. **CEL Compilation**: Each CEL expression in the request's selectors is compiled using the upstream DRA CEL
+   compiler ([`k8s.io/dynamic-resource-allocation/cel`](https://github.com/kubernetes/dynamic-resource-allocation/tree/master/cel)). This catches syntax errors, type errors, and other
+   compilation issues before quota reservation.
+
+2. **CEL Evaluation Against Cluster Devices**: Kueue lists all ResourceSlices in the cluster and evaluates
+   the compiled CEL selectors against actual devices. For each request:
+   - The DeviceClass is resolved and its selectors are compiled to pre-filter devices by class, avoiding
+     CEL evaluation against unrelated devices (e.g., NICs when requesting GPUs).
+   - The request's CEL selectors are evaluated against matching devices.
+   - If fewer devices match than the requested count, the workload is marked inadmissible with a descriptive
+     error indicating that no matching devices exist in the cluster, preventing quota consumption for
+     unsatisfiable requests. The `QuotaReserved` condition message clearly distinguishes between device-based inadmissibility
+     (e.g., "insufficient matching devices for CEL selector") and quota-based inadmissibility so that users
+     know whether they need to adjust their CEL selectors / request admin hardware changes, or wait for
+     quota to become available.
+
+**Example**: A ResourceClaimTemplate requesting 2 GPUs with `device.capacity["gpu.example.com"].memory.compareTo(quantity("80Gi")) >= 0`
+will be checked against actual devices in the cluster. If only 1 device matches, the workload is rejected
+before consuming quota.
+
+```yaml
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: large-gpu
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        exactly:
+          deviceClassName: gpu.example.com
+          count: 2
+          selectors:
+          - cel:
+              expression: 'device.capacity["gpu.example.com"].memory.compareTo(quantity("80Gi")) >= 0'
+```
+
+**Dependencies**: This feature imports [`k8s.io/dynamic-resource-allocation/cel`](https://github.com/kubernetes/dynamic-resource-allocation/tree/master/cel) for CEL compilation and
+evaluation. This package provides the same CEL environment used by the Kubernetes scheduler for DRA device
+matching.
+
+#### Performance Implications
+
+In clusters with large number of ResourceSlices, it may be necessary to index the slices based on DeviceNames.
+This work will be deferred to beta.
+
+Its not entirely clear if this is a performance bottleneck at this time due to the number of ResourceSlices being small.
 
 ### Workloads
 
@@ -530,12 +599,16 @@ When a user submits a workload and DynamicResourceAllocation feature gate is ena
    - Read the ResourceClaimTemplate from the same namespace as the workload
    - Extract deviceClassName from each request in the template spec
    - Look up the corresponding resource name using the device class mappings from the Configuration API
-5. Resource Preprocessing:
+5. CEL Selector Validation: For requests with CEL selectors:
+   - Compile CEL expressions and reject workloads with invalid syntax
+   - Evaluate CEL selectors against actual devices from ResourceSlices, pre-filtering by DeviceClass
+   - Reject workloads where fewer devices match than requested count
+6. Resource Preprocessing:
    - Calculate total device count per device class across all containers and init containers
    - Map device classes to resource names using the configuration
    - Generate preprocessed resource requests for queue admission
-6. Queue Admission: Add the workload to the queue with preprocessed DRA resources.
-7. Status Update: Once admitted, the workload status reflects the assigned flavors and resource usage including DRA resources.
+7. Queue Reservation: Add the workload to the queue with preprocessed DRA resources.
+8. Status Update: Once the quota is reserved, the workload status reflects the assigned flavors and resource usage, including DRA resources.
 
 Note: The flow above applies to the ResourceClaimTemplate path (`DynamicResourceAllocation` gate).
 When the `DRAExtendedResources` gate is also enabled, workloads with extended resources in
@@ -826,6 +899,33 @@ Processing Flow:
 
 This architecture separates concerns between DRA processing (controller) and queue management (scheduler), enabling robust error handling and retry logic for DRA-specific operations.
 
+### Integration with Admission Fair Sharing
+
+DRA logical resources participate in Admission Fair Sharing (AFS) when both DRA and AFS are enabled.
+The logical resource from `deviceClassMappings.name` lands in the workload's admitted `ResourceUsage`,
+and the AFS penalty accounting mechanism applies weights to all resources without filtering for DRA. This means
+the existing `AdmissionFairSharing.ResourceWeights` configuration handles DRA resources naturally
+without any additional API fields.
+
+**Configuration Example:**
+```yaml
+admissionFairSharing:
+  usageHalfLifeTime: 10m
+  usageSamplingInterval: 5m
+  resourceWeights:
+    whole-gpus: 5.0  # GPUs are weighted 5x compared to default resources
+resources:
+  deviceClassMappings:
+  - name: whole-gpus
+    deviceClassNames:
+    - gpu.example.com
+```
+
+When a workload with DRA resources is admitted, the logical resource usage (e.g., `whole-gpus`) is
+tracked in `LocalQueue.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources` and factored
+into admission ordering decisions. Administrators can use `resourceWeights` to express that GPU time
+is more valuable than CPU time for fair sharing purposes.
+
 ### MultiKueue Integration
 
 DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism. ResourceClaimTemplates must be deployed on worker clusters by users; they are not automatically synced.
@@ -890,6 +990,8 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
 - Queue integration: Testing workload admission with preprocessed DRA resources
 - Extended Resources: Testing extended resource detection, DeviceClass lookup, and resource translation
 - Late DeviceClass creation: Testing workload inadmissibility when DeviceClass does not exist
+- CEL validation: Testing CEL compilation errors, evaluation against ResourceSlice devices, and rejection
+  of workloads with unsatisfiable CEL selectors
 
 #### E2E Test
 
@@ -913,7 +1015,7 @@ Use existing dra-example-driver or Kubernetes test driver for e2e testing.
 - TAS + DRA testing and support as a graduation requirement
 - re-evaluate event-driven DeviceClass tracking for late DeviceClass creation
 - re-evaluate post-scheduling quota reconciliation for DeviceClass drift
-- re-evaluate the support for TopologyAwareScheduling (might be moved to GA)
+- re-evaluate the need for indexing of resourceSlices for CEL performance lookups
 
 #### GA
 
@@ -928,6 +1030,9 @@ Use existing dra-example-driver or Kubernetes test driver for e2e testing.
 - Alpha implementation completed: December 2024
 - KEP updated to reflect actual implementation: September 2025 by @alaypatel07
 - Extended Resources implementation: January 2026
+- Integration with Admission Fair Sharing: April 2026 — added integration tests and documentation
+  confirming DRA logical resources work with existing `AdmissionFairSharing.ResourceWeights`
+- CEL expression validation support added: April 2026 by @kannon92
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution

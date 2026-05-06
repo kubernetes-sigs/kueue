@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -117,7 +116,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			Name: "gpu.nvidia.com",
 		},
 		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: ptr.To("example.com/gpu"),
+			ExtendedResourceName: new("example.com/gpu"),
 		},
 	}
 
@@ -126,7 +125,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			Name: "mig.nvidia.com",
 		},
 		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: ptr.To("nvidia.com/mig-1g.10gb"),
+			ExtendedResourceName: new("nvidia.com/mig-1g.10gb"),
 		},
 	}
 

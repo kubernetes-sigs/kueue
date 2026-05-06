@@ -197,7 +197,7 @@ func (r Requests) CountInWithLimitingResource(capacity Requests) (int32, corev1.
 		}
 		// Tie-break between CPU and memory counts to ensure deterministic results.
 		if result == nil || count < *result || (count == *result && rName < limitingResource) {
-			result = ptr.To(count)
+			result = new(count)
 			limitingResource = rName
 		}
 	}

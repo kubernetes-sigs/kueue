@@ -40,7 +40,7 @@ func MakeXGBoostJob(name, ns string) *XGBoostJobWrapper {
 		},
 		Spec: kftraining.XGBoostJobSpec{
 			RunPolicy: kftraining.RunPolicy{
-				Suspend: ptr.To(true),
+				Suspend: new(true),
 			},
 			XGBReplicaSpecs: make(map[kftraining.ReplicaType]*kftraining.ReplicaSpec),
 		},
@@ -58,7 +58,7 @@ type XGBReplicaSpecRequirement struct {
 func (j *XGBoostJobWrapper) XGBReplicaSpecs(replicaSpecs ...XGBReplicaSpecRequirement) *XGBoostJobWrapper {
 	j.XGBReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
-		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Replicas = new(rs.ReplicaCount)
 		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
 		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "xgboost"
@@ -148,6 +148,11 @@ func (j *XGBoostJobWrapper) Queue(queue string) *XGBoostJobWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *XGBoostJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *XGBoostJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Request updates a resource request to the default container.
 func (j *XGBoostJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *XGBoostJobWrapper {
 	j.Spec.XGBReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
@@ -170,7 +175,7 @@ func (j *XGBoostJobWrapper) Args(args []string) *XGBoostJobWrapper {
 
 // Parallelism updates job parallelism.
 func (j *XGBoostJobWrapper) Parallelism(p int32) *XGBoostJobWrapper {
-	j.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Replicas = ptr.To(p)
+	j.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Replicas = new(p)
 	return j
 }
 

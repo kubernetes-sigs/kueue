@@ -33,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -955,12 +954,12 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 								{
 									Name:         corev1.ResourceCPU,
 									NominalQuota: resource.MustParse("10"),
-									LendingLimit: ptr.To(resource.MustParse("8")),
+									LendingLimit: new(resource.MustParse("8")),
 								},
 								{
 									Name:         corev1.ResourceMemory,
 									NominalQuota: resource.MustParse("10Gi"),
-									LendingLimit: ptr.To(resource.MustParse("8Gi")),
+									LendingLimit: new(resource.MustParse("8Gi")),
 								},
 							},
 						},
@@ -970,12 +969,12 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 								{
 									Name:         corev1.ResourceCPU,
 									NominalQuota: resource.MustParse("20"),
-									LendingLimit: ptr.To(resource.MustParse("20")),
+									LendingLimit: new(resource.MustParse("20")),
 								},
 								{
 									Name:         corev1.ResourceMemory,
 									NominalQuota: resource.MustParse("20Gi"),
-									LendingLimit: ptr.To(resource.MustParse("20Gi")),
+									LendingLimit: new(resource.MustParse("20Gi")),
 								},
 							},
 						},
@@ -987,7 +986,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 								{
 									Name:         "license",
 									NominalQuota: resource.MustParse("8"),
-									LendingLimit: ptr.To(resource.MustParse("4")),
+									LendingLimit: new(resource.MustParse("4")),
 								},
 							},
 						},
@@ -3570,6 +3569,128 @@ func TestCohortCycles(t *testing.T) {
 	})
 }
 
+func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {
+	mustAddCohort := func(t *testing.T, cache *Cache, cohort *kueue.Cohort) {
+		t.Helper()
+		if err := cache.AddOrUpdateCohort(cohort); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	testCases := map[string]struct {
+		setup      func(*testing.T, *Cache)
+		deleteName kueue.CohortReference
+		wantBefore map[kueue.CohortReference]resources.FlavorResourceQuantities
+		wantAfter  map[kueue.CohortReference]resources.FlavorResourceQuantities
+	}{
+		"deleting child cohort updates parent SubtreeQuota": {
+			setup: func(t *testing.T, cache *Cache) {
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj())
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("child").
+					Parent("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj())
+			},
+			deleteName: "child",
+			wantBefore: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 15_000,
+				},
+			},
+			wantAfter: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+				},
+			},
+		},
+		"deleting grandchild cohort updates all ancestors SubtreeQuota": {
+			setup: func(t *testing.T, cache *Cache) {
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj())
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("mid").
+					Parent("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj())
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("leaf").
+					Parent("mid").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj()).
+					Obj())
+			},
+			deleteName: "leaf",
+			wantBefore: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"mid": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 8_000,
+				},
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 18_000,
+				},
+			},
+			wantAfter: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"mid": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 5_000,
+				},
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 15_000,
+				},
+			},
+		},
+		"deleting cohort with children updates parent SubtreeQuota": {
+			setup: func(t *testing.T, cache *Cache) {
+				ctx, _ := utiltesting.ContextWithLog(t)
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj())
+				mustAddCohort(t, cache, utiltestingapi.MakeCohort("mid").
+					Parent("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj())
+
+				if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").
+					Cohort("mid").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "7").Obj()).
+					Obj()); err != nil {
+					t.Fatal(err)
+				}
+			},
+			deleteName: "mid",
+			wantBefore: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 22_000,
+				},
+			},
+			wantAfter: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"root": {
+					{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			tc.setup(t, cache)
+
+			for cohortName, wantSubtreeQuota := range tc.wantBefore {
+				if diff := cmp.Diff(wantSubtreeQuota, cache.hm.Cohort(cohortName).getResourceNode().SubtreeQuota); diff != "" {
+					t.Errorf("before deletion, %s unexpected SubtreeQuota (-want,+got):\n%s", cohortName, diff)
+				}
+			}
+
+			cache.DeleteCohort(tc.deleteName)
+
+			for cohortName, wantSubtreeQuota := range tc.wantAfter {
+				if diff := cmp.Diff(wantSubtreeQuota, cache.hm.Cohort(cohortName).getResourceNode().SubtreeQuota); diff != "" {
+					t.Errorf("after deletion, %s unexpected SubtreeQuota (-want,+got):\n%s", cohortName, diff)
+				}
+			}
+		})
+	}
+}
+
 func TestClusterQueueAncestors(t *testing.T) {
 	testCases := map[string]struct {
 		cohorts       []*kueue.Cohort
@@ -3856,117 +3977,6 @@ func TestAncestors(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Fatalf("Unexpected error (-want/+got)\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestGetWorkloadFromCache(t *testing.T) {
-	ctx, log := utiltesting.ContextWithLog(t)
-	now := time.Now().Truncate(time.Second)
-
-	cqToDelete := utiltestingapi.MakeClusterQueue("deleted-cq").Obj()
-	clusterQueues := []*kueue.ClusterQueue{
-		utiltestingapi.MakeClusterQueue("cq").Obj(),
-		cqToDelete,
-	}
-
-	lqToDelete := utiltestingapi.MakeLocalQueue("deleted-lq", "").ClusterQueue("deleted-cq").Obj()
-	queues := []*kueue.LocalQueue{
-		utiltestingapi.MakeLocalQueue("lq", "").ClusterQueue("cq").Obj(),
-		lqToDelete,
-	}
-
-	cases := map[string]struct {
-		wl           *kueue.Workload
-		deleteFromCq kueue.ClusterQueueReference
-		wantWl       *kueue.Workload
-	}{
-		"workload fetched correctly": {
-			wl: utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
-				ClusterQueue: "cq",
-			}, now).Condition(metav1.Condition{
-				Type:   kueue.WorkloadPodsReady,
-				Status: metav1.ConditionFalse,
-			}).Obj(),
-			wantWl: utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
-				ClusterQueue: "cq",
-			}, now).Condition(metav1.Condition{
-				Type:   kueue.WorkloadPodsReady,
-				Status: metav1.ConditionFalse,
-			}).Obj(),
-		},
-		"cluster queue deleted": {
-			wl: utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
-				ClusterQueue: "deleted-cq",
-			}, now).Condition(metav1.Condition{
-				Type:   kueue.WorkloadPodsReady,
-				Status: metav1.ConditionFalse,
-			}).Obj(),
-			wantWl: nil,
-		},
-		"workload missing": {
-			wl:     nil,
-			wantWl: nil,
-		},
-		"workload missing from cluter queue": {
-			wl: utiltestingapi.MakeWorkload("a", "").ReserveQuotaAt(&kueue.Admission{
-				ClusterQueue: "cq",
-			}, now).Condition(metav1.Condition{
-				Type:   kueue.WorkloadPodsReady,
-				Status: metav1.ConditionFalse,
-			}).Obj(),
-			deleteFromCq: "cq",
-			wantWl:       nil,
-		},
-		"missing local queue": {
-			wl: utiltestingapi.MakeWorkload("a", "").Queue("deleted-lq").ReserveQuotaAt(&kueue.Admission{
-				ClusterQueue: "cq",
-			}, now).Condition(metav1.Condition{
-				Type:   kueue.WorkloadPodsReady,
-				Status: metav1.ConditionFalse,
-			}).Obj(),
-			wantWl: utiltestingapi.MakeWorkload("a", "").Queue("deleted-lq").ReserveQuotaAt(&kueue.Admission{
-				ClusterQueue: "cq",
-			}, now).Condition(metav1.Condition{
-				Type:   kueue.WorkloadPodsReady,
-				Status: metav1.ConditionFalse,
-			}).Obj(),
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			client := utiltesting.NewClientBuilder().Build()
-			cache := New(client)
-			for _, cq := range clusterQueues {
-				if err := cache.AddClusterQueue(ctx, cq); err != nil {
-					t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
-				}
-			}
-			for _, q := range queues {
-				if err := cache.AddLocalQueue(q); err != nil {
-					t.Fatalf("Failed adding queue %s: %v", q.Name, err)
-				}
-			}
-
-			wlRef := workload.NewReference("", "non-existent-wl")
-			if tc.wl != nil {
-				wlRef = workload.Key(tc.wl)
-				if !cache.AddOrUpdateWorkload(log, tc.wl) {
-					t.Errorf("Failed to add or update workload: %v", tc.wl)
-				}
-				if tc.deleteFromCq != "" {
-					delete(cache.hm.ClusterQueue(tc.deleteFromCq).Workloads, wlRef)
-				}
-			}
-
-			cache.DeleteClusterQueue(cqToDelete)
-			cache.DeleteLocalQueue(lqToDelete)
-
-			gotWl := cache.GetWorkloadFromCache(wlRef)
-			if diff := cmp.Diff(tc.wantWl, gotWl, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
-				t.Errorf("GetWorkloadFromCache returned wrong workload (-want,+got):\n%s", diff)
 			}
 		})
 	}

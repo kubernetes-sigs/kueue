@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -142,12 +141,12 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"invalid managed - has auto scaler": {
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(
 					field.NewPath("spec", "enableInTreeAutoscaling"),
-					ptr.To(true),
+					new(true),
 					"a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
 				),
 			}.ToAggregate(),
@@ -263,7 +262,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -276,7 +275,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg2",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -342,7 +341,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -354,7 +353,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg2",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -366,7 +365,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg3",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -395,7 +394,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -407,7 +406,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg2",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -442,7 +441,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -483,7 +482,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -524,7 +523,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{

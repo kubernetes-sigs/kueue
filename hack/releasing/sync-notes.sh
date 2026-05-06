@@ -101,6 +101,89 @@ function find_head_branch() {
   echo "$head_branch"
 }
 
+function release_note_links() {
+  local release_prefix="$1"
+  local start="$2"
+  local end="$3"
+  local release_suffix="$4"
+  local joined=""
+  local current release_version
+
+  for ((current = start; current <= end; current++)); do
+    release_version="${release_prefix}${current}${release_suffix}"
+    if [[ -n "${joined}" ]]; then
+      joined+=", "
+    fi
+    joined+="[\`${release_version}\`](https://github.com/${MAIN_REPO_ORG}/${MAIN_REPO_NAME}/releases/tag/${release_version})"
+  done
+  printf "%s" "${joined}"
+}
+
+# Returns links to the two latest minor `.0` release notes.
+function minor_upgrade_release_links() {
+  local release_version="$1"
+  local major minor patch
+  IFS='.' read -r major minor patch <<< "${release_version#v}"
+
+  local end_minor=$((patch == 0 ? minor - 1 : minor))
+  local start_minor=$((end_minor > 0 ? end_minor - 1 : 0))
+
+  release_note_links "v${major}." "${start_minor}" "${end_minor}" ".0"
+}
+
+# Returns links to earlier patch release notes in the same minor line.
+function patch_upgrade_release_links() {
+  local release_version="$1"
+  local major minor patch
+  IFS='.' read -r major minor patch <<< "${release_version#v}"
+
+  release_note_links "v${major}.${minor}." 1 "$((patch - 1))" ""
+}
+
+function add_upgrade_notes() {
+  local input_file="$1"
+  local output_file="$2"
+
+  # Add the upgrade notes under the upgrade actions section,
+  # or create that section immediately before "## Changes by Kind" if it is missing.
+  awk -v minor_release_links="$3" \
+      -v patch_release_links="$4" '
+    function print_upgrade_notes() {
+      if (minor_release_links != "") {
+        printf "- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: %s.\n", minor_release_links
+      }
+      if (patch_release_links != "") {
+        printf "- **Patch releases:** Review the patch release notes leading up to this version, but *only* within this minor release line; see: %s.\n", patch_release_links
+      }
+    }
+
+    /^## Urgent Upgrade Notes[[:space:]]*$/ {
+      print "## Actions Required Before Upgrading"
+      next
+    }
+
+    /^### \(No, really, you MUST read this before you upgrade\)[[:space:]]*$/ {
+      print
+      print ""
+      print_upgrade_notes()
+      inserted = 1
+      next
+    }
+
+    /^## Changes by Kind[[:space:]]*$/ && !inserted {
+      print "## Actions Required Before Upgrading"
+      print ""
+      print "### (No, really, you MUST read this before you upgrade)"
+      print ""
+      print_upgrade_notes()
+      print ""
+      inserted = 1
+    }
+
+    { print }
+  ' "$input_file" > "$output_file"
+}
+
 HEAD_BRANCH=$(find_head_branch "$RELEASE_VERSION")
 declare HEAD_BRANCH
 echo "+++ HEAD_BRANCH=$HEAD_BRANCH"
@@ -117,6 +200,9 @@ declare END_SHA
 
 CHANGELOG_FILE=$(mktemp)
 declare CHANGELOG_FILE
+
+FINAL_CHANGELOG_FILE="$CHANGELOG_FILE"
+declare FINAL_CHANGELOG_FILE
 
 echo "+++ Running release-notes:"
 echo
@@ -141,7 +227,18 @@ GITHUB_TOKEN=${GITHUB_TOKEN} release-notes --org "${MAIN_REPO_ORG}" \
               --required-author="" \
               --output="${CHANGELOG_FILE}"
 
-cat "$CHANGELOG_FILE"
+MINOR_UPGRADE_RELEASE_LINKS=$(minor_upgrade_release_links "${RELEASE_VERSION}")
+declare MINOR_UPGRADE_RELEASE_LINKS
+
+PATCH_UPGRADE_RELEASE_LINKS=$(patch_upgrade_release_links "${RELEASE_VERSION}")
+declare PATCH_UPGRADE_RELEASE_LINKS
+
+if [[ -n "${MINOR_UPGRADE_RELEASE_LINKS}${PATCH_UPGRADE_RELEASE_LINKS}" ]]; then
+  FINAL_CHANGELOG_FILE=$(mktemp)
+  add_upgrade_notes "${CHANGELOG_FILE}" "${FINAL_CHANGELOG_FILE}" "${MINOR_UPGRADE_RELEASE_LINKS}" "${PATCH_UPGRADE_RELEASE_LINKS}"
+fi
+
+cat "$FINAL_CHANGELOG_FILE"
 
 echo
 echo
@@ -168,7 +265,7 @@ fi
 
 RELEASE_ISSUE_BODY=$(echo "${RELEASE_ISSUE}" | jq -r '.body')
 
-NEW_RELEASE_ISSUE_BODY=$(awk -v previous_version="$PREVIOUS_VERSION" -v changelog_file="$CHANGELOG_FILE" '
+NEW_RELEASE_ISSUE_BODY=$(awk -v previous_version="$PREVIOUS_VERSION" -v changelog_file="$FINAL_CHANGELOG_FILE" '
   BEGIN {
     in_block=0
     while ((getline line < changelog_file) > 0) {

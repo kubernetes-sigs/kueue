@@ -72,7 +72,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 
 	// Create and refererence a fake ClusterTrainingRuntime
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
-		APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
+		APIGroup: new(kftrainerapi.GroupVersion.Group),
 		Name:     "test",
 		Kind:     ptr.To(kftrainerapi.ClusterTrainingRuntimeKind),
 	})
@@ -371,7 +371,7 @@ func TestReconciler(t *testing.T) {
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 	// Create and refererence a fake ClusterTrainingRuntime
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
-		APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
+		APIGroup: new(kftrainerapi.GroupVersion.Group),
 		Name:     "test",
 		Kind:     ptr.To(kftrainerapi.ClusterTrainingRuntimeKind),
 	})
@@ -411,12 +411,12 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
 					PodSets(
 						*utiltestingapi.MakePodSet("node", 1).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobsetapi.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),
 						*utiltestingapi.MakePodSet("foo", 1).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobsetapi.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),
@@ -435,12 +435,12 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
 					PodSets(
 						*utiltestingapi.MakePodSet("node", 2).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobsetapi.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),
 						*utiltestingapi.MakePodSet("foo", 1).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobsetapi.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),

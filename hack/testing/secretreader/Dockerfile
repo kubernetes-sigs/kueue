@@ -3,6 +3,6 @@ ARG PLUGIN_VERSION
 RUN go install sigs.k8s.io/cluster-inventory-api/plugins/secretreader/cmd/plugin@${PLUGIN_VERSION}
 
 # Final image
-FROM alpine:3.23.3
+FROM alpine:3.23.4
 USER 65534:65534
 COPY --from=builder /go/bin/plugin /secretreader-plugin

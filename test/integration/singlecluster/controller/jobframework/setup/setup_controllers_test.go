@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package job
+package setup
 
 import (
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -141,7 +141,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 		ginkgo.By("Check that the Job webhook does not default suspend", func() {
 			createdJob := &batchv1.Job{}
 			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: ns.Name}, createdJob)).Should(gomega.Succeed())
-			gomega.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			gomega.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 		})
 	})
 })

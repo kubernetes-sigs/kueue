@@ -65,6 +65,14 @@ func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerG
 	return GenerateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, "")
 }
 
+func GetWorkloadNameForVariant(parentName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, flavor string) string {
+	// delete the existing hash from parentName
+	prefix := getWorkloadBaseName(parentName)
+	prefixWithFlavor := fmt.Sprintf("%s-variant-%s", prefix, flavor)
+	// get unique hash - parentName has already hash that includes Job's GVK so it won't colide in case different kinds of Job have the same name
+	return generateWorkloadNameWithHash(prefixWithFlavor, parentName, ownerUID, ownerGVK, flavor)
+}
+
 func GenerateWorkloadNamePrefix(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
 	return truncate(strings.ToLower(ownerGVK.Kind)+"-"+ownerName, maxPrefixLength())
 }
@@ -76,11 +84,21 @@ func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID type
 
 func GenerateWorkloadNameWithExtra(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, extra string) string {
 	prefixedName := GenerateWorkloadNamePrefix(ownerName, ownerUID, ownerGVK)
+	return generateWorkloadNameWithHash(prefixedName, ownerName, ownerUID, ownerGVK, extra)
+}
+
+func generateWorkloadNameWithHash(prefix string, ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, extra string) string {
 	return fmt.Sprintf(
 		"%s-%s",
-		prefixedName,
+		truncate(prefix, maxPrefixLength()),
 		getHash(ownerName, ownerUID, ownerGVK, extra)[:hashLength],
 	)
+}
+
+// getWorkloadBaseName returns the base name of a workload by removing the hash suffix.
+func getWorkloadBaseName(name string) string {
+	// workload name is generated as <prefix>-<hash>, so we can get the prefix by removing the hash and separator
+	return name[:strings.LastIndex(name, "-")]
 }
 
 func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, extra string) string {

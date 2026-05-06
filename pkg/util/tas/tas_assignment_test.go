@@ -67,14 +67,14 @@ var bothWaysTestCases = []testCase{
 				{
 					DomainCount: 1,
 					PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-						Universal: ptr.To(int32(1)),
+						Universal: new(int32(1)),
 					},
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
-							Universal: ptr.To("a1"),
+							Universal: new("a1"),
 						},
 						{
-							Universal: ptr.To("b1"),
+							Universal: new("b1"),
 						},
 					},
 				},
@@ -104,18 +104,18 @@ var bothWaysTestCases = []testCase{
 				{
 					DomainCount: 2,
 					PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-						Universal: ptr.To(int32(1)),
+						Universal: new(int32(1)),
 					},
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Prefix: ptr.To("a"),
+								Prefix: new("a"),
 								Roots:  []string{"1", "2"},
 							},
 						},
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Prefix: ptr.To("b"),
+								Prefix: new("b"),
 								Roots:  []string{"1", "2"},
 							},
 						},
@@ -152,15 +152,15 @@ var bothWaysTestCases = []testCase{
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Prefix: ptr.To("p.a"),
-								Suffix: ptr.To(".s"),
+								Prefix: new("p.a"),
+								Suffix: new(".s"),
 								Roots:  []string{"1", "2"},
 							},
 						},
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Prefix: ptr.To("p.b"),
-								Suffix: ptr.To(".s"),
+								Prefix: new("p.b"),
+								Suffix: new(".s"),
 								Roots:  []string{"1", "2"},
 							},
 						},
@@ -196,7 +196,7 @@ var bothWaysTestCases = []testCase{
 					},
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
-							Universal: ptr.To("a1"),
+							Universal: new("a1"),
 						},
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
@@ -239,12 +239,12 @@ var bothWaysTestCases = []testCase{
 				{
 					DomainCount: 4,
 					PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-						Universal: ptr.To(int32(1)),
+						Universal: new(int32(1)),
 					},
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Prefix: ptr.To("a1"),
+								Prefix: new("a1"),
 								Roots:  []string{"23", "2", "", "3"},
 							},
 						},
@@ -284,12 +284,12 @@ var bothWaysTestCases = []testCase{
 				{
 					DomainCount: 4,
 					PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-						Universal: ptr.To(int32(1)),
+						Universal: new(int32(1)),
 					},
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Suffix: ptr.To("3b"),
+								Suffix: new("3b"),
 								Roots:  []string{"12", "2", "", "1"},
 							},
 						},
@@ -325,13 +325,13 @@ var bothWaysTestCases = []testCase{
 				{
 					DomainCount: 2,
 					PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-						Universal: ptr.To(int32(1)),
+						Universal: new(int32(1)),
 					},
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Prefix: ptr.To("ab"),
-								Suffix: ptr.To("acada"),
+								Prefix: new("ab"),
+								Suffix: new("acada"),
 								Roots:  []string{"ac", ""},
 							},
 						},
@@ -363,13 +363,13 @@ var bothWaysTestCases = []testCase{
 				{
 					DomainCount: 2,
 					PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-						Universal: ptr.To(int32(1)),
+						Universal: new(int32(1)),
 					},
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						// Prefix shrunk to "" -> it shouldn't be set at all.
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Suffix: ptr.To("aba"),
+								Suffix: new("aba"),
 								Roots:  []string{"ab", ""},
 							},
 						},
@@ -401,13 +401,13 @@ var bothWaysTestCases = []testCase{
 				{
 					DomainCount: 2,
 					PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-						Universal: ptr.To(int32(1)),
+						Universal: new(int32(1)),
 					},
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						// Prefix shrunk to "" -> it shouldn't be set at all.
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Suffix: ptr.To("aba"),
+								Suffix: new("aba"),
 								Roots:  []string{"", "ab"},
 							},
 						},
@@ -531,12 +531,12 @@ var oneWayTestCases = []testCase{
 					},
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
-							Universal: ptr.To("a1"),
+							Universal: new("a1"),
 						},
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Prefix: ptr.To("b"),
-								Suffix: ptr.To("-s"),
+								Prefix: new("b"),
+								Suffix: new("-s"),
 								Roots:  []string{"1", "2"},
 							},
 						},
@@ -545,18 +545,18 @@ var oneWayTestCases = []testCase{
 				{
 					DomainCount: 3,
 					PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-						Universal: ptr.To(int32(5)),
+						Universal: new(int32(5)),
 					},
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Prefix: ptr.To("a"),
+								Prefix: new("a"),
 								Roots:  []string{"2", "3", "4"},
 							},
 						},
 						{
 							Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-								Suffix: ptr.To("-t"),
+								Suffix: new("-t"),
 								Roots:  []string{"x", "y", "z"},
 							},
 						},
@@ -565,14 +565,14 @@ var oneWayTestCases = []testCase{
 				{
 					DomainCount: 2,
 					PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-						Universal: ptr.To(int32(10)),
+						Universal: new(int32(10)),
 					},
 					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 						{
-							Universal: ptr.To("a10"),
+							Universal: new("a10"),
 						},
 						{
-							Universal: ptr.To("b10"),
+							Universal: new("b10"),
 						},
 					},
 				},
@@ -589,11 +589,11 @@ var twoDomains = &kueue.TopologyAssignment{
 		{
 			DomainCount: 2,
 			PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-				Universal: ptr.To(int32(1)),
+				Universal: new(int32(1)),
 			},
 			ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 				{
-					Universal: ptr.To("a1"),
+					Universal: new("a1"),
 				},
 			},
 		},
@@ -721,12 +721,12 @@ func TestLowestLevel(t *testing.T) {
 				},
 				ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 					{
-						Universal: ptr.To("a1"),
+						Universal: new("a1"),
 					},
 					{
 						Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-							Prefix: ptr.To("b"),
-							Suffix: ptr.To("-s"),
+							Prefix: new("b"),
+							Suffix: new("-s"),
 							Roots:  []string{"1", "2"},
 						},
 					},
@@ -735,18 +735,18 @@ func TestLowestLevel(t *testing.T) {
 			{
 				DomainCount: 3,
 				PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-					Universal: ptr.To(int32(5)),
+					Universal: new(int32(5)),
 				},
 				ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 					{
 						Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-							Prefix: ptr.To("a"),
+							Prefix: new("a"),
 							Roots:  []string{"2", "3", "4"},
 						},
 					},
 					{
 						Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-							Suffix: ptr.To("-t"),
+							Suffix: new("-t"),
 							Roots:  []string{"x", "y", "z"},
 						},
 					},
@@ -755,14 +755,14 @@ func TestLowestLevel(t *testing.T) {
 			{
 				DomainCount: 2,
 				PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-					Universal: ptr.To(int32(10)),
+					Universal: new(int32(10)),
 				},
 				ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 					{
-						Universal: ptr.To("a10"),
+						Universal: new("a10"),
 					},
 					{
-						Universal: ptr.To("b10"),
+						Universal: new("b10"),
 					},
 				},
 			},
@@ -793,22 +793,30 @@ func TestLowestLevelValues_iteratorStops(t *testing.T) {
 
 func TestHasTASAssignmentOnNode(t *testing.T) {
 	testCases := []struct {
-		name     string
-		psa      []kueue.PodSetAssignment
-		nodeName string
-		want     bool
+		name      string
+		admission *kueue.Admission
+		nodeName  string
+		want      bool
 	}{
 		{
-			name:     "empty assignments",
-			psa:      nil,
-			nodeName: "node1",
-			want:     false,
+			name:      "nil admission",
+			admission: nil,
+			nodeName:  "node1",
+			want:      false,
+		},
+		{
+			name:      "empty pod set assignments",
+			admission: &kueue.Admission{},
+			nodeName:  "node1",
+			want:      false,
 		},
 		{
 			name: "no topology assignment",
-			psa: []kueue.PodSetAssignment{
-				{
-					Name: "ps1",
+			admission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{
+					{
+						Name: "ps1",
+					},
 				},
 			},
 			nodeName: "node1",
@@ -816,20 +824,22 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 		},
 		{
 			name: "topology level is not hostname",
-			psa: []kueue.PodSetAssignment{
-				{
-					Name: "ps1",
-					TopologyAssignment: &kueue.TopologyAssignment{
-						Levels: []string{"example.com/rack"},
-						Slices: []kueue.TopologyAssignmentSlice{
-							{
-								DomainCount: 1,
-								PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-									Universal: ptr.To(int32(1)),
-								},
-								ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-									{
-										Universal: ptr.To("rack1"),
+			admission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{
+					{
+						Name: "ps1",
+						TopologyAssignment: &kueue.TopologyAssignment{
+							Levels: []string{"example.com/rack"},
+							Slices: []kueue.TopologyAssignmentSlice{
+								{
+									DomainCount: 1,
+									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+										Universal: ptr.To[int32](1),
+									},
+									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+										{
+											Universal: new("rack1"),
+										},
 									},
 								},
 							},
@@ -842,20 +852,22 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 		},
 		{
 			name: "pod on target node",
-			psa: []kueue.PodSetAssignment{
-				{
-					Name: "ps1",
-					TopologyAssignment: &kueue.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Slices: []kueue.TopologyAssignmentSlice{
-							{
-								DomainCount: 1,
-								PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-									Universal: ptr.To(int32(1)),
-								},
-								ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-									{
-										Universal: ptr.To("node1"),
+			admission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{
+					{
+						Name: "ps1",
+						TopologyAssignment: &kueue.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Slices: []kueue.TopologyAssignmentSlice{
+								{
+									DomainCount: 1,
+									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+										Universal: ptr.To[int32](1),
+									},
+									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+										{
+											Universal: new("node1"),
+										},
 									},
 								},
 							},
@@ -868,20 +880,22 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 		},
 		{
 			name: "pod on different node",
-			psa: []kueue.PodSetAssignment{
-				{
-					Name: "ps1",
-					TopologyAssignment: &kueue.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Slices: []kueue.TopologyAssignmentSlice{
-							{
-								DomainCount: 1,
-								PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-									Universal: ptr.To(int32(1)),
-								},
-								ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-									{
-										Universal: ptr.To("node2"),
+			admission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{
+					{
+						Name: "ps1",
+						TopologyAssignment: &kueue.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Slices: []kueue.TopologyAssignmentSlice{
+								{
+									DomainCount: 1,
+									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+										Universal: ptr.To[int32](1),
+									},
+									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+										{
+											Universal: new("node2"),
+										},
 									},
 								},
 							},
@@ -894,21 +908,23 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 		},
 		{
 			name: "multiple domains, target node present in one",
-			psa: []kueue.PodSetAssignment{
-				{
-					Name: "ps1",
-					TopologyAssignment: &kueue.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Slices: []kueue.TopologyAssignmentSlice{
-							{
-								DomainCount: 2,
-								PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-									Individual: []int32{2, 3},
-								},
-								ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-									{
-										Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
-											Roots: []string{"node1", "node2"},
+			admission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{
+					{
+						Name: "ps1",
+						TopologyAssignment: &kueue.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Slices: []kueue.TopologyAssignmentSlice{
+								{
+									DomainCount: 2,
+									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+										Individual: []int32{2, 3},
+									},
+									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+										{
+											Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
+												Roots: []string{"node1", "node2"},
+											},
 										},
 									},
 								},
@@ -922,39 +938,41 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 		},
 		{
 			name: "multiple pod sets, target node present in multiple",
-			psa: []kueue.PodSetAssignment{
-				{
-					Name: "ps1",
-					TopologyAssignment: &kueue.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Slices: []kueue.TopologyAssignmentSlice{
-							{
-								DomainCount: 1,
-								PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-									Universal: ptr.To(int32(1)),
-								},
-								ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-									{
-										Universal: ptr.To("node1"),
+			admission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{
+					{
+						Name: "ps1",
+						TopologyAssignment: &kueue.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Slices: []kueue.TopologyAssignmentSlice{
+								{
+									DomainCount: 1,
+									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+										Universal: ptr.To[int32](1),
+									},
+									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+										{
+											Universal: new("node1"),
+										},
 									},
 								},
 							},
 						},
 					},
-				},
-				{
-					Name: "ps2",
-					TopologyAssignment: &kueue.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Slices: []kueue.TopologyAssignmentSlice{
-							{
-								DomainCount: 1,
-								PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-									Universal: ptr.To(int32(5)),
-								},
-								ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-									{
-										Universal: ptr.To("node1"),
+					{
+						Name: "ps2",
+						TopologyAssignment: &kueue.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Slices: []kueue.TopologyAssignmentSlice{
+								{
+									DomainCount: 1,
+									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+										Universal: ptr.To[int32](5),
+									},
+									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+										{
+											Universal: new("node1"),
+										},
 									},
 								},
 							},
@@ -969,7 +987,7 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := HasTASAssignmentOnNode(tc.psa, tc.nodeName)
+			got := HasTASAssignmentOnNode(tc.admission, tc.nodeName)
 			if got != tc.want {
 				t.Errorf("HasTASAssignmentOnNode() = %v, want %v", got, tc.want)
 			}

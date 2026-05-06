@@ -508,7 +508,26 @@ type Integrations struct {
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
 }
 
+// QuotaCheckStrategy determines how Kueue checks resources against quota
+// during admission.
+type QuotaCheckStrategy string
+
+const (
+	// QuotaCheckBlockUndeclared means all resources defined in the workload are checked against quota,
+	// except those matching ExcludeResourcePrefixes.
+	QuotaCheckBlockUndeclared QuotaCheckStrategy = "BlockUndeclared"
+
+	// QuotaCheckIgnoreUndeclared means only resources defined in the workload that are declared in the
+	// ClusterQueue's coveredResources are checked against quota. Resources undeclared in the clusterQueue
+	// are ignored. ExcludeResourcePrefixes is not allowed in combination with this strategy.
+	QuotaCheckIgnoreUndeclared QuotaCheckStrategy = "IgnoreUndeclared"
+)
+
 type Resources struct {
+	// QuotaCheckStrategy determines which resources are considered during quota admission.
+	// +optional
+	QuotaCheckStrategy *QuotaCheckStrategy `json:"quotaCheckStrategy,omitempty"`
+
 	// ExcludedResourcePrefixes defines which resources should be ignored by Kueue
 	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 

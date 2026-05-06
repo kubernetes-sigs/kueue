@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 							},
 						},
 						FairSharing: &kueue.FairSharing{
-							Weight: ptr.To(resource.MustParse("1")),
+							Weight: new(resource.MustParse("1")),
 						},
 					},
 				},
@@ -562,7 +562,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 					},
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
-							Weight: ptr.To(resource.MustParse("0")),
+							Weight: new(resource.MustParse("0")),
 						},
 					},
 				},
@@ -574,7 +574,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 					},
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
-							Weight: ptr.To(resource.MustParse("0.1")),
+							Weight: new(resource.MustParse("0.1")),
 						},
 					},
 				},
@@ -587,7 +587,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-3
-							Weight: ptr.To(resource.MustParse("1m")),
+							Weight: new(resource.MustParse("1m")),
 						},
 					},
 				},
@@ -600,7 +600,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-6
-							Weight: ptr.To(resource.MustParse("1u")),
+							Weight: new(resource.MustParse("1u")),
 						},
 					},
 				},
@@ -613,7 +613,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 2 * 10^-9
-							Weight: ptr.To(resource.MustParse("2n")),
+							Weight: new(resource.MustParse("2n")),
 						},
 					},
 				},
@@ -626,7 +626,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-9
-							Weight: ptr.To(resource.MustParse("1n")),
+							Weight: new(resource.MustParse("1n")),
 						},
 					},
 				},
@@ -639,7 +639,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-10
-							Weight: ptr.To(resource.MustParse("0.0000000001")),
+							Weight: new(resource.MustParse("0.0000000001")),
 						},
 					},
 				},
@@ -651,7 +651,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 					},
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
-							Weight: ptr.To(resource.MustParse("-1")),
+							Weight: new(resource.MustParse("-1")),
 						},
 					},
 				},

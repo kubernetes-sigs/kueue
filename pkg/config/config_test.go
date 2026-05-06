@@ -369,7 +369,7 @@ objectRetentionPolicies:
 	}
 
 	enableDefaultInternalCertManagement := &configapi.InternalCertManagement{
-		Enable:             ptr.To(true),
+		Enable:             new(true),
 		WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 		WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 	}
@@ -480,7 +480,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To("kueue-tenant-a"),
+				Namespace:                  new("kueue-tenant-a"),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
@@ -544,9 +544,9 @@ objectRetentionPolicies:
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
-					WebhookServiceName: ptr.To("kueue-tenant-a-webhook-service"),
-					WebhookSecretName:  ptr.To("kueue-tenant-a-webhook-server-cert"),
+					Enable:             new(true),
+					WebhookServiceName: new("kueue-tenant-a-webhook-service"),
+					WebhookSecretName:  new("kueue-tenant-a-webhook-server-cert"),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
@@ -567,7 +567,7 @@ objectRetentionPolicies:
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
@@ -585,7 +585,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                    ptr.To("kueue-system"),
+				Namespace:                    new("kueue-system"),
 				ManageJobsWithoutQueueName:   false,
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
@@ -621,7 +621,7 @@ objectRetentionPolicies:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					BlockAdmission:  ptr.To(true),
+					BlockAdmission:  new(true),
 					Timeout:         metav1.Duration{Duration: 50 * time.Second},
 					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
@@ -746,7 +746,7 @@ objectRetentionPolicies:
 				Integrations:               defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
-					Origin:            ptr.To("multikueue-manager1"),
+					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
 					ClusterProfile: &configapi.ClusterProfile{
@@ -932,7 +932,7 @@ webhook:
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
+					Enable:             new(true),
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},
@@ -982,7 +982,7 @@ webhook:
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
+					Enable:             new(true),
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},
@@ -1032,7 +1032,7 @@ webhook:
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
+					Enable:             new(true),
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},
@@ -1078,7 +1078,7 @@ webhook:
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
+					Enable:             new(true),
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},

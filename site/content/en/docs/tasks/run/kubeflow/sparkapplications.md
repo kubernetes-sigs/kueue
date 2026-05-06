@@ -8,23 +8,26 @@ description: >
 
 {{< feature-state state="alpha" for_version="v0.17" >}}
 
-{{% alert title="Note" color="primary" %}}
-`SparkApplicationIntegration` is currently an alpha feature and is disabled by default.
-
-You can enable it by editing the `SparkApplicationIntegration` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-{{% /alert %}}
-
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Spark Operator](https://github.com/kubeflow/spark-operator) SparkApplication.
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
+{{% alert title="Note" color="primary" %}}
+`SparkApplicationIntegration` is currently an alpha feature and is disabled by default.
+
+To enable it, the `SparkApplicationIntegration` feature gate needs to be activated, and `sparkoperator.k8s.io/sparkapplication` must be added as an allowed workload.
+
+{{% /alert %}}
+
 ## Before you begin
+
+Enable SparkApplication integration in Kueue. You can [modify Kueue configurations from installed releases](/docs/installation#install-a-custom-configured-released-version) to include `sparkoperator.k8s.io/sparkapplication` as an allowed workload.
+
+Enable the `SparkApplicationIntegration` feature gate. Check the [installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 
 Check [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial cluster setup.
 
 Check [the Spark Operator installation guide](https://www.kubeflow.org/docs/components/spark-operator/getting-started/#installation).
-
-You can [modify kueue configurations from installed releases](/docs/installation#install-a-custom-configured-released-version) to include SparkApplication as an allowed workload.
 
 {{% alert title="Note" color="primary" %}}
 In order to use SparkApplication integration, you must install [Spark Operator](https://github.com/kubeflow/spark-operator) [v2.4.0](https://github.com/kubeflow/spark-operator/releases/tag/v2.4.0) or above.

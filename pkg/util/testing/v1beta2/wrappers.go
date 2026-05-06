@@ -33,8 +33,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 // MakeDefaultOneLevelTopology creates a default topology with hostname level.
@@ -141,7 +143,7 @@ func (w *WorkloadWrapper) Queue(q kueue.LocalQueueName) *WorkloadWrapper {
 }
 
 func (w *WorkloadWrapper) Active(a bool) *WorkloadWrapper {
-	w.Spec.Active = ptr.To(a)
+	w.Spec.Active = new(a)
 	return w
 }
 
@@ -156,7 +158,7 @@ func (w *WorkloadWrapper) SimpleReserveQuota(cq, flavor string, now time.Time) *
 		resReq[res] = val
 		flavors[res] = kueue.ResourceFlavorReference(flavor)
 	}
-	admission.PodSetAssignments[0].Count = ptr.To(w.Spec.PodSets[0].Count)
+	admission.PodSetAssignments[0].Count = new(w.Spec.PodSets[0].Count)
 	admission.PodSetAssignments[0].Flavors = flavors
 	admission.PodSetAssignments[0].ResourceUsage = resReq
 
@@ -304,6 +306,10 @@ func (w *WorkloadWrapper) Label(k, v string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) ParentVariant() *WorkloadWrapper {
+	return w.Label(constants.ConcurrentAdmissionParentLabelKey, "true")
+}
+
 func (w *WorkloadWrapper) Annotation(k, v string) *WorkloadWrapper {
 	if w.ObjectMeta.Annotations == nil {
 		w.ObjectMeta.Annotations = make(map[string]string)
@@ -328,7 +334,7 @@ func (w *WorkloadWrapper) Conditions(conditions ...metav1.Condition) *WorkloadWr
 }
 
 func (w *WorkloadWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
-	AppendOwnerReference(&w.Workload, gvk, name, uid, ptr.To(true), ptr.To(true))
+	AppendOwnerReference(&w.Workload, gvk, name, uid, new(true), new(true))
 	return w
 }
 
@@ -351,7 +357,7 @@ func (w *WorkloadWrapper) UnhealthyNodes(nodeNames ...string) *WorkloadWrapper {
 
 // DeletionTimestamp sets a deletion timestamp for the workload.
 func (w *WorkloadWrapper) DeletionTimestamp(t time.Time) *WorkloadWrapper {
-	w.Workload.DeletionTimestamp = ptr.To(metav1.NewTime(t).Rfc3339Copy())
+	w.Workload.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
 	return w
 }
 
@@ -412,6 +418,16 @@ func (w *WorkloadWrapper) PreemptionGates(preemptionGates ...kueue.PreemptionGat
 
 func (w *WorkloadWrapper) PreemptionGateStates(preemptionGateStates ...kueue.PreemptionGateState) *WorkloadWrapper {
 	w.Status.PreemptionGates = preemptionGateStates
+	return w
+}
+
+// Set AllowedResourceFlavors annotation
+func (w *WorkloadWrapper) AllowedFlavors(flavors ...kueue.ResourceFlavorReference) *WorkloadWrapper {
+	if w.ObjectMeta.Annotations == nil {
+		w.ObjectMeta.Annotations = make(map[string]string, 1)
+	}
+	allowedFlavors := concurrentadmission.SerializeAllowedFlavors(utilslices.Map(flavors, func(f *kueue.ResourceFlavorReference) string { return string(*f) }))
+	w.ObjectMeta.Annotations[constants.WorkloadAllowedResourceFlavorAnnotation] = allowedFlavors
 	return w
 }
 
@@ -522,7 +538,7 @@ func (p *PodSetWrapper) UnconstrainedTopologyRequest() *PodSetWrapper {
 	if p.TopologyRequest == nil {
 		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
 	}
-	p.TopologyRequest.Unconstrained = ptr.To(true)
+	p.TopologyRequest.Unconstrained = new(true)
 	return p
 }
 
@@ -646,7 +662,7 @@ func (p *PodSetWrapper) PodOverHead(resources corev1.ResourceList) *PodSetWrappe
 func (p *PodSetWrapper) ResourceClaimTemplate(claimName, templateName string) *PodSetWrapper {
 	p.Template.Spec.ResourceClaims = append(p.Template.Spec.ResourceClaims, corev1.PodResourceClaim{
 		Name:                      claimName,
-		ResourceClaimTemplateName: ptr.To(templateName),
+		ResourceClaimTemplateName: new(templateName),
 	})
 	if len(p.Template.Spec.Containers) > 0 {
 		p.Template.Spec.Containers[0].Resources.Claims = append(
@@ -660,7 +676,7 @@ func (p *PodSetWrapper) ResourceClaimTemplate(claimName, templateName string) *P
 func (p *PodSetWrapper) ResourceClaim(claimName, resourceClaimName string) *PodSetWrapper {
 	p.Template.Spec.ResourceClaims = append(p.Template.Spec.ResourceClaims, corev1.PodResourceClaim{
 		Name:              claimName,
-		ResourceClaimName: ptr.To(resourceClaimName),
+		ResourceClaimName: new(resourceClaimName),
 	})
 	if len(p.Template.Spec.Containers) > 0 {
 		p.Template.Spec.Containers[0].Resources.Claims = append(
@@ -864,6 +880,12 @@ func (c *CohortWrapper) Annotation(k, v string) *CohortWrapper {
 	return c
 }
 
+func (c *CohortWrapper) GeneratedName(name string) *CohortWrapper {
+	c.GenerateName = name
+	c.Name = ""
+	return c
+}
+
 // ClusterQueueWrapper wraps a ClusterQueue.
 type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 
@@ -900,6 +922,26 @@ func (c *ClusterQueueWrapper) Cohort(cohort kueue.CohortReference) *ClusterQueue
 	return c
 }
 
+func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdmissionMigrationMode) *ClusterQueueWrapper {
+	c.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
+		Migration: kueue.ConcurrentAdmissionMigration{
+			Mode: mode,
+		},
+	}
+	return c
+}
+
+func (c *ClusterQueueWrapper) MinPreferredFlavorName(name string) *ClusterQueueWrapper {
+	if c.Spec.ConcurrentAdmissionPolicy == nil {
+		c = c.ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors)
+	}
+	if c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints == nil {
+		c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints = &kueue.ConcurrentAdmissionConstraints{}
+	}
+	c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName = new(kueue.ResourceFlavorReference(name))
+	return c
+}
+
 func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheckStrategyRule) *ClusterQueueWrapper {
 	if c.Spec.AdmissionChecksStrategy == nil {
 		c.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{}
@@ -930,6 +972,8 @@ func (c *ClusterQueueWrapper) Active(status metav1.ConditionStatus) *ClusterQueu
 // No name should be given in the MakeClusterQueue for the GeneratedName to work.
 func (c *ClusterQueueWrapper) GeneratedName(name string) *ClusterQueueWrapper {
 	c.GenerateName = name
+	c.Name = ""
+
 	return c
 }
 
@@ -1012,7 +1056,7 @@ func (c *ClusterQueueWrapper) StopPolicy(p kueue.StopPolicy) *ClusterQueueWrappe
 
 // DeletionTimestamp sets a deletion timestamp for the cluster queue.
 func (c *ClusterQueueWrapper) DeletionTimestamp(t time.Time) *ClusterQueueWrapper {
-	c.ClusterQueue.DeletionTimestamp = ptr.To(metav1.NewTime(t).Rfc3339Copy())
+	c.ClusterQueue.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
 	return c
 }
 
@@ -1128,12 +1172,12 @@ func (rq *ResourceQuotaWrapper) NominalQuota(quantity string) *ResourceQuotaWrap
 }
 
 func (rq *ResourceQuotaWrapper) BorrowingLimit(quantity string) *ResourceQuotaWrapper {
-	rq.ResourceQuota.BorrowingLimit = ptr.To(resource.MustParse(quantity))
+	rq.ResourceQuota.BorrowingLimit = new(resource.MustParse(quantity))
 	return rq
 }
 
 func (rq *ResourceQuotaWrapper) LendingLimit(quantity string) *ResourceQuotaWrapper {
-	rq.ResourceQuota.LendingLimit = ptr.To(resource.MustParse(quantity))
+	rq.ResourceQuota.LendingLimit = new(resource.MustParse(quantity))
 	return rq
 }
 
@@ -1163,9 +1207,15 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 	return &rf.ResourceFlavor
 }
 
+func (rf *ResourceFlavorWrapper) GeneratedName(name string) *ResourceFlavorWrapper {
+	rf.GenerateName = name
+	rf.Name = ""
+	return rf
+}
+
 // TopologyName sets the topology name
 func (rf *ResourceFlavorWrapper) TopologyName(name string) *ResourceFlavorWrapper {
-	rf.Spec.TopologyName = ptr.To(kueue.TopologyReference(name))
+	rf.Spec.TopologyName = new(kueue.TopologyReference(name))
 	return rf
 }
 
@@ -1322,7 +1372,7 @@ func (p *PodSetAssignmentWrapper) ResourceUsage(resourceName corev1.ResourceName
 }
 
 func (p *PodSetAssignmentWrapper) Count(count int32) *PodSetAssignmentWrapper {
-	p.PodSetAssignment.Count = ptr.To(count)
+	p.PodSetAssignment.Count = new(count)
 	return p
 }
 
@@ -1332,7 +1382,7 @@ func (p *PodSetAssignmentWrapper) TopologyAssignment(ta *kueue.TopologyAssignmen
 }
 
 func (p *PodSetAssignmentWrapper) DelayedTopologyRequest(state kueue.DelayedTopologyRequestState) *PodSetAssignmentWrapper {
-	p.PodSetAssignment.DelayedTopologyRequest = ptr.To(state)
+	p.PodSetAssignment.DelayedTopologyRequest = new(state)
 	return p
 }
 
@@ -1350,6 +1400,12 @@ func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
 			},
 		},
 	}
+}
+
+func (ac *AdmissionCheckWrapper) GeneratedName(name string) *AdmissionCheckWrapper {
+	ac.GenerateName = name
+	ac.Name = ""
+	return ac
 }
 
 type AdmissionCheckStrategyRuleWrapper struct {
@@ -1430,6 +1486,12 @@ func MakeWorkloadPriorityClass(name string) *WorkloadPriorityClassWrapper {
 	}
 }
 
+func (p *WorkloadPriorityClassWrapper) GeneratedName(name string) *WorkloadPriorityClassWrapper {
+	p.GenerateName = name
+	p.Name = ""
+	return p
+}
+
 // PriorityValue updates value of WorkloadPriorityClass.
 func (p *WorkloadPriorityClassWrapper) PriorityValue(v int32) *WorkloadPriorityClassWrapper {
 	p.Value = v
@@ -1455,6 +1517,12 @@ func MakeMultiKueueConfig(name string) *MultiKueueConfigWrapper {
 	}
 }
 
+func MakeMultiKueueConfigWithGeneratedName(namePrefix string) *MultiKueueConfigWrapper {
+	mkc := MakeMultiKueueConfig("")
+	mkc.GenerateName = namePrefix
+	return mkc
+}
+
 func (mkc *MultiKueueConfigWrapper) Obj() *kueue.MultiKueueConfig {
 	return &mkc.MultiKueueConfig
 }
@@ -1476,6 +1544,12 @@ func MakeMultiKueueCluster(name string) *MultiKueueClusterWrapper {
 			},
 		},
 	}
+}
+
+func MakeMultiKueueClusterWithGeneratedName(namePrefix string) *MultiKueueClusterWrapper {
+	mkc := MakeMultiKueueCluster("")
+	mkc.GenerateName = namePrefix
+	return mkc
 }
 
 func (mkc *MultiKueueClusterWrapper) Obj() *kueue.MultiKueueCluster {

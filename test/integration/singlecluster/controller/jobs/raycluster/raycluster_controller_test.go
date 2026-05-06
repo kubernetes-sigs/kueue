@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobName, Namespace: ns.Name}, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is created without queue assigned")
@@ -177,7 +177,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -200,7 +200,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
 			g.Expect(createdJob.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector).Should(gomega.BeEmpty())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -220,7 +220,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdJob.Spec.HeadGroupSpec.Template.Spec.NodeSelector).Should(gomega.HaveLen(1))
 		gomega.Expect(createdJob.Spec.HeadGroupSpec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
@@ -297,7 +297,7 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 		ginkgo.By("checking that the child cluster is suspended")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).Should(gomega.Succeed())
-			g.Expect(childCluster.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+			g.Expect(childCluster.Spec.Suspend).Should(gomega.Equal(new(true)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
@@ -374,7 +374,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			ginkgo.By("Await for the job to be unsuspended")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-				g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+				g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			if podsReadyTestSpec.beforeJobStatus != nil {
@@ -529,7 +529,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 		createdJob := &rayv1.RayCluster{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdJob.Spec.HeadGroupSpec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJob.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
@@ -545,7 +545,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 		createdJob2 := &rayv1.RayCluster{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job2), createdJob2)).Should(gomega.Succeed())
-			g.Expect(createdJob2.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+			g.Expect(createdJob2.Spec.Suspend).Should(gomega.Equal(new(true)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
@@ -569,7 +569,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 		ginkgo.By("checking the second RayCluster starts when the first one was deleted")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job2), createdJob2)).Should(gomega.Succeed())
-			g.Expect(createdJob2.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			g.Expect(createdJob2.Spec.Suspend).Should(gomega.Equal(new(false)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdJob2.Spec.HeadGroupSpec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJob2.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
@@ -638,7 +638,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		createdJob := &rayv1.RayCluster{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Create a high priority RayCluster which will preempt the lower one")
@@ -671,7 +671,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		createdJob = &rayv1.RayCluster{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Delete high priority raycluster")
@@ -690,7 +690,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		createdJob = &rayv1.RayCluster{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
@@ -742,7 +742,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			Queue(localQueue.Name).
 			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			WithEnableAutoscaling(ptr.To(true)).
+			WithEnableAutoscaling(new(true)).
 			ScaleFirstWorkerGroup(2).
 			Obj()
 
@@ -783,7 +783,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		ginkgo.By("reducing the worker replicas to 1 to emulate scale-down operation")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
-			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To(int32(1))
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(1))
 			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -815,7 +815,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		ginkgo.By("increasing the RayCluster's worker replicas to 2 to emulate scale-up operation")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
-			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To(int32(2))
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
 			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -878,7 +878,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			Queue(localQueue.Name).
 			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			WithEnableAutoscaling(ptr.To(true)).
+			WithEnableAutoscaling(new(true)).
 			ScaleFirstWorkerGroup(2).
 			Obj()
 
@@ -905,7 +905,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			Queue(localQueue.Name).
 			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			WithEnableAutoscaling(ptr.To(true)).
+			WithEnableAutoscaling(new(true)).
 			ScaleFirstWorkerGroup(2).
 			Obj()
 
@@ -930,7 +930,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		ginkgo.By("scale-down raycluster-a to make room for raycluster-b")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayClusterA), testRayClusterA)).Should(gomega.Succeed())
-			testRayClusterA.Spec.WorkerGroupSpecs[0].Replicas = ptr.To(int32(1))
+			testRayClusterA.Spec.WorkerGroupSpecs[0].Replicas = new(int32(1))
 			g.Expect(k8sClient.Update(ctx, testRayClusterA)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

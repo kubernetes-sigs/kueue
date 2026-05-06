@@ -151,11 +151,11 @@ func (t *TrainJob) IsActive() bool {
 }
 
 func (t *TrainJob) Suspend() {
-	t.Spec.Suspend = ptr.To(true)
+	t.Spec.Suspend = new(true)
 }
 
 func (t *TrainJob) Unsuspend() {
-	t.Spec.Suspend = ptr.To(false)
+	t.Spec.Suspend = new(false)
 }
 
 func (t *TrainJob) GVK() schema.GroupVersionKind {

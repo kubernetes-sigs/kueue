@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -216,7 +215,7 @@ func MaximumExecutionTimeSecondsForObject(object client.Object) *int32 {
 		return nil
 	}
 
-	return ptr.To(int32(v))
+	return new(int32(v))
 }
 
 func WorkloadPriorityClassName(object client.Object) string {

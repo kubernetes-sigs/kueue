@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -88,6 +87,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, q, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
@@ -326,6 +326,9 @@ var _ = ginkgo.Describe("Preemption", func() {
 				evictedWorkloads := util.FilterEvictedWorkloads(ctx, k8sClient, lowPriorityWorkloads...)
 				g.Expect(evictedWorkloads).To(gomega.HaveLen(lowPrioWorkloadCount))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing eviction for preempted workloads")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, lowPriorityWorkloads...)
 		})
 
 		ginkgo.It("Should include job UID in preemption condition when the label is set", func() {
@@ -395,8 +398,11 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, alphaLQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, alphaCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, betaLQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, betaCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, gammaLQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, gammaCQ, true)
 		})
 
@@ -735,7 +741,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &kueue.BorrowWithinCohort{
 						Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-						MaxPriorityThreshold: ptr.To(midPriority),
+						MaxPriorityThreshold: new(midPriority),
 					},
 				}).
 				Obj()
@@ -799,7 +805,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &kueue.BorrowWithinCohort{
 						Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-						MaxPriorityThreshold: ptr.To(midPriority),
+						MaxPriorityThreshold: new(midPriority),
 					},
 				}).
 				Obj()
@@ -816,9 +822,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, aStandardLQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, aStandardCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, aBestEffortLQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, aBestEffortCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, bBestEffortLQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, bBestEffortCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, bStandardLQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, bStandardCQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, sharedCQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, oneFlavor, true)
@@ -924,9 +934,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prodCQ, true)
-			if devCQ != nil {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, devCQ, true)
-			}
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, devCQ, true)
 		})
 
 		ginkgo.It("Should be able to preempt when lending limit enabled", func() {
@@ -1016,7 +1024,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &kueue.BorrowWithinCohort{
 						Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-						MaxPriorityThreshold: ptr.To(veryHighPriority),
+						MaxPriorityThreshold: new(veryHighPriority),
 					},
 				}).
 				Obj()
@@ -1043,7 +1051,9 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, aLQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, aCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, bLQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, bCQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cCQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
@@ -1197,6 +1207,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, q, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
@@ -1271,6 +1282,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, q, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 

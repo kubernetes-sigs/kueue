@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -84,6 +83,11 @@ func (aw *AppWrapperWrapper) Queue(q string) *AppWrapperWrapper {
 	return aw.Label(constants.QueueLabel, q)
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the AppWrapperWrapper
+func (aw *AppWrapperWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *AppWrapperWrapper {
+	return aw.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Name updates the name of the AppWrapper
 func (aw *AppWrapperWrapper) Name(n string) *AppWrapperWrapper {
 	aw.ObjectMeta.Name = n
@@ -98,7 +102,7 @@ func (aw *AppWrapperWrapper) UID(uid string) *AppWrapperWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (aw *AppWrapperWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *AppWrapperWrapper {
-	utiltesting.AppendOwnerReference(&aw.AppWrapper, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&aw.AppWrapper, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return aw
 }
 

@@ -166,14 +166,14 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: "default",
 			},
-			Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
+			Count: new(createdWorkload.Spec.PodSets[0].Count),
 		},
 		kueue.PodSetAssignment{
 			Name: kueue.NewPodSetReference("executor"),
 			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: "default",
 			},
-			Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
+			Count: new(createdWorkload.Spec.PodSets[1].Count),
 		},
 	).Obj()
 	util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)

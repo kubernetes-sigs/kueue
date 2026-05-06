@@ -37,7 +37,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
@@ -164,7 +163,7 @@ func main() {
 			if err != nil {
 				log.Error(err, "getting a free port, metrics scraping disabled")
 			}
-			metricsScrapeURL = ptr.To(fmt.Sprintf("http://localhost:%d/metrics", metricsPort))
+			metricsScrapeURL = new(fmt.Sprintf("http://localhost:%d/metrics", metricsPort))
 		}
 
 		// start the minimal kueue manager process
@@ -420,7 +419,7 @@ func runManager(ctx context.Context, cfg *rest.Config, errCh chan<- error, wg *s
 	options := ctrl.Options{
 		Scheme: scheme,
 		Controller: crconfig.Controller{
-			SkipNameValidation: ptr.To(true),
+			SkipNameValidation: new(true),
 			GroupKindConcurrency: map[string]int{
 				kueue.GroupVersion.WithKind("Workload").GroupKind().String(): 5,
 			},

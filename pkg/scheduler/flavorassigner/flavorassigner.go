@@ -32,6 +32,7 @@ import (
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/utils/ptr"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 type Assignment struct {
@@ -70,6 +72,9 @@ type Assignment struct {
 	// In these scenarios, flavor assignment proceeds as in the original flow—i.e., as for regular,
 	// non-sliced workloads.
 	replaceWorkloadSlice *workload.Info
+
+	// quotaCheckStrategy is the strategy to use for quota check.
+	quotaCheckStrategy configapi.QuotaCheckStrategy
 }
 
 // UpdateForTASResult updates the Assignment with the TAS result
@@ -145,7 +150,7 @@ func (a *Assignment) podSetAssignmentByName(psName kueue.PodSetReference) *PodSe
 func (a *Assignment) updateMode(psName kueue.PodSetReference, mode FlavorAssignmentMode) {
 	if psAssignment := a.podSetAssignmentByName(psName); psAssignment != nil {
 		psAssignment.updateMode(mode)
-		a.representativeMode = ptr.To(mode)
+		a.representativeMode = new(mode)
 	}
 }
 
@@ -210,7 +215,7 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 // workload slice replacement, or scaling needed in case of partial admission.
 //
 // Note: ElasticJobsViaWorkloadSlices is mutually exclusive with PartialAdmission.
-func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantities {
+func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resources.FlavorResourceQuantities {
 	usage := make(resources.FlavorResourceQuantities)
 	for i, ps := range wl.TotalRequests {
 		newCount := a.PodSets[i].Count
@@ -225,11 +230,19 @@ func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourc
 			if q == 0 {
 				continue
 			}
+			if IgnoreUndeclaredResources(a.quotaCheckStrategy) && a.PodSets[i].Flavors[res] == nil {
+				log.V(3).Info("Skipping usage count for resource with undefined flavor", "res", res)
+				continue
+			}
 			flv := a.PodSets[i].Flavors[res].Name
 			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
 		}
 	}
 	return usage
+}
+
+func IgnoreUndeclaredResources(quotaCheckStrategy configapi.QuotaCheckStrategy) bool {
+	return features.Enabled(features.QuotaCheckStrategy) && quotaCheckStrategy == configapi.QuotaCheckIgnoreUndeclared
 }
 
 type Status struct {
@@ -337,7 +350,7 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 		Name:                   psa.Name,
 		Flavors:                flavors,
 		ResourceUsage:          resourceUsage,
-		Count:                  ptr.To(psa.Count),
+		Count:                  new(psa.Count),
 		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment),
 		DelayedTopologyRequest: psa.DelayedTopologyRequest,
 	}
@@ -531,6 +544,7 @@ type FlavorAssigner struct {
 	// In these scenarios, flavor assignment proceeds as in the original flow—i.e., as for regular,
 	// non-sliced workloads.
 	replaceWorkloadSlice *workload.Info
+	quotaCheckStrategy   configapi.QuotaCheckStrategy
 }
 
 func New(
@@ -540,6 +554,7 @@ func New(
 	enableFairSharing bool,
 	oracle preemptionOracle,
 	preemptWorkloadSlice *workload.Info,
+	quotaCheckStrategy configapi.QuotaCheckStrategy,
 ) *FlavorAssigner {
 	return &FlavorAssigner{
 		wl:                   wl,
@@ -548,6 +563,7 @@ func New(
 		enableFairSharing:    enableFairSharing,
 		oracle:               oracle,
 		replaceWorkloadSlice: preemptWorkloadSlice,
+		quotaCheckStrategy:   quotaCheckStrategy,
 	}
 }
 
@@ -590,7 +606,8 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		}
 	}
 	assignment := Assignment{
-		PodSets: make([]PodSetAssignment, 0, len(requests)),
+		PodSets:            make([]PodSetAssignment, 0, len(requests)),
+		quotaCheckStrategy: a.quotaCheckStrategy,
 		Usage: workload.Usage{
 			Quota: make(resources.FlavorResourceQuantities),
 		},
@@ -625,7 +642,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				}
 			}
 			if podSet.DelayedTopologyRequest != nil {
-				psAssignment.DelayedTopologyRequest = ptr.To(*podSet.DelayedTopologyRequest)
+				psAssignment.DelayedTopologyRequest = new(*podSet.DelayedTopologyRequest)
 			}
 			if podSet.TopologyRequest != nil {
 				psAssignment.TopologyAssignment = tas.InternalFrom(a.wl.Obj.Status.Admission.PodSetAssignments[i].TopologyAssignment)
@@ -659,10 +676,18 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		}
 		var groupStatus Status
 		for resName, quantity := range requests {
-			// Skip zero-quantity requests for resources not defined in the ClusterQueue (#8079).
-			if quantity == 0 && a.cq.RGByResource(resName) == nil {
-				continue
+			// Skip zero-quantity requests for resources not defined in the ClusterQueue (#8079) or
+			// If quotaCheckStrategy is IgnoreUndeclared, skip resources not declared in the ClusterQueue.
+			if a.cq.RGByResource(resName) == nil {
+				if quantity == 0 {
+					continue
+				}
+				if IgnoreUndeclaredResources(a.quotaCheckStrategy) {
+					log.V(3).Info("Skipping resource not declared in the ClusterQueue", "res", resName)
+					continue
+				}
 			}
+
 			if _, found := groupFlavors[resName]; found {
 				// This resource got assigned the same flavor as its resource group.
 				// No need to compute again.
@@ -705,7 +730,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		tasRequests := assignment.WorkloadsTopologyRequests(a.wl, a.cq)
+		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
 			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, schdcache.WithWorkload(a.wl.Obj))
 			if failure := result.Failure(); failure != nil {
@@ -818,6 +843,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
+		if features.Enabled(features.ConcurrentAdmission) && !concurrentadmission.IsFlavorAllowedForVariant(a.wl.Obj, fName) {
+			status.appendf("skipping flavor %s due to WorkloadAllowedResourceFlavorAnnotation annotation", fName)
+			continue
+		}
 
 		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors, resourceGroup); !flavorStatus.IsFit() {
 			status.reasons = append(status.reasons, flavorStatus.reasons...)
@@ -941,7 +970,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 		if features.Enabled(features.TopologyAwareScheduling) {
 			ps := &a.wl.Obj.Spec.PodSets[psID]
 			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor, rg); message != nil {
-				log.Error(nil, *message)
+				log.V(3).Info(*message)
 				status.appendf("%s", *message)
 				return status
 			}

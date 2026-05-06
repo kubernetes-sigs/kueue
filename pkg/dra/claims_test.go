@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -53,8 +52,8 @@ func Test_GetResourceRequests(t *testing.T) {
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
 						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: ptr.To("claim-tmpl-1")},
-							{Name: "req-2", ResourceClaimName: ptr.To("claim-2")},
+							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+							{Name: "req-2", ResourceClaimName: new("claim-2")},
 						},
 					},
 				},
@@ -125,8 +124,8 @@ func Test_GetResourceRequests(t *testing.T) {
 					},
 				}
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-a", ResourceClaimTemplateName: ptr.To("claim-tmpl-1")},
-					{Name: "req-b", ResourceClaimTemplateName: ptr.To("claim-tmpl-2")},
+					{Name: "req-a", ResourceClaimTemplateName: new("claim-tmpl-1")},
+					{Name: "req-b", ResourceClaimTemplateName: new("claim-tmpl-2")},
 				}
 			},
 			extraObjects: []runtime.Object{
@@ -161,7 +160,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					},
 				}
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-a", ResourceClaimTemplateName: ptr.To("claim-tmpl-1")},
+					{Name: "req-a", ResourceClaimTemplateName: new("claim-tmpl-1")},
 				}
 			},
 			lookup: defaultLookup,
@@ -185,7 +184,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					},
 				}
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-x", ResourceClaimTemplateName: ptr.To("claim-tmpl-3")},
+					{Name: "req-x", ResourceClaimTemplateName: new("claim-tmpl-3")},
 				}
 			},
 			lookup: defaultLookup,
@@ -213,7 +212,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					},
 				}
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "rc", ResourceClaimTemplateName: ptr.To("claim-tmpl-1")},
+					{Name: "rc", ResourceClaimTemplateName: new("claim-tmpl-1")},
 				}
 			},
 			lookup: defaultLookup,
@@ -229,7 +228,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-all", ResourceClaimTemplateName: ptr.To("claim-tmpl-all")},
+					{Name: "req-all", ResourceClaimTemplateName: new("claim-tmpl-all")},
 				}
 			},
 			lookup: defaultLookup,
@@ -251,7 +250,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-cel", ResourceClaimTemplateName: ptr.To("claim-tmpl-cel")},
+					{Name: "req-cel", ResourceClaimTemplateName: new("claim-tmpl-cel")},
 				}
 			},
 			lookup: defaultLookup,
@@ -274,7 +273,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-constraints", ResourceClaimTemplateName: ptr.To("claim-tmpl-constraints")},
+					{Name: "req-constraints", ResourceClaimTemplateName: new("claim-tmpl-constraints")},
 				}
 			},
 			lookup: defaultLookup,
@@ -291,7 +290,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-first", ResourceClaimTemplateName: ptr.To("claim-tmpl-first")},
+					{Name: "req-first", ResourceClaimTemplateName: new("claim-tmpl-first")},
 				}
 			},
 			lookup: defaultLookup,
@@ -309,7 +308,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-admin", ResourceClaimTemplateName: ptr.To("claim-tmpl-admin")},
+					{Name: "req-admin", ResourceClaimTemplateName: new("claim-tmpl-admin")},
 				}
 			},
 			lookup: defaultLookup,
@@ -331,7 +330,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-config", ResourceClaimTemplateName: ptr.To("claim-tmpl-config")},
+					{Name: "req-config", ResourceClaimTemplateName: new("claim-tmpl-config")},
 				}
 			},
 			lookup: defaultLookup,

@@ -24,7 +24,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -50,11 +49,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"DRA Controller Suite",
-	)
+	util.RunSuite(t, "DRA Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -79,11 +74,6 @@ var _ = ginkgo.BeforeSuite(func() {
 var _ = ginkgo.AfterSuite(func() {
 	ginkgo.By("tearing down the test environment")
 	fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 // Manager setup used by tests to start controllers with DRA ConfigMap configuration
@@ -114,7 +104,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 
 		// Controllers configuration
 		controllersCfg := &config.Configuration{
-			Namespace: ptr.To("kueue-system"),
+			Namespace: new("kueue-system"),
 			Resources: &config.Resources{
 				DeviceClassMappings: mappings,
 			},

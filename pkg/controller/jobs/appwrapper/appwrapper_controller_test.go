@@ -213,7 +213,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("aw", "ns").
 					PodSets(
 						*utiltestingapi.MakePodSet("aw-0", 2).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							Obj(),
 					).
 					Obj(),
@@ -248,7 +248,7 @@ func TestReconciler(t *testing.T) {
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					PodSets(
 						*utiltestingapi.MakePodSet("aw-0", 2).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							Obj(),
 					).
 					Obj(),

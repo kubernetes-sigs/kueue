@@ -39,25 +39,25 @@ func MakeSparkApplication(name, ns string) *SparkApplicationWrapper {
 			Type:                sparkappv1beta2.SparkApplicationTypeScala,
 			Mode:                sparkappv1beta2.DeployModeCluster,
 			SparkVersion:        "4.0.0",
-			Image:               ptr.To("spark:4.0.0"),
-			MainApplicationFile: ptr.To("local:///opt/spark/examples/jars/spark-examples.jar"),
-			MainClass:           ptr.To("org.apache.spark.examples.SparkPi"),
+			Image:               new("spark:4.0.0"),
+			MainApplicationFile: new("local:///opt/spark/examples/jars/spark-examples.jar"),
+			MainClass:           new("org.apache.spark.examples.SparkPi"),
 			Arguments:           []string{"1000"},
 			Driver: sparkappv1beta2.DriverSpec{
 				SparkPodSpec: sparkappv1beta2.SparkPodSpec{
-					Memory:         ptr.To("512Mi"),
-					ServiceAccount: ptr.To("spark-operator-spark"),
+					Memory:         new("512Mi"),
+					ServiceAccount: new("spark-operator-spark"),
 				},
-				CoreRequest: ptr.To("100m"),
+				CoreRequest: new("100m"),
 			},
 			Executor: sparkappv1beta2.ExecutorSpec{
 				SparkPodSpec: sparkappv1beta2.SparkPodSpec{
-					Memory:         ptr.To("512Mi"),
-					ServiceAccount: ptr.To("spark-operator-spark"),
+					Memory:         new("512Mi"),
+					ServiceAccount: new("spark-operator-spark"),
 				},
-				CoreRequest:         ptr.To("100m"),
+				CoreRequest:         new("100m"),
 				Instances:           ptr.To[int32](1),
-				DeleteOnTermination: ptr.To(false),
+				DeleteOnTermination: new(false),
 			},
 		},
 	}}
@@ -71,7 +71,7 @@ func (w *SparkApplicationWrapper) Clone() *SparkApplicationWrapper {
 
 // Suspend sets the suspend field of the SparkApplication.
 func (w *SparkApplicationWrapper) Suspend(suspend bool) *SparkApplicationWrapper {
-	w.Spec.Suspend = ptr.To(suspend)
+	w.Spec.Suspend = new(suspend)
 	return w
 }
 
@@ -95,33 +95,33 @@ func (w *SparkApplicationWrapper) Annotation(key, value string) *SparkApplicatio
 
 // DriverCoreRequest sets the driver core request.
 func (w *SparkApplicationWrapper) DriverCoreRequest(q string) *SparkApplicationWrapper {
-	w.Spec.Driver.CoreRequest = ptr.To(q)
+	w.Spec.Driver.CoreRequest = new(q)
 	return w
 }
 
 // DriverMemoryRequest sets the driver memory request.
 // Note: the string in Java format, e.g. "512m", "2g".
 func (w *SparkApplicationWrapper) DriverMemoryRequest(q string) *SparkApplicationWrapper {
-	w.Spec.Driver.Memory = ptr.To(q)
+	w.Spec.Driver.Memory = new(q)
 	return w
 }
 
 // ExecutorCoreRequest sets the executor core request.
 func (w *SparkApplicationWrapper) ExecutorCoreRequest(q string) *SparkApplicationWrapper {
-	w.Spec.Executor.CoreRequest = ptr.To(q)
+	w.Spec.Executor.CoreRequest = new(q)
 	return w
 }
 
 // ExecutorMemoryRequest sets the executor memory request.
 // Note: the string in Java format, e.g. "512m", "2g".
 func (w *SparkApplicationWrapper) ExecutorMemoryRequest(q string) *SparkApplicationWrapper {
-	w.Spec.Executor.Memory = ptr.To(q)
+	w.Spec.Executor.Memory = new(q)
 	return w
 }
 
 // ExecutorInstances sets the number of executor instances.
 func (w *SparkApplicationWrapper) ExecutorInstances(n int32) *SparkApplicationWrapper {
-	w.Spec.Executor.Instances = ptr.To(n)
+	w.Spec.Executor.Instances = new(n)
 	return w
 }
 
@@ -133,7 +133,7 @@ func (w *SparkApplicationWrapper) DynamicAllocation(dynamicAllocation *sparkappv
 
 // DriverServiceAccount sets the driver service account.
 func (w *SparkApplicationWrapper) DriverServiceAccount(sa string) *SparkApplicationWrapper {
-	w.Spec.Driver.ServiceAccount = ptr.To(sa)
+	w.Spec.Driver.ServiceAccount = new(sa)
 	return w
 }
 
@@ -175,7 +175,7 @@ func (w *SparkApplicationWrapper) DriverTemplate(t *corev1.PodTemplateSpec) *Spa
 
 // ExecutorServiceAccount sets the executor service account.
 func (w *SparkApplicationWrapper) ExecutorServiceAccount(sa string) *SparkApplicationWrapper {
-	w.Spec.Executor.ServiceAccount = ptr.To(sa)
+	w.Spec.Executor.ServiceAccount = new(sa)
 	return w
 }
 

@@ -1,4 +1,4 @@
-ARG BUILDER_IMAGE=golang:1.25
+ARG BUILDER_IMAGE=golang:1.26
 ARG BASE_IMAGE=gcr.io/distroless/static:nonroot
 
 FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} AS builder
@@ -19,7 +19,7 @@ WORKDIR /workspace/cmd/experimental/kueue-populator
 RUN go mod download
 RUN make build GO_BUILD_ENV='CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARGETARCH}'
 
-FROM --platform=${BUILDPLATFORM} ${BASE_IMAGE}
+FROM ${BASE_IMAGE}
 WORKDIR /
 COPY --from=builder /workspace/cmd/experimental/kueue-populator/bin/manager .
 USER 65532:65532

@@ -27,7 +27,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -91,7 +90,7 @@ func TestPatch(t *testing.T) {
 				obj: newObject("1"), // outdated local object.
 				update: func(job *batchv1.Job) UpdateFunc {
 					return func() (bool, error) {
-						job.Spec.Suspend = ptr.To(true)
+						job.Spec.Suspend = new(true)
 						return true, nil
 					}
 				},
@@ -107,7 +106,7 @@ func TestPatch(t *testing.T) {
 				obj: newObject("1"), // outdated local object.
 				update: func(job *batchv1.Job) UpdateFunc {
 					return func() (bool, error) {
-						job.Spec.Suspend = ptr.To(true)
+						job.Spec.Suspend = new(true)
 						return true, nil
 					}
 				},
@@ -116,7 +115,7 @@ func TestPatch(t *testing.T) {
 			want: want{
 				fetched: true,
 				obj: newObject("3", func(job *batchv1.Job) {
-					job.Spec.Suspend = ptr.To(true)
+					job.Spec.Suspend = new(true)
 				}),
 			},
 		},
@@ -125,7 +124,7 @@ func TestPatch(t *testing.T) {
 				obj: newObject("2"),
 				update: func(job *batchv1.Job) UpdateFunc {
 					return func() (bool, error) {
-						job.Spec.Suspend = ptr.To(true)
+						job.Spec.Suspend = new(true)
 						job.Status.Active = 1
 						return true, nil
 					}
@@ -134,7 +133,7 @@ func TestPatch(t *testing.T) {
 			want: want{
 				obj: newObject("3", func(job *batchv1.Job) {
 					// Change to Spec is applied; Status change is ignored because Patch updates meta and spec only.
-					job.Spec.Suspend = ptr.To(true)
+					job.Spec.Suspend = new(true)
 				}),
 			},
 		},
@@ -174,7 +173,7 @@ func TestPatch(t *testing.T) {
 				obj: newObject("1"), // outdated local object.
 				update: func(job *batchv1.Job) UpdateFunc {
 					return func() (bool, error) {
-						job.Spec.Suspend = ptr.To(true)
+						job.Spec.Suspend = new(true)
 						return true, nil
 					}
 				},
@@ -182,7 +181,7 @@ func TestPatch(t *testing.T) {
 			},
 			want: want{
 				obj: newObject("3", func(job *batchv1.Job) {
-					job.Spec.Suspend = ptr.To(true)
+					job.Spec.Suspend = new(true)
 				}),
 			},
 		},
@@ -191,7 +190,7 @@ func TestPatch(t *testing.T) {
 				obj: newObject("2"),
 				update: func(job *batchv1.Job) UpdateFunc {
 					return func() (bool, error) {
-						job.Spec.Suspend = ptr.To(true)
+						job.Spec.Suspend = new(true)
 						return true, nil
 					}
 				},
@@ -199,7 +198,7 @@ func TestPatch(t *testing.T) {
 			},
 			want: want{
 				obj: newObject("3", func(job *batchv1.Job) {
-					job.Spec.Suspend = ptr.To(true)
+					job.Spec.Suspend = new(true)
 				}),
 			},
 		},
@@ -325,7 +324,7 @@ func TestPatchStatus(t *testing.T) {
 				update: func(job *batchv1.Job) UpdateFunc {
 					return func() (bool, error) {
 						job.Status.Active = 1
-						job.Spec.Suspend = ptr.To(true)
+						job.Spec.Suspend = new(true)
 						return true, nil
 					}
 				},

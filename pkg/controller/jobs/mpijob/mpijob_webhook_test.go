@@ -63,7 +63,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name:    "with prebuilt workload",
-			job:     testingutil.MakeMPIJob("job", "default").Queue("queue").Label(constants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			job:     testingutil.MakeMPIJob("job", "default").Queue("queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr: nil,
 		},
 		{
@@ -495,7 +495,7 @@ func TestDefault(t *testing.T) {
 			mpiJob: &v2beta1.MPIJob{
 				Spec: v2beta1.MPIJobSpec{
 					RunPolicy: v2beta1.RunPolicy{
-						ManagedBy: ptr.To("example.com/foo"),
+						ManagedBy: new("example.com/foo"),
 					},
 				},
 				ObjectMeta: ctrl.ObjectMeta{
@@ -520,7 +520,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To("example.com/foo"),
+			wantManagedBy: new("example.com/foo"),
 		},
 		{
 			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",

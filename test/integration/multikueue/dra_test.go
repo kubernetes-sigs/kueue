@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -167,7 +166,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 			job.Spec.Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "gpu",
-					ResourceClaimTemplateName: ptr.To("gpu-template"),
+					ResourceClaimTemplateName: new("gpu-template"),
 				},
 			}
 
@@ -236,8 +235,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 							Message:            finishJobReason,
 						})
 					createdJob.Status.Succeeded = 1
-					createdJob.Status.StartTime = ptr.To(now)
-					createdJob.Status.CompletionTime = ptr.To(now)
+					createdJob.Status.StartTime = new(now)
+					createdJob.Status.CompletionTime = new(now)
 					g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -262,7 +261,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 			job.Spec.Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "gpu",
-					ResourceClaimTemplateName: ptr.To("missing-rct"),
+					ResourceClaimTemplateName: new("missing-rct"),
 				},
 			}
 

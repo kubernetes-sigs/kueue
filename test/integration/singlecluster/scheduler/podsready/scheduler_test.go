@@ -68,10 +68,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	ginkgo.JustBeforeEach(func() {
 		configuration := &config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
-				BlockAdmission: ptr.To(true),
+				BlockAdmission: new(true),
 				Timeout:        metav1.Duration{Duration: podsReadyTimeout},
 				RequeuingStrategy: &config.RequeuingStrategy{
-					Timestamp:          ptr.To(requeuingTimestamp),
+					Timestamp:          new(requeuingTimestamp),
 					BackoffLimitCount:  requeueingBackoffLimitCount,
 					BackoffBaseSeconds: ptr.To[int32](1),
 				},
@@ -190,7 +190,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("manually evict the workload by suspending, which sets WorkloadEvicted condition reason to Deactivated")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
-				prodWl.Spec.Active = ptr.To(false)
+				prodWl.Spec.Active = new(false)
 				g.Expect(k8sClient.Update(ctx, prodWl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
@@ -340,7 +340,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("the reactivated workload should not be deactivated by the scheduler unless exceeding the backoffLimitCount")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
-				prodWl.Spec.Active = ptr.To(true)
+				prodWl.Spec.Active = new(true)
 				g.Expect(k8sClient.Update(ctx, prodWl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			// We await for re-admission. Then, the workload keeps the QuotaReserved condition
@@ -609,10 +609,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 	ginkgo.JustBeforeEach(func() {
 		configuration := &config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
-				BlockAdmission: ptr.To(false),
+				BlockAdmission: new(false),
 				Timeout:        metav1.Duration{Duration: podsReadyTimeout},
 				RequeuingStrategy: &config.RequeuingStrategy{
-					Timestamp:          ptr.To(requeuingTimestamp),
+					Timestamp:          new(requeuingTimestamp),
 					BackoffLimitCount:  requeueingBackoffLimitCount,
 					BackoffBaseSeconds: ptr.To[int32](1),
 				},

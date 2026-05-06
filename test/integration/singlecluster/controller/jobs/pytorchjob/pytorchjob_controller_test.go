@@ -190,7 +190,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 			ginkgo.By("fetch the job and verify it is suspended as the checks are not ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(true)))
+					g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(new(true)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -246,14 +246,14 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "test-flavor",
 							},
-							Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
+							Count: new(createdWorkload.Spec.PodSets[0].Count),
 						},
 						kueue.PodSetAssignment{
 							Name: "worker",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "test-flavor",
 							},
-							Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
+							Count: new(createdWorkload.Spec.PodSets[1].Count),
 						},
 					).
 					Obj()
@@ -264,7 +264,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 			ginkgo.By("await for the job to start", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -300,7 +300,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 			ginkgo.By("await for the job to be suspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(true)))
+					g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(new(true)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -536,7 +536,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Labe
 			ginkgo.By("job should be suspend", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(true)))
+					g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(new(true)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -550,7 +550,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Labe
 			ginkgo.By("job should be unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

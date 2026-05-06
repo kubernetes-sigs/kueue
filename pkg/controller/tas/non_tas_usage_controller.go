@@ -21,7 +21,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -32,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -71,30 +71,45 @@ func (r *NonTasUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	r.cache.TASCache().Update(&pod, log)
+	if belongsToNonTASCache(&pod) {
+		r.cache.TASCache().Update(&pod, log)
+	} else {
+		r.cache.TASCache().DeletePodByKey(req.NamespacedName)
+	}
 	return ctrl.Result{}, nil
 }
 
-func filterPod(pod *corev1.Pod) bool {
+func belongsToNonTASCache(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
 	if utiltas.IsTAS(pod) {
 		return false
-	} else if len(pod.Spec.NodeName) == 0 {
-		// skip unscheduled pods as they don't use any capacity.
+	}
+	if len(pod.Spec.NodeName) == 0 {
+		// Skip unscheduled pods as they don't use any capacity.
+		return false
+	}
+	if utilpod.IsTerminated(pod) {
 		return false
 	}
 	return true
 }
 
 func (r *NonTasUsageReconciler) Create(e event.TypedCreateEvent[*corev1.Pod]) bool {
-	return filterPod(e.Object)
+	return belongsToNonTASCache(e.Object)
+}
+
+func shouldReconcilePodUpdate(oldPod, newPod *corev1.Pod) bool {
+	return belongsToNonTASCache(oldPod) != belongsToNonTASCache(newPod)
 }
 
 func (r *NonTasUsageReconciler) Update(e event.TypedUpdateEvent[*corev1.Pod]) bool {
-	return filterPod(e.ObjectNew)
+	return shouldReconcilePodUpdate(e.ObjectOld, e.ObjectNew)
 }
 
 func (r *NonTasUsageReconciler) Delete(e event.TypedDeleteEvent[*corev1.Pod]) bool {
-	return filterPod(e.Object)
+	return belongsToNonTASCache(e.Object)
 }
 
 func (r *NonTasUsageReconciler) Generic(event.TypedGenericEvent[*corev1.Pod]) bool {
@@ -111,7 +126,7 @@ func (r *NonTasUsageReconciler) SetupWithManager(mgr ctrl.Manager) (string, erro
 			r,
 		)).
 		WithOptions(controller.Options{
-			NeedLeaderElection:      ptr.To(false),
+			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[corev1.SchemeGroupVersion.WithKind("Pod").GroupKind().String()],
 		}).
 		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASNonTasUsageController)).

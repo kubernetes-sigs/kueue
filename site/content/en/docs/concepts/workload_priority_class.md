@@ -41,10 +41,11 @@ spec:
 ```
 
 Kueue generates the following `Workload` for the Job above.
-The `PriorityClassName` field can accept either `PriorityClass` or
-`WorkloadPriorityClass` name as a value. To distinguish, when using `WorkloadPriorityClass`,
-a `priorityClassSource` field has the `kueue.x-k8s.io/workloadpriorityclass` value.
-When using `PriorityClass`, a `priorityClassSource` field has the `scheduling.k8s.io/priorityclass` value.
+The `priorityClassRef` field references either a `PriorityClass` or a `WorkloadPriorityClass`.
+To distinguish, when using `WorkloadPriorityClass`, `priorityClassRef.group` is
+`kueue.x-k8s.io` and `priorityClassRef.kind` is `WorkloadPriorityClass`.
+When using `PriorityClass`, `priorityClassRef.group` is `scheduling.k8s.io` and
+`priorityClassRef.kind` is `PriorityClass`.
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -52,8 +53,10 @@ kind: Workload
 metadata:
   name: job-sample-job-7f173
 spec:
-  priorityClassSource: kueue.x-k8s.io/workloadpriorityclass
-  priorityClassName: sample-priority
+  priorityClassRef:
+    group: kueue.x-k8s.io
+    kind: WorkloadPriorityClass
+    name: sample-priority
   priority: 10000
   queueName: user-queue
 ...
@@ -101,12 +104,17 @@ The priority of workloads is used for:
 - Sorting the workloads in the ClusterQueues.
 - Determining whether a workload can preempt others.
 
-## Workload's priority values are always mutable
+## Mutability of priority fields
 
-The `Workload`'s `Priority` field is always mutable.
-If a `Workload` has been pending for a while, you can consider updating its priority to execute it earlier,
-based on your own policies.
-Workload's `PriorityClassSource` and `PriorityClassName` fields are immutable.
+The `kueue.x-k8s.io/priority-class` label on the Job can be changed while the Job is suspended.
+When updated, Kueue reconciles the Workload's priority fields accordingly.
+
+On the Workload, `Priority` is always mutable.
+`priorityClassRef` (and its `group`/`kind`) is mutable while the Workload is pending,
+and becomes immutable once the `QuotaReserved` condition is `True`.
+`priorityClassRef.name` follows the same rule, except when `priorityClassRef.kind` is
+`WorkloadPriorityClass`. In that case, `.priorityClassRef.name` can still be updated
+after the `QuotaReserved` condition is `True`.
 
 ## What's next?
 

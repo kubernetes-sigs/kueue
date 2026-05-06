@@ -230,7 +230,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatal("expected metric value")
 		}
 		wantCNQ := []testingmetrics.MetricDataPoint{
-			{Labels: labels, Value: 10_000},
+			{Labels: labels, Value: 10},
 		}
 		checkMetricDataPoints(t, cnq, wantCNQ)
 	}
@@ -274,7 +274,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatal("expected metric value")
 		}
 		wantCNQ := []testingmetrics.MetricDataPoint{
-			{Labels: labels, Value: 5_000},
+			{Labels: labels, Value: 5},
 		}
 		checkMetricDataPoints(t, cnq, wantCNQ)
 	}

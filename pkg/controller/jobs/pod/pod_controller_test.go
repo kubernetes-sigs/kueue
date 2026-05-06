@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
@@ -686,7 +687,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -697,7 +698,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -709,7 +710,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -720,7 +721,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -761,7 +762,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Obj(),
@@ -775,7 +776,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
 					Obj(),
@@ -815,7 +816,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -825,7 +826,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -836,7 +837,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -846,7 +847,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -887,7 +888,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -897,7 +898,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -924,7 +925,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -934,7 +935,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -972,7 +973,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -981,7 +982,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -991,7 +992,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -1000,7 +1001,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -1044,7 +1045,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -1053,7 +1054,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -1062,7 +1063,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					NodeSelector(corev1.LabelArchStable, "arm64").
 					Label(constants.PodSetLabel, podUID).
@@ -1075,7 +1076,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					NodeSelector(corev1.LabelArchStable, "arm64").
 					Label(constants.PodSetLabel, podUID).
@@ -1146,7 +1147,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1155,7 +1156,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -1164,7 +1165,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1173,7 +1174,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -1215,7 +1216,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1224,7 +1225,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1233,7 +1234,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1241,7 +1242,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1295,14 +1296,14 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				ManagedByKueueLabel().
 				KueueFinalizer().
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupTotalCount("2").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
 				KueueFinalizer().
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupTotalCount("2").
 				Obj()},
 			workloads: []kueue.Workload{
@@ -1353,7 +1354,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -1363,7 +1364,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -1374,7 +1375,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -1384,7 +1385,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -1426,7 +1427,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					KueueFinalizer().
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1435,7 +1436,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1509,7 +1510,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -1519,7 +1520,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("new-test-queue").
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -1530,7 +1531,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -1540,7 +1541,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Queue("new-test-queue").
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -1556,7 +1557,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -1565,7 +1566,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1612,7 +1613,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -1622,7 +1623,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					Obj(),
 			},
@@ -1631,7 +1632,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -1640,7 +1641,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					Label(constants.PodSetLabel, podUID).
 					Label(constants.LocalQueueLabel, localUserQueueName).
@@ -1704,7 +1705,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					Label(constants.PodSetLabel, podUID).
 					Label(constants.LocalQueueLabel, localUserQueueName).
@@ -1716,7 +1717,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -1725,7 +1726,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod3").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1735,7 +1736,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					Obj(),
 			},
@@ -1760,7 +1761,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					Label(constants.PodSetLabel, podUID).
 					Label(constants.LocalQueueLabel, localUserQueueName).
@@ -1771,7 +1772,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -1780,7 +1781,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod3").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1789,7 +1790,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					Label(constants.PodSetLabel, podUID).
 					Label(constants.LocalQueueLabel, localUserQueueName).
@@ -1840,7 +1841,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -1849,7 +1850,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1858,7 +1859,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod3").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1867,7 +1868,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -1875,7 +1876,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1883,7 +1884,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod3").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1940,7 +1941,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					StatusPhase(corev1.PodRunning).
 					Delete().
@@ -1951,7 +1952,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					StatusPhase(corev1.PodRunning).
 					Delete().
@@ -2019,7 +2020,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					StatusPhase(corev1.PodFailed).
 					Delete().
@@ -2030,7 +2031,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					StatusPhase(corev1.PodFailed).
 					Delete().
@@ -2120,7 +2121,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
@@ -2131,7 +2132,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
@@ -2143,7 +2144,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
@@ -2154,7 +2155,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					Queue(localTestQueueName).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
@@ -2208,7 +2209,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -2217,7 +2218,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -2227,7 +2228,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -2236,7 +2237,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -2289,7 +2290,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -2299,7 +2300,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -2356,7 +2357,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -2365,7 +2366,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -2374,7 +2375,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -2382,7 +2383,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -2398,7 +2399,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -2406,7 +2407,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -2417,7 +2418,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -2425,7 +2426,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -2464,7 +2465,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -2472,7 +2473,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -2483,14 +2484,14 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -2514,7 +2515,7 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -2523,7 +2524,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -2532,7 +2533,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod3").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
@@ -2543,7 +2544,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -2551,7 +2552,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -2559,7 +2560,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod3").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
@@ -2637,7 +2638,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -2646,7 +2647,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodRunning).
 					Obj(),
@@ -2655,7 +2656,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod3").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodSucceeded).
@@ -2666,7 +2667,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -2675,7 +2676,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodRunning).
 					Obj(),
@@ -2684,7 +2685,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod3").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodSucceeded).
@@ -2749,7 +2750,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodFailed).
@@ -2759,7 +2760,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodRunning).
@@ -2769,7 +2770,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod3").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
 					PodGroupServingAnnotation().
@@ -2781,7 +2782,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodFailed).
@@ -2791,7 +2792,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					PodGroupServingAnnotation().
 					StatusPhase(corev1.PodRunning).
@@ -2801,7 +2802,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod3").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					Request(corev1.ResourceMemory, "1Gi").
 					GroupTotalCount("3").
 					PodGroupServingAnnotation().
@@ -2867,7 +2868,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					CreationTimestamp(now).
 					Obj(),
@@ -2877,7 +2878,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					CreationTimestamp(now.Add(time.Minute)).
 					Obj(),
@@ -2888,7 +2889,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					CreationTimestamp(now).
 					Obj(),
@@ -2932,7 +2933,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now).
 					Obj(),
@@ -2942,7 +2943,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(time.Minute)).
 					Obj(),
@@ -2952,7 +2953,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					CreationTimestamp(now.Add(time.Minute * 2)).
 					GroupTotalCount("2").
 					Obj(),
@@ -2963,7 +2964,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now).
 					Obj(),
@@ -2973,7 +2974,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(time.Minute)).
 					Obj(),
@@ -3022,7 +3023,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now).
 					Obj(),
@@ -3032,7 +3033,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					CreationTimestamp(now.Add(time.Minute * 2)).
 					GroupTotalCount("2").
 					Obj(),
@@ -3042,7 +3043,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now).
 					Obj(),
@@ -3111,7 +3112,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					CreationTimestamp(now).
 					Obj(),
@@ -3122,7 +3123,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					CreationTimestamp(now.Add(time.Minute)).
 					GroupTotalCount("1").
 					Obj(),
@@ -3132,7 +3133,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					CreationTimestamp(now.Add(time.Minute)).
 					GroupTotalCount("1").
 					Obj(),
@@ -3142,7 +3143,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					CreationTimestamp(now).
 					Obj(),
@@ -3153,7 +3154,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					CreationTimestamp(now.Add(time.Minute)).
 					GroupTotalCount("1").
 					Obj(),
@@ -3163,7 +3164,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					CreationTimestamp(now.Add(time.Minute)).
 					GroupTotalCount("1").
 					Obj(),
@@ -3204,7 +3205,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now).
 					Obj(),
@@ -3214,7 +3215,7 @@ func TestReconciler(t *testing.T) {
 					UID("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					CreationTimestamp(now.Add(time.Minute)).
 					GroupTotalCount("2").
 					Obj(),
@@ -3224,7 +3225,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					CreationTimestamp(now.Add(time.Minute)).
 					GroupTotalCount("2").
 					Obj(),
@@ -3234,7 +3235,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now).
 					Obj(),
@@ -3244,7 +3245,7 @@ func TestReconciler(t *testing.T) {
 					UID("pod2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					CreationTimestamp(now.Add(time.Minute)).
 					GroupTotalCount("2").
 					Obj(),
@@ -3298,7 +3299,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					CreationTimestamp(now).
 					Obj(),
@@ -3308,7 +3309,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueSchedulingGate().
 					Finalizer("kubernetes").
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					CreationTimestamp(now.Add(time.Minute)).
 					Delete().
@@ -3320,7 +3321,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					CreationTimestamp(now).
 					Obj(),
@@ -3330,7 +3331,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueSchedulingGate().
 					Finalizer("kubernetes").
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					CreationTimestamp(now.Add(time.Minute)).
 					Delete().
@@ -3371,7 +3372,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("group").
+					GroupNameLabel("group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodPending).
 					Delete().
@@ -3382,7 +3383,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("group").
+					GroupNameLabel("group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodPending).
 					Delete().
@@ -3419,7 +3420,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod1").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -3429,7 +3430,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -3437,7 +3438,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement-for-pod1").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -3446,7 +3447,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod1").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
@@ -3456,7 +3457,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -3464,7 +3465,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement-for-pod1").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -3526,7 +3527,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod1").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					Obj(),
 				*basePodWrapper.
@@ -3535,7 +3536,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					Obj(),
 				*basePodWrapper.
@@ -3543,7 +3544,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod3").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					Obj(),
 			},
@@ -3553,7 +3554,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod1").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusConditions(corev1.PodCondition{
 						Type:    "TerminationTarget",
@@ -3568,7 +3569,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					Delete().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					Obj(),
 				*basePodWrapper.
@@ -3576,7 +3577,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod3").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("3").
 					StatusConditions(corev1.PodCondition{
 						Type:    "TerminationTarget",
@@ -3663,7 +3664,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod1").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					Obj(),
 			},
@@ -3673,7 +3674,7 @@ func TestReconciler(t *testing.T) {
 					Name("pod1").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					StatusConditions(corev1.PodCondition{
 						Type:    "TerminationTarget",
@@ -3748,7 +3749,7 @@ func TestReconciler(t *testing.T) {
 					Name("active-pod").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("4").
 					Obj(),
 				*basePodWrapper.
@@ -3756,7 +3757,7 @@ func TestReconciler(t *testing.T) {
 					Name("finished-with-error").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("4").
 					StatusPhase(corev1.PodFailed).
 					StatusConditions(corev1.PodCondition{
@@ -3771,7 +3772,7 @@ func TestReconciler(t *testing.T) {
 					Name("deleted").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("4").
 					StatusPhase(corev1.PodFailed).
 					DeletionTimestamp(now.Add(-4 * time.Minute)).
@@ -3787,7 +3788,7 @@ func TestReconciler(t *testing.T) {
 					Name("finished-with-error2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("4").
 					StatusPhase(corev1.PodFailed).
 					StatusConditions(corev1.PodCondition{
@@ -3802,7 +3803,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement1").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("4").
 					Obj(),
 				*basePodWrapper.
@@ -3810,7 +3811,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("4").
 					Obj(),
 			},
@@ -3820,14 +3821,14 @@ func TestReconciler(t *testing.T) {
 					Name("active-pod").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("4").
 					Obj(),
 				*basePodWrapper.
 					Clone().
 					Name("finished-with-error").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("4").
 					StatusPhase(corev1.PodFailed).
 					StatusConditions(corev1.PodCondition{
@@ -3842,7 +3843,7 @@ func TestReconciler(t *testing.T) {
 					Name("finished-with-error2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("4").
 					StatusPhase(corev1.PodFailed).
 					StatusConditions(corev1.PodCondition{
@@ -3857,7 +3858,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement1").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("4").
 					Obj(),
 				*basePodWrapper.
@@ -3865,7 +3866,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement2").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("4").
 					Obj(),
 			},
@@ -3932,7 +3933,7 @@ func TestReconciler(t *testing.T) {
 					Name("active-pod").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -3940,7 +3941,7 @@ func TestReconciler(t *testing.T) {
 					Name("finished-with-error").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					StatusConditions(corev1.PodCondition{
@@ -3955,7 +3956,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -3965,7 +3966,7 @@ func TestReconciler(t *testing.T) {
 					Name("active-pod").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -3973,7 +3974,7 @@ func TestReconciler(t *testing.T) {
 					Name("finished-with-error").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					StatusConditions(corev1.PodCondition{
@@ -3988,7 +3989,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -4033,7 +4034,7 @@ func TestReconciler(t *testing.T) {
 					Name("finished-with-error").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					StatusConditions(corev1.PodCondition{
@@ -4047,7 +4048,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("finished-with-error-no-finalizer").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					StatusConditions(corev1.PodCondition{
@@ -4062,7 +4063,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -4072,7 +4073,7 @@ func TestReconciler(t *testing.T) {
 					Name("finished-with-error").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					StatusConditions(corev1.PodCondition{
@@ -4086,7 +4087,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("finished-with-error-no-finalizer").
 					ManagedByKueueLabel().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
 					StatusConditions(corev1.PodCondition{
@@ -4101,7 +4102,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -4207,7 +4208,7 @@ func TestReconciler(t *testing.T) {
 					Label("dontCopyKey", "dontCopyValue").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupIndex("0").
 					GroupTotalCount("2").
 					Obj(),
@@ -4220,7 +4221,7 @@ func TestReconciler(t *testing.T) {
 					Label("dontCopyKey", "dontCopyValue").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupIndex("1").
 					GroupTotalCount("2").
 					Obj(),
@@ -4266,7 +4267,7 @@ func TestReconciler(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupIndex("1").
 				GroupTotalCount("1").
 				Obj(),
@@ -4280,7 +4281,7 @@ func TestReconciler(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueFinalizer().
 				KueueSchedulingGate().
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupIndex("-1").
 				GroupTotalCount("1").
 				Obj(),
@@ -4297,7 +4298,7 @@ func TestReconciler(t *testing.T) {
 					Label("dontCopyKey", "dontCopyValue").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -4309,7 +4310,7 @@ func TestReconciler(t *testing.T) {
 					Label("dontCopyKey", "dontCopyValue").
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -4407,7 +4408,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -4416,7 +4417,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -4497,7 +4498,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodRunning).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Label(constants.PodSetLabel, podUID).
 					Label(constants.LocalQueueLabel, localUserQueueName).
@@ -4511,7 +4512,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Delete().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Annotation(kueue.WorkloadAnnotation, "test-group").
@@ -4522,7 +4523,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now).
 					Annotation(kueue.WorkloadAnnotation, "test-group").
@@ -4551,7 +4552,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodRunning).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Label(constants.PodSetLabel, podUID).
 					Label(constants.LocalQueueLabel, localUserQueueName).
@@ -4563,7 +4564,7 @@ func TestReconciler(t *testing.T) {
 					Name("replacement").
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Label(constants.PodSetLabel, podUID).
 					Label(constants.LocalQueueLabel, localUserQueueName).
@@ -4611,7 +4612,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4621,7 +4622,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4648,7 +4649,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4658,7 +4659,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4686,7 +4687,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4696,7 +4697,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4723,7 +4724,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4733,7 +4734,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4767,7 +4768,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4777,7 +4778,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					Delete().
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
@@ -4805,7 +4806,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4816,7 +4817,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
 					Delete().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4850,7 +4851,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4861,7 +4862,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Delete().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4895,7 +4896,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4905,7 +4906,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4947,7 +4948,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4958,7 +4959,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Delete().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -4997,7 +4998,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -5007,7 +5008,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -5047,7 +5048,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -5057,7 +5058,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -5098,7 +5099,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -5108,7 +5109,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -5150,7 +5151,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -5160,7 +5161,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -5193,7 +5194,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -5203,7 +5204,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
@@ -5238,7 +5239,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -5248,7 +5249,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -5267,7 +5268,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusConditions(corev1.PodCondition{
 						Type:    ConditionTypeTerminationTarget,
@@ -5283,7 +5284,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusConditions(corev1.PodCondition{
 						Type:    ConditionTypeTerminationTarget,
@@ -5333,7 +5334,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -5343,7 +5344,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -5363,7 +5364,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusConditions(corev1.PodCondition{
 						Type:    ConditionTypeTerminationTarget,
@@ -5379,7 +5380,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusConditions(corev1.PodCondition{
 						Type:    ConditionTypeTerminationTarget,
@@ -5429,7 +5430,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 				*basePodWrapper.
@@ -5439,7 +5440,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -5460,7 +5461,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusConditions(corev1.PodCondition{
 						Type:    ConditionTypeTerminationTarget,
@@ -5476,7 +5477,7 @@ func TestReconciler(t *testing.T) {
 					Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
 					KueueFinalizer().
 					StatusPhase(corev1.PodPending).
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					StatusConditions(corev1.PodCondition{
 						Type:    ConditionTypeTerminationTarget,
@@ -5531,7 +5532,7 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					Group("test-group").
+					GroupNameLabel("test-group").
 					GroupTotalCount("1").
 					Obj(),
 			},
@@ -5677,7 +5678,7 @@ func TestReconciler(t *testing.T) {
 					}
 				}
 				if tc.wantPods != nil {
-					if diff := cmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" && tc.wantPods != nil {
+					if diff := cmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" {
 						t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
 					}
 				}
@@ -5859,7 +5860,7 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 		"batch/v1/Job": {
 			ownerReference: metav1.OwnerReference{
 				APIVersion: "batch/v1",
-				Controller: ptr.To(true),
+				Controller: new(true),
 				Kind:       "Job",
 			},
 			wantRes: true,
@@ -5867,7 +5868,7 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 		"apps/v1/ReplicaSet": {
 			ownerReference: metav1.OwnerReference{
 				APIVersion: "apps/v1",
-				Controller: ptr.To(true),
+				Controller: new(true),
 				Kind:       "ReplicaSet",
 			},
 			wantRes: false,
@@ -5875,7 +5876,7 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 		"ray.io/v1/RayCluster": {
 			ownerReference: metav1.OwnerReference{
 				APIVersion: "ray.io/v1",
-				Controller: ptr.To(true),
+				Controller: new(true),
 				Kind:       "RayCluster",
 			},
 			wantRes: true,
@@ -5941,7 +5942,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 			Clone().
 			ManagedByKueueLabel().
 			KueueFinalizer().
-			Group("test-group").
+			GroupNameLabel("test-group").
 			GroupTotalCount("2").
 			CreationTimestamp(now).
 			Obj(),
@@ -5950,7 +5951,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 			Name("pod2").
 			ManagedByKueueLabel().
 			KueueFinalizer().
-			Group("test-group").
+			GroupNameLabel("test-group").
 			CreationTimestamp(now.Add(time.Minute)).
 			GroupTotalCount("2").
 			Obj(),
@@ -5959,7 +5960,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 			Name("excessPod").
 			ManagedByKueueLabel().
 			KueueFinalizer().
-			Group("test-group").
+			GroupNameLabel("test-group").
 			CreationTimestamp(now.Add(time.Minute * 2)).
 			GroupTotalCount("2").
 			Obj(),
@@ -6074,8 +6075,8 @@ func TestPod_IsActive(t *testing.T) {
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:                       "deleted-with-expired-grace",
-								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: ptr.To(int64(30)),
+								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+								DeletionGracePeriodSeconds: new(int64(30)),
 							},
 							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
@@ -6098,8 +6099,8 @@ func TestPod_IsActive(t *testing.T) {
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:                       "deleted-with-expired-grace",
-								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: ptr.To(int64(30)),
+								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+								DeletionGracePeriodSeconds: new(int64(30)),
 							},
 							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
@@ -6114,8 +6115,8 @@ func TestPod_IsActive(t *testing.T) {
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:                       "deleted-within-grace",
-								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+								DeletionGracePeriodSeconds: new(int64(90)),
 							},
 							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
@@ -6132,8 +6133,8 @@ func TestPod_IsActive(t *testing.T) {
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:                       "terminating-within-grace",
-								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: new(int64(90)),
 							},
 							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
@@ -6150,8 +6151,8 @@ func TestPod_IsActive(t *testing.T) {
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:                       "terminating-within-grace",
-								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: new(int64(90)),
 							},
 							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
@@ -6168,8 +6169,8 @@ func TestPod_IsActive(t *testing.T) {
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:                       "terminating-pod",
-								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: new(int64(90)),
 							},
 							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
@@ -6190,16 +6191,16 @@ func TestPod_IsActive(t *testing.T) {
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:                       "terminating-pod-1",
-								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: new(int64(90)),
 							},
 							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:                       "terminating-pod-2",
-								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-5 * time.Second))),
-								DeletionGracePeriodSeconds: ptr.To(int64(300)),
+								DeletionTimestamp:          new(metav1.NewTime(now.Add(-5 * time.Second))),
+								DeletionGracePeriodSeconds: new(int64(300)),
 							},
 							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
@@ -6280,14 +6281,18 @@ func TestStop(t *testing.T) {
 			kcBuilder := utiltesting.NewClientBuilder().
 				WithObjects(tc.pod).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 						if tc.deleteBeforePatch {
+							obj, _, err := utiltesting.ConvertApplyConfigToObject(applyConf)
+							if err != nil {
+								t.Fatalf("Could not convert ApplyConfiguration to client.Object: %v", err)
+							}
 							if err := c.Delete(ctx, obj); err != nil {
 								t.Fatalf("Could not delete pod: %v", err)
 							}
 						}
 						patched = true
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 					},
 					Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
 						deleted = true

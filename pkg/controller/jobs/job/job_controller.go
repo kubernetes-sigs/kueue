@@ -159,7 +159,7 @@ func (j *Job) IsActive() bool {
 }
 
 func (j *Job) Suspend() {
-	j.Spec.Suspend = ptr.To(true)
+	j.Spec.Suspend = new(true)
 }
 
 func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
@@ -269,7 +269,7 @@ func (j *Job) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 }
 
 func (j *Job) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
-	j.Spec.Suspend = ptr.To(false)
+	j.Spec.Suspend = new(false)
 	if len(podSetsInfo) != 1 {
 		return podset.BadPodSetsInfoLenError(1, len(podSetsInfo))
 	}
@@ -277,7 +277,7 @@ func (j *Job) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSe
 	info := podSetsInfo[0]
 
 	if j.minPodsCount() != nil {
-		j.Spec.Parallelism = ptr.To(info.Count)
+		j.Spec.Parallelism = new(info.Count)
 		if j.syncCompletionWithParallelism() {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
@@ -294,7 +294,7 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	// if the job accepts partial admission
 	if j.minPodsCount() != nil && ptr.Deref(j.Spec.Parallelism, 0) != podSetsInfo[0].Count {
 		changed = true
-		j.Spec.Parallelism = ptr.To(podSetsInfo[0].Count)
+		j.Spec.Parallelism = new(podSetsInfo[0].Count)
 		if j.syncCompletionWithParallelism() {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
@@ -354,7 +354,7 @@ func (j *Job) podsCount() int32 {
 func (j *Job) minPodsCount() *int32 {
 	if strVal, found := j.GetAnnotations()[JobMinParallelismAnnotation]; found {
 		if iVal, err := strconv.Atoi(strVal); err == nil {
-			return ptr.To[int32](int32(iVal))
+			return new(int32(iVal))
 		}
 	}
 	return nil

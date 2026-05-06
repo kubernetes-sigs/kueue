@@ -51,11 +51,11 @@ func (j *KubeflowJob) IsSuspended() bool {
 }
 
 func (j *KubeflowJob) Suspend() {
-	j.KFJobControl.RunPolicy().Suspend = ptr.To(true)
+	j.KFJobControl.RunPolicy().Suspend = new(true)
 }
 
 func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
-	j.KFJobControl.RunPolicy().Suspend = ptr.To(false)
+	j.KFJobControl.RunPolicy().Suspend = new(false)
 	orderedReplicaTypes := j.OrderedReplicaTypes()
 
 	if len(podSetsInfo) != len(orderedReplicaTypes) {

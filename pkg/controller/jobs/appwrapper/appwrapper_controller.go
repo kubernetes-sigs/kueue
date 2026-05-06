@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -139,7 +138,7 @@ func (j *AppWrapper) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		}
 		if annotation, ok := awPodSets[psIndex].Annotations[awutils.PodSetAnnotationTASSubGroupCount]; ok {
 			if count, err := strconv.Atoi(annotation); err == nil {
-				subGroupCount = ptr.To(int32(count))
+				subGroupCount = new(int32(count))
 			} else {
 				log.Error(err, "Malformed annotation ignored",
 					"annotationKey", awutils.PodSetAnnotationTASSubGroupCount,

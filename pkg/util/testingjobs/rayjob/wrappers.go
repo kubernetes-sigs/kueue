@@ -112,6 +112,11 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *JobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 func (j *JobWrapper) RequestWorkerGroup(name corev1.ResourceName, quantity string) *JobWrapper {
 	c := &j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0]
 	if c.Resources.Requests == nil {
@@ -316,9 +321,9 @@ func (j *JobWrapper) VolumeMounts(rayType rayv1.RayNodeType, volumeMounts []core
 }
 
 func (j *JobWrapper) TerminationGracePeriodSeconds(seconds int64) *JobWrapper {
-	j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	for i := range len(j.Spec.RayClusterSpec.WorkerGroupSpecs) {
-		j.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	}
 	return j
 }
@@ -339,7 +344,7 @@ func (j *JobWrapper) Annotation(key string, value string) *JobWrapper {
 func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
 	enable := true
 	aggressive := rayv1.UpscalingMode("Aggressive")
-	idleTimeoutSeconds := int32(5)
+	idleTimeoutSeconds := int32(60)
 	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = &enable
 	j.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
 		UpscalingMode:      &aggressive,
@@ -347,5 +352,10 @@ func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
 	}
 	// Must set suspend to false for autoscaling, since Kueue needs KubeRay to create underlying RayCluster and then manages that RayCluster
 	j.Spec.Suspend = false
+	return j
+}
+
+func (j *JobWrapper) MaxWorkerReplicas(count int32) *JobWrapper {
+	j.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = new(count)
 	return j
 }

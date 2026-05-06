@@ -186,11 +186,11 @@ func TestWorkloadConvertTo(t *testing.T) {
 											DomainCount: 2,
 											ValuesPerLevel: []v1beta2.TopologyAssignmentSliceLevelValues{
 												{
-													Universal: ptr.To("a1"),
+													Universal: new("a1"),
 												},
 												{
 													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
-														Prefix: ptr.To("b"),
+														Prefix: new("b"),
 														Roots:  []string{"1", "2"},
 													},
 												},
@@ -358,11 +358,11 @@ func TestWorkloadConvertFrom(t *testing.T) {
 											DomainCount: 2,
 											ValuesPerLevel: []v1beta2.TopologyAssignmentSliceLevelValues{
 												{
-													Universal: ptr.To("a1"),
+													Universal: new("a1"),
 												},
 												{
 													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
-														Prefix: ptr.To("b"),
+														Prefix: new("b"),
 														Roots:  []string{"1", "2"},
 													},
 												},
@@ -417,11 +417,11 @@ func TestWorkloadConvertFrom(t *testing.T) {
 											DomainCount: 2,
 											ValuesPerLevel: []v1beta2.TopologyAssignmentSliceLevelValues{
 												{
-													Universal: ptr.To("a1"),
+													Universal: new("a1"),
 												},
 												{
 													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
-														Prefix: ptr.To("b"),
+														Prefix: new("b"),
 														Roots:  []string{"1", "2"},
 													},
 												},
@@ -434,17 +434,17 @@ func TestWorkloadConvertFrom(t *testing.T) {
 											DomainCount: 2,
 											ValuesPerLevel: []v1beta2.TopologyAssignmentSliceLevelValues{
 												{
-													Universal: ptr.To("a2"),
+													Universal: new("a2"),
 												},
 												{
 													Individual: &v1beta2.TopologyAssignmentSliceLevelIndividualValues{
 														Roots:  []string{"first", "second"},
-														Suffix: ptr.To("-in-a2"),
+														Suffix: new("-in-a2"),
 													},
 												},
 											},
 											PodCounts: v1beta2.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To(int32(50)),
+												Universal: new(int32(50)),
 											},
 										},
 									},

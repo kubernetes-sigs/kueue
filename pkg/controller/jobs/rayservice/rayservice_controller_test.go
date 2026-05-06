@@ -187,7 +187,7 @@ func TestPodSets(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: ptr.To(true),
+						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -258,7 +258,7 @@ func TestPodSets(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: ptr.To(false), // Autoscaling disabled
+						EnableInTreeAutoscaling: new(false), // Autoscaling disabled
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -321,7 +321,7 @@ func TestPodSets(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: ptr.To(true),
+						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -371,7 +371,7 @@ func TestPodSets(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: ptr.To(true),
+						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -450,7 +450,7 @@ func TestIsSuspended(t *testing.T) {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: ptr.To(false),
+						Suspend: new(false),
 					},
 				},
 			}),
@@ -460,7 +460,7 @@ func TestIsSuspended(t *testing.T) {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: ptr.To(true),
+						Suspend: new(true),
 					},
 				},
 			}),

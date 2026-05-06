@@ -185,6 +185,12 @@ const (
 	// via standard resources.requests using DeviceClass extendedResourceName.
 	DRAExtendedResources featuregate.Feature = "DRAExtendedResources"
 
+	// owner: @MaysaMacedo
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7513-quota-check-strategy
+	//
+	// Enable QuotaCheckStrategy for quota admission.
+	QuotaCheckStrategy featuregate.Feature = "QuotaCheckStrategy"
+
 	// owner: @khrm
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2349-multikueue-external-custom-job-support
 	//
@@ -359,6 +365,20 @@ const (
 	// Enables rejecting updates to ClusterQueues with invalid
 	// AdmissionCheckStrategy.OnFlavors references.
 	RejectUpdatesToCQWithInvalidOnFlavors featuregate.Feature = "RejectUpdatesToCQWithInvalidOnFlavors"
+
+	// owner: @sebest
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/1789
+	// Finish workloads whose controller owner no longer exists, preventing
+	// stale workload accumulation (e.g., after PodsReady timeout eviction
+	// deletes a Deployment-owned pod).
+	FinishOrphanedWorkloads featuregate.Feature = "FinishOrphanedWorkloads"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/8691-concurrent-admission
+	//
+	// Enables Concurrent Admission feature which allows pursuing multiple ResourceFlavors in parallel.
+	ConcurrentAdmission featuregate.Feature = "ConcurrentAdmission"
 )
 
 func init() {
@@ -497,16 +517,19 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	SkipFinalizersForPodsSuspendedByParent: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	MultiKueueWaitForWorkloadAdmitted: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	MultiKueueRedoAdmissionOnEvictionInWorker: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	TLSOptions: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.20 (https://github.com/kubernetes-sigs/kueue/issues/10704)
 	},
 	RemoveFinalizersWithStrictPatch: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
@@ -551,6 +574,15 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	RejectUpdatesToCQWithInvalidOnFlavors: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	FinishOrphanedWorkloads: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	ConcurrentAdmission: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	QuotaCheckStrategy: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

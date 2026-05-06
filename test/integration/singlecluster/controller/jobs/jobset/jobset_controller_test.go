@@ -237,14 +237,14 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						},
-						Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
+						Count: new(createdWorkload.Spec.PodSets[0].Count),
 					},
 					kueue.PodSetAssignment{
 						Name: "replicated-job-2",
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: kueue.ResourceFlavorReference(spotFlavor.Name),
 						},
-						Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
+						Count: new(createdWorkload.Spec.PodSets[1].Count),
 					},
 				).
 				Obj()
@@ -423,16 +423,16 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 					g.Expect(createdWorkload.Spec.PodSets).To(gomega.ContainElements(
 						gomega.BeComparableTo(
 							*utiltestingapi.MakePodSet("replicated-job-1", 4).
-								PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
-								SubGroupIndexLabel(ptr.To("jobset.sigs.k8s.io/job-index")).
+								PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+								SubGroupIndexLabel(new("jobset.sigs.k8s.io/job-index")).
 								SubGroupCount(ptr.To[int32](2)).
 								Obj(),
 							checkPSOpts,
 						),
 						gomega.BeComparableTo(
 							*utiltestingapi.MakePodSet("replicated-job-2-empty", 0).
-								PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
-								SubGroupIndexLabel(ptr.To("jobset.sigs.k8s.io/job-index")).
+								PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+								SubGroupIndexLabel(new("jobset.sigs.k8s.io/job-index")).
 								SubGroupCount(ptr.To[int32](1)).
 								Obj(),
 							checkPSOpts,
@@ -828,7 +828,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 			ginkgo.By("Await for the JobSet to be unsuspended")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lookupKey, createdJobSet)).Should(gomega.Succeed())
-				g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+				g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			if podsReadyTestSpec.beforeJobSetStatus != nil {
@@ -1296,6 +1296,138 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					}),
 				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should re-admit jobset with completed podSets after preemption without infinite loop", framework.SlowSpec, func() {
+		jobSet := testingjobset.MakeJobSet("tas-preempt-jobset", ns.Name).
+			Queue(localQueue.Name).
+			ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "job-a",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+					PodAnnotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+					},
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "job-b",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+					PodAnnotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+					},
+				},
+			).
+			Request("job-a", corev1.ResourceCPU, "100m").
+			Request("job-b", corev1.ResourceCPU, "100m").
+			Obj()
+
+		wl := &kueue.Workload{}
+		var wlLookupKey types.NamespacedName
+
+		ginkgo.By("creating the JobSet", func() {
+			util.MustCreate(ctx, k8sClient, jobSet)
+			wlLookupKey = types.NamespacedName{
+				Name:      workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID),
+				Namespace: ns.Name,
+			}
+		})
+
+		ginkgo.By("verify the workload is admitted with TAS assignments for both podSets", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("wait for the jobset to be unsuspended", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobSet.Name, Namespace: ns.Name}, jobSet)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(jobSet.Spec.Suspend, false)).Should(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("mark the jobset as active and job-a as completed", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), jobSet)).To(gomega.Succeed())
+				jobSet = (&testingjobset.JobSetWrapper{JobSet: *jobSet}).JobsStatus(
+					jobsetapi.ReplicatedJobStatus{
+						Name:      "job-a",
+						Succeeded: 1,
+					},
+					jobsetapi.ReplicatedJobStatus{
+						Name:   "job-b",
+						Active: 1,
+					},
+				).Obj()
+				g.Expect(k8sClient.Status().Update(ctx, jobSet)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the workload has reclaimable pods for job-a", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
+					{
+						Name:  "job-a",
+						Count: 1,
+					},
+				}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("preempt the workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, wl, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock)).
+					To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("mark the jobset as inactive so eviction can complete", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), jobSet)).To(gomega.Succeed())
+				jobSet = (&testingjobset.JobSetWrapper{JobSet: *jobSet}).JobsStatus(
+					jobsetapi.ReplicatedJobStatus{
+						Name:      "job-a",
+						Succeeded: 1,
+					},
+					jobsetapi.ReplicatedJobStatus{
+						Name:   "job-b",
+						Active: 0,
+					},
+				).Obj()
+				g.Expect(k8sClient.Status().Update(ctx, jobSet)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("finish eviction", func() {
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
+		})
+
+		ginkgo.By("verify the workload is re-admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
+
+				// job-a (completed, count=0) should have no topology assignment
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].Name).Should(gomega.Equal(kueue.NewPodSetReference("job-a")))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].Count).Should(gomega.Equal(ptr.To[int32](0)))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeNil())
+
+				// job-b (still running, count=1) should have a valid topology assignment
+				g.Expect(wl.Status.Admission.PodSetAssignments[1].Name).Should(gomega.Equal(kueue.NewPodSetReference("job-b")))
+				g.Expect(wl.Status.Admission.PodSetAssignments[1].Count).Should(gomega.Equal(ptr.To[int32](1)))
+				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).ShouldNot(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

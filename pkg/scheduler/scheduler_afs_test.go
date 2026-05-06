@@ -30,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -65,15 +64,15 @@ func TestScheduleForAFS(t *testing.T) {
 	}
 	queues := []kueue.LocalQueue{
 		*utiltestingapi.MakeLocalQueue("lq-a", "default").
-			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
 			Obj(),
 		*utiltestingapi.MakeLocalQueue("lq-b", "default").
-			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
 			Obj(),
 		*utiltestingapi.MakeLocalQueue("lq-c", "default").
-			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
 			Obj(),
 	}
