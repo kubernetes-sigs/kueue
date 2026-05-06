@@ -109,19 +109,17 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 		testLocalQueueName = kueue.LocalQueueName("test-lq")
 	)
 
-	uniqueJobKind := "TestJobKind"
-
 	testCases := map[string]struct {
-		latency       time.Duration
-		wantSampleSum float64
+		jobKind string
 	}{
-		"10s latency": {
-			latency:       10 * time.Second,
-			wantSampleSum: 10.0,
+		"LeaderWorkerSet": {
+			jobKind: "LeaderWorkerSet",
 		},
-		"2s latency": {
-			latency:       2 * time.Second,
-			wantSampleSum: 2.0,
+		"GenericJob": {
+			jobKind: "Job",
+		},
+		"StatefulSet": {
+			jobKind: "StatefulSet",
 		},
 	}
 
@@ -130,7 +128,7 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 			metrics.WorkloadCreationLatency.Reset()
 
 			baseTime := time.Now().Truncate(time.Second)
-			jobCreationTime := baseTime.Add(-tc.latency)
+			jobCreationTime := baseTime.Add(-5 * time.Second)
 			job := testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
 				UID(testJobName).
 				Queue(testLocalQueueName).
@@ -140,14 +138,14 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 			wl := utiltestingapi.MakeWorkload("job-test-job", metav1.NamespaceDefault).Obj()
 			wl.CreationTimestamp = metav1.NewTime(baseTime)
 
-			RecordWorkloadCreationLatency(job, uniqueJobKind, wl, nil, nil)
+			RecordWorkloadCreationLatency(job, tc.jobKind, wl, nil, nil)
 
-			val, err := testutil.GetHistogramMetricValue(metrics.WorkloadCreationLatency.WithLabelValues(uniqueJobKind, roletracker.RoleStandalone))
+			val, err := testutil.GetHistogramMetricValue(metrics.WorkloadCreationLatency.WithLabelValues(tc.jobKind, roletracker.RoleStandalone))
 			if err != nil {
 				t.Fatalf("Failed to get histogram metric value: %v", err)
 			}
-			if val != tc.wantSampleSum {
-				t.Errorf("Expecting metric value %f, got %f", tc.wantSampleSum, val)
+			if val != 5.0 {
+				t.Errorf("Expecting metric value 5.0, got %f", val)
 			}
 		})
 	}
