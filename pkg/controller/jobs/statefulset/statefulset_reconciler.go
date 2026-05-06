@@ -50,8 +50,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -124,7 +124,7 @@ func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, 
 func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, pod *corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
 	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-		if ungateAndFinalize(sts, pod) {
+		if utilstatefulset.UngateAndFinalizePod(sts, pod, false) {
 			log.V(3).Info(
 				"Finalizing pod in group",
 				"pod", klog.KObj(pod),
@@ -134,31 +134,6 @@ func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, p
 		}
 		return false, nil
 	}))
-}
-
-func ungateAndFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	var updated bool
-
-	if shouldUngate(sts, pod) && utilpod.Ungate(pod, podconstants.SchedulingGateName) {
-		updated = true
-	}
-
-	// TODO (#8571): As discussed in https://github.com/kubernetes-sigs/kueue/issues/8571,
-	// this check should be removed in v0.20.
-	if shouldFinalize(sts, pod) && controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer) {
-		updated = true
-	}
-
-	return updated
-}
-
-func shouldUngate(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return sts == nil || sts.Status.CurrentRevision != sts.Status.UpdateRevision &&
-		sts.Status.CurrentRevision == pod.Labels[appsv1.ControllerRevisionHashLabelKey]
-}
-
-func shouldFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return shouldUngate(sts, pod) || utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil
 }
 
 func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
