@@ -21,8 +21,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 // PodSetReplicaSize is a minimal representation of a PodSet for the
@@ -73,4 +77,13 @@ func sanitizeContainer(container *corev1.Container) {
 	for _, envVars := range envVarGroups.InOrder {
 		container.Env = append(container.Env, envVars[len(envVars)-1])
 	}
+}
+
+// RecordWorkloadCreationLatency records the latency between job creation and workload creation.
+func RecordWorkloadCreationLatency(job client.Object, jobKind string, wl *kueue.Workload, customLabels *metrics.CustomLabels, tracker *roletracker.RoleTracker) {
+	jobCreationTime := job.GetCreationTimestamp().Time
+	wlCreationTime := wl.CreationTimestamp.Time
+	latency := wlCreationTime.Sub(jobCreationTime)
+	customLabelValues := customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
+	metrics.RecordWorkloadCreationLatency(jobKind, latency, customLabelValues, tracker)
 }

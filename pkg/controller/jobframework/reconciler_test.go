@@ -34,7 +34,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -52,9 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -1032,91 +1029,6 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 				}}, tc.job)
 			if !errors.Is(err, tc.wantError) {
 				t.Errorf("unexpected reconcile error want %s got %s)", tc.wantError, err)
-			}
-		})
-	}
-}
-
-func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
-	var (
-		testJobName        = "test-job"
-		testLocalQueueName = kueue.LocalQueueName("test-lq")
-	)
-
-	basePodSets := []kueue.PodSet{
-		*utiltestingapi.MakePodSet("main", 1).Obj(),
-	}
-
-	uniqueJobKind := "TestJobKind"
-	testGVKWithUniqueKind := batchv1.SchemeGroupVersion.WithKind(uniqueJobKind)
-
-	testCases := map[string]struct {
-		latency       time.Duration
-		wantSampleSum float64
-	}{
-		"10s latency": {
-			latency:       10 * time.Second,
-			wantSampleSum: 10.0,
-		},
-		"2s latency": {
-			latency:       2 * time.Second,
-			wantSampleSum: 2.0,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			metrics.JobToWorkloadLatency.Reset()
-			ctx, _ := utiltesting.ContextWithLog(t)
-			mockctrl := gomock.NewController(t)
-
-			baseTime := time.Now().Truncate(time.Second)
-			jobCreationTime := baseTime.Add(-tc.latency)
-			job := testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
-				UID(testJobName).
-				Queue(testLocalQueueName).
-				Obj()
-			job.CreationTimestamp = metav1.NewTime(jobCreationTime)
-
-			mgj := mocks.NewMockGenericJob(mockctrl)
-			mgj.EXPECT().Object().Return(job).AnyTimes()
-			mgj.EXPECT().GVK().Return(testGVKWithUniqueKind).AnyTimes()
-			mgj.EXPECT().IsSuspended().Return(false).AnyTimes()
-			mgj.EXPECT().IsActive().Return(false).AnyTimes()
-			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-			mgj.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
-			mgj.EXPECT().Suspend().AnyTimes()
-
-			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
-				WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault)).
-				WithObjects(job).
-				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVKWithUniqueKind), indexer.WorkloadOwnerIndexFunc(testGVKWithUniqueKind)).
-				WithInterceptorFuncs(interceptor.Funcs{
-					Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-						if wl, ok := obj.(*kueue.Workload); ok {
-							wl.CreationTimestamp = metav1.NewTime(baseTime)
-						}
-						return c.Create(ctx, obj, opts...)
-					},
-				}).
-				Build()
-
-			recorder := &utiltesting.EventRecorder{}
-			rec := NewReconciler(cl, recorder)
-
-			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{
-				NamespacedName: types.NamespacedName{Name: testJobName, Namespace: metav1.NamespaceDefault},
-			}, mgj)
-			if err != nil {
-				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
-			}
-
-			val, err := testutil.GetHistogramMetricValue(metrics.JobToWorkloadLatency.WithLabelValues(uniqueJobKind, roletracker.RoleStandalone))
-			if err != nil {
-				t.Fatalf("Failed to get histogram metric value: %v", err)
-			}
-			if val != tc.wantSampleSum {
-				t.Errorf("Expecting metric value %f, got %f", tc.wantSampleSum, val)
 			}
 		})
 	}

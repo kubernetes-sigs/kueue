@@ -1599,17 +1599,9 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	r.record.Eventf(object, corev1.EventTypeNormal, ReasonCreatedWorkload,
 		"Created Workload: %v", workload.Key(wl))
 
-	r.reportJobToWorkloadLatency(job, wl)
+	RecordWorkloadCreationLatency(job.Object(), job.GVK().Kind, wl, r.customLabels, r.RoleTracker())
 
 	return nil
-}
-
-func (r *JobReconciler) reportJobToWorkloadLatency(job GenericJob, wl *kueue.Workload) {
-	jobCreationTime := job.Object().GetCreationTimestamp().Time
-	wlCreationTime := wl.CreationTimestamp.Time
-	latency := wlCreationTime.Sub(jobCreationTime)
-	customLabelValues := r.customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
-	metrics.ReportJobToWorkloadLatency(job.GVK().Kind, latency, customLabelValues, r.RoleTracker())
 }
 
 func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error {
