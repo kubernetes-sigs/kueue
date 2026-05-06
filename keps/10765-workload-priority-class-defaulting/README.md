@@ -97,10 +97,22 @@ it via label; this feature only covers the case where no label is set at all.
 
 ### Risks and Mitigations
 
-Enabling this feature changes the priority of workloads that previously fell
-through to the Kubernetes PriorityClass default. Admins should set the `default`
-WorkloadPriorityClass value carefully before enabling the feature gate to avoid
-unexpected changes in queueing and preemption behavior.
+Enabling this feature only changes semantics in environments that already
+contain a `WorkloadPriorityClass` named `default`: workloads submitted without a
+`kueue.x-k8s.io/priority-class` label, which previously fell through to the
+Kubernetes PriorityClass chain, will instead inherit the priority of the
+`default` WorkloadPriorityClass. Environments without a `default`
+WorkloadPriorityClass are not affected.
+
+To mitigate the risk for affected environments:
+
+- The `WorkloadPriorityClassDefaulting` feature gate allows admins to disable
+  the mechanism while in Beta in case their environments are negatively
+  affected.
+- The behavior change will be called out in the release notes so that admins
+  upgrading Kueue can review their existing `WorkloadPriorityClass` resources
+  and decide whether to rename the `default` one or adjust its value before
+  enabling the feature gate.
 
 ## Design Details
 
