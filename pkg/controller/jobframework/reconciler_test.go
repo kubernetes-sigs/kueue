@@ -418,7 +418,7 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			expectedActive: false,
 		},
 		"marks workload active when job requests": {
-			initialActive:  ptr.To(false),
+			initialActive:  new(false),
 			jobActive:      true,
 			expectedActive: true,
 		},
@@ -434,7 +434,7 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			if tc.initialActive == nil {
 				wl.Spec.Active = nil
 			} else {
-				wl.Spec.Active = ptr.To(*tc.initialActive)
+				wl.Spec.Active = new(*tc.initialActive)
 			}
 
 			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
@@ -761,7 +761,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 							APIVersion: awv1beta2.GroupVersion.String(),
 							Kind:       awv1beta2.AppWrapperKind,
 							UID:        "aw",
-							Controller: ptr.To(true),
+							Controller: new(true),
 						}},
 					},
 				},
@@ -784,7 +784,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 							APIVersion: awv1beta2.GroupVersion.String(),
 							Kind:       awv1beta2.AppWrapperKind,
 							UID:        "aw",
-							Controller: ptr.To(true),
+							Controller: new(true),
 						}},
 					},
 				},
@@ -807,7 +807,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 							APIVersion: appsv1.SchemeGroupVersion.String(),
 							Kind:       "Deployment",
 							UID:        "deploy",
-							Controller: ptr.To(true),
+							Controller: new(true),
 						}},
 					},
 				},
