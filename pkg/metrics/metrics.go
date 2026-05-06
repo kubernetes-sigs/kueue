@@ -271,6 +271,16 @@ var (
 	// +metricsdoc:group=cohort
 	// +metricsdoc:labels=cohort="the name of the Cohort",replica_role="one of `leader`, `follower`, or `standalone`"
 	CohortSubtreeAdmittedActiveWorkloads *prometheus.GaugeVec
+
+	// ClusterQueue metric
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
+	SchedulingGoodput *prometheus.HistogramVec
+
+	// LocalQueue metric
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueueSchedulingGoodput *prometheus.HistogramVec
 )
 
 type gaugeCleanupScope uint8
@@ -831,6 +841,34 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, append([]string{"cohort", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(CohortSubtreeAdmittedActiveWorkloads)
+
+	SchedulingGoodput = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "scheduling_goodput",
+			Help: "The ratio of time spent in execution to total lifetime " +
+				"(from creation to finish) for finished workloads, per 'cluster_queue'. " +
+				"Execution time is measured as the cumulative time the workload spent in " +
+				"Admitted state across all admission cycles. " +
+				"A value of 1.0 means the workload started executing immediately upon creation. " +
+				"A value near 0.0 means the workload's lifetime was dominated by queuing.",
+			Buckets: prometheus.LinearBuckets(0, 0.1, 11),
+		}, append([]string{"cluster_queue", "priority_class", "replica_role"}, extraLabels...),
+	)
+
+	LocalQueueSchedulingGoodput = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_scheduling_goodput",
+			Help: "The ratio of time spent in execution to total lifetime " +
+				"(from creation to finish) for finished workloads, per 'local_queue'. " +
+				"Execution time is measured as the cumulative time the workload spent in " +
+				"Admitted state across all admission cycles. " +
+				"A value of 1.0 means the workload started executing immediately upon creation. " +
+				"A value near 0.0 means the workload's lifetime was dominated by queuing.",
+			Buckets: prometheus.LinearBuckets(0, 0.1, 11),
+		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, extraLabels...),
+	)
 }
 
 func init() {
@@ -1005,6 +1043,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 	// Histogram vec, not cleared by gauge cleanup above.
 	WorkloadEvictionLatencySeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	SchedulingGoodput.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
 func ClearClusterQueueMetricsOnLabelChange(cq kueue.ClusterQueueReference) {
@@ -1025,6 +1064,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueQueuedUntilReadyWaitTime.DeletePartialMatch(lbls)
 	LocalQueueAdmittedUntilReadyWaitTime.DeletePartialMatch(lbls)
 	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(lbls)
+	LocalQueueSchedulingGoodput.DeletePartialMatch(lbls)
 }
 
 func ClearCohortMetrics(cohortName kueue.CohortReference) {
@@ -1259,6 +1299,16 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 	ClusterQueueResourceReservations.DeletePartialMatch(lbls)
 }
 
+func ReportSchedulingGoodput(cqName kueue.ClusterQueueReference, priorityClassName string, goodput float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), priorityClassName, roletracker.GetRole(tracker)}, customLabelValues...)
+	SchedulingGoodput.WithLabelValues(labels...).Observe(goodput)
+}
+
+func ReportLocalQueueSchedulingGoodput(lq LocalQueueReference, priorityClassName string, goodput float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, priorityClassName, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueSchedulingGoodput.WithLabelValues(labels...).Observe(goodput)
+}
+
 func Register() {
 	metrics.Registry.MustRegister(
 		buildInfo,
@@ -1294,6 +1344,7 @@ func Register() {
 		CohortSubtreeAdmittedWorkloadsTotal,
 		CohortSubtreeResourceReservations,
 		CohortSubtreeAdmittedActiveWorkloads,
+		SchedulingGoodput,
 	)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
@@ -1318,5 +1369,6 @@ func RegisterLQMetrics() {
 		LocalQueueByStatus,
 		LocalQueueResourceReservations,
 		LocalQueueResourceUsage,
+		LocalQueueSchedulingGoodput,
 	)
 }
