@@ -418,7 +418,7 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			expectedActive: false,
 		},
 		"marks workload active when job requests": {
-			initialActive:  new(false),
+			initialActive:  ptr.To(false),
 			jobActive:      true,
 			expectedActive: true,
 		},
@@ -434,7 +434,7 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			if tc.initialActive == nil {
 				wl.Spec.Active = nil
 			} else {
-				wl.Spec.Active = new(*tc.initialActive)
+				wl.Spec.Active = ptr.To(*tc.initialActive)
 			}
 
 			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
@@ -761,7 +761,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 							APIVersion: awv1beta2.GroupVersion.String(),
 							Kind:       awv1beta2.AppWrapperKind,
 							UID:        "aw",
-							Controller: new(true),
+							Controller: ptr.To(true),
 						}},
 					},
 				},
@@ -784,7 +784,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 							APIVersion: awv1beta2.GroupVersion.String(),
 							Kind:       awv1beta2.AppWrapperKind,
 							UID:        "aw",
-							Controller: new(true),
+							Controller: ptr.To(true),
 						}},
 					},
 				},
@@ -807,7 +807,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 							APIVersion: appsv1.SchemeGroupVersion.String(),
 							Kind:       "Deployment",
 							UID:        "deploy",
-							Controller: new(true),
+							Controller: ptr.To(true),
 						}},
 					},
 				},
@@ -1051,16 +1051,16 @@ func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
 	testGVKWithUniqueKind := batchv1.SchemeGroupVersion.WithKind(uniqueJobKind)
 
 	testCases := map[string]struct {
-		role     string
-		wantRole string
+		latency     time.Duration
+		wantLatency float64
 	}{
-		"standalone role": {
-			role:     roletracker.RoleStandalone,
-			wantRole: roletracker.RoleStandalone,
+		"10s latency": {
+			latency:     10 * time.Second,
+			wantLatency: 10.0,
 		},
-		"leader role": {
-			role:     roletracker.RoleLeader,
-			wantRole: roletracker.RoleLeader,
+		"2s latency": {
+			latency:     2 * time.Second,
+			wantLatency: 2.0,
 		},
 	}
 
@@ -1070,7 +1070,8 @@ func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			mockctrl := gomock.NewController(t)
 
-			jobCreationTime := time.Now().Add(-10 * time.Second)
+			baseTime := time.Now().Truncate(time.Second)
+			jobCreationTime := baseTime.Add(-tc.latency)
 			job := testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
 				UID(testJobName).
 				Queue(testLocalQueueName).
@@ -1090,14 +1091,18 @@ func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
 				WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault)).
 				WithObjects(job).
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVKWithUniqueKind), indexer.WorkloadOwnerIndexFunc(testGVKWithUniqueKind)).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+						if wl, ok := obj.(*kueue.Workload); ok {
+							wl.CreationTimestamp = metav1.NewTime(baseTime)
+						}
+						return c.Create(ctx, obj, opts...)
+					},
+				}).
 				Build()
 
 			recorder := &utiltesting.EventRecorder{}
-			var options []Option
-			if tc.role != "" {
-				options = append(options, WithRoleTracker(roletracker.NewFakeRoleTracker(tc.role)))
-			}
-			rec := NewReconciler(cl, recorder, options...)
+			rec := NewReconciler(cl, recorder)
 
 			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{Name: testJobName, Namespace: metav1.NamespaceDefault},
@@ -1106,12 +1111,20 @@ func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
 				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
 			}
 
-			count, err := testutil.GetHistogramMetricCount(metrics.JobToWorkloadLatency.WithLabelValues(uniqueJobKind, tc.wantRole))
+			count, err := testutil.GetHistogramMetricCount(metrics.JobToWorkloadLatency.WithLabelValues(uniqueJobKind, roletracker.RoleStandalone))
 			if err != nil {
 				t.Fatalf("Failed to get histogram metric count: %v", err)
 			}
 			if count != 1 {
 				t.Errorf("Expecting 1 metric observation, got %d", count)
+			}
+
+			val, err := testutil.GetHistogramMetricValue(metrics.JobToWorkloadLatency.WithLabelValues(uniqueJobKind, roletracker.RoleStandalone))
+			if err != nil {
+				t.Fatalf("Failed to get histogram metric value: %v", err)
+			}
+			if val != tc.wantLatency {
+				t.Errorf("Expecting metric value %f, got %f", tc.wantLatency, val)
 			}
 		})
 	}
