@@ -198,10 +198,7 @@ func (r Requests) CountInWithLimitingResource(capacity Requests) (int32, corev1.
 			// and integer division would yield a negative count. A negative
 			// "fits N times" is meaningless; downstream consumers (TAS
 			// assignments, quota accounting) treat this as a hard 0.
-			count = int32(cap / rValue)
-			if count < 0 {
-				count = 0
-			}
+			count = max(int32(cap/rValue), 0)
 		}
 		// Tie-break between CPU and memory counts to ensure deterministic results.
 		if result == nil || count < *result || (count == *result && rName < limitingResource) {
