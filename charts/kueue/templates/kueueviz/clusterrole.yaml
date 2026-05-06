@@ -30,6 +30,6 @@ rules:
     resources: ["pods", "events", "nodes"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["kueue.x-k8s.io"]
-    resources: ["workloadpriorityclass"]
+    resources: ["workloadpriorityclasses"]
     verbs: ["get", "list", "watch"]
 {{- end }}
