@@ -460,7 +460,7 @@ func (s *Scheduler) processEntry(
 	}
 
 	if features.Enabled(features.ConcurrentAdmission) {
-		lessFavorableSibling, err := s.findAdmittedLessFavorableSibling(log, &e.Info, snapshot)
+		lessFavorableSibling, err := s.findAdmittedLessFavorableSibling(&e.Info, snapshot)
 		if err != nil {
 			log.Error(err, "Failed to check for less favorable sibling")
 			e.markSkipped(fmt.Sprintf("Error checking for less favorable sibling: %v", err))
@@ -1126,7 +1126,7 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 // A Sibling is a Workload belonging to the same Parent Workload (part of the
 // Concurrent Admission feature). Favorability is determined by the order of
 // Resource Flavors defined in the ClusterQueue
-func (s *Scheduler) findAdmittedLessFavorableSibling(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (*workload.Info, error) {
+func (s *Scheduler) findAdmittedLessFavorableSibling(wl *workload.Info, snap *schdcache.Snapshot) (*workload.Info, error) {
 	return s.findAdmittedSibling(wl, snap, func(siblingIdx, wlIdx int) bool {
 		return siblingIdx > wlIdx // larger index means less favorable
 	})
