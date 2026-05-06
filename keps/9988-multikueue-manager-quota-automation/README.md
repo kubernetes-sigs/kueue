@@ -81,7 +81,7 @@ While this approach offers simplicity and network savings, it also leads to prob
 3. For the MultiKueue controller on the manager cluster, having no awareness of workers' quotas (and their usage) **prevents more effective dispatching** choices. \
    Even though we generally don't want the manager to take over _the whole_ orchestrating work from the workers (as we intend to share it between both sides), some improvements are likely possible. For example, if a workload fits within the quota of worker A but not of worker B, there is no point in dispatching it to B before A. (At least, unless B could admit it through borrowing).
 
-   While designing specific improvements to dispatching is **out of scope** of this KEP, all this improvements require as the **first step** that the manager *knows* workers' quotas, which this KEP proposes. \
+   While designing specific improvements to dispatching is **out of scope** of this KEP, all these improvements require as the **first step** that the manager *knows* workers' quotas, which this KEP proposes. \
    (Then, the second step would be to let the manager *persist* this information. That part is not proposed in this KEP, as it's not needed for its goals; however, it will be proposed in the KEP for issue [#10105](https://github.com/kubernetes-sigs/kueue/issues/10105)).
 
 ### Goals
@@ -162,11 +162,11 @@ While the "baseline approach" (keep manager quota **equal** to total worker quot
 
 ##### Potential reasons for decreasing manager quota
 
-1. **Stray workloads on a worker**. When a LocalQueue `lq` points to a ClusterQueue `cq`, both on the manager and a worker, there are numerous ways to have a workload admitted to `cq` on the worker but on the manager:
+1. **Stray workloads on a worker**. When a LocalQueue `lq` points to a ClusterQueue `cq`, both on the manager and a worker, there are numerous ways to have a workload admitted to `cq` on a worker but not on the manager:
 
-   * the worker could be submitted directly to `lq` on the worker, "by-passing" MultiKueue;
-   * the worker could be submitted to another LocalQueue `lq2` on the worker, where `lq2` also points to `cq` on the worker but is unrelated to MultiKueue;
-   * the worker could be submitted to another LocalQueue `lq2` on the worker, while `lq2` exists on the manager but points to another `cq2` with MultiKueue enabled.
+   * the workload could be submitted directly to `lq` on the worker, "by-passing" MultiKueue;
+   * the workload could be submitted to another LocalQueue `lq2` on the worker, where `lq2` also points to `cq` on the worker but is unrelated to MultiKueue;
+   * the workload could be submitted to another LocalQueue `lq2` on the worker, while `lq2` exists on the manager but points to another `cq2` with MultiKueue enabled.
 
    Some users consider such scenarios valid, and expressed a desire to keep a part of the worker capacity reserved for such "stray workloads". In such cases, the manager quota should be accordingly _decreased_.
 
@@ -203,7 +203,7 @@ As a result, multiple flavors on the manager side _should not be needed for most
 * Using a flavor-aware custom MultiKueue dispatcher.
 * Using TAS on the workers, with incompatible names of topology levels on different workers.
 
-Our proposal for now is to leave this cases unsupported. (Some other ideas are discussed below, see [here](#change-the-treatment-of-resourceflavors), [here](#support-quota-automation-for-multiple-manager-side-resourceflavors) and [here](#support-quota-automation-for-no-manager-side-resourceflavors-auto-create-one)).
+Our proposal for now is to leave these cases unsupported. (Some other ideas are discussed below, see [here](#change-the-treatment-of-resourceflavors), [here](#support-quota-automation-for-multiple-manager-side-resourceflavors) and [here](#support-quota-automation-for-no-manager-side-resourceflavors-auto-create-one)).
 
 ### Risks and Mitigations
 
@@ -235,7 +235,8 @@ type MultiKueueConfigSpec struct {
    // ...
 
    // quotaAutomation specifies the automation behavior of ClusterQueue quotas 
-   // in the manager cluster.
+   // in the manager cluster. 
+   // If unspecified, the default mode depends on the MultiKueueQuotaAutomation feature gate.
    QuotaAutomation *QuotaAutomation `json:"quotaAutomation,omitempty"`
 }
 
@@ -396,14 +397,15 @@ We postpone this because it adds some complexity, and the impact feels minor.
 
 * **Beta:**
   * The feature gate is enabled by default.
-  * The feature has been succesfully used in production environment.
+  * User documentation is published on the website.
+  * The feature has been successfully used in a production environment.
   * [Possible follow-ups](#possible-follow-ups) have been reconsidered, based on any newly gathered feedback.
   * No warning signs on performance were seen (in particular, no news of any external automation of worker ClusterQueue quotas) - or, if any were, they have been addressed.
   * Issue [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) (see [Drawback #1](#drawbacks)) is diagnosed, its impact on quota automation is understood and any mitigations deemed necessary are implemented.
 
 * **Stable:**
   * The feature (offered functionality, API surface and implementation) has stabilized, without raising concerns.
-  * The feature gate is removed.
+  * The feature gate is locked to `true` (and then cleaned up in a later release).
 
 ## Drawbacks
 
