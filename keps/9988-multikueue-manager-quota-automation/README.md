@@ -515,6 +515,7 @@ We postpone this because it adds some complexity, and the impact feels minor.
 * **Beta:**
   * The feature gate is enabled by default.
   * User documentation is published on the website.
+  * The feature is mentioned in the release notes, in particular mentioning how to opt out.
   * The feature has been successfully used in a production environment.
   * [Possible follow-ups](#possible-follow-ups) have been reconsidered, based on any newly gathered feedback.
   * No warning signs on performance were seen (in particular, no news of any external automation of worker ClusterQueue quotas) - or, if any were, they have been addressed.
