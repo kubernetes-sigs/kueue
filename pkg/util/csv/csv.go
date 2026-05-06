@@ -14,12 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package admissiongates
+package csv
 
 import "strings"
 
-// Parsers a string containing comma-separated AdmissionGate names and removes
-// leading and trailing spaces around Gate names
+// Parse parses a string containing comma-separated names and removes
+// leading and trailing spaces around names.
 func Parse(s string) []string {
 	if strings.TrimSpace(s) == "" {
 		return []string{}
@@ -31,6 +31,7 @@ func Parse(s string) []string {
 	return parts
 }
 
-func Serialize(gates []string) string {
-	return strings.Join(gates, ",")
+// Serialize joins a slice of strings with commas.
+func Serialize(elems []string) string {
+	return strings.Join(elems, ",")
 }

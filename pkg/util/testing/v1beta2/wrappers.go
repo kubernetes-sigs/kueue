@@ -33,10 +33,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/csv"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 // MakeDefaultOneLevelTopology creates a default topology with hostname level.
@@ -426,7 +426,7 @@ func (w *WorkloadWrapper) AllowedFlavors(flavors ...kueue.ResourceFlavorReferenc
 	if w.ObjectMeta.Annotations == nil {
 		w.ObjectMeta.Annotations = make(map[string]string, 1)
 	}
-	allowedFlavors := concurrentadmission.SerializeAllowedFlavors(utilslices.Map(flavors, func(f *kueue.ResourceFlavorReference) string { return string(*f) }))
+	allowedFlavors := csv.Serialize(utilslices.Map(flavors, func(f *kueue.ResourceFlavorReference) string { return string(*f) }))
 	w.ObjectMeta.Annotations[constants.WorkloadAllowedResourceFlavorAnnotation] = allowedFlavors
 	return w
 }
