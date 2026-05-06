@@ -30,7 +30,7 @@ rules:
     resources: ["pods", "events", "nodes"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["kueue.x-k8s.io"]
-    resources: ["workloadpriorityclass"]
+    resources: ["workloadpriorityclasses"]
     verbs: ["get", "list", "watch"]
 {{- if ne .Values.kueueViz.backend.auth.mode "Disabled" }}
   - apiGroups: ["authentication.k8s.io"]
