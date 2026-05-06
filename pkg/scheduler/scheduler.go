@@ -1122,10 +1122,6 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 
 // findAdmittedLessFavorableSibling returns an admitted Sibling Workload that has a
 // less favorable Resource Flavor assignment than the provided Workload.
-//
-// A Sibling is a Workload belonging to the same Parent Workload (part of the
-// Concurrent Admission feature). Favorability is determined by the order of
-// Resource Flavors defined in the ClusterQueue
 func (s *Scheduler) findAdmittedLessFavorableSibling(wl *workload.Info, snap *schdcache.Snapshot) (*workload.Info, error) {
 	return s.findAdmittedSibling(wl, snap, func(siblingIdx, wlIdx int) bool {
 		return siblingIdx > wlIdx // larger index means less favorable
@@ -1134,17 +1130,17 @@ func (s *Scheduler) findAdmittedLessFavorableSibling(wl *workload.Info, snap *sc
 
 // findAdmittedMoreFavorableSibling returns an admitted Sibling Workload that has a
 // more favorable Resource Flavor assignment than the provided Workload.
-//
-// A Sibling is a Workload belonging to the same Parent Workload (part of the
-// Concurrent Admission feature). Favorability is determined by the order of
-// Resource Flavors defined in the ClusterQueue
 func (s *Scheduler) findAdmittedMoreFavorableSibling(wl *workload.Info, snap *schdcache.Snapshot) (*workload.Info, error) {
 	return s.findAdmittedSibling(wl, snap, func(siblingIdx, wlIdx int) bool {
 		return wlIdx > siblingIdx
 	})
 }
 
-// findAdmittedSibling is a helper that finds an admitted sibling workload matching the comparison criteria.
+// findAdmittedSibling is a helper that finds an admitted Sibling Workload matching the comparison criteria.
+//
+// A Sibling is a Workload belonging to the same Parent Workload (part of the
+// Concurrent Admission feature). Favorability is determined by the order of
+// Resource Flavors defined in the ClusterQueue
 func (s *Scheduler) findAdmittedSibling(wl *workload.Info, snap *schdcache.Snapshot, compareFunc func(siblingIdx, wlIdx int) bool) (*workload.Info, error) {
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return nil, nil
