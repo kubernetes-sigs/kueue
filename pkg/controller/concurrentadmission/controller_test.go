@@ -128,20 +128,18 @@ func TestReconcile(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-12345"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonCreatedVariant,
-					Message:   "Variant Workload default/parent-variant-spot-545ad created",
+					Message:   "Variant Workload \"default/wl-variant-spot-a2342\" created",
 				},
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-12345"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonCreatedVariant,
-					Message:   "Variant Workload default/parent-variant-on-demand-39893 created",
+					Message:   "Variant Workload \"default/wl-variant-on-demand-480a3\" created",
 				},
 			},
-			wantResult: reconcile.Result{},
-			wantErr:    false,
 		},
 		"parent workload with missing variants; creates missing": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -173,14 +171,12 @@ func TestReconcile(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-12345"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonCreatedVariant,
-					Message:   "Variant Workload default/parent-variant-on-demand-39893 created",
+					Message:   "Variant Workload \"default/wl-variant-on-demand-480a3\" created",
 				},
 			},
-			wantResult: reconcile.Result{},
-			wantErr:    false,
 		},
 		"admitted variant syncs admission to parent": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -390,7 +386,7 @@ func TestReconcile(t *testing.T) {
 					AllowedFlavors("on-demand").
 					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					Active(false).
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -437,8 +433,16 @@ func TestReconcile(t *testing.T) {
 					AllowedFlavors("on-demand").
 					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "parent-12345", "").
+					Active(true).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonActivatedVariant,
+					Message:   "Variant Workload activated due to Variant \"default/wl-variant-on-demand\" no admitted variant",
+				},
 			},
 		},
 		"with minTargetFlavor=reservation, variant admitted on spot, deactivate on-demand": {
@@ -520,10 +524,10 @@ func TestReconcile(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-on-demand"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to Variant default/parent-variant-on-demand below minPreferredFlavor: reservation",
+					Message:   "Variant Workload deactivated due to Variant \"default/wl-variant-on-demand\" below minPreferredFlavor: \"reservation\"",
 				},
 			},
 		},
@@ -606,10 +610,10 @@ func TestReconcile(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-spot"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-spot"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to Variant default/parent-variant-spot below minPreferredFlavor: reservation",
+					Message:   "Variant Workload deactivated due to Variant \"default/wl-variant-spot\" below minPreferredFlavor: \"reservation\"",
 				},
 			},
 		},
@@ -693,16 +697,16 @@ func TestReconcile(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-on-demand"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to Variant default/parent-variant-on-demand below minPreferredFlavor: reservation",
+					Message:   "Variant Workload deactivated due to Variant \"default/wl-variant-on-demand\" below minPreferredFlavor: \"reservation\"",
 				},
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-spot"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-spot"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to Variant default/parent-variant-spot below minPreferredFlavor: reservation",
+					Message:   "Variant Workload deactivated due to Variant \"default/wl-variant-spot\" below minPreferredFlavor: \"reservation\"",
 				},
 			},
 		},
@@ -862,10 +866,10 @@ func TestReconcile(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-spot"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-spot"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to Variant default/parent-variant-spot below admitted variant default/parent-variant-on-demand",
+					Message:   "Variant Workload deactivated due to Variant \"default/wl-variant-spot\" below admitted variant \"default/wl-variant-on-demand\"",
 				},
 			},
 		},
@@ -949,16 +953,16 @@ func TestReconcile(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-on-demand"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to Variant default/parent-variant-on-demand below admitted variant default/parent-variant-reservation",
+					Message:   "Variant Workload deactivated due to Variant \"default/wl-variant-on-demand\" below admitted variant \"default/wl-variant-reservation\"",
 				},
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-spot"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-spot"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to Variant default/parent-variant-spot below admitted variant default/parent-variant-reservation",
+					Message:   "Variant Workload deactivated due to Variant \"default/wl-variant-spot\" below admitted variant \"default/wl-variant-reservation\"",
 				},
 			},
 		},
@@ -1071,20 +1075,18 @@ func TestReconcile(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-spot"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-spot"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to Parent Workload default/parent-12345 not active",
+					Message:   "Variant Workload deactivated due to Parent Workload \"default/wl-12345\" not active",
 				},
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "parent-variant-on-demand"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to Parent Workload default/parent-12345 not active",
+					Message:   "Variant Workload deactivated due to Parent Workload \"default/wl-12345\" not active",
 				},
 			},
-			wantResult: reconcile.Result{},
-			wantErr:    false,
 		},
 		"parent changes WaitForPodsReady from False to True, syncs to admitted variant": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
