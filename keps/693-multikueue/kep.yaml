@@ -23,7 +23,7 @@ latest-milestone: "v0.17"
 milestone:
   alpha: "v0.6"
   beta: "v0.8"
-  stable: "v0.17"
+  stable: TBD
 
 feature-gates:
   - MultiKueue
