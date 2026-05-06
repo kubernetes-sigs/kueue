@@ -637,9 +637,9 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 
 		groupFlavors := make(ResourceAssignment)
 		for _, ips := range podSets {
-			for resName := range ips.podSetAssignment.Flavors {
-				groupFlavors[resName] = ips.podSetAssignment.Flavors[resName]
-				break
+			// Seed the dedup memo with every prior-pass assignment, not just one.
+			for resName, fa := range ips.podSetAssignment.Flavors {
+				groupFlavors[resName] = fa
 			}
 		}
 		var groupStatus Status
