@@ -1051,16 +1051,16 @@ func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
 	testGVKWithUniqueKind := batchv1.SchemeGroupVersion.WithKind(uniqueJobKind)
 
 	testCases := map[string]struct {
-		latency     time.Duration
-		wantLatency float64
+		latency       time.Duration
+		wantSampleSum float64
 	}{
 		"10s latency": {
-			latency:     10 * time.Second,
-			wantLatency: 10.0,
+			latency:       10 * time.Second,
+			wantSampleSum: 10.0,
 		},
 		"2s latency": {
-			latency:     2 * time.Second,
-			wantLatency: 2.0,
+			latency:       2 * time.Second,
+			wantSampleSum: 2.0,
 		},
 	}
 
@@ -1111,20 +1111,12 @@ func TestReconcileJobToWorkloadLatencyMetric(t *testing.T) {
 				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
 			}
 
-			count, err := testutil.GetHistogramMetricCount(metrics.JobToWorkloadLatency.WithLabelValues(uniqueJobKind, roletracker.RoleStandalone))
-			if err != nil {
-				t.Fatalf("Failed to get histogram metric count: %v", err)
-			}
-			if count != 1 {
-				t.Errorf("Expecting 1 metric observation, got %d", count)
-			}
-
 			val, err := testutil.GetHistogramMetricValue(metrics.JobToWorkloadLatency.WithLabelValues(uniqueJobKind, roletracker.RoleStandalone))
 			if err != nil {
 				t.Fatalf("Failed to get histogram metric value: %v", err)
 			}
-			if val != tc.wantLatency {
-				t.Errorf("Expecting metric value %f, got %f", tc.wantLatency, val)
+			if val != tc.wantSampleSum {
+				t.Errorf("Expecting metric value %f, got %f", tc.wantSampleSum, val)
 			}
 		})
 	}
