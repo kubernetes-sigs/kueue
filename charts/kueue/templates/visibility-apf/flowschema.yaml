@@ -29,7 +29,7 @@ spec:
     type: ByUser
   matchingPrecedence: 9000
   priorityLevelConfiguration:
-    name: kueue-visibility
+    name: '{{ include "kueue.fullname" . }}-visibility'
   rules:
     - resourceRules:
         - apiGroups:
