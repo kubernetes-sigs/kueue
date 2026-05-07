@@ -246,6 +246,11 @@ func validateConcurrentAdmissionPolicy(cq *kueue.ClusterQueue, path *field.Path)
 			"cannot have more than 16 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined"))
 	}
 
+	if cq.Spec.QueueingStrategy == kueue.StrictFIFO {
+		allErrs = append(allErrs, field.Invalid(path.Child("queueingStrategy"), cq.Spec.QueueingStrategy,
+			"StrictFIFO queueing strategy cannot be used when ConcurrentAdmissionPolicy is defined"))
+	}
+
 	return allErrs
 }
 

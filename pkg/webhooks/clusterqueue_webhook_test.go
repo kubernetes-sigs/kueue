@@ -391,6 +391,19 @@ func TestValidateClusterQueue(t *testing.T) {
 				Obj(),
 		},
 		{
+			name: "ConcurrentAdmissionPolicy with StrictFIFO queueing strategy is invalid",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				QueueingStrategy(kueue.StrictFIFO).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("queueingStrategy"), kueue.StrictFIFO, "StrictFIFO queueing strategy cannot be used when ConcurrentAdmissionPolicy is defined"),
+			},
+			wantDetail:   "StrictFIFO queueing strategy cannot be used when ConcurrentAdmissionPolicy is defined",
+			wantBadValue: string(kueue.StrictFIFO),
+		},
+		{
 			name: "ConcurrentAdmissionPolicy with more than one ResourceGroup",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
