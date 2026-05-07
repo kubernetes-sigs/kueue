@@ -162,7 +162,7 @@ test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
 
 .PHONY: test-tas-e2e
-test-tas-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-tas-e2e: test-tas-e2e-baseline test-tas-e2e-extended
 
 .PHONY: test-tas-e2e-baseline
 test-tas-e2e-baseline: setup-e2e-env run-test-tas-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
