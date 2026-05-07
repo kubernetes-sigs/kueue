@@ -30,6 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // JobWrapper wraps a Job.
@@ -52,7 +53,7 @@ func MakeJob(name, ns string) *JobWrapper {
 					Containers: []corev1.Container{
 						{
 							Name:      "c",
-							Image:     "pause",
+							Image:     utiltestingjobs.TestDefaultContainerImage,
 							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}},
 						},
 					},
