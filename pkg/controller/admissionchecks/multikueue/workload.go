@@ -699,16 +699,6 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
 
-	// Skip while the local workload is being evicted. Touching remote workloads
-	// here (specifically deleting the remote that holds Evicted=True) breaks the
-	// SyncJob propagation that reconcileGroup relies on to surface the
-	// remote job's termination to the manager Job. Until QuotaReserved is unset
-	// by the Job reconciler and the workload is requeued, leave the remotes alone.
-	if workload.IsEvicted(group.local) {
-		log.V(3).Info("Workload is being evicted, skip nomination and synchronization")
-		return reconcile.Result{}, nil
-	}
-
 	componentWorkloads, err := w.listComponentWorkloads(ctx, group.local)
 	if err != nil {
 		return reconcile.Result{}, err
@@ -787,6 +777,18 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 				}
 			}
 		} else if remoteWl != nil {
+			// Preserve a remote workload that is currently Evicted: reconcileGroup's
+			// needs it (with WorkloadEvicted=True) to call SyncJob and
+			// propagate the remote job's termination back to the manager Job.
+			// Deleting it here breaks the eviction-recovery flow because
+			// bestMatchByCondition(WorkloadEvicted) becomes nil, SyncJob is no
+			// longer called, and the manager Job's Status.Active is never updated.
+			// The remote will be cleaned up later, once the local workload is
+			// re-admitted (or finishes / loses its quota reservation).
+			if workload.IsEvicted(remoteWl) {
+				log.V(3).Info("Preserving evicted remote workload to allow eviction-recovery sync", "remote", rem)
+				continue
+			}
 			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
 				log.V(2).Error(err, "removing non-nominated remote object", "remote", rem)
 				errs = append(errs, err)
