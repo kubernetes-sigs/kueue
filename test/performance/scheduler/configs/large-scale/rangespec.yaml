@@ -12,8 +12,8 @@
 #   6. Set clusterQueueClassesMinUsage = mean − 7% (rounded down to 0.1%)
 
 cmd:
-  # Placeholder: set to 15 minutes (~2.1× baseline). Replace after calibration.
-  maxWallMs: 900_000
+  # Placeholder: set to 25 minutes (~3.5× baseline). Replace after calibration.
+  maxWallMs: 1_500_000
 
 clusterQueueClassesMinUsage:
   # Placeholder: same as baseline. Replace after calibration.
@@ -22,8 +22,8 @@ clusterQueueClassesMinUsage:
 wlClassesMaxAvgTimeToAdmissionMs:
   # Placeholder values — scale from baseline proportionally.
   # Baseline (15k wl, 30 CQ): large=11_000, medium=90_000, small=260_000
-  # Large-scale (30k wl, 1000 CQ): scaled ~2× baseline admission times.
+  # Large-scale (60k wl, 2000 CQ): scaled ~2× baseline admission times.
   # Replace after calibration.
-  large: 60_000
+  large: 150_000
   medium: 500_000
   small: 1_500_000
