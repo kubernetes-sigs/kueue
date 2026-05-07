@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 )
 
@@ -88,7 +89,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -116,7 +117,7 @@ func TestReconciler(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+							{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 						},
 					},
 				}).
@@ -128,7 +129,7 @@ func TestReconciler(t *testing.T) {
 					LeaderTemplate(corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Name: "c", Image: "pause"},
+								{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 							},
 						},
 					}).
@@ -146,11 +147,11 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj(),
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj(),
 					).
 					Priority(0).
@@ -180,7 +181,7 @@ func TestReconciler(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+							{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 						},
 					},
 				}).
@@ -193,7 +194,7 @@ func TestReconciler(t *testing.T) {
 					LeaderTemplate(corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Name: "c", Image: "pause"},
+								{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 							},
 						},
 					}).
@@ -211,11 +212,11 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj(),
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj(),
 					).
 					Priority(0).
@@ -231,11 +232,11 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj(),
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj(),
 					).
 					Priority(0).
@@ -285,7 +286,7 @@ func TestReconciler(t *testing.T) {
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+							{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 						},
 					},
 				}).
@@ -302,7 +303,7 @@ func TestReconciler(t *testing.T) {
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+							{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 						},
 					},
 				}).
@@ -325,7 +326,7 @@ func TestReconciler(t *testing.T) {
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Name: "c", Image: "pause"},
+								{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 							},
 						},
 					}).
@@ -342,7 +343,7 @@ func TestReconciler(t *testing.T) {
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Name: "c", Image: "pause"},
+								{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 							},
 						},
 					}).
@@ -362,13 +363,13 @@ func TestReconciler(t *testing.T) {
 							Annotations(map[string]string{"custom-leader-annotation": "leader-value"}).
 							Labels(map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj(),
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							Annotations(map[string]string{"custom-worker-annotation": "worker-value"}).
 							Labels(map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj(),
 					).
 					Priority(0).
@@ -399,7 +400,7 @@ func TestReconciler(t *testing.T) {
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+							{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 						},
 					},
 				}).
@@ -411,7 +412,7 @@ func TestReconciler(t *testing.T) {
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+							{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 						},
 					},
 				}).
@@ -428,7 +429,7 @@ func TestReconciler(t *testing.T) {
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Name: "c", Image: "pause"},
+								{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 							},
 						},
 					}).
@@ -440,7 +441,7 @@ func TestReconciler(t *testing.T) {
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Name: "c", Image: "pause"},
+								{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 							},
 						},
 					}).
@@ -458,13 +459,13 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							RequiredTopologyRequest("cloud.com/block").
 							Obj(),
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							RequiredTopologyRequest("cloud.com/block").
 							PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).
@@ -501,7 +502,7 @@ func TestReconciler(t *testing.T) {
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+							{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 						},
 					},
 				}).
@@ -513,7 +514,7 @@ func TestReconciler(t *testing.T) {
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "c", Image: "pause"},
+							{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 						},
 					},
 				}).
@@ -530,7 +531,7 @@ func TestReconciler(t *testing.T) {
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Name: "c", Image: "pause"},
+								{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 							},
 						},
 					}).
@@ -542,7 +543,7 @@ func TestReconciler(t *testing.T) {
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Name: "c", Image: "pause"},
+								{Name: "c", Image: utiltestingjobs.TestDefaultContainerImage},
 							},
 						},
 					}).
@@ -560,12 +561,12 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(leaderPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							Obj(),
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							Obj(),
 					).
@@ -614,7 +615,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					WorkloadPriorityClassRef("high-priority").
 					Priority(5000).
@@ -656,7 +657,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -674,7 +675,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -705,7 +706,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -723,7 +724,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -765,7 +766,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -776,7 +777,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -789,7 +790,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -828,7 +829,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -839,7 +840,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -850,7 +851,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -863,7 +864,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -874,7 +875,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -885,7 +886,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -908,7 +909,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -919,7 +920,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -933,7 +934,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -967,7 +968,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -1013,7 +1014,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -1058,7 +1059,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
-							Image("pause").
+							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
 					Obj(),

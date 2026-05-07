@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // LeaderWorkerSetWrapper wraps a LeaderWorkerSet.
@@ -53,7 +54,7 @@ func MakeLeaderWorkerSet(name, ns string) *LeaderWorkerSetWrapper {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},

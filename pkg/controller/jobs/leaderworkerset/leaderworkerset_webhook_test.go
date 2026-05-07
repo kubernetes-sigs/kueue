@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 )
 
@@ -1032,14 +1033,14 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
 						InitContainers: []corev1.Container{
 							{
 								Name:      "ic",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
@@ -1091,14 +1092,14 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
 						InitContainers: []corev1.Container{
 							{
 								Name:      "ic",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
@@ -1116,14 +1117,14 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
 						InitContainers: []corev1.Container{
 							{
 								Name:      "ic",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
@@ -1179,7 +1180,7 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: "pause",
+								Image: utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceCPU: resource.MustParse("1"),
@@ -1190,7 +1191,7 @@ func TestValidateUpdate(t *testing.T) {
 						InitContainers: []corev1.Container{
 							{
 								Name:      "ic",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
@@ -1218,14 +1219,14 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
 						InitContainers: []corev1.Container{
 							{
 								Name:      "ic",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
@@ -1281,14 +1282,14 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
 						InitContainers: []corev1.Container{
 							{
 								Name:  "ic",
-								Image: "pause",
+								Image: utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceCPU: resource.MustParse("1"),

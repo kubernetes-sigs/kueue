@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // StatefulSetWrapper wraps a StatefulSet.
@@ -67,7 +68,7 @@ func MakeStatefulSet(name, ns string) *StatefulSetWrapper {
 					Containers: []corev1.Container{
 						{
 							Name:      "c",
-							Image:     "pause",
+							Image:     utiltestingjobs.TestDefaultContainerImage,
 							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 						},
 					},
