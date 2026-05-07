@@ -17,7 +17,7 @@ cmd:
 
 clusterQueueClassesMinUsage:
   # Placeholder: same as baseline. Replace after calibration.
-  cq: 55 #%
+  cq: 33 #%
 
 wlClassesMaxAvgTimeToAdmissionMs:
   # Placeholder values — scale from baseline proportionally.
