@@ -37,11 +37,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-const (
-	instanceType      = "tas-group"
-	
-)
-
 var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {

@@ -16,6 +16,7 @@ limitations under the License.
 package tasextended
 
 const (
+	instanceType      = "tas-group"
 	tasNodeGroupLabel = "cloud.provider.com/node-group"
 	extraResource     = "example.com/gpu"
 )
