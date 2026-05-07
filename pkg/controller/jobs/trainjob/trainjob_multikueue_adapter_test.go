@@ -61,14 +61,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 		"sync creates missing remote TrainJob": {
 			managersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobManagedByKueueBuilder.Clone().Obj(),
+				*baseTrainJobManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "trainjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobManagedByKueueBuilder.Clone().Obj(),
+				*baseTrainJobManagedByKueueBuilder.DeepCopy(),
 			},
 			wantWorkerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
@@ -105,7 +105,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"sync status from remote trainjob": {
 			managersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobManagedByKueueBuilder.Clone().Obj(),
+				*baseTrainJobManagedByKueueBuilder.DeepCopy(),
 			},
 			workerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
@@ -249,7 +249,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"job with wrong managedBy is not considered managed": {
 			managersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobBuilder.Clone().Obj(),
+				*baseTrainJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "trainbjo1", Namespace: TestNamespace}); isManged {
@@ -258,13 +258,13 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobBuilder.Clone().Obj(),
+				*baseTrainJobBuilder.DeepCopy(),
 			},
 		},
 
 		"job managedBy multikueue": {
 			managersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobManagedByKueueBuilder.Clone().Obj(),
+				*baseTrainJobManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "trainjob1", Namespace: TestNamespace}); !isManged {
@@ -273,7 +273,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobManagedByKueueBuilder.Clone().Obj(),
+				*baseTrainJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
 	}

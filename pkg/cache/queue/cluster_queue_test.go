@@ -165,7 +165,7 @@ func Test_PushOrUpdate(t *testing.T) {
 			if cq.PendingTotal() != 0 {
 				t.Error("ClusterQueue should be empty")
 			}
-			cq.PushOrUpdate(workload.NewInfo(tc.workload.Clone().Obj()))
+			cq.PushOrUpdate(workload.NewInfo(tc.workload.DeepCopy()))
 			if cq.PendingTotal() != 1 {
 				t.Error("ClusterQueue should have one workload")
 			}

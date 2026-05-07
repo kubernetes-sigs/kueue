@@ -1169,8 +1169,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
-				Obj(),
+			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodLabel("ac-key", "ac-value").
@@ -2272,8 +2271,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
-				Obj(),
+			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
@@ -2348,8 +2346,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
-				Obj(),
+			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
@@ -2424,8 +2421,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
-				Obj(),
+			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
@@ -2554,8 +2550,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
-				Obj(),
+			job: *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodAnnotation("annotation-key1", "common-value").
@@ -3470,7 +3465,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().Obj(),
+			job: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -3485,7 +3480,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantJob: *baseJobWrapper.Clone().Obj(),
+			wantJob: *baseJobWrapper.DeepCopy(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).

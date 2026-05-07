@@ -63,14 +63,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}{
 		"sync creates missing remote tfjob": {
 			managersTFJobs: []kftraining.TFJob{
-				*tfJobBuilder.Clone().Obj(),
+				*tfJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
 			wantManagersTFJobs: []kftraining.TFJob{
-				*tfJobBuilder.Clone().Obj(),
+				*tfJobBuilder.DeepCopy(),
 			},
 			wantWorkerTFJobs: []kftraining.TFJob{
 				*tfJobBuilder.Clone().
@@ -81,7 +81,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"sync status from remote tfjob": {
 			managersTFJobs: []kftraining.TFJob{
-				*tfJobBuilder.Clone().Obj(),
+				*tfJobBuilder.DeepCopy(),
 			},
 			workerTFJobs: []kftraining.TFJob{
 				*tfJobBuilder.Clone().

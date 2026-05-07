@@ -194,7 +194,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			wantErr: false,
 		},
 		"should not modify the TrainJob if the wrong number of PodSet infos is provided": {
-			trainJob: testTrainJob.Clone().Obj(),
+			trainJob: testTrainJob.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "node",
@@ -209,11 +209,11 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
 				},
 			},
-			wantTrainJob: testTrainJob.Clone().Obj(),
+			wantTrainJob: testTrainJob.DeepCopy(),
 			wantErr:      true,
 		},
 		"should return an error if the trainjob references an unknown training runtime": {
-			trainJob: testTrainJob.Clone().Obj(),
+			trainJob: testTrainJob.DeepCopy(),
 			wantErr:  true,
 		},
 		"should replace existing Kueue overrides (idempotency)": {
@@ -405,8 +405,8 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			trainJob:     testTrainJob.Clone().Obj(),
-			wantTrainJob: testTrainJob.Clone().Obj(),
+			trainJob:     testTrainJob.DeepCopy(),
+			wantTrainJob: testTrainJob.DeepCopy(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
 					PodSets(

@@ -1258,7 +1258,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName("test-queue")), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that excess pod is deleted before admission", func() {
-					excessPod := excessBasePod.Clone().Obj()
+					excessPod := excessBasePod.DeepCopy()
 					util.WaitForNextSecondAfterCreation(pod2)
 					util.MustCreate(ctx, k8sClient, excessPod)
 
@@ -1299,7 +1299,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("checking that excess pod is deleted after admission", func() {
-					excessPod := excessBasePod.Clone().Obj()
+					excessPod := excessBasePod.DeepCopy()
 					util.MustCreate(ctx, k8sClient, excessPod)
 
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, excessPod, false)

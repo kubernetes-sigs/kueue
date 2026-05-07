@@ -63,14 +63,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}{
 		"sync creates missing remote jaxjob": {
 			managersJAXJobs: []kftraining.JAXJob{
-				*jaxJobBuilder.Clone().Obj(),
+				*jaxJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
 			wantManagersJAXJobs: []kftraining.JAXJob{
-				*jaxJobBuilder.Clone().Obj(),
+				*jaxJobBuilder.DeepCopy(),
 			},
 			wantWorkerJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().
@@ -81,7 +81,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"sync status from remote jaxjob": {
 			managersJAXJobs: []kftraining.JAXJob{
-				*jaxJobBuilder.Clone().Obj(),
+				*jaxJobBuilder.DeepCopy(),
 			},
 			workerJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().

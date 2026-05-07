@@ -3179,7 +3179,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		}).
 		Ready()
 	defaultSingleNode := []corev1.Node{
-		*singleNode.Clone().Obj(),
+		*singleNode.DeepCopy(),
 	}
 	defaultTwoNodes := []corev1.Node{
 		*testingnode.MakeNode("x1").

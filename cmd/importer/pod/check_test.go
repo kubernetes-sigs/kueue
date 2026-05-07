@@ -55,13 +55,13 @@ func TestCheckNamespace(t *testing.T) {
 		"empty cluster": {},
 		"no mapping": {
 			pods: []corev1.Pod{
-				*basePodWrapper.Clone().Obj(),
+				*basePodWrapper.DeepCopy(),
 			},
 			wantError: mapping.ErrNoMapping,
 		},
 		"no local queue": {
 			pods: []corev1.Pod{
-				*basePodWrapper.Clone().Obj(),
+				*basePodWrapper.DeepCopy(),
 			},
 			mapping: mapping.Rules{
 				mapping.Rule{
@@ -78,7 +78,7 @@ func TestCheckNamespace(t *testing.T) {
 		},
 		"no cluster queue": {
 			pods: []corev1.Pod{
-				*basePodWrapper.Clone().Obj(),
+				*basePodWrapper.DeepCopy(),
 			},
 			mapping: mapping.Rules{
 				mapping.Rule{
@@ -98,7 +98,7 @@ func TestCheckNamespace(t *testing.T) {
 		},
 		"invalid cq": {
 			pods: []corev1.Pod{
-				*basePodWrapper.Clone().Obj(),
+				*basePodWrapper.DeepCopy(),
 			},
 			mapping: mapping.Rules{
 				mapping.Rule{
@@ -121,7 +121,7 @@ func TestCheckNamespace(t *testing.T) {
 		},
 		"all found": {
 			pods: []corev1.Pod{
-				*basePodWrapper.Clone().Obj(),
+				*basePodWrapper.DeepCopy(),
 			},
 			mapping: mapping.Rules{
 				mapping.Rule{
