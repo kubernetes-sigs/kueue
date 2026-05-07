@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -28,6 +29,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/format"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -1434,7 +1436,33 @@ app = HelloWorld.bind()`,
 			ginkgo.By("Checking that the workload is re-admitted in worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
-					g.Expect(managerWl.Status.ClusterName).To(gomega.HaveValue(gomega.Equal(workerCluster2.Name)), util.AssertMsg("Manager Workload is not admitted in worker2", managerWl))
+					g.Expect(managerWl.Status.ClusterName).To(
+						gomega.HaveValue(gomega.Equal(workerCluster2.Name)),
+						func() string {
+							var output strings.Builder
+							fmt.Fprintln(&output, "Workload not Admitted in worker2")
+							fmt.Fprintln(&output, "Manager Workload:", format.Object(workerWorkload.ObjectMeta, 1))
+							fmt.Fprintln(&output, "Manager Status:", format.Object(workerWorkload.Status, 1))
+
+							workerWl := &kueue.Workload{}
+
+							if err := k8sWorker1Client.Get(ctx, wlKey, workerWl); err == nil {
+								fmt.Fprintln(&output, "Worker1 Workload:", format.Object(workerWl.ObjectMeta, 1))
+								fmt.Fprintln(&output, "Worker1 Status:", format.Object(workerWl.Status, 1))
+							} else {
+								fmt.Fprintln(&output, "Workload not present in worker1:", err)
+							}
+
+							if err := k8sWorker2Client.Get(ctx, wlKey, workerWl); err == nil {
+								fmt.Fprintln(&output, "Worker2 Workload:", format.Object(workerWl.ObjectMeta, 1))
+								fmt.Fprintln(&output, "Worker2 Status:", format.Object(workerWl.Status, 1))
+							} else {
+								fmt.Fprintln(&output, "Workload not present in worker2:", err)
+							}
+
+							return output.String()
+						},
+					)
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
