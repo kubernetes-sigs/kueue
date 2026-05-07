@@ -121,14 +121,13 @@ func main() {
 		}
 
 		// Increase API server request limits to handle high load from performance tests.
-		// The default generator config creates ~15,000 workloads (5 cohorts × 6 queues × 500 workloads).
-		// Under heavy reconciliation, the default kube-apiserver limits (max-requests-inflight=400,
-		// max-mutating-requests-inflight=200) can cause the API server to become overwhelmed,
-		// resulting in "http2: client connection lost" errors when pending requests queue up
-		// and connections time out.
+		// The large-scale config creates 60,000 workloads across 2000 cluster queues.
+		// Higher inflight limits and larger watch caches reduce latency under heavy
+		// reconciliation load.
 		testEnv.ControlPlane.GetAPIServer().Configure().
-			Append("max-requests-inflight", "5000").
-			Append("max-mutating-requests-inflight", "2500")
+			Append("max-requests-inflight", "10000").
+			Append("max-mutating-requests-inflight", "5000").
+			Append("watch-cache-sizes", "workloads.kueue.x-k8s.io#10000")
 
 		var err error
 		cfg, err = testEnv.Start()
