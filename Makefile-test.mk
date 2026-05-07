@@ -472,7 +472,7 @@ test-performance-scheduler-once: gotestsum run-performance-scheduler
 PERFORMANCE_RETRY_COUNT?=2
 .PHONY: test-performance-scheduler
 test-performance-scheduler:
-	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-large-scale-performance-scheduler-once
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-performance-scheduler-once
 
 .PHONY: run-performance-scheduler-in-cluster
 run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
