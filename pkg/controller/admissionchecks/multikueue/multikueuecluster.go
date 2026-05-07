@@ -110,6 +110,7 @@ type remoteClient struct {
 	localClient  client.Client
 	client       client.WithWatch
 	wlUpdateCh   chan<- event.GenericEvent
+	cqUpdateCh   chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
 	watchEndedCh chan<- event.GenericEvent
 	watchCancel  func()
 	config       *clientConfig
@@ -132,10 +133,11 @@ type remoteClient struct {
 	builderOverride clientWithWatchBuilder
 }
 
-func newRemoteClient(localClient client.Client, wlUpdateCh, watchEndedCh chan<- event.GenericEvent, origin, clusterName string, adapters map[string]jobframework.MultiKueueAdapter) *remoteClient {
+func newRemoteClient(localClient client.Client, wlUpdateCh chan<- event.GenericEvent, cqUpdateCh chan<- event.TypedGenericEvent[kueue.ClusterQueueReference], watchEndedCh chan<- event.GenericEvent, origin, clusterName string, adapters map[string]jobframework.MultiKueueAdapter) *remoteClient {
 	rc := &remoteClient{
 		clusterName:  clusterName,
 		wlUpdateCh:   wlUpdateCh,
+		cqUpdateCh:   cqUpdateCh,
 		watchEndedCh: watchEndedCh,
 		localClient:  localClient,
 		origin:       origin,
@@ -225,17 +227,28 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 		return rc.increaseFailedConnAttempt(), err
 	}
 
+	err = rc.startGenericWorkloadWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
+	if err != nil {
+		return rc.increaseFailedConnAttempt(), err
+	}
+
 	// add a watch for all the adapters implementing multiKueueWatcher
 	for kind, adapter := range rc.adapters {
 		watcher, implementsWatcher := adapter.(jobframework.MultiKueueWatcher)
 		if !implementsWatcher {
 			continue
 		}
-		err := rc.startWatcher(watchCtx, kind, watcher)
+		err := rc.startGenericWorkloadWatcher(watchCtx, kind, watcher)
 		if err != nil {
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to start the watcher", "kind", kind)
 			// however let's not accept this for now.
+			return rc.increaseFailedConnAttempt(), err
+		}
+	}
+	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+		err = rc.startQueueWatchers(watchCtx)
+		if err != nil {
 			return rc.increaseFailedConnAttempt(), err
 		}
 	}
@@ -262,7 +275,7 @@ func (cw *cancelOnStopWatcher) Stop() {
 // timeout. On timeout the in-flight Watch is canceled and
 // errWatchEstablishTimeout is returned so the caller falls back to the
 // standard failedConnAttempts / retryAfter backoff in setConfig.
-func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string, timeout time.Duration) (watch.Interface, error) {
+func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, timeout time.Duration, watchOpts ...client.ListOption) (watch.Interface, error) {
 	type result struct {
 		w   watch.Interface
 		err error
@@ -271,10 +284,7 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 	establishCtx, cancel := context.WithCancel(ctx)
 
 	go func() {
-		w, err := c.Watch(establishCtx, obj,
-			client.MatchingLabels{kueue.MultiKueueOriginLabel: origin},
-			&client.ListOptions{Raw: &metav1.ListOptions{AllowWatchBookmarks: true}},
-		)
+		w, err := c.Watch(establishCtx, obj, watchOpts...)
 		resultCh <- result{w: w, err: err}
 	}()
 
@@ -294,9 +304,10 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 	}
 }
 
-func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) error {
+func (rc *remoteClient) startWatcher(ctx context.Context, kind string, list client.ObjectList, callback func(client.Object), watchOpts ...client.ListOption) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1))
+	watchOpts = append(watchOpts, &client.ListOptions{Raw: &metav1.ListOptions{AllowWatchBookmarks: true}})
+	newWatcher, err := establishWatch(ctx, rc.client, list, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), watchOpts...)
 	if err != nil {
 		return err
 	}
@@ -318,13 +329,8 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobfram
 					log.V(3).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
 				}
 			default:
-				wlKeys, err := w.WorkloadKeysFor(r.Object)
-				if err != nil {
-					log.Error(err, "Cannot get workload keys", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
-				} else {
-					for _, wlKey := range wlKeys {
-						rc.queueWorkloadEvent(ctx, wlKey)
-					}
+				if obj, ok := r.Object.(client.Object); ok {
+					callback(obj)
 				}
 			}
 		}
@@ -340,6 +346,71 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobfram
 		}
 	}()
 	return nil
+}
+
+func (rc *remoteClient) startGenericWorkloadWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) error {
+	return rc.startWatcher(ctx, kind, w.GetEmptyList(), func(obj client.Object) {
+		wlKeys, err := w.WorkloadKeysFor(obj)
+		if err != nil {
+			ctrl.LoggerFrom(ctx).Error(err, "Cannot get workload keys", "jobKind", obj.GetObjectKind().GroupVersionKind())
+		} else {
+			for _, wlKey := range wlKeys {
+				rc.queueWorkloadEvent(ctx, wlKey)
+			}
+		}
+	}, client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin})
+}
+
+func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
+	if err := rc.startWatcher(ctx, "ClusterQueue", &kueue.ClusterQueueList{}, func(obj client.Object) {
+		if cq, ok := obj.(*kueue.ClusterQueue); ok {
+			rc.queueEventsForCQ(ctx, cq)
+		}
+	}); err != nil {
+		return fmt.Errorf("starting remote ClusterQueue watch: %w", err)
+	}
+
+	if err := rc.startWatcher(ctx, "LocalQueue", &kueue.LocalQueueList{}, func(obj client.Object) {
+		if lq, ok := obj.(*kueue.LocalQueue); ok {
+			rc.queueEventsForLQ(ctx, lq)
+		}
+	}); err != nil {
+		return fmt.Errorf("starting remote LocalQueue watch: %w", err)
+	}
+
+	return nil
+}
+
+func (rc *remoteClient) queueEventsForCQ(ctx context.Context, remoteCQ *kueue.ClusterQueue) {
+	log := ctrl.LoggerFrom(ctx).WithValues("remoteCQ", remoteCQ.Name)
+
+	// Remote clients aren't indexed, so we fetch all remote LQs.
+	remoteLQs := &kueue.LocalQueueList{}
+	if err := rc.client.List(ctx, remoteLQs); err != nil {
+		log.Error(err, "Failed to list remote LocalQueues")
+		return
+	}
+
+	for _, rlq := range remoteLQs.Items {
+		if string(rlq.Spec.ClusterQueue) == remoteCQ.Name {
+			rc.queueEventsForLQ(ctx, &rlq)
+		}
+	}
+}
+
+func (rc *remoteClient) queueEventsForLQ(ctx context.Context, remoteLQ *kueue.LocalQueue) {
+	log := ctrl.LoggerFrom(ctx).WithValues("remoteLQ", remoteLQ.Name)
+
+	localLQ := &kueue.LocalQueue{}
+	err := rc.localClient.Get(ctx, types.NamespacedName{Namespace: remoteLQ.Namespace, Name: remoteLQ.Name}, localLQ)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Error(err, "Failed to get local LocalQueue")
+		}
+		return
+	}
+
+	rc.cqUpdateCh <- event.TypedGenericEvent[kueue.ClusterQueueReference]{Object: localLQ.Spec.ClusterQueue}
 }
 
 func (rc *remoteClient) StopWatchers() {
@@ -429,6 +500,7 @@ type clustersReconciler struct {
 	// The list of remote remoteClients, indexed by the cluster name.
 	remoteClients map[string]*remoteClient
 	wlUpdateCh    chan event.GenericEvent
+	cqUpdateCh    chan event.TypedGenericEvent[kueue.ClusterQueueReference]
 
 	// gcInterval - time waiting between two GC runs.
 	gcInterval time.Duration
@@ -500,7 +572,7 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 
 	client, found := c.remoteClients[clusterName]
 	if !found {
-		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, origin, clusterName, c.adapters)
+		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.cqUpdateCh, c.watchEndedCh, origin, clusterName, c.adapters)
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
@@ -814,6 +886,7 @@ func newClustersReconciler(
 		configNamespace:     namespace,
 		remoteClients:       make(map[string]*remoteClient),
 		wlUpdateCh:          make(chan event.GenericEvent, eventChBufferSize),
+		cqUpdateCh:          make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
 		gcInterval:          gcInterval,
 		origin:              origin,
 		watchEndedCh:        make(chan event.GenericEvent, eventChBufferSize),

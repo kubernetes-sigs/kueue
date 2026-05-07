@@ -192,6 +192,10 @@ for cluster in worker1 worker2; do
     --verb=get,patch,update \
     --resource=jobs.batch/status,workloads.kueue.x-k8s.io/status,pods/status
 
+  kubectl --context kind-${cluster} create clusterrole multikueue-role-queues \
+    --verb=get,list,watch \
+    --resource=clusterqueues.kueue.x-k8s.io,localqueues.kueue.x-k8s.io
+
   # Create ClusterRoleBindings
   kubectl --context kind-${cluster} create clusterrolebinding multikueue-crb \
     --clusterrole=multikueue-role \
@@ -199,6 +203,10 @@ for cluster in worker1 worker2; do
 
   kubectl --context kind-${cluster} create clusterrolebinding multikueue-crb-status \
     --clusterrole=multikueue-role-status \
+    --serviceaccount=kueue-system:${SERVICE_ACCOUNT}
+
+  kubectl --context kind-${cluster} create clusterrolebinding multikueue-crb-queues \
+    --clusterrole=multikueue-role-queues \
     --serviceaccount=kueue-system:${SERVICE_ACCOUNT}
 
   # Create a secret bound to the new service account

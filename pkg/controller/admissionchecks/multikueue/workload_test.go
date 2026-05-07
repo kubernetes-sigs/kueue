@@ -1538,7 +1538,7 @@ func TestWlReconcile(t *testing.T) {
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 					Build()
 
-				w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
+				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 				w1remoteClient.client = worker1Client
 				w1remoteClient.connecting.Store(false)
 				cRec.remoteClients["worker1"] = w1remoteClient
@@ -1570,7 +1570,7 @@ func TestWlReconcile(t *testing.T) {
 					})
 					worker2Client = worker2Builder.Build()
 
-					w2remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
+					w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 					w2remoteClient.client = worker2Client
 					if !tc.worker2Reconnecting {
 						w2remoteClient.connecting.Store(false)

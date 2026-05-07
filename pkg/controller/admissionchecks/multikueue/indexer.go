@@ -34,6 +34,8 @@ const (
 	UsingMultiKueueClusters        = "spec.multiKueueClusters"
 	AdmissionCheckUsingConfigKey   = "spec.multiKueueConfig"
 	WorkloadsWithAdmissionCheckKey = "status.admissionChecks"
+	AdmissionCheckControllerNameKey = "spec.controllerName"
+	ClusterQueueAdmissionChecksKey = "spec.admissionChecks"
 )
 
 var (
@@ -71,6 +73,26 @@ func multiKueueClustersIndexerFunc(obj client.Object) []string {
 	return config.Spec.Clusters
 }
 
+func admissionCheckControllerNameIndexerFunc(obj client.Object) []string {
+	ac, ok := obj.(*kueue.AdmissionCheck)
+	if !ok {
+		return nil
+	}
+	return []string{ac.Spec.ControllerName}
+}
+
+func clusterQueueAdmissionChecksIndexerFunc(obj client.Object) []string {
+	cq, ok := obj.(*kueue.ClusterQueue)
+	if !ok || cq.Spec.AdmissionChecksStrategy == nil {
+		return nil
+	}
+	var names []string
+	for _, rule := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+		names = append(names, string(rule.Name))
+	}
+	return names
+}
+
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamespace string) error {
 	if err := indexer.IndexField(ctx, &kueue.MultiKueueCluster{}, UsingKubeConfigs, kubeConfigLocationIndexerFunc(configNamespace)); err != nil {
 		return fmt.Errorf("setting index on clusters using kubeconfig: %w", err)
@@ -85,6 +107,12 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamesp
 	}
 	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckControllerNameKey, admissionCheckControllerNameIndexerFunc); err != nil {
+		return fmt.Errorf("setting index on admission checks controllerName: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.ClusterQueue{}, ClusterQueueAdmissionChecksKey, clusterQueueAdmissionChecksIndexerFunc); err != nil {
+		return fmt.Errorf("setting index on cluster queues admissionChecks: %w", err)
 	}
 	return nil
 }

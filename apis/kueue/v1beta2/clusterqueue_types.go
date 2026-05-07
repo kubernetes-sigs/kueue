@@ -22,6 +22,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ClusterQueue status condition types.
+const (
+	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
+	// can be borrowed by other ClusterQueues in the same cohort.
+	ClusterQueueActive               string = "Active"
+	// MultiKueueManagerQuotaAutomation indicates that this ClusterQueue is a 
+	// MultiKueue manager queue and its quota is automatically managed.
+	MultiKueueManagerQuotaAutomation string = "MultiKueueManagerQuotaAutomation"
+)
+
 // ClusterQueue Active condition reasons.
 const (
 	ClusterQueueActiveReasonTerminating                              = "Terminating"
@@ -414,11 +424,7 @@ type ResourceUsage struct {
 	Borrowed resource.Quantity `json:"borrowed,omitempty"`
 }
 
-const (
-	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
-	// can be borrowed by other ClusterQueues in the same cohort.
-	ClusterQueueActive string = "Active"
-)
+
 
 type PreemptionPolicy string
 

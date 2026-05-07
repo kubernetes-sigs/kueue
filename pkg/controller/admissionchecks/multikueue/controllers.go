@@ -160,6 +160,14 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
+	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+		cqRec := newCQReconciler(mgr.GetClient(), helper, cRec, options.roleTracker)
+		err = cqRec.setupWithManager(mgr)
+		if err != nil {
+			return err
+		}
+	}
+
 	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorder(constants.WorkloadControllerName),
 		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker)
 	return wlRec.setupWithManager(mgr)

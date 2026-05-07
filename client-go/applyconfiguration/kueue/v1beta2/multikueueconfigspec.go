@@ -25,6 +25,10 @@ package v1beta2
 type MultiKueueConfigSpecApplyConfiguration struct {
 	// clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
 	Clusters []string `json:"clusters,omitempty"`
+	// quotaAutomation specifies the automation behavior of ClusterQueue quotas
+	// in the manager cluster.
+	// If unspecified, the default mode depends on the MultiKueueManagerQuotaAutomation feature gate.
+	QuotaAutomation *QuotaAutomationApplyConfiguration `json:"quotaAutomation,omitempty"`
 }
 
 // MultiKueueConfigSpecApplyConfiguration constructs a declarative configuration of the MultiKueueConfigSpec type for use with
@@ -40,5 +44,13 @@ func (b *MultiKueueConfigSpecApplyConfiguration) WithClusters(values ...string) 
 	for i := range values {
 		b.Clusters = append(b.Clusters, values[i])
 	}
+	return b
+}
+
+// WithQuotaAutomation sets the QuotaAutomation field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the QuotaAutomation field is set to the value of the last call.
+func (b *MultiKueueConfigSpecApplyConfiguration) WithQuotaAutomation(value *QuotaAutomationApplyConfiguration) *MultiKueueConfigSpecApplyConfiguration {
+	b.QuotaAutomation = value
 	return b
 }

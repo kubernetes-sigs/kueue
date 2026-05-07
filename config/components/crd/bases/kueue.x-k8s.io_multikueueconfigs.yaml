@@ -89,6 +89,26 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: set
+              quotaAutomation:
+                description: |-
+                  quotaAutomation specifies the automation behavior of ClusterQueue quotas
+                  in the manager cluster.
+                  If unspecified, the default mode depends on the MultiKueueManagerQuotaAutomation feature gate.
+                properties:
+                  mode:
+                    default: Automated
+                    description: |-
+                      mode specifies the automation mode.
+                      Supported modes:
+                      - `Manual`: Quota automation is manual.
+                      - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+                    enum:
+                    - Manual
+                    - Automated
+                    type: string
+                required:
+                - mode
+                type: object
             required:
             - clusters
             type: object

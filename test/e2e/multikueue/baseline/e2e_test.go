@@ -34,6 +34,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
@@ -1907,6 +1908,82 @@ app = HelloWorld.bind()`,
 			ginkgo.By("Waiting for both jobs to complete", func() {
 				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobMk)
 				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobRegular)
+			})
+		})
+	})
+
+	ginkgo.Context("MultiKueue Manager Quota Automation", func() {
+		ginkgo.BeforeEach(func() {
+			ginkgo.By("Setting manager ClusterQueue quotas to zeroes", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					cq := &kueue.ClusterQueue{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
+					cq.Spec.ResourceGroups[0].Flavors[0].Resources = []kueue.ResourceQuota{
+						{Name: corev1.ResourceCPU, NominalQuota: resource.MustParse("0")},
+						{Name: corev1.ResourceMemory, NominalQuota: resource.MustParse("0")},
+						{Name: corev1.ResourceEphemeralStorage, NominalQuota: resource.MustParse("0")},
+						{Name: extraResourceGPUHighCost, NominalQuota: resource.MustParse("0")},
+						{Name: extraResourceGPULowCost, NominalQuota: resource.MustParse("0")},
+					}
+					g.Expect(k8sManagerClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Enabling QuotaAutomation in MultiKueueConfig", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					cfg := &kueue.MultiKueueConfig{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(multiKueueConfig), cfg)).To(gomega.Succeed())
+					cfg.Spec.QuotaAutomation = &kueue.QuotaAutomation{
+						Mode: kueue.QuotaAutomationAutomated,
+					}
+					g.Expect(k8sManagerClient.Update(ctx, cfg)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should automatically aggregate quotas from active worker ClusterQueues", func() {
+			ginkgo.By("Verifying the MultiKueueManagerQuotaAutomation status condition transitions to true", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					cq := &kueue.ClusterQueue{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
+
+					cond := apimeta.FindStatusCondition(cq.Status.Conditions, string(kueue.MultiKueueManagerQuotaAutomation))
+					g.Expect(cond).NotTo(gomega.BeNil())
+					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+					g.Expect(cond.Reason).To(gomega.Equal("QuotaAutomated"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying that the nominal resource quotas are automatically aggregated on the manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					cq := &kueue.ClusterQueue{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
+
+					g.Expect(cq.Spec.ResourceGroups).To(gomega.HaveLen(1))
+					g.Expect(cq.Spec.ResourceGroups[0].Flavors).To(gomega.HaveLen(1))
+					g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources).To(gomega.ConsistOf(
+						kueue.ResourceQuota{
+							Name:         corev1.ResourceCPU,
+							NominalQuota: resource.MustParse("3200m"),
+						},
+						kueue.ResourceQuota{
+							Name:         corev1.ResourceMemory,
+							NominalQuota: resource.MustParse("5G"),
+						},
+						kueue.ResourceQuota{
+							Name:         corev1.ResourceEphemeralStorage,
+							NominalQuota: resource.MustParse("20G"),
+						},
+						kueue.ResourceQuota{
+							Name:         extraResourceGPUHighCost,
+							NominalQuota: resource.MustParse("3"),
+						},
+						kueue.ResourceQuota{
+							Name:         extraResourceGPULowCost,
+							NominalQuota: resource.MustParse("3"),
+						},
+					))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
