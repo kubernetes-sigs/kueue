@@ -969,57 +969,94 @@ func TestStatus(t *testing.T) {
 }
 
 func TestRequeueWorkloadStrictFIFO(t *testing.T) {
+	now := time.Now()
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	queues := []*kueue.LocalQueue{
 		utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
 		utiltestingapi.MakeLocalQueue("bar", "").Obj(),
 	}
-	cases := []struct {
+	cases := map[string]struct {
 		workload     *kueue.Workload
 		inClient     bool
 		inQueue      bool
 		wantRequeued bool
 	}{
-		{
-			workload: utiltestingapi.MakeWorkload("existing_queue_and_obj", "").
+		"existing queue and obj": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
 				Queue("foo").
 				Obj(),
 			inClient:     true,
 			wantRequeued: true,
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("non_existing_queue", "").Queue("baz").Obj(),
-			inClient: true,
+		"non existing queue": {
+			workload:     utiltestingapi.MakeWorkload("wl", "").Queue("baz").Obj(),
+			inClient:     true,
+			inQueue:      false,
+			wantRequeued: false,
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("non_existing_cluster_queue", "").
+		"non existing cluster queue": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
 				Queue("bar").
 				Obj(),
-			inClient: true,
+			inClient:     true,
+			inQueue:      false,
+			wantRequeued: false,
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("not_in_client", "").
+		"not in client": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
 				Queue("foo").
 				Obj(),
+			inClient:     false,
+			inQueue:      false,
+			wantRequeued: false,
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("already_in_queue", "").
+		"has no quota reservation": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				ReserveQuotaAt(&kueue.Admission{ClusterQueue: kueue.ClusterQueueReference(cq.Name)}, now).
+				Obj(),
+			inClient:     true,
+			inQueue:      true,
+			wantRequeued: false,
+		},
+		"finished": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				Finished().
+				Obj(),
+			inClient:     true,
+			inQueue:      true,
+			wantRequeued: false,
+		},
+		"deactivated": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				Active(false).
+				Obj(),
+			inClient:     true,
+			inQueue:      true,
+			wantRequeued: false,
+		},
+		"already in queue": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
 				Queue("foo").
 				Obj(),
-			inClient: true,
-			inQueue:  true,
+			inClient:     true,
+			inQueue:      true,
+			wantRequeued: false,
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("already_admitted", "").
+		"already admitted": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
 				Queue("foo").
 				Admission(&kueue.Admission{}).
 				Obj(),
-			inClient: true,
-			inQueue:  true,
+			inClient:     true,
+			inQueue:      true,
+			wantRequeued: false,
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.workload.Name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewFakeClient()
 			ctx, log := utiltesting.ContextWithLog(t)
 			queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
