@@ -76,7 +76,6 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 	})
 
 	ginkgo.AfterAll(func() {
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.MediumTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, resourceFlavor, true, util.MediumTimeout)
 	})
@@ -138,6 +137,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 				createdJob = testingjob.MakeJob("ignoreundeclared-job", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "1Gi").
 					Obj()
@@ -203,6 +203,8 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 					WorkloadPriorityClass("low").
 					RequestAndLimit(corev1.ResourceCPU, "100").
 					RequestAndLimit(corev1.ResourceMemory, "1Gi").
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					Obj()
 				util.MustCreate(ctx, k8sClient, lowJob)
 				lowJobKey = types.NamespacedName{Name: job.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: ns.Name}
@@ -215,6 +217,8 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 					WorkloadPriorityClass("high").
 					RequestAndLimit(corev1.ResourceCPU, "100").
 					RequestAndLimit(corev1.ResourceMemory, "1Gi").
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					Obj()
 				util.MustCreate(ctx, k8sClient, highJob)
 				highJobKey := types.NamespacedName{Name: job.GetWorkloadNameForJob(highJob.Name, highJob.UID), Namespace: ns.Name}
