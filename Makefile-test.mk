@@ -146,6 +146,14 @@ test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-
 test-e2e-helm: E2E_USE_HELM=true
 test-e2e-helm: test-e2e
 
+.PHONY: test-tas-e2e-baseline-helm
+test-tas-e2e-baseline-helm: E2E_USE_HELM=true
+test-tas-e2e-baseline-helm: test-tas-e2e-baseline
+
+.PHONY: test-tas-e2e-extended-helm
+test-tas-e2e-extended-helm: E2E_USE_HELM=true
+test-tas-e2e-extended-helm: test-tas-e2e-extended
+
 .PHONY: test-multikueue-e2e-parallel-builds
 test-multikueue-e2e-parallel-builds:
 	$(MAKE) -j2 kind-ray-project-mini-image-build kind-secretreader-plugin-image-build
