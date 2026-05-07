@@ -151,7 +151,7 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 
 			baseTime := time.Now().Truncate(time.Second)
 			jobCreationTime := baseTime.Add(-5 * time.Second)
-			
+
 			job := tc.makeJob()
 			job.SetCreationTimestamp(metav1.NewTime(jobCreationTime))
 
