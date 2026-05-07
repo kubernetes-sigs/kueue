@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package jobframework
+package jobframework_test
 
 import (
 	"testing"
@@ -24,13 +24,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/metrics/testutil"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
+	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )
 
 func TestSanitizePodSets(t *testing.T) {
@@ -93,7 +97,7 @@ func TestSanitizePodSets(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			SanitizePodSets(tc.podSets)
+			jobframework.SanitizePodSets(tc.podSets)
 
 			if diff := cmp.Diff(tc.expectedPodSets, tc.podSets); diff != "" {
 				t.Errorf("unexpected difference: %s", diff)
@@ -110,15 +114,34 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 
 	testCases := map[string]struct {
 		jobKind string
+		makeJob func() client.Object
 	}{
 		"LeaderWorkerSet": {
 			jobKind: "LeaderWorkerSet",
+			makeJob: func() client.Object {
+				return leaderworkersettesting.MakeLeaderWorkerSet(testJobName, metav1.NamespaceDefault).
+					UID(testJobName).
+					Queue(string(testLocalQueueName)).
+					Obj()
+			},
 		},
 		"GenericJob": {
 			jobKind: "Job",
+			makeJob: func() client.Object {
+				return testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
+					UID(testJobName).
+					Queue(testLocalQueueName).
+					Obj()
+			},
 		},
 		"StatefulSet": {
 			jobKind: "StatefulSet",
+			makeJob: func() client.Object {
+				return statefulsettesting.MakeStatefulSet(testJobName, metav1.NamespaceDefault).
+					UID(testJobName).
+					Queue(string(testLocalQueueName)).
+					Obj()
+			},
 		},
 	}
 
@@ -128,16 +151,14 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 
 			baseTime := time.Now().Truncate(time.Second)
 			jobCreationTime := baseTime.Add(-5 * time.Second)
-			job := testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
-				UID(testJobName).
-				Queue(testLocalQueueName).
-				Obj()
-			job.CreationTimestamp = metav1.NewTime(jobCreationTime)
+			
+			job := tc.makeJob()
+			job.SetCreationTimestamp(metav1.NewTime(jobCreationTime))
 
 			wl := utiltestingapi.MakeWorkload("job-test-job", metav1.NamespaceDefault).Obj()
 			wl.CreationTimestamp = metav1.NewTime(baseTime)
 
-			RecordWorkloadCreationLatency(job, tc.jobKind, wl, nil, nil)
+			jobframework.RecordWorkloadCreationLatency(job, tc.jobKind, wl, nil, nil)
 
 			val, err := testutil.GetHistogramMetricValue(metrics.WorkloadCreationLatency.WithLabelValues(tc.jobKind, roletracker.RoleStandalone))
 			if err != nil {
