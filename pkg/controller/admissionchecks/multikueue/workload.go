@@ -841,6 +841,16 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
 
+	// Skip while the local workload is being evicted. Touching remote workloads
+	// here (specifically deleting the remote that holds Evicted=True) breaks the
+	// SyncJob propagation that reconcileGroup relies on to surface the
+	// remote job's termination to the manager Job. Until QuotaReserved is unset
+	// by the Job reconciler and the workload is requeued, leave the remotes alone.
+	if workload.IsEvicted(group.local) {
+		log.V(3).Info("Workload is being evicted, skip nomination and synchronization")
+		return reconcile.Result{}, nil
+	}
+
 	componentWorkloads, err := w.listComponentWorkloads(ctx, group.local)
 	if err != nil {
 		return reconcile.Result{}, err
