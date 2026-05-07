@@ -47,3 +47,10 @@ filters:
   "^\\.golangci.*\\.ya?ml$":
     approvers:
       - test-approvers
+
+  # Agent instructions and experimental agent
+  "^AGENTS\\.md$":
+    approvers:
+      - agent-approvers
+    reviewers:
+      - agent-reviewers
