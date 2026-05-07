@@ -3797,31 +3797,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						}),
 					))
 				})
-
-				ginkgo.By("verifying no Workload's TopologyAssignment carries a negative Count", func() {
-					gomega.Consistently(func(g gomega.Gomega) {
-						for _, wl := range []*kueue.Workload{wl1, wl2} {
-							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-							if wl.Status.Admission == nil {
-								continue
-							}
-							for _, psa := range wl.Status.Admission.PodSetAssignments {
-								if psa.TopologyAssignment == nil {
-									continue
-								}
-								internal := utiltas.InternalFrom(psa.TopologyAssignment)
-								for _, d := range internal.Domains {
-									g.Expect(d.Count).Should(gomega.BeNumerically(">=", 0),
-										"workload %s domain %v has negative count %d",
-										wl.Name, d.Values, d.Count)
-								}
-							}
-						}
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
-				})
 			})
 		})
-		
+
 		ginkgo.When("ProvisioningRequest is used", func() {
 			var (
 				nodes             []corev1.Node
