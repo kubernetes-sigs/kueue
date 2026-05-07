@@ -1012,17 +1012,17 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Checking that the workload is created and admitted in the manager cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(managerWl)).To(gomega.BeTrue(), util.AssertMsg("Workload not admitted in manager", managerWl))
+					g.Expect(workload.IsAdmitted(managerWl)).To(gomega.BeTrue(), assertMsg("Workload not admitted in manager", wlKey))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the workload is created on worker1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue(), util.AssertMsg("Workload not admitted in worker1", workerWorkload))
+					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue(), assertMsg("Workload not admitted in worker1", wlKey))
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 
-					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError(), util.AssertMsg("Workload present in worker2", workerWorkload))
+					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError(), assertMsg("Workload present in worker2", wlKey))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1057,43 +1057,17 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Checking that the workload is re-admitted in worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
-					g.Expect(managerWl.Status.ClusterName).To(
-						gomega.HaveValue(gomega.Equal(workerCluster2.Name)),
-						func() string {
-							var output strings.Builder
-							fmt.Fprintln(&output, "Workload not Admitted in worker2")
-							fmt.Fprintln(&output, "Manager Workload:", format.Object(workerWorkload.ObjectMeta, 1))
-							fmt.Fprintln(&output, "Manager Status:", format.Object(workerWorkload.Status, 1))
-
-							workerWl := &kueue.Workload{}
-
-							if err := k8sWorker1Client.Get(ctx, wlKey, workerWl); err == nil {
-								fmt.Fprintln(&output, "Worker1 Workload:", format.Object(workerWl.ObjectMeta, 1))
-								fmt.Fprintln(&output, "Worker1 Status:", format.Object(workerWl.Status, 1))
-							} else {
-								fmt.Fprintln(&output, "Workload not present in worker1:", err)
-							}
-
-							if err := k8sWorker2Client.Get(ctx, wlKey, workerWl); err == nil {
-								fmt.Fprintln(&output, "Worker2 Workload:", format.Object(workerWl.ObjectMeta, 1))
-								fmt.Fprintln(&output, "Worker2 Status:", format.Object(workerWl.Status, 1))
-							} else {
-								fmt.Fprintln(&output, "Workload not present in worker2:", err)
-							}
-
-							return output.String()
-						},
-					)
+					g.Expect(managerWl.Status.ClusterName).To(gomega.HaveValue(gomega.Equal(workerCluster2.Name)), assertMsg("Workload not Admitted in worker2", wlKey))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the workload is created in worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue(), util.AssertMsg("Workload not Admitted in worker2", workerWorkload))
+					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue(), assertMsg("Workload not Admitted in worker2", wlKey))
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 
-					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError(), util.AssertMsg("Workload present in worker1", workerWorkload))
+					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError(), assertMsg("Workload present in worker1", wlKey))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -1630,4 +1604,25 @@ func expectJobToBeCreatedAndManagedBy(ctx context.Context, c client.Client, job 
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 		g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.Equal(managedBy))
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
+
+func assertMsg(msg string, wlKey client.ObjectKey) func() string {
+	return func() string {
+		output := &strings.Builder{}
+		fmt.Fprintln(output, msg)
+		withClusterWl(output, wlKey, "Manager", k8sManagerClient)
+		withClusterWl(output, wlKey, "Worker1", k8sWorker1Client)
+		withClusterWl(output, wlKey, "Worker2", k8sWorker2Client)
+		return output.String()
+	}
+}
+
+func withClusterWl(output *strings.Builder, wlKey client.ObjectKey, cName string, cClient client.Client) {
+	wl := &kueue.Workload{}
+	if err := cClient.Get(ctx, wlKey, wl); err == nil {
+		fmt.Fprintln(output, cName, "Workload:", format.Object(wl.ObjectMeta, 1))
+		fmt.Fprintln(output, cName, "Status:", format.Object(wl.Status, 1))
+	} else {
+		fmt.Fprintln(output, "Workload not present in:", cName, "Error:", err)
+	}
 }
