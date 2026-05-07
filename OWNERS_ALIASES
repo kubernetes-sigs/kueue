@@ -18,3 +18,7 @@ aliases:
   test-approvers:
     - mbobrovskyi
     - pbundyra
+  agent-approvers:
+    - amy
+  agent-reviewers:
+    - amy
