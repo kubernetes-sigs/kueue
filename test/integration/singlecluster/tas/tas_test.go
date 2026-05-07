@@ -3762,10 +3762,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("simulating a device-plugin failure: drop x1 nvidia.com/gpu allocatable to 0", func() {
-					nodeToUpdate := &corev1.Node{}
-					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: "x1"}, nodeToUpdate)).Should(gomega.Succeed())
-					nodeToUpdate.Status.Allocatable["nvidia.com/gpu"] = resource.MustParse("0")
-					gomega.Expect(k8sClient.Status().Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						nodeToUpdate := &corev1.Node{}
+						g.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: "x1"}, nodeToUpdate)).Should(gomega.Succeed())
+						nodeToUpdate.Status.Allocatable["nvidia.com/gpu"] = resource.MustParse("0")
+						g.Expect(k8sClient.Status().Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
 				// Submit wl2 with rack-required topology so the placement
