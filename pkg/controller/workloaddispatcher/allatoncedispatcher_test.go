@@ -113,6 +113,20 @@ func TestAllAtOnceDispatcherReconciler_Reconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"workload is being evicted": {
+			workload: baseWorkload.Clone().EvictedAt(now).Obj(),
+			mkAcState: &kueue.AdmissionCheckState{
+				Name:  "ac1",
+				State: kueue.CheckStatePending,
+			},
+			remoteClusters: []string{"cluster1"},
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("cluster1").
+					KubeConfig(kueue.SecretLocationType, "cluster1").
+					Generation(1).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range tests {
