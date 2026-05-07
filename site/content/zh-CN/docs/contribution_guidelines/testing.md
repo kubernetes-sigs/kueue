@@ -57,7 +57,8 @@ make test-integration
 ```shell
 make kind-image-build
 make test-e2e
-make test-tas-e2e
+make test-tas-e2e-baseline
+make test-tas-e2e-extended
 make test-e2e-sequential-extended
 make test-e2e-sequential-baseline
 make test-e2e-certmanager
@@ -200,7 +201,8 @@ ginkgo.FIt("Should place pods based on the ranks-ordering", func() {
 然后运行
 ```shell
 # 构建并拉取镜像
-make test-tas-e2e
+make test-tas-e2e-baseline
+make test-tas-e2e-extended
 ```
 来测试特定的 TAS e2e 测试。
 
