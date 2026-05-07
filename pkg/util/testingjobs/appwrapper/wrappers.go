@@ -58,9 +58,9 @@ func (aw *AppWrapperWrapper) Obj() *awv1beta2.AppWrapper {
 	return &aw.AppWrapper
 }
 
-// DeepCopy returns a DeepCopy of aw.
-func (aw *AppWrapperWrapper) DeepCopy() *AppWrapperWrapper {
-	return &AppWrapperWrapper{AppWrapper: *aw.AppWrapper.DeepCopy()}
+// Clone returns a deep copy of AppWrapper
+func (aw *AppWrapperWrapper) Clone() *AppWrapperWrapper {
+	return &AppWrapperWrapper{AppWrapper: *aw.DeepCopy()}
 }
 
 // Label sets a label of the AppWrapper
