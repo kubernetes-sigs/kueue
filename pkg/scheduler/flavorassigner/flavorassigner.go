@@ -670,9 +670,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		groupFlavors := make(ResourceAssignment)
 		for _, ips := range podSets {
 			// Seed the dedup memo with every prior-pass assignment, not just one.
-			for resName, fa := range ips.podSetAssignment.Flavors {
-				groupFlavors[resName] = fa
-			}
+			maps.Copy(groupFlavors, ips.podSetAssignment.Flavors)
 		}
 		var groupStatus Status
 		for resName, quantity := range requests {
