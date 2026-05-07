@@ -3655,6 +3655,153 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 		})
 
+		// https://github.com/kubernetes-sigs/kueue/pull/10949
+		ginkgo.When("Node allocatable for an extended resource drops below current usage", func() {
+			var (
+				nodes []corev1.Node
+			)
+
+			ginkgo.BeforeEach(func() {
+				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
+				util.MustCreate(ctx, k8sClient, topology)
+
+				tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "tas").
+					TopologyName("default").
+					Obj()
+				util.MustCreate(ctx, k8sClient, tasFlavor)
+
+				clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+						Resource("nvidia.com/gpu", "12").Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, clusterQueue)
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+				localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+				util.MustCreate(ctx, k8sClient, localQueue)
+
+				nodes = []corev1.Node{
+					*testingnode.MakeNode("x1").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
+						Label(corev1.LabelHostname, "x1").
+						StatusAllocatable(corev1.ResourceList{
+							"nvidia.com/gpu":      resource.MustParse("4"),
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+					// Sibling node in the SAME rack so the rack-level
+					// capacity sum mixes a healthy leaf with the
+					// over-subscribed leaf. Without the negative-count
+					// clamp, x1's state goes to -4 and cancels x2's +4 at
+					// the rack/block level, making a rack-required workload
+					// look unschedulable even though x2 has free capacity.
+					*testingnode.MakeNode("x2").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
+						Label(corev1.LabelHostname, "x2").
+						StatusAllocatable(corev1.ResourceList{
+							"nvidia.com/gpu":      resource.MustParse("8"),
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+				}
+				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+				for _, node := range nodes {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
+			})
+
+			ginkgo.It("should not produce negative TopologyDomain.Count when allocatable drops to 0 mid-workload", func() {
+				var (
+					wl1 *kueue.Workload
+					wl2 *kueue.Workload
+				)
+
+				ginkgo.By("admitting wl1 that consumes all GPUs on x1", func() {
+					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 4).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request("nvidia.com/gpu", "1").
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []utiltas.TopologyDomainAssignment{
+								{Count: 4, Values: []string{"x1"}},
+							},
+						}),
+					))
+				})
+
+				ginkgo.By("creating running pods so cache observes the GPU usage on x1", func() {
+					createPodsForWorkload(wl1, ns.Name, false, true)
+				})
+
+				ginkgo.By("simulating a device-plugin failure: drop x1 nvidia.com/gpu allocatable to 0", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						nodeToUpdate := &corev1.Node{}
+						g.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: "x1"}, nodeToUpdate)).Should(gomega.Succeed())
+						nodeToUpdate.Status.Allocatable["nvidia.com/gpu"] = resource.MustParse("0")
+						g.Expect(k8sClient.Status().Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				// Submit wl2 with rack-required topology so the placement
+				// algorithm must sum child leaf states at the rack level.
+				// Without the clamp, x1 contributes -4 and cancels out
+				// x2's +4 — making the rack appear unschedulable even
+				// though x2 has 4 free GPUs. With the clamp, rack capacity
+				// is 0+4=4 and wl2 lands on x2.
+				ginkgo.By("submitting wl2 (4 pods, slice-required topology), exposing the negative-leaf walk-down escape", func() {
+					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 4).
+							SliceRequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+							SliceSizeTopologyRequest(1).
+							Request("nvidia.com/gpu", "1").
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+					util.MustCreate(ctx, k8sClient, wl2)
+				})
+
+				ginkgo.By("verifying wl2 lands on the healthy node x2 (rack capacity must not be hidden by negative leaf state)", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).To(gomega.Succeed())
+					gomega.Expect(wl2.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []utiltas.TopologyDomainAssignment{
+								{Count: 4, Values: []string{"x2"}},
+							},
+						}),
+					))
+				})
+			})
+		})
+
 		ginkgo.When("ProvisioningRequest is used", func() {
 			var (
 				nodes             []corev1.Node

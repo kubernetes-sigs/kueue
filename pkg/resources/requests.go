@@ -193,7 +193,17 @@ func (r Requests) CountInWithLimitingResource(capacity Requests) (int32, corev1.
 		if rValue == 0 {
 			count = int32(math.MaxInt32)
 		} else {
-			count = int32(cap / rValue)
+			// Clamp to 0: when an extended-resource allocatable on a node
+			// drops below current usage mid-workload (e.g. GPU lost to a
+			// driver issue, SKU removed, or NFD label flap), the TAS
+			// snapshot's per-domain cap (allocatable - inUse) can go
+			// negative. Integer division would then yield a negative count
+			// and propagate into TopologyDomain.Count, which the apiserver
+			// rejects with "podCounts.individual[X] in body should be greater
+			// than or equal to 1", permanently wedging the workload. A
+			// negative "fits N times" is meaningless; treat it as 0 so the
+			// scheduler skips the over-subscribed domain instead.
+			count = max(int32(cap/rValue), 0)
 		}
 		// Tie-break between CPU and memory counts to ensure deterministic results.
 		if result == nil || count < *result || (count == *result && rName < limitingResource) {
