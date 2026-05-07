@@ -332,8 +332,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			wantEvents: nil,
 		},
 		"MultiKueue worker pod label is propagated to PodTemplate if workload has Multikueue origin label": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			req:          baseReq,
+			req: baseReq,
 			job: baseJob.Clone().Label(kueue.MultiKueueOriginLabel, "origin").
 				Label(constants.PrebuiltWorkloadLabel, "job-test-job-1").
 				Obj(),
@@ -397,8 +396,7 @@ func TestReconcileGenericJob(t *testing.T) {
 					Name:  "main",
 					Count: 1,
 					Annotations: map[string]string{
-						kueue.WorkloadAnnotation:          "job-test-job-1",
-						kueue.WorkloadSliceNameAnnotation: "job-test-job-1",
+						kueue.WorkloadAnnotation: "job-test-job-1",
 					},
 					Labels: map[string]string{
 						kueueconstants.ClusterQueueLabel:       "default-cq",
