@@ -16,6 +16,7 @@ limitations under the License.
 package tasbaseline
 
 const (
+	instanceType      = "tas-group"
 	tasNodeGroupLabel = "cloud.provider.com/node-group"
 	extraResource     = "example.com/gpu"
 )
