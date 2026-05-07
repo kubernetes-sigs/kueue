@@ -43,9 +43,9 @@
     version: "0.16"
 - name: FinishOrphanedWorkloads
   versionedSpecs:
-  - default: true
+  - default: false
     lockToDefault: false
-    preRelease: Beta
+    preRelease: Alpha
     version: "0.16"
 - name: FlavorFungibility
   versionedSpecs:
