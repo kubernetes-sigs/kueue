@@ -123,6 +123,16 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 		return reconcile.Result{}, nil
 	}
 
+	// The workload is being evicted; let the core eviction flow complete (the Job
+	// reconciler will UnsetQuotaReservation once the job is no longer active, and
+	// the scheduler will requeue it) before re-nominating clusters. Re-nominating
+	// during eviction races with the post-eviction cleanup and prevents the
+	// workload from re-entering the queue.
+	if workload.IsEvicted(wl) {
+		log.V(3).Info("Workload is being evicted, skip the reconciliation")
+		return reconcile.Result{}, nil
+	}
+
 	log.V(3).Info("Nominate Worker Clusters with Incremental Dispatcher")
 	return r.nominateWorkers(ctx, wl, remoteClusters, log)
 }
