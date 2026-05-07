@@ -572,8 +572,9 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	var w kueue.Workload
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
-	// Since the client is cached, the only possible error is NotFound
-	if apierrors.IsNotFound(err) || workload.HasQuotaReservation(&w) {
+	// Since the client is cached, the only possible error is NotFound.
+	// We should not requeue a workload that is not admissible.
+	if apierrors.IsNotFound(err) || !workload.IsAdmissible(&w) {
 		return false
 	}
 
