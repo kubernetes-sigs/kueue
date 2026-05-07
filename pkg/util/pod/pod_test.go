@@ -52,7 +52,7 @@ func TestHasGate(t *testing.T) {
 			want: false,
 		},
 		"no scheduling gates": {
-			pod:  basePod.Clone().Obj(),
+			pod:  basePod.DeepCopy(),
 			want: false,
 		},
 	}
@@ -81,9 +81,8 @@ func TestUngate(t *testing.T) {
 			pod: basePod.Clone().
 				Gate("example.com/gate").
 				Obj(),
-			wantPod: basePod.Clone().
-				Obj(),
-			want: true,
+			wantPod: basePod.DeepCopy(),
+			want:    true,
 		},
 		"ungate when scheduling gate missing": {
 			gateName: "example.com/gate",
@@ -166,8 +165,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 		wantErr error
 	}{
 		"label not found": {
-			obj: basePod.Clone().
-				Obj(),
+			obj:     basePod.DeepCopy(),
 			label:   "label",
 			max:     math.MaxInt,
 			wantErr: ErrLabelNotFound,

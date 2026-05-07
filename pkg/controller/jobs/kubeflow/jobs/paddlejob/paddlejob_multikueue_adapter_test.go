@@ -63,7 +63,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}{
 		"sync creates missing remote PaddleJob": {
 			managersPaddleJobs: []kftraining.PaddleJob{
-				*paddleJobBuilder.Clone().Obj(),
+				*paddleJobBuilder.DeepCopy(),
 			},
 
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
@@ -71,7 +71,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 
 			wantManagersPaddleJobs: []kftraining.PaddleJob{
-				*paddleJobBuilder.Clone().Obj(),
+				*paddleJobBuilder.DeepCopy(),
 			},
 			wantWorkerPaddleJobs: []kftraining.PaddleJob{
 				*paddleJobBuilder.Clone().
@@ -82,7 +82,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"sync status from remote PaddleJob": {
 			managersPaddleJobs: []kftraining.PaddleJob{
-				*paddleJobBuilder.Clone().Obj(),
+				*paddleJobBuilder.DeepCopy(),
 			},
 			workerPaddleJobs: []kftraining.PaddleJob{
 				*paddleJobBuilder.Clone().

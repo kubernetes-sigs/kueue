@@ -58,7 +58,7 @@ func TestNodesCache(t *testing.T) {
 		"sync ready to not ready": {
 			nodes: []corev1.Node{*nodeWrapper.Clone().Ready().Obj()},
 			op: func(nc *nodesCache) {
-				nc.sync(nodeWrapper.Clone().Obj())
+				nc.sync(nodeWrapper.DeepCopy())
 			},
 		},
 		"sync ready to unschedulable": {

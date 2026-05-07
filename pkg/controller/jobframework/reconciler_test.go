@@ -158,9 +158,8 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"update workload to match job preserves active=true": {
-			req: baseReq,
-			job: baseJob.Clone().
-				Obj(),
+			req:     baseReq,
+			job:     baseJob.DeepCopy(),
 			podSets: basePodSets,
 			objs: []client.Object{
 				baseWl.Clone().Name("job-test-job-1").
@@ -173,9 +172,8 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"update workload to match job preserves active=false": {
-			req: baseReq,
-			job: baseJob.Clone().
-				Obj(),
+			req:     baseReq,
+			job:     baseJob.DeepCopy(),
 			podSets: basePodSets,
 			objs: []client.Object{
 				baseWl.Clone().Name("job-test-job-1").
@@ -226,9 +224,8 @@ func TestReconcileGenericJob(t *testing.T) {
 		"job with AdmissionGatedBy annotation removed should update workload": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			req:          baseReq,
-			job: baseJob.Clone().
-				Obj(),
-			podSets: basePodSets,
+			job:          baseJob.DeepCopy(),
+			podSets:      basePodSets,
 			objs: []client.Object{
 				baseWl.Clone().Name("job-test-job-1").
 					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").

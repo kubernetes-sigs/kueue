@@ -757,8 +757,7 @@ func TestRemoteClientGC(t *testing.T) {
 	}{
 		"existing workers and jobs are not deleted": {
 			managersWorkloads: []kueue.Workload{
-				*baseWlBuilder.Clone().
-					Obj(),
+				*baseWlBuilder.DeepCopy(),
 			},
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
@@ -766,12 +765,10 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 			workersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 			wantWorkersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
@@ -779,8 +776,7 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			wantWorkersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 		},
 		"missing worker workloads are deleted": {
@@ -790,8 +786,7 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 		},
 		"missing worker workloads are deleted (no job adapter)": {
@@ -809,12 +804,10 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 			workersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 		},
 		"unrelated workers and jobs are not deleted": {
@@ -824,8 +817,7 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			workersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 			wantWorkersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
@@ -833,8 +825,7 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			wantWorkersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 		},
 	}
@@ -918,8 +909,7 @@ func TestValidateKubeconfig(t *testing.T) {
 		},
 		"valid config": {
 			cfgFn: func() *clientcmdapi.Config {
-				c := kubeconfigBase.Clone().Obj()
-				return &c
+				return kubeconfigBase.DeepCopy()
 			},
 			wantErr: false,
 		},

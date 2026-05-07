@@ -103,7 +103,7 @@ func TestValidateCreate(t *testing.T) {
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					}).Obj().Spec),
-			trainJob:                testTrainJob.Clone().Obj(),
+			trainJob:                testTrainJob.DeepCopy(),
 			topologyAwareScheduling: true,
 		},
 		"invalid topology request in TrainJob": {
@@ -135,7 +135,7 @@ func TestValidateCreate(t *testing.T) {
 							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 						},
 					}).Obj().Spec),
-			trainJob: testTrainJob.Clone().Obj(),
+			trainJob: testTrainJob.DeepCopy(),
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("job[node].annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`+
@@ -211,18 +211,18 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"should not suspend a TrainJob without a queue label if manageJobsWithoutQueueName is not enabled": {
-			trainJob:     testTrainJob.Clone().Obj(),
-			wantTrainJob: testExpectedTrainJob.Clone().Obj(),
+			trainJob:     testTrainJob.DeepCopy(),
+			wantTrainJob: testExpectedTrainJob.DeepCopy(),
 		},
 		"should suspend a TrainJob without a queue label if manageJobsWithoutQueueName is enabled": {
-			trainJob: testTrainJob.Clone().Obj(),
+			trainJob: testTrainJob.DeepCopy(),
 			wantTrainJob: testExpectedTrainJob.Clone().
 				Suspend(true).
 				Obj(),
 			manageJobsWithoutQueueName: true,
 		},
 		"should set the default local queue if enabled and the user didn't specify any": {
-			trainJob: testTrainJob.Clone().Obj(),
+			trainJob: testTrainJob.DeepCopy(),
 			wantTrainJob: testExpectedTrainJob.Clone().
 				Suspend(true).
 				Queue(string(controllerconstants.DefaultLocalQueueName)).
@@ -230,8 +230,8 @@ func TestDefault(t *testing.T) {
 			withDefaultLocalQueue: true,
 		},
 		"should not set the default local queue if doesn't exists": {
-			trainJob:              testTrainJob.Clone().Obj(),
-			wantTrainJob:          testExpectedTrainJob.Clone().Obj(),
+			trainJob:              testTrainJob.DeepCopy(),
+			wantTrainJob:          testExpectedTrainJob.DeepCopy(),
 			withDefaultLocalQueue: false,
 		},
 		"should set managedBy to multiKueue if the user didn't specify any": {

@@ -68,14 +68,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}{
 		"sync creates missing remote job": {
 			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
 			wantManagersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
@@ -86,7 +86,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"sync intermediate status from remote job": {
 			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
@@ -143,7 +143,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"sync final status from remote job": {
 			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
@@ -191,7 +191,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"job with wrong managedBy is not considered managed": {
 			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); isManged {
@@ -200,12 +200,12 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 		},
 		"job managedBy multikueue": {
 			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); !isManged {
@@ -214,7 +214,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
 	}

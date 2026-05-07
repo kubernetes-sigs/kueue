@@ -23,12 +23,12 @@ import (
 )
 
 type TestKubeconfigWrapper struct {
-	Config clientcmdapi.Config
+	clientcmdapi.Config
 }
 
 func NewTestKubeConfigWrapper() *TestKubeconfigWrapper {
 	return &TestKubeconfigWrapper{
-		Config: clientcmdapi.Config{
+		clientcmdapi.Config{
 			Kind:       "config",
 			APIVersion: "v1",
 			Clusters:   map[string]*clientcmdapi.Cluster{},
@@ -39,7 +39,7 @@ func NewTestKubeConfigWrapper() *TestKubeconfigWrapper {
 }
 
 func (k *TestKubeconfigWrapper) Cluster(name, server string, caData []byte) *TestKubeconfigWrapper {
-	k.Config.Clusters[name] = &clientcmdapi.Cluster{
+	k.Clusters[name] = &clientcmdapi.Cluster{
 		Server:                   server,
 		CertificateAuthorityData: caData,
 	}
@@ -47,7 +47,7 @@ func (k *TestKubeconfigWrapper) Cluster(name, server string, caData []byte) *Tes
 }
 
 func (k *TestKubeconfigWrapper) User(name string, certData, keyData []byte) *TestKubeconfigWrapper {
-	k.Config.AuthInfos[name] = &clientcmdapi.AuthInfo{
+	k.AuthInfos[name] = &clientcmdapi.AuthInfo{
 		ClientCertificateData: certData,
 		ClientKeyData:         keyData,
 	}
@@ -55,7 +55,7 @@ func (k *TestKubeconfigWrapper) User(name string, certData, keyData []byte) *Tes
 }
 
 func (k *TestKubeconfigWrapper) Context(name, clusterName, userName string) *TestKubeconfigWrapper {
-	k.Config.Contexts[name] = &clientcmdapi.Context{
+	k.Contexts[name] = &clientcmdapi.Context{
 		Cluster:  clusterName,
 		AuthInfo: userName,
 	}
@@ -68,27 +68,27 @@ func (k *TestKubeconfigWrapper) CurrentContext(name string) *TestKubeconfigWrapp
 }
 
 func (k *TestKubeconfigWrapper) TokenAuthInfo(name, token string) *TestKubeconfigWrapper {
-	k.Config.AuthInfos[name].Token = token
+	k.AuthInfos[name].Token = token
 	return k
 }
 
 func (k *TestKubeconfigWrapper) TokenFileAuthInfo(name, tokenFilePath string) *TestKubeconfigWrapper {
-	k.Config.AuthInfos[name].TokenFile = tokenFilePath
+	k.AuthInfos[name].TokenFile = tokenFilePath
 	return k
 }
 
 func (k *TestKubeconfigWrapper) InsecureSkipTLSVerify(clusterName string, skip bool) *TestKubeconfigWrapper {
-	k.Config.Clusters[clusterName].InsecureSkipTLSVerify = skip
+	k.Clusters[clusterName].InsecureSkipTLSVerify = skip
 	return k
 }
 
 func (k *TestKubeconfigWrapper) CAFileCluster(clusterName, caFilePath string) *TestKubeconfigWrapper {
-	k.Config.Clusters[clusterName].CertificateAuthority = caFilePath
+	k.Clusters[clusterName].CertificateAuthority = caFilePath
 	return k
 }
 
 func (k *TestKubeconfigWrapper) Clone() *TestKubeconfigWrapper {
-	return &TestKubeconfigWrapper{Config: *k.Config.DeepCopy()}
+	return &TestKubeconfigWrapper{Config: *k.DeepCopy()}
 }
 
 func (k *TestKubeconfigWrapper) Obj() clientcmdapi.Config {

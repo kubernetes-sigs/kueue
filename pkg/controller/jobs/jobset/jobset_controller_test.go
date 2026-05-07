@@ -137,7 +137,7 @@ func TestReclaimablePods(t *testing.T) {
 		want   []kueue.ReclaimablePod
 	}{
 		"no status": {
-			jobSet: baseWrapper.Clone().Obj(),
+			jobSet: baseWrapper.DeepCopy(),
 			want:   nil,
 		},
 		"empty jobs status": {

@@ -270,7 +270,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		wantErr      bool
 	}{
 		"should add to the SparkApplication specified in the PodSet info": {
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "driver",
@@ -350,7 +350,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			wantErr: true,
 		},
 		"should raise error if the wrong number of PodSet infos is provided": {
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "driver",
@@ -407,7 +407,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		wantChanged  bool
 	}{
 		"should restore PodSet info to the SparkApplication": {
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "driver",
@@ -513,7 +513,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			wantChanged: false,
 		},
 		"should not modify the SparkApplication  if the wrong number of PodSet infos is provided": {
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "driver",
@@ -522,7 +522,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 					SchedulingGates: []corev1.PodSchedulingGate{*schedulingGate.DeepCopy()},
 				},
 			},
-			wantSparkApp: testSparkApp.Clone().Obj(),
+			wantSparkApp: testSparkApp.DeepCopy(),
 			wantChanged:  false,
 		},
 	}
@@ -557,7 +557,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(testSparkApp.Name, testSparkApp.Namespace).
 					PodSets(
