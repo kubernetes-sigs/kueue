@@ -275,6 +275,23 @@ GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequenti
 GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 ```
 
+### Use label filters for TAS e2e tests
+TAS tests (Baseline and Extended) are labeled by feature. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
+
+**Label Taxonomy (Baseline):**
+- Features: `job, pod, statefulset`
+
+**Label Taxonomy (Extended):**
+- Features: `appwrapper, jobset, hotswap, leaderworkerset, mpijob, pytorch, rayjob, trainjob`
+
+**Examples:**
+```shell
+# Run only job tests (Baseline)
+GINKGO_ARGS="--label-filter=feature:job" make test-tas-e2e-baseline
+# Run only jobset tests (Extended)
+GINKGO_ARGS="--label-filter=feature:jobset" make test-tas-e2e-extended
+```
+
 ### Use Ginkgo --focus arg
 ```shell
 GINKGO_ARGS="--focus=Scheduler" make test-integration
