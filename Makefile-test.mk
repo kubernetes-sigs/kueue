@@ -161,13 +161,14 @@ test-multikueue-e2e-sequential: setup-e2e-env test-multikueue-e2e-parallel-build
 test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
 
-.PHONY: test-tas-e2e-baseline 
-test-tas-e2e-baseline: setup-e2e-env 
-run-test-tas-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) 
+.PHONY: test-tas-e2e
+test-tas-e2e: test-tas-e2e-baseline test-tas-e2e-extended
 
-.PHONY: test-tas-e2e-extended 
-test-tas-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build 
-run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+.PHONY: test-tas-e2e-baseline
+test-tas-e2e-baseline: setup-e2e-env run-test-tas-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-tas-e2e-extended
+test-tas-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-helm
 test-tas-e2e-helm: E2E_USE_HELM=true
@@ -265,6 +266,39 @@ run-test-tas-e2e-%:
 		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
 		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		
+
+run-test-tas-e2e-baseline-%: K8S_VERSION = $(@:run-test-tas-e2e-baseline-%=%)
+run-test-tas-e2e-baseline-%:
+	@echo Running tas e2e baseline for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/baseline" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-test.sh
+
+run-test-tas-e2e-extended-%: K8S_VERSION = $(@:run-test-tas-e2e-extended-%=%)
+run-test-tas-e2e-extended-%:
+	@echo Running tas e2e extended for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
+		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
+		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
+		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
+		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
@@ -524,42 +558,6 @@ run-tas-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 		--generatorConfig=$(SCALABILITY_TAS_GENERATOR_CONFIG) \
 		--enableTAS=true \
 		--qps=1000 --burst=2000 --timeout=25m $(SCALABILITY_SCRAPE_ARGS)
-
-##@ Scheduler Performance Testing - Large Scale
-
-SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/large-scale/generator.yaml
-SCALABILITY_LARGE_SCALE_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/large-scale/rangespec.yaml
-
-.PHONY: run-large-scale-performance-scheduler
-run-large-scale-performance-scheduler: envtest performance-scheduler-runner minimalkueue
-	mkdir -p "$(ARTIFACTS)/$@"
-	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
-	$(SCALABILITY_RUNNER) \
-		--o "$(ARTIFACTS)/$@" \
-		--crds=$(PROJECT_DIR)/config/components/crd/bases \
-		--generatorConfig=$(SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG) \
-		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
-		--timeout=30m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
-
-.PHONY: test-large-scale-performance-scheduler-once
-test-large-scale-performance-scheduler-once: gotestsum run-large-scale-performance-scheduler
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
-		--summary=$(ARTIFACTS)/run-large-scale-performance-scheduler/summary.yaml \
-		--cmdStats=$(ARTIFACTS)/run-large-scale-performance-scheduler/minimalkueue.stats.yaml \
-		--range=$(SCALABILITY_LARGE_SCALE_RANGE_FILE)
-
-.PHONY: test-large-scale-performance-scheduler
-test-large-scale-performance-scheduler:
-	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-large-scale-performance-scheduler-once
-
-.PHONY: run-large-scale-performance-scheduler-in-cluster
-run-large-scale-performance-scheduler-in-cluster: envtest performance-scheduler-runner
-	mkdir -p "$(ARTIFACTS)/$@"
-	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
-	$(SCALABILITY_RUNNER) \
-		--o "$(ARTIFACTS)/$@" \
-		--generatorConfig=$(SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG) \
-		--qps=1000 --burst=2000 --timeout=30m $(SCALABILITY_SCRAPE_ARGS)
 
 .PHONY: ginkgo-top
 ginkgo-top:
