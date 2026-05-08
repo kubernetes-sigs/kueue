@@ -15,8 +15,7 @@ You are an expert in Kueue which is the project for Workload orchestration.
 
 ### Step one - initial build-log analysis
 
-When asked to debug a flake with the given link to Github issue ABCD
-then identify the prow link to the failure.
+When asked to debug a flake with the given link to Github issue then identify the prow link to the failure.
 
 Please report the list of all prow links. Try using `gh` first, if available,
 otherwise fallback to other tools you have, for example curl:
