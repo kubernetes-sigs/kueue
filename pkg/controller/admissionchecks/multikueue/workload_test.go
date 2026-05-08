@@ -1725,14 +1725,15 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name             string
-		dispatcherMode   string
-		remotes          map[string]*kueue.Workload
-		nominatedWorkers []string
-		cond             *metav1.Condition
-		createErr        error
-		wantCreated      []string
-		wantErr          bool
+		name                  string
+		dispatcherMode        string
+		allAtOnceExternalGate *bool // nil = use default; otherwise overrides MultiKueueAllAtOnceExternal for this case
+		remotes               map[string]*kueue.Workload
+		nominatedWorkers      []string
+		cond                  *metav1.Condition
+		createErr             error
+		wantCreated           []string
+		wantErr               bool
 	}{
 		{
 			name:             "AllClusters: clone to all remotes, nominates all",
@@ -1747,6 +1748,16 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			remotes:          map[string]*kueue.Workload{remoteNames[0]: {}, remoteNames[1]: {}},
 			nominatedWorkers: []string{remoteNames[0], remoteNames[1]},
 			wantCreated:      nil,
+		},
+		{
+			// Legacy inline AllAtOnce path: with the feature gate disabled,
+			// nominateAndSynchronizeWorkers itself populates NominatedClusterNames
+			// from group.remotes (no pre-populated nominatedWorkers needed).
+			name:                  "AllClusters legacy: gate off, inline branch nominates from group.remotes",
+			dispatcherMode:        config.MultiKueueDispatcherModeAllAtOnce,
+			allAtOnceExternalGate: ptr.To(false),
+			remotes:               map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
+			wantCreated:           []string{remoteNames[0], remoteNames[1]},
 		},
 		// Incremental and AllAtOnce dispatcher unit tests live in pkg/controller/workloaddispatcher.
 		{
@@ -1773,6 +1784,9 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.allAtOnceExternalGate != nil {
+				features.SetFeatureGateDuringTest(t, features.MultiKueueAllAtOnceExternal, *tt.allAtOnceExternalGate)
+			}
 			fakeClock := testingclock.NewFakeClock(now)
 
 			local := &kueue.Workload{

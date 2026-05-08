@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -758,9 +759,28 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	// supporting preferred or required placement constraints.
 	if clusterName := workload.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
 		nominatedWorkers = []string{clusterName}
+	} else if !features.Enabled(features.MultiKueueAllAtOnceExternal) && w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
+		// Legacy inline AllAtOnce nomination path. Kept under feature gate so
+		// operators can roll back to the pre-#6803 behavior if the dedicated
+		// AllAtOnceDispatcherReconciler controller misbehaves. When the
+		// MultiKueueAllAtOnceExternal gate goes GA, this branch (and the
+		// surrounding gate check) can be removed.
+		for workerName := range group.remotes {
+			nominatedWorkers = append(nominatedWorkers, workerName)
+		}
+		if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+				wl.Status.NominatedClusterNames = nominatedWorkers
+				return true, nil
+			}); err != nil {
+				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
+				return reconcile.Result{}, err
+			}
+		}
 	} else {
-		// Dispatcher (AllAtOnce, Incremental, or External) is responsible for
-		// populating Status.NominatedClusterNames; the synchronizer just reads it.
+		// Dispatcher (AllAtOnce when MultiKueueAllAtOnceExternal=true,
+		// Incremental, or External) is responsible for populating
+		// Status.NominatedClusterNames; the synchronizer just reads it.
 		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
