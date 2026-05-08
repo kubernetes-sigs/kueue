@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package extended
 
 import (
@@ -26,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/test/util"
@@ -44,13 +46,16 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
+
 	var err error
 	k8sClient, _, err = util.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	ctx = ginkgo.GinkgoT().Context()
 	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
 
 	waitForAvailableStart := time.Now()
+
 	util.WaitForKueueAvailability(ctx, k8sClient)
 	util.WaitForJobSetAvailability(ctx, k8sClient)
 	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
@@ -58,6 +63,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForAppWrapperAvailability(ctx, k8sClient)
 	util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
+
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
@@ -65,17 +71,22 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	requiredLabels := client.MatchingLabels{}
 	requiredLabelKeys := client.HasLabels{tasNodeGroupLabel}
+
 	err = k8sClient.List(ctx, nodes, requiredLabels, requiredLabelKeys)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to list nodes for TAS")
+
 	for _, n := range nodes.Items {
 		gomega.Eventually(func(g gomega.Gomega) {
 			node := &corev1.Node{}
+
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: n.Name}, node)).To(gomega.Succeed())
+
 			err := clientutil.PatchStatus(ctx, k8sClient, node, func() (bool, error) {
 				node.Status.Capacity[extraResource] = resource.MustParse("1")
 				node.Status.Allocatable[extraResource] = resource.MustParse("1")
 				return true, nil
 			})
+
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}
