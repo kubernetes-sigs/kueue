@@ -56,8 +56,8 @@ For running a subset of tests, see [Running subset of tests](#running-subset-of-
 ## Running e2e tests using custom build
 ```shell
 make kind-image-build
-make test-e2e
-make test-tas-e2e
+make test-e2e-baseline
+make test-e2e-extended
 make test-e2e-sequential-extended
 make test-e2e-sequential-baseline
 make test-e2e-certmanager
@@ -295,7 +295,6 @@ ginkgo.FIt("Should place pods based on the ranks-ordering", func() {
 and then run
 ```shell
 # build and pull image
-make test-tas-e2e
 ```
 to test a particular TAS e2e test.
 
