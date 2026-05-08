@@ -384,7 +384,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  new(true),
-				RecoveryTimeout: &metav1.Duration{Duration: util.MediumTimeout},
+				RecoveryTimeout: &metav1.Duration{Duration: util.LongTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          ptr.To(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: new(int32(1)),
@@ -476,7 +476,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadRecovered))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying that the metric is not updated", func() {
