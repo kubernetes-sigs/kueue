@@ -19,10 +19,12 @@ package sequential
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/format"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -825,15 +827,17 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 					worker1Error := k8sWorker1Client.Get(ctx, highWlKey, worker1HighWorkload)
 					worker2Error := k8sWorker2Client.Get(ctx, highWlKey, worker2HighWorkload)
 
-					g.Expect(worker1Error == nil).NotTo(gomega.Equal(worker2Error == nil))
+					g.Expect(worker1Error == nil).NotTo(gomega.Equal(worker2Error == nil)) //
 
 					if worker1Error == nil {
 						g.Expect(worker1HighWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+						g.Expect(workload.IsAdmitted(worker1HighWorkload)).To(gomega.BeTrue(), assertMsg("Workload not Admitted in worker1", highWlKey))
 						evictedWlKey = lowWlKey1
 						unaffectedWlKey = lowWlKey2
 						unaffectedWorkerClient = k8sWorker2Client
 					} else {
 						g.Expect(worker2HighWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+						g.Expect(workload.IsAdmitted(worker2HighWorkload)).To(gomega.BeTrue(), assertMsg("Workload not Admitted in worker2", highWlKey))
 						evictedWlKey = lowWlKey2
 						unaffectedWlKey = lowWlKey1
 						unaffectedWorkerClient = k8sWorker1Client
@@ -876,3 +880,24 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 })
+
+func assertMsg(msg string, wlKey client.ObjectKey) func() string {
+	return func() string {
+		output := &strings.Builder{}
+		fmt.Fprintln(output, msg)
+		withClusterWl(output, wlKey, "Manager", k8sManagerClient)
+		withClusterWl(output, wlKey, "Worker1", k8sWorker1Client)
+		withClusterWl(output, wlKey, "Worker2", k8sWorker2Client)
+		return output.String()
+	}
+}
+
+func withClusterWl(output *strings.Builder, wlKey client.ObjectKey, cName string, cClient client.Client) {
+	wl := &kueue.Workload{}
+	if err := cClient.Get(ctx, wlKey, wl); err == nil {
+		fmt.Fprintln(output, cName, "Workload:", format.Object(wl.ObjectMeta, 1))
+		fmt.Fprintln(output, cName, "Status:", format.Object(wl.Status, 1))
+	} else {
+		fmt.Fprintln(output, "Workload not present in:", cName, "Error:", err)
+	}
+}
