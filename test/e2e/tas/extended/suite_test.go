@@ -72,6 +72,8 @@ var _ = ginkgo.BeforeSuite(func() {
 	requiredLabels := client.MatchingLabels{}
 	requiredLabelKeys := client.HasLabels{tasNodeGroupLabel}
 
+	nodes := &corev1.NodeList{}
+
 	err = k8sClient.List(ctx, nodes, requiredLabels, requiredLabelKeys)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to list nodes for TAS")
 
