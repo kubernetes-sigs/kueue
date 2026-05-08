@@ -158,6 +158,13 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 			wl := utiltestingapi.MakeWorkload("job-test-job", metav1.NamespaceDefault).Obj()
 			wl.CreationTimestamp = metav1.NewTime(baseTime)
 
+			job.SetGeneration(2)
+			jobframework.RecordWorkloadCreationLatency(job, tc.jobKind, wl, nil, nil)
+			if count, err := testutil.GetHistogramMetricCount(metrics.WorkloadCreationLatency.WithLabelValues(tc.jobKind, roletracker.RoleStandalone)); err != nil || count != 0 {
+				t.Errorf("Expecting metric count 0 for generation > 1, got count %d, err %v", count, err)
+			}
+
+			job.SetGeneration(1)
 			jobframework.RecordWorkloadCreationLatency(job, tc.jobKind, wl, nil, nil)
 
 			val, err := testutil.GetHistogramMetricValue(metrics.WorkloadCreationLatency.WithLabelValues(tc.jobKind, roletracker.RoleStandalone))

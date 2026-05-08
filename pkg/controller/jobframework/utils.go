@@ -81,6 +81,9 @@ func sanitizeContainer(container *corev1.Container) {
 
 // RecordWorkloadCreationLatency records the latency between job creation and workload creation.
 func RecordWorkloadCreationLatency(job client.Object, jobKind string, wl *kueue.Workload, customLabels *metrics.CustomLabels, tracker *roletracker.RoleTracker) {
+	if job.GetGeneration() > 1 {
+		return
+	}
 	jobCreationTime := job.GetCreationTimestamp().Time
 	wlCreationTime := wl.CreationTimestamp.Time
 	latency := wlCreationTime.Sub(jobCreationTime)
