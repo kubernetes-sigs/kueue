@@ -471,7 +471,7 @@ kueuectl:
 	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/kubectl-kueue cmd/kueuectl/main.go
 
 .PHONY: generate-apiref
-generate-apiref: genref
+generate-apiref: genref generate-code
 	cd $(PROJECT_DIR)/hack/genref/ && $(GENREF) -o $(PROJECT_DIR)/site/content/en/docs/reference
 
 ##@ Documentation
