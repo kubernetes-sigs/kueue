@@ -235,6 +235,12 @@ func (j *JobWrapper) RequestAndLimit(r corev1.ResourceName, v string) *JobWrappe
 	return j.Request(r, v).Limit(r, v)
 }
 
+// SuccessPolicy sets the successPolicy
+func (j *JobWrapper) SuccessPolicy(policy *batchv1.SuccessPolicy) *JobWrapper {
+	j.Spec.SuccessPolicy = policy
+	return j
+}
+
 func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 	j.Spec.Template.Spec.Containers[0].Image = image
 	j.Spec.Template.Spec.Containers[0].Args = args
