@@ -140,11 +140,29 @@ test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkg
 ##   Run only jobset and trainjob tests: GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
 test-e2e: E2E_NPROCS := 4
 .PHONY: test-e2e
-test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e: test-e2e-baseline test-e2e-extended
 
 .PHONY: test-e2e-helm
 test-e2e-helm: E2E_USE_HELM=true
 test-e2e-helm: test-e2e
+
+.PHONY: test-e2e-baseline
+test-e2e-baseline: E2E_NPROCS := 4
+test-e2e-baseline: setup-e2e-env kueuectl run-test-e2e-singlecluster-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-baseline-helm
+test-e2e-baseline-helm: E2E_USE_HELM=true
+test-e2e-baseline-helm: test-e2e-baseline
+
+.PHONY: test-e2e-extended
+test-e2e-extended: E2E_NPROCS := 4
+test-e2e-extended: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-extended-helm
+test-e2e-extended-helm: E2E_USE_HELM=true
+test-e2e-extended-helm: test-e2e-extended
+
+
 
 .PHONY: test-multikueue-e2e-parallel-builds
 test-multikueue-e2e-parallel-builds:
