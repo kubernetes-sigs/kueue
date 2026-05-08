@@ -805,10 +805,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			// longer called, and the manager Job's Status.Active is never updated.
 			// The remote will be cleaned up later, once the local workload is
 			// re-admitted (or finishes / loses its quota reservation).
-			if workload.IsEvicted(remoteWl) {
-				log.V(3).Info("Preserving evicted remote workload to allow eviction-recovery sync", "remote", rem)
-				continue
-			}
+
 			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
 				log.V(2).Error(err, "removing non-nominated remote object", "remote", rem)
 				errs = append(errs, err)
