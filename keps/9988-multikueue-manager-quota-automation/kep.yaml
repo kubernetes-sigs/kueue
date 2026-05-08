@@ -5,10 +5,12 @@ authors:
 status: provisional
 creation-date: 2026-04-24
 reviewers:
-  - mimowo
   - amy
+  - mimowo
+  - tenzen-y
 approvers:
   - mimowo
+  - tenzen-y
 
 
 # The target maturity stage in the current dev cycle for this KEP.

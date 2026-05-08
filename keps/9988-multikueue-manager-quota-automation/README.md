@@ -30,11 +30,13 @@
     - [Unit Tests](#unit-tests)
     - [Integration Tests](#integration-tests)
     - [E2e Tests](#e2e-tests)
-  - [Possible Follow-ups](#possible-follow-ups)
+  - [Future work ideas](#future-work-ideas)
+    - [Move the aggregated quota out of ClusterQueueSpec](#move-the-aggregated-quota-out-of-clusterqueuespec)
     - [Use cached remote clients for low-volume resource kinds](#use-cached-remote-clients-for-low-volume-resource-kinds)
     - [Add a way to adjust the manager-side quota](#add-a-way-to-adjust-the-manager-side-quota)
     - [Change the treatment of ResourceFlavors](#change-the-treatment-of-resourceflavors)
     - [Account for temporarily unavailable workers](#account-for-temporarily-unavailable-workers)
+    - [Support MultiKueue cluster role sharing](#support-multikueue-cluster-role-sharing)
   - [Graduation Criteria](#graduation-criteria)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -327,6 +329,8 @@ The main risks of this proposal are the following:
 
 3. Slowing down MultiKueue by adding more reconcilers and computations.
 
+4. By updating ClusterQueueSpec, we risk an infinite loop of reconciles in case when the reconcile logic fails to be idempotent.
+
 For these, we propose the following mitigations:
 
 * Risk 1 is mitigated by a dedicated ClusterQueue condition, explaining the automation process.
@@ -335,6 +339,9 @@ For these, we propose the following mitigations:
   This also mitigates Risk 3, as long as we pay attention to skip computations which are not necessary per the ClusterQueue configuration.
 
 * Risk 3 is considered low. If needed, it can be substantially mitigated by caching the relevant information.
+
+* Risk 4 is mitigated by paying attention to update the ClusterQueueSpec only when necessary. 
+  In an unlikely case of an upstream issue hitting us (e.g. non-determinism of serialization, cf. [#7430](https://github.com/kubernetes-sigs/kueue/pull/7430)), we can add tracking of `generation` or `resourceVersion` to skip reconciling if Kueue was the most recent editor of the current spec.
 
 ## Design details
 
@@ -346,28 +353,20 @@ The configuration for this feature will be added to the existing `MultiKueueConf
 type MultiKueueConfigSpec struct {
    // ...
 
-   // quotaAutomation specifies the automation behavior of ClusterQueue quotas 
+   // quotaManagement specifies the management of ClusterQueue quotas 
    // in the manager cluster. 
-   // If unspecified, the default mode depends on the MultiKueueQuotaAutomation feature gate.
-   QuotaAutomation *QuotaAutomation `json:"quotaAutomation,omitempty"`
-}
-
-type QuotaAutomation struct {
-   // mode specifies the automation mode.
    // Supported modes:
-   // - `Disabled`: Quota automation is disabled.
-   // - `Enabled`: Quota automation is enabled (provided that the MultiKueueQuotaAutomation feature gate is enabled).
-   //
-   // +kubebuilder:validation:Enum=Disabled;Enabled
-   // +kubebuilder:default=Enabled
-   Mode QuotaAutomationMode `json:"mode"`
+   // - `Manual`: Quota automation is manual.
+   // - `Automated`: Quota automation is enabled (provided that the MultiKueueQuotaAutomation feature gate is enabled).
+   // If unspecified, the default mode depends on the MultiKueueQuotaAutomation feature gate.
+   QuotaManagement *QuotaManagementMode
 }
 
-type QuotaAutomationMode string
+type QuotaManagementMode string
 
 const (
-   QuotaAutomationDisabled QuotaAutomationMode = "Disabled"
-   QuotaAutomationEnabled  QuotaAutomationMode = "Enabled"
+   QuotaManagementManual QuotaManagementMode = "Manual"
+   QuotaManagementAutomated  QuotaManagementMode = "Automated"
 )
 ```
 
@@ -460,7 +459,26 @@ to implement this enhancement.
 * Test the scenario of a ClusterQueue having quota automation disabled -> then enabled (and reacting to some change) -> then disabled.
 * Verify that manager quota auto-adjustments promptly trigger the expected re-assignments of Workloads.
 
-### Possible Follow-ups
+### Future work ideas
+
+#### Move the aggregated quota out of ClusterQueueSpec
+
+While the goal of this feature is to automatically control manager-side quotas, which are specified in ClusterQueueSpec per the current Kueue behavior, it may be considered a design smell, as explained in [Drawback 1](#drawbacks).
+
+In the longer term, this seems improvable as follows:
+
+1. Introduce a new field in ClusterQueueStatus, named e.g. `effectiveResourceGroups`. \
+   This field will be the **source of truth** about the quotas, replacing `.spec.resourceGroups` throughout the existing logic.
+2. When quota automation is **disabled**, the Kueue core ClusterQueue controller will just copy `.spec.resourceGroups` to `.status.effectiveResourceGroups`.
+   * Later on, this syncing may become non-trivial, e.g. to implement [KEP-8826](https://github.com/kubernetes-sigs/kueue/pull/8864).
+3. When quota automation is **enabled**, the Kueue core ClusterQueue controller will hand over managing `.status.effectiveResourceGroups` to the MultiKueue ClusterQueue controller, which will aggregate quotas as outlined in this KEP.
+4. To avoid confusion, we'll **require** that CQs with quota automation enabled must have the `.spec.resourceGroups` field cleared (by the user).
+   * *Why* do this? Otherwise, we'd need to ignore `.spec.resourceGroups`, breaking the current Kueue contracts.
+   * *How* do this? There are 2 feasible strategies:
+     * Move `QuotaManagement` to ClusterQueueSpec and introduce a strict (kubebuilder) validation rule
+     * Keep `QuotaManagement` in MultiKueueConfig and make a ClusterQueue `Inactive` when the constraint is violated.
+
+We postpone this to earn more time for carefully planning the API changes, and considering risks related to cross-version compatibility.
 
 #### Use cached remote clients for low-volume resource kinds
 
@@ -482,6 +500,8 @@ Our initial idea was to let it affect the manager-side `nominalQuota`; however, 
 
 Another option is to re-use the concept of "effective quota", or "accessible quota" in terms of [KEP-8826](https://github.com/kubernetes-sigs/kueue/pull/8864); that is, leave `nominalQuota` unchanged but apply the mulitplier on the level of "accessible quota" which would be the one actually enforced. This would allow to keep `nominalQuota` serving [User Story 4](#story-4) while letting the multiplier affect the actual dispatching behavior.
 
+This may combine well with the idea of [moving aggregated quotas out of ClusterQueueSpec](#move-the-aggregated-quota-out-of-clusterqueuespec).
+
 #### Change the treatment of ResourceFlavors
 
 While the proposed treatment of flavors (require a single flavor on the manager; aggregate all worker quotas into it) is the simplest one which avoids the [issue of manager/worker flavor skew](#treatment-of-resourceflavors), it may be too simplistic for some use cases involving _mutually exclusive_ flavors on the workers (e.g. CPU-only vs. GPU-only, or TAS flavors based on mutually incompatible topologies). In those cases, the flavor skew can't occur; on the other hand, a single manager-side flavor combining all the worker flavors could be misleading, or even impossible to define.
@@ -495,6 +515,13 @@ Then, on top of that, we could consider auto-creating missing manager flavors, p
 
 This seems promising but needs more discussion and research of use cases to hammer out the details.
 
+This may combine well with the idea of [moving aggregated quotas out of ClusterQueueSpec](#move-the-aggregated-quota-out-of-clusterqueuespec): for example, we could do the following:
+
+* Let `.status.effectiveResourceGroups` contain quotas aggregated **separately** per each worker-side flavor. \
+  (Possibly breaking some flavor-related constraints that currently exist for `.spec.resourceGroups` - but we could relax those constraints on the `.status` side).
+* Internally (for the purpose of manager-side flavor assignment), treat `.status.effectiveResourceGroups` **as if** it was aggregated into a single flavor.
+  (Thus eliminating the risk of manager/worker flavor skew, and removing the need for the flavor-related constraints).
+
 #### Account for temporarily unavailable workers
 
 When a worker cluster becomes unreachable (e.g. due to network issues), its admitted workloads are still considered admitted on the manager side, until `workerLostTimeout` expires. On the other hand, our proposed approach for determining total worker-side quotas (relying on fetching `nominalQuota` from all workers) will not include quotas of any disconnected worker clusters. 
@@ -504,6 +531,14 @@ This discrepancy may lead to temporary under-utilization of the fleet resources.
 To cover for that, we could increase the manager-side quota by the sum of requests of all workloads which are admitted on the manager but their assigned worker clusters have remote clients which are currently `.connecting`. (Notably, all this info is available on the manager side, without querying the workers).
 
 We postpone this because it adds some complexity, and the impact feels minor.
+
+#### Support MultiKueue cluster role sharing
+
+Issue [#5704](https://github.com/kubernetes-sigs/kueue/issues/5704) aims at allowing a MultiKueue manager to act as one of its own workers. While the detailed plan for that is not yet ready, it's likely to interfere with this KEP in some way, depending on the future of the [definition of the manager/worker ClusterQueue relation](#defining-related-worker-clusterqueues):
+
+* If that definition is changed (as proposed e.g. [here](https://github.com/kubernetes-sigs/kueue/issues/5704#issuecomment-4401615443)), the quota automation feature will need to be adjusted accordingly.
+
+* If that definition remains unchanged, then a manager-side ClusterQueue `Q` will potentially become a *worker ClusterQueue related to itself*, thus making our "quota aggregation" ill-defined.
 
 ### Graduation Criteria
 
@@ -517,9 +552,9 @@ We postpone this because it adds some complexity, and the impact feels minor.
   * User documentation is published on the website.
   * The feature is mentioned in the release notes, in particular mentioning how to opt out.
   * The feature has been successfully used in a production environment.
-  * [Possible follow-ups](#possible-follow-ups) have been reconsidered, based on any newly gathered feedback.
+  * [Future work ideas](#future-work-ideas) have been reconsidered, based on any newly gathered feedback.
   * No warning signs on performance were seen (in particular, no news of any external automation of worker ClusterQueue quotas) - or, if any were, they have been addressed.
-  * Issue [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) (see [Drawback #1](#drawbacks)) is diagnosed, its impact on quota automation is understood and any mitigations deemed necessary are implemented.
+  * Issue [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) (see [Drawback 2](#drawbacks)) is diagnosed, its impact on quota automation is understood and any mitigations deemed necessary are implemented.
 
 * **Stable:**
   * The feature (offered functionality, API surface and implementation) has stabilized, without raising concerns.
@@ -529,12 +564,20 @@ We postpone this because it adds some complexity, and the impact feels minor.
 
 Besides introducing some risks (see [Risks and Mitigations](#risks-and-mitigations)), the proposed solution feels suboptimal mostly in the following ways:
 
-1. The proposed solution fails to react to some types of detectable worker connection issues. \
+1. We allow Kueue to modify `spec` of objects it's supposed to reconcile (specifically, ClusterQueues).
+   This may be perceived as a design smell because:
+
+   * It blurs the line between configuration (managed by users) and state (managed by controllers).
+   * It brings a risk of an infinite reconciling loop (see [Risk 4](#risks-and-mitigations)).
+
+   While we propose accepting this drawback for Alpha, our preferred direction for Beta is described in [this follow-up idea](#move-the-aggregated-quota-out-of-clusterqueuespec).
+
+2. The proposed solution fails to react to some types of detectable worker connection issues. \
    See [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) which describes this problem in more detail, and speculates that it may already affect existing MultiKueue reconcilers (e.g. the one for Workloads).
 
    If this turns out problematic, it should be fixable by caching the "manager ClusterQueue <-> MultiKueueCluster" relationship.
 
-1. We have fully ignored the topic of Cohorts, shared quota and quota borrowing. This is deliberate, and intended to retain any reasonable simplicity of the feature, at least in the Alpha stage. (See [Take Cohorts into account](#take-cohorts-into-account) in the Alternatives section).
+3. We have fully ignored the topic of Cohorts, shared quota and quota borrowing. This is deliberate, and intended to retain any reasonable simplicity of the feature, at least in the Alpha stage. (See [Take Cohorts into account](#take-cohorts-into-account) in the Alternatives section).
 
 ## Alternatives
 
