@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	visibility "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
