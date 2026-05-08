@@ -63,7 +63,6 @@ var _ = ginkgo.BeforeSuite(func() {
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
 
-	nodes := &corev1.NodeList{}
 	requiredLabels := client.MatchingLabels{}
 	requiredLabelKeys := client.HasLabels{tasNodeGroupLabel}
 	err = k8sClient.List(ctx, nodes, requiredLabels, requiredLabelKeys)
