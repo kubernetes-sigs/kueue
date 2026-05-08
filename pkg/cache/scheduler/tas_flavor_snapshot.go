@@ -631,10 +631,10 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		effectiveSliceSize := int32(1)
 		var effectiveSliceTopology *string
 		constraints := tr.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
-		for i := len(constraints) - 1; i >= 0; i-- {
-			if tr.Count%constraints[i].Size == 0 {
-				effectiveSliceSize = constraints[i].Size
-				effectiveSliceTopology = new(constraints[i].Topology)
+		for _, v := range slices.Backward(constraints) {
+			if tr.Count%v.Size == 0 {
+				effectiveSliceSize = v.Size
+				effectiveSliceTopology = new(v.Topology)
 				break
 			}
 		}
@@ -700,9 +700,9 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		// that needs repair, preserving intermediate grouping invariants.
 		constraints := tr.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
 		if len(constraints) > 1 {
-			for i := len(constraints) - 1; i >= 0; i-- {
-				if tr.Count%constraints[i].Size != 0 {
-					return s.findIncompleteSliceDomain(tr, ta, tr.Count, constraints[i].Size, constraints[i].Topology)
+			for _, v := range slices.Backward(constraints) {
+				if tr.Count%v.Size != 0 {
+					return s.findIncompleteSliceDomain(tr, ta, tr.Count, v.Size, v.Topology)
 				}
 			}
 		}
