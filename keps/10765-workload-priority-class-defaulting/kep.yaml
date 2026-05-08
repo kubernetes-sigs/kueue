@@ -7,9 +7,10 @@ creation-date: 2026-04-27
 reviewers:
   - "@vladikkuzn"
   - "@mwielgus"
-  - "@tenzen-y"
+  - "@kannon92"
 approvers:
   - "@mimowo"
+  - "@tenzen-y"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
