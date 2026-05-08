@@ -20,6 +20,7 @@
 - [Alternatives](#alternatives)
   - [globalDefault field on WorkloadPriorityClass](#globaldefault-field-on-workloadpriorityclass)
   - [Defaulting in the Workload rather than in the Job webhook](#defaulting-in-the-workload-rather-than-in-the-job-webhook)
+  - [Per-ClusterQueue default WorkloadPriorityClass](#per-clusterqueue-default-workloadpriorityclass)
 <!-- /toc -->
 
 ## Summary
@@ -227,3 +228,47 @@ provides immediate visibility to the user through the label on the Job object.
 
 This decision will be re-evaluated before Beta based on user feedback and the
 integration complexity observed during Alpha.
+
+### Per-ClusterQueue default WorkloadPriorityClass
+
+Instead of resolving defaulting through a cluster-scoped `WorkloadPriorityClass`
+named `default`, the default could be configured per-`ClusterQueue` via a new
+optional field on `ClusterQueueSpec`:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+spec:
+  defaultWorkloadPriorityClass: gold
+```
+
+Resolution would still happen in the Job mutating webhook, so the defaulted
+priority remains visible on the Job object. Given the `kueue.x-k8s.io/queue-name`
+label (set by the user or by `ApplyDefaultLocalQueue`), the webhook would:
+
+1. Look up the `LocalQueue` and its bound `ClusterQueue` via the queue cache
+   (`Manager.ClusterQueueFromLocalQueue`, already used by
+   `ApplyDefaultForManagedBy`).
+2. Read `ClusterQueue.Spec.DefaultWorkloadPriorityClass`.
+3. If set and the Job has no `kueue.x-k8s.io/priority-class` label, stamp the
+   label with that value.
+
+**Advantages over the cluster-wide `default` WPC:**
+
+- Different `ClusterQueue`s can have different defaults (e.g., `interactive`
+  vs `batch`), aligning with how admins typically configure per-partition QoS
+  in systems like Slurm.
+- Operators can change the default `WorkloadPriorityClass` one `ClusterQueue`
+  at a time, so Jobs already stamped with the old default keep resolving
+  successfully while the new default is rolled out. With the cluster-wide
+  `default` WPC convention, deleting it leaves every already-stamped Job
+  unable to produce a Workload until the old WPC is restored or the label is
+  stripped.
+- Defaulting is opt-in per `ClusterQueue`. Operators can enable WPC defaulting
+  on some queues while other queues continue to fall through to
+  `PodSpec.priorityClassName` and the Kubernetes `PriorityClass` chain.
+
+**Disadvantages:**
+
+- Admins who want a single default for every `ClusterQueue` must set the
+  field on each one (or use their templating / policy tooling).
