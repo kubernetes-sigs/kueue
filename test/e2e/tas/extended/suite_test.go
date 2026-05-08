@@ -50,12 +50,11 @@ var _ = ginkgo.BeforeSuite(func() {
 	var err error
 	k8sClient, _, err = util.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	ctx = ginkgo.GinkgoT().Context()
+
 	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
 
 	waitForAvailableStart := time.Now()
-
 	util.WaitForKueueAvailability(ctx, k8sClient)
 	util.WaitForJobSetAvailability(ctx, k8sClient)
 	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
@@ -63,32 +62,26 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForAppWrapperAvailability(ctx, k8sClient)
 	util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
 	util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
-
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
 
+	nodes := &corev1.NodeList{}
 	requiredLabels := client.MatchingLabels{}
 	requiredLabelKeys := client.HasLabels{tasNodeGroupLabel}
-
-	nodes := &corev1.NodeList{}
-
 	err = k8sClient.List(ctx, nodes, requiredLabels, requiredLabelKeys)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to list nodes for TAS")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to list nodes for TAS Extended")
 
 	for _, n := range nodes.Items {
 		gomega.Eventually(func(g gomega.Gomega) {
 			node := &corev1.Node{}
-
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: n.Name}, node)).To(gomega.Succeed())
-
 			err := clientutil.PatchStatus(ctx, k8sClient, node, func() (bool, error) {
 				node.Status.Capacity[extraResource] = resource.MustParse("1")
 				node.Status.Allocatable[extraResource] = resource.MustParse("1")
 				return true, nil
 			})
-
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}
