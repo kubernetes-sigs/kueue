@@ -126,9 +126,16 @@ object.
 
 This follows the same pattern as `LocalQueueDefaulting`, which sets
 `kueue.x-k8s.io/queue-name: default` via `ApplyDefaultLocalQueue` in the
-webhook. The new `ApplyDefaultWorkloadPriorityClass` function is called from all
-job-type webhooks (both `BaseWebhook` and custom webhooks) alongside
-`ApplyDefaultLocalQueue`.
+webhook. The new `ApplyDefaultWorkloadPriorityClass` function is called
+alongside `ApplyDefaultLocalQueue` from every job-type webhook:
+
+- Integrations that embed the shared `BaseWebhook` (e.g. `AppWrapper`,
+  Kubeflow's `JAXJob`/`PaddleJob`/`PyTorchJob`/`TFJob`/`XGBoostJob`)
+  inherit the call from `BaseWebhook.Default`.
+- Integrations with a custom webhook (`Pod`, `Deployment`, `Job`, `JobSet`,
+  `LeaderWorkerSet`, `MPIJob`, `RayCluster`, `RayJob`, `RayService`,
+  `SparkApplication`, `StatefulSet`, `TrainJob`) invoke it explicitly from
+  their own `Default` method.
 
 The label is set on the job at admission time, so the existing priority
 resolution chain in `ExtractPriority()` picks it up naturally during workload
