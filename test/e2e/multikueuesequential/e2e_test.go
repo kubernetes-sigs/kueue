@@ -19,6 +19,7 @@ package multikueuesequential
 import (
 	"fmt"
 	"os/exec"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -818,6 +819,8 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			var unaffectedWorkerClient client.Client
 
 			ginkgo.By("Checking that the high-priority workload is admitted in one of the workers", func() {
+				// injecting 1s sleep to test the hypothesis
+				time.Sleep(time.Second)
 				gomega.Eventually(func(g gomega.Gomega) {
 					worker1HighWorkload := &kueue.Workload{}
 					worker2HighWorkload := &kueue.Workload{}
