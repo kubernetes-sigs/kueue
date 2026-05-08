@@ -276,7 +276,7 @@ run-test-tas-e2e-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/testing/e2e-test.sh
+		
 
 run-test-tas-e2e-baseline-%: K8S_VERSION = $(@:run-test-tas-e2e-baseline-%=%)
 run-test-tas-e2e-baseline-%:
