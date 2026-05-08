@@ -1514,6 +1514,17 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 			NodeSelector(corev1.LabelHostname, node.Name).
 			Image(GetAgnHostImage(), BehaviorExitFast).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
+			// we just need to test that the Node allows to run Pods already, using two Pods to indroduce extra redundancy
+			Parallelism(2).
+			Completions(2).
+			CompletionMode(batchv1.IndexedCompletion).
+			SuccessPolicy(&batchv1.SuccessPolicy{
+				Rules: []batchv1.SuccessPolicyRule{
+					{
+						SucceededCount: ptr.To[int32](1),
+					},
+				},
+			}).
 			Obj()
 
 		MustCreate(ctx, c, dummyJob)
