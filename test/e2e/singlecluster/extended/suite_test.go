@@ -13,8 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
-package singlecluster
+package extended
 
 import (
 	"context"
@@ -25,10 +24,8 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	visibility "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
@@ -42,17 +39,15 @@ var (
 	ctx                          context.Context
 	kueueClientset               kueueclientset.Interface
 	impersonatedVisibilityClient visibility.VisibilityV1beta2Interface
-	prometheusClient             prometheusv1.API
 	kueueNS                      = util.GetKueueNamespace()
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End Suite")
+	util.RunE2ESuite(t, "End To End Extended Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
-
 	var err error
 	k8sClient, cfg, err = util.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -65,6 +60,7 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
+
 	labelFilter := ginkgo.GinkgoLabelFilter()
 	if ginkgo.Label("feature:jobset", "feature:tas", "feature:trainjob").MatchesLabelFilter(labelFilter) {
 		util.WaitForJobSetAvailability(ctx, k8sClient)
@@ -83,10 +79,6 @@ var _ = ginkgo.BeforeSuite(func() {
 	}
 	if ginkgo.Label("feature:tas", "feature:trainjob").MatchesLabelFilter(labelFilter) {
 		util.WaitForKubeFlowTrainnerControllerManagerAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:prometheus").MatchesLabelFilter(labelFilter) {
-		prometheusClient = util.CreatePrometheusClient(cfg)
-		util.WaitForPrometheusAvailability(ctx, k8sClient)
 	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
