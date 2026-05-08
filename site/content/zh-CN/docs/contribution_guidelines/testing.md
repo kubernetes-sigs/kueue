@@ -56,7 +56,8 @@ make test-integration
 ## 使用自定义构建运行 e2e 测试 {#running-e2e-tests-using-custom-build}
 ```shell
 make kind-image-build
-make test-e2e
+make test-e2e-baseline
+make test-e2e-extended
 make test-tas-e2e-baseline
 make test-tas-e2e-extended
 make test-e2e-sequential-extended

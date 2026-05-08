@@ -56,7 +56,8 @@ For running a subset of tests, see [Running subset of tests](#running-subset-of-
 ## Running e2e tests using custom build
 ```shell
 make kind-image-build
-make test-e2e
+make test-e2e-baseline
+make test-e2e-extended
 make test-tas-e2e-baseline
 make test-tas-e2e-extended
 make test-e2e-sequential-extended
