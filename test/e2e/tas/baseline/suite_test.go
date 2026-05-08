@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,8 +26,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
-	
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -48,7 +48,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	var err error
 	k8sClient, _, err = util.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ctx = ginkgo.GinkgoT().Context()
+	ctx := ginkgo.GinkgoT().Context()
 	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
 
 	waitForAvailableStart := time.Now()
