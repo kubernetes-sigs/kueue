@@ -552,6 +552,94 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				Obj(),
 		},
+		"default WorkloadPriorityClass is applied when feature gate is enabled and pod has no priority class label": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         false,
+				features.WorkloadPriorityClassDefaulting: true,
+			},
+			initObjects: []client.Object{
+				defaultNamespace,
+				utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj(),
+			},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
+		"default WorkloadPriorityClass is not applied when feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         false,
+				features.WorkloadPriorityClassDefaulting: false,
+			},
+			initObjects: []client.Object{
+				defaultNamespace,
+				utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj(),
+			},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
+		"default WorkloadPriorityClass is not applied when pod already has a priority class label": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         false,
+				features.WorkloadPriorityClassDefaulting: true,
+			},
+			initObjects: []client.Object{
+				defaultNamespace,
+				utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj(),
+			},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Label(constants.WorkloadPriorityClassLabel, "high").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Label(constants.WorkloadPriorityClassLabel, "high").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
+		"default WorkloadPriorityClass is not applied when default WorkloadPriorityClass does not exist": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         false,
+				features.WorkloadPriorityClassDefaulting: true,
+			},
+			initObjects:       []client.Object{defaultNamespace},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
