@@ -761,7 +761,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		nominatedWorkers = []string{clusterName}
 	} else if !features.Enabled(features.MultiKueueAllAtOnceExternal) && w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
 		// Legacy inline AllAtOnce nomination path. Kept under feature gate so
-		// operators can roll back to the pre-#6803 behavior if the dedicated
+		// operators can roll back to the pre-#10937 behavior if the dedicated
 		// AllAtOnceDispatcherReconciler controller misbehaves. When the
 		// MultiKueueAllAtOnceExternal gate goes GA, this branch (and the
 		// surrounding gate check) can be removed.
