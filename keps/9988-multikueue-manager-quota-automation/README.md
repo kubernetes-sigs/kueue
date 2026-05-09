@@ -149,7 +149,6 @@ graph BT
     m_lq2 -.-> w2_lq2
 ```
 
-
 On `worker1`, both related ClusterQueues are configured with CPU and memory (in `default-flavor`):
 
 *   `cq1`:
@@ -329,7 +328,7 @@ The main risks of this proposal are the following:
 
 3. Slowing down MultiKueue by adding more reconcilers and computations.
 
-4. By updating ClusterQueueSpec, we risk an infinite loop of reconciles in case when the reconcile logic fails to be idempotent.
+4. By updating ClusterQueueSpec (cf. [Drawback 1](#drawbacks)), we risk an infinite loop of reconciles in case when the reconcile logic fails to be idempotent.
 
 For these, we propose the following mitigations:
 
@@ -340,8 +339,7 @@ For these, we propose the following mitigations:
 
 * Risk 3 is considered low. If needed, it can be substantially mitigated by caching the relevant information.
 
-* Risk 4 is mitigated by paying attention to update the ClusterQueueSpec only when necessary. 
-  In an unlikely case of an upstream issue hitting us (e.g. non-determinism of serialization, cf. [#7430](https://github.com/kubernetes-sigs/kueue/pull/7430)), we can add tracking of `generation` or `resourceVersion` to skip reconciling if Kueue was the most recent editor of the current spec.
+* Risk 4 exists only in the Alpha1 phase, where the main mitigation is hiding the feature behind a feature gate. For Alpha2, we plan redesigning the feature to eliminate this risk; see [here](#move-the-aggregated-quota-out-of-clusterqueuespec).
 
 ## Design details
 
@@ -357,8 +355,8 @@ type MultiKueueConfigSpec struct {
    // in the manager cluster. 
    // Supported modes:
    // - `Manual`: Quota automation is manual.
-   // - `Automated`: Quota automation is enabled (provided that the MultiKueueQuotaAutomation feature gate is enabled).
-   // If unspecified, the default mode depends on the MultiKueueQuotaAutomation feature gate.
+   // - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+   // If unspecified, the default mode depends on the MultiKueueManagerQuotaAutomation feature gate.
    QuotaManagement *QuotaManagementMode
 }
 
@@ -465,7 +463,7 @@ to implement this enhancement.
 
 While the goal of this feature is to automatically control manager-side quotas, which are specified in ClusterQueueSpec per the current Kueue behavior, it may be considered a design smell, as explained in [Drawback 1](#drawbacks).
 
-In the longer term, this seems improvable as follows:
+For the Alpha2 phase, we intend to eliminate this drawback by redesigning the general Kueue contracts of handling ClusterQueue quotas. The general idea is as follows:
 
 1. Introduce a new field in ClusterQueueStatus, named e.g. `effectiveResourceGroups`. \
    This field will be the **source of truth** about the quotas, replacing `.spec.resourceGroups` throughout the existing logic.
@@ -478,7 +476,9 @@ In the longer term, this seems improvable as follows:
      * Move `QuotaManagement` to ClusterQueueSpec and introduce a strict (kubebuilder) validation rule
      * Keep `QuotaManagement` in MultiKueueConfig and make a ClusterQueue `Inactive` when the constraint is violated.
 
-We postpone this to earn more time for carefully planning the API changes, and considering risks related to cross-version compatibility.
+We **postpone** this to Alpha2 in order to earn more time for carefully planning the API changes, and considering risks related to cross-version compatibility.
+
+Yet, we plan to deliver an Alpha1 version even before that happens - because the core functionality (managing quotas and workloads in MultiKueue) is going to be unaffected.
 
 #### Use cached remote clients for low-volume resource kinds
 
@@ -542,10 +542,13 @@ Issue [#5704](https://github.com/kubernetes-sigs/kueue/issues/5704) aims at allo
 
 ### Graduation Criteria
 
-* **Alpha:**
+* **Alpha1:**
   * The feature implemented behind the `MultiKueueManagerQuotaAutomation` feature gate, disabled by default.
   * Execution of the newly introduced API calls (local & remote) is guarded by feature gates.
   * Tests are implemented.
+
+* **Alpha2:**
+  * The API has been updated to avoid auto-updating ClusterQueueSpec. (See [Drawback 1](#drawbacks) and [this improvement idea](#move-the-aggregated-quota-out-of-clusterqueuespec)).
 
 * **Beta:**
   * The feature gate is enabled by default.
@@ -570,7 +573,7 @@ Besides introducing some risks (see [Risks and Mitigations](#risks-and-mitigatio
    * It blurs the line between configuration (managed by users) and state (managed by controllers).
    * It brings a risk of an infinite reconciling loop (see [Risk 4](#risks-and-mitigations)).
 
-   While we propose accepting this drawback for Alpha, our preferred direction for Beta is described in [this follow-up idea](#move-the-aggregated-quota-out-of-clusterqueuespec).
+   While we propose accepting this drawback for Alpha1, our plan for Alpha2 is to eliminate this drawback by [this follow-up idea](#move-the-aggregated-quota-out-of-clusterqueuespec).
 
 2. The proposed solution fails to react to some types of detectable worker connection issues. \
    See [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) which describes this problem in more detail, and speculates that it may already affect existing MultiKueue reconcilers (e.g. the one for Workloads).
