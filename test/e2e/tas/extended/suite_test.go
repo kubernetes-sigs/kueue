@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tas
+package extended
 
 import (
 	"context"
@@ -41,7 +41,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End TAS Suite")
+	util.RunE2ESuite(t, "End To End TAS Extended Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
