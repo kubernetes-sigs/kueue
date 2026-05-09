@@ -797,7 +797,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 				}
 			}
 		} else if remoteWl != nil {
-			// Preserve a remote workload that is currently Evicted: reconcileGroup's
+			// Preserve a remote workload that is currently Evicted: reconcileGroup
 			// needs it (with WorkloadEvicted=True) to call SyncJob and
 			// propagate the remote job's termination back to the manager Job.
 			// Deleting it here breaks the eviction-recovery flow because
