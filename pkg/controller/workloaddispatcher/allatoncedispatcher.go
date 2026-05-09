@@ -19,7 +19,6 @@ package workloaddispatcher
 import (
 	"context"
 	"errors"
-	"slices"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -157,8 +156,7 @@ func (r *AllAtOnceDispatcherReconciler) filterActiveClusters(ctx context.Context
 }
 
 func (r *AllAtOnceDispatcherReconciler) nominateWorkers(ctx context.Context, wl *kueue.Workload, remoteClusters sets.Set[string], log logr.Logger) (reconcile.Result, error) {
-	nominatedWorkers := remoteClusters.UnsortedList()
-	slices.Sort(nominatedWorkers)
+	nominatedWorkers := sets.List(remoteClusters)
 
 	if equality.Semantic.DeepEqual(wl.Status.NominatedClusterNames, nominatedWorkers) {
 		log.V(5).Info("Nominated cluster names already up to date, skip the reconciliation", "nominatedClusterNames", nominatedWorkers)
