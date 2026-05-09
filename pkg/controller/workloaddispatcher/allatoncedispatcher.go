@@ -94,7 +94,7 @@ func (r *AllAtOnceDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	if mkAc == nil || mkAc.State != kueue.CheckStatePending {
-		log.V(3).Info("AdmissionCheckState is not in Pending, skip the reconciliation")
+		log.V(3).Info("MultiKueue AdmissionCheckState is not Pending, skip the reconciliation")
 		return reconcile.Result{}, nil
 	}
 
