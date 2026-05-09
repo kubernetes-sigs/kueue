@@ -778,7 +778,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			}
 		}
 	} else {
-		// Dispatcher (AllAtOnce when MultiKueueAllAtOnceExternal=true,
+		// A dispatcher placed outside this file (AllAtOnce when MultiKueueAllAtOnceExternal=true,
 		// Incremental, or External) is responsible for populating
 		// Status.NominatedClusterNames; the synchronizer just reads it.
 		nominatedWorkers = group.local.Status.NominatedClusterNames
