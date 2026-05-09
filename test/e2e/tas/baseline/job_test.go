@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tas
+package baseline
 
 import (
 	"fmt"
@@ -36,12 +36,6 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
-)
-
-const (
-	instanceType      = "tas-group"
-	tasNodeGroupLabel = "cloud.provider.com/node-group"
-	extraResource     = "example.com/gpu"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
