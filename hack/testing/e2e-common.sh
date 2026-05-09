@@ -174,7 +174,7 @@ fi
 
 if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBEFLOW_MANIFEST_ORIG=${ROOT_DIR}/dep-crds/training-operator/manifests/overlays/standalone/kustomization.yaml
-    export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue/kubeflow-manifest-patch
+    export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue/baseline
     # Extract the Kubeflow Training Operator image name and version tag from the manifest.
     # The image version tag does not follow the usual package versioning convention,
     # and the image name must match the kustomize output so the pre-loaded image is
@@ -695,8 +695,8 @@ function cluster_kueue_deploy {
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra"
     elif [ "$E2E_USE_HELM" == 'true' ]; then
         helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
-    elif [[ ${E2E_TARGET_FOLDER:-} == "multikueuesequential" ]]; then
-        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/multikueuesequential"
+    elif [[ ${E2E_TARGET_FOLDER:-} == "multikueue/sequential" ]]; then
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/multikueue/sequential"
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/default"
     fi
