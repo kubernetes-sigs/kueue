@@ -14,26 +14,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tase2e
+package extended
 
 import (
+	"fmt"
+
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
-	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
@@ -43,7 +44,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-aw-")
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pytorchjob-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 		util.MustCreate(ctx, k8sClient, topology)
@@ -68,6 +69,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteAllPyTorchJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
@@ -75,31 +77,46 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.When("Creating an AppWrapper", func() {
-		ginkgo.It("Should place pods", func() {
-			numPods := 4
+	ginkgo.When("Creating a PyTorchJob", func() {
+		ginkgo.It("Should place pods based on the ranks-ordering", func() {
+			const (
+				masterReplicas = 1
+				workerReplicas = 3
+			)
 
-			aw := awtesting.MakeAppWrapper("appwrapper", ns.Name).
-				Component(awtesting.Component{
-					Template: utiltestingjob.MakeJob("job-0", ns.Name).
-						Parallelism(int32(numPods)).
-						Completions(int32(numPods)).
-						RequestAndLimit(corev1.ResourceCPU, "200m").
-						RequestAndLimit(extraResource, "1").
-						Suspend(false).
-						Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
-						SetTypeMeta().Obj(),
-				}).
+			numPods := masterReplicas + workerReplicas
+
+			pytorchjob := testingpytorchjob.MakePyTorchJob("ranks-pytorch", ns.Name).
 				Queue(localQueue.Name).
+				PyTorchReplicaSpecs(
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:   kftraining.PyTorchJobReplicaTypeMaster,
+						ReplicaCount:  masterReplicas,
+						RestartPolicy: kftraining.RestartPolicyOnFailure,
+						Annotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
+						},
+					},
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:   kftraining.PyTorchJobReplicaTypeWorker,
+						ReplicaCount:  workerReplicas,
+						RestartPolicy: kftraining.RestartPolicyOnFailure,
+						Annotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						},
+					},
+				).
+				Image(kftraining.PyTorchJobReplicaTypeMaster, util.GetAgnHostImage(), util.BehaviorExitFast).
+				Image(kftraining.PyTorchJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorExitFast).
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "200m").
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, extraResource, "1").
 				Obj()
+			util.MustCreate(ctx, k8sClient, pytorchjob)
 
-			util.MustCreate(ctx, k8sClient, aw)
-
-			ginkgo.By("AppWrapper is unsuspended", func() {
+			ginkgo.By("PyTorchJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), aw)).To(gomega.Succeed())
-					g.Expect(aw.Spec.Suspend).Should(gomega.BeFalse())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pytorchjob), pytorchjob)).To(gomega.Succeed())
+					g.Expect(pytorchjob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -120,64 +137,28 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
-		})
-
-		ginkgo.It("Should place pods based on the ranks-ordering", func() {
-			numPods := 4
-			wrappedJob := utiltestingjob.MakeJob("ranks-job", ns.Name).
-				Parallelism(int32(numPods)).
-				Completions(int32(numPods)).
-				Indexed(true).
-				Suspend(false).
-				RequestAndLimit(extraResource, "1").
-				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
-				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-				SetTypeMeta().
-				Obj()
-			aw := awtesting.MakeAppWrapper("aw-ranks-job", ns.Name).
-				Component(awtesting.Component{Template: wrappedJob}).
-				Queue(localQueue.Name).
-				Obj()
-
-			util.MustCreate(ctx, k8sClient, aw)
-
-			ginkgo.By("AppWrapper is unsuspended, and has all Pods active and ready", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), aw)).To(gomega.Succeed())
-					g.Expect(aw.Spec.Suspend).Should(gomega.BeFalse())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), aw)).To(gomega.Succeed())
-					g.Expect(aw.Status.Phase).Should(gomega.Equal(awv1beta2.AppWrapperRunning))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			pods := &corev1.PodList{}
-			ginkgo.By("ensure all pods are created and scheduled", func() {
-				listOpts := &client.ListOptions{
-					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
-				}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
-					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
 				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				gotAssignment := make(map[string]string, numPods)
-				for _, pod := range pods.Items {
-					index := pod.Labels[batchv1.JobCompletionIndexAnnotation]
-					gotAssignment[index] = pod.Spec.NodeName
-				}
+				gotAssignment := readRankAssignmentsFromPyTorchJobPods(pods.Items)
 				wantAssignment := map[string]string{
-					"0": "kind-worker",
-					"1": "kind-worker2",
-					"2": "kind-worker3",
-					"3": "kind-worker4",
+					"worker/0": "kind-worker",
+					"worker/1": "kind-worker2",
+					"worker/2": "kind-worker3",
 				}
 				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
 			})
 		})
 	})
 })
+
+func readRankAssignmentsFromPyTorchJobPods(pods []corev1.Pod) map[string]string {
+	assignment := make(map[string]string, len(pods))
+	for _, pod := range pods {
+		if role := pod.Labels[kftraining.ReplicaTypeLabel]; role == "worker" {
+			key := fmt.Sprintf("%s/%s", role, pod.Labels[kftraining.ReplicaIndexLabel])
+			assignment[key] = pod.Spec.NodeName
+		}
+	}
+	return assignment
+}

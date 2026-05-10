@@ -14,11 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tase2e
+package extended
 
 import (
 	"fmt"
 
+	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -32,10 +33,11 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
+	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-jobset-")
@@ -45,7 +47,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.When("Creating a JobSet", func() {
+	ginkgo.When("Creating a TrainJob", func() {
 		var (
 			topology     *kueue.Topology
 			tasFlavor    *kueue.ResourceFlavor
@@ -59,6 +61,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 				NodeLabel(tasNodeGroupLabel, instanceType).TopologyName(topology.Name).Obj()
 			util.MustCreate(ctx, k8sClient, tasFlavor)
+
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -72,7 +75,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteAllTrainJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteAllTrainingRuntimesInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
@@ -86,11 +90,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			replicas := 3
 			parallelism := 2
 			numPods := replicas * parallelism
-			sampleJob := testingjobset.MakeJobSet("ranks-jobset", ns.Name).
-				Queue(localQueue.Name).
+
+			trainingRuntime := testingtrainjob.MakeTrainingRuntime("test-trainingruntime", ns.Name, testingjobset.MakeJobSet("", "").
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
-						Name:        "replicated-job-1",
+						Name:        "node",
 						Image:       util.GetAgnHostImage(),
 						Args:        util.BehaviorExitFast,
 						Replicas:    int32(replicas),
@@ -99,16 +103,24 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						PodAnnotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
-					},
-				).
-				RequestAndLimit("replicated-job-1", extraResource, "1").
-				Obj()
-			util.MustCreate(ctx, k8sClient, sampleJob)
+					}).
+				RequestAndLimit("node", extraResource, "1").Obj().Spec)
 
-			ginkgo.By("JobSet is unsuspended", func() {
+			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainer.RuntimeRef{
+				APIGroup: ptr.To(kftrainer.GroupVersion.Group),
+				Name:     "test-trainingruntime",
+				Kind:     ptr.To(kftrainer.TrainingRuntimeKind),
+			}).
+				Queue(localQueue.Name).
+				Obj()
+
+			util.MustCreate(ctx, k8sClient, trainingRuntime)
+			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
+
+			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -132,7 +144,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
 				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				gotAssignment := readRankAssignmentsFromJobSetPods(pods.Items)
+				gotAssignment := readRankAssignmentsFromTrainJobPods(pods.Items)
 				wantAssignment := map[string]string{
 					"0/0": "kind-worker",
 					"0/1": "kind-worker2",
@@ -149,11 +161,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			replicas := 2
 			parallelism := 3
 			numPods := replicas * parallelism
-			sampleJob := testingjobset.MakeJobSet("ranks-jobset", ns.Name).
-				Queue(localQueue.Name).
+			trainingRuntime := testingtrainjob.MakeTrainingRuntime("test-trainingruntime", ns.Name, testingjobset.MakeJobSet("", "").
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
-						Name:        "replicated-job-1",
+						Name:        "node",
 						Image:       util.GetAgnHostImage(),
 						Args:        util.BehaviorExitFast,
 						Replicas:    int32(replicas),
@@ -164,16 +175,24 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 							kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
-					},
-				).
-				RequestAndLimit("replicated-job-1", extraResource, "1").
-				Obj()
-			util.MustCreate(ctx, k8sClient, sampleJob)
+					}).
+				RequestAndLimit("node", extraResource, "1").Obj().Spec)
 
-			ginkgo.By("JobSet is unsuspended", func() {
+			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainer.RuntimeRef{
+				APIGroup: ptr.To(kftrainer.GroupVersion.Group),
+				Name:     "test-trainingruntime",
+				Kind:     ptr.To(kftrainer.TrainingRuntimeKind),
+			}).
+				Queue(localQueue.Name).
+				Obj()
+
+			util.MustCreate(ctx, k8sClient, trainingRuntime)
+			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
+
+			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -214,11 +233,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			replicas := 2
 			parallelism := 3
 			numPods := replicas * parallelism
-			sampleJob := testingjobset.MakeJobSet("ranks-jobset", ns.Name).
-				Queue(localQueue.Name).
+			trainingRuntime := testingtrainjob.MakeTrainingRuntime("test-trainingruntime", ns.Name, testingjobset.MakeJobSet("", "").
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
-						Name:        "replicated-job-1",
+						Name:        "node",
 						Image:       util.GetAgnHostImage(),
 						Args:        util.BehaviorExitFast,
 						Replicas:    int32(replicas),
@@ -228,16 +246,24 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 							kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
-					},
-				).
-				RequestAndLimit("replicated-job-1", extraResource, "1").
-				Obj()
-			util.MustCreate(ctx, k8sClient, sampleJob)
+					}).
+				RequestAndLimit("node", extraResource, "1").Obj().Spec)
 
-			ginkgo.By("JobSet is unsuspended", func() {
+			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainer.RuntimeRef{
+				APIGroup: ptr.To(kftrainer.GroupVersion.Group),
+				Name:     "test-trainingruntime",
+				Kind:     ptr.To(kftrainer.TrainingRuntimeKind),
+			}).
+				Queue(localQueue.Name).
+				Obj()
+
+			util.MustCreate(ctx, k8sClient, trainingRuntime)
+			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
+
+			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -276,7 +302,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 	})
 })
 
-func readRankAssignmentsFromJobSetPods(pods []corev1.Pod) map[string]string {
+func readRankAssignmentsFromTrainJobPods(pods []corev1.Pod) map[string]string {
 	assignment := make(map[string]string, len(pods))
 	for _, pod := range pods {
 		podIndex := pod.Labels[batchv1.JobCompletionIndexAnnotation]
