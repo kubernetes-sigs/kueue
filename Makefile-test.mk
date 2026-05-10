@@ -167,10 +167,6 @@ test-tas-e2e-baseline: setup-e2e-env run-test-tas-e2e-baseline-$(E2E_KIND_VERSIO
 .PHONY: test-tas-e2e-extended
 test-tas-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
-.PHONY: test-tas-e2e-helm
-test-tas-e2e-helm: E2E_USE_HELM=true
-test-tas-e2e-helm: test-tas-e2e
-
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
