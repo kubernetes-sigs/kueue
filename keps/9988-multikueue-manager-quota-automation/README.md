@@ -23,6 +23,8 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design details](#design-details)
   - [API surface](#api-surface)
+    - [Alpha1 version](#alpha1-version)
+    - [Planned changes in Alpha2 version](#planned-changes-in-alpha2-version)
   - [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler)
   - [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler)
   - [A note on client usage](#a-note-on-client-usage)
@@ -345,6 +347,8 @@ For these, we propose the following mitigations:
 
 ### API surface
 
+#### Alpha1 version
+
 The configuration for this feature will be added to the existing `MultiKueueConfig` struct. (For context, `MultiKueueConfig` objects are referenced from `AdmissionCheckSpec` as [`Parameters`](https://github.com/kubernetes-sigs/kueue/blob/24209c461b72fd6519581aca2234fb8f05dd1ce7/apis/kueue/v1beta2/admissioncheck_types.go#L60); this will allow controlling the feature independently for each ClusterQueue in the manager cluster).
 
 ```go
@@ -406,6 +410,15 @@ reason: UnsupportedConfiguration
 message: MultiKueue manager quota automation does not support ClusterQueues with multiple ResourceFlavors.
 lastTransitionTime: 2026-01-01T00:00:00Z
 ```
+
+#### Planned changes in Alpha2 version
+
+Starting from Alpha2 version, we plan to introduce a **new field** in ClusterQueueStatus (provisionally named `effectiveResourceGroups`), which would act as the **new source of truth** about a ClusterQueue capacity (taking over that role from `.spec.resourceGroups`). This is discussed in more detail in [this future work idea](#move-the-aggregated-quota-out-of-clusterqueuespec).
+
+While this move is mostly independent from the [API for Alpha1](#alpha1-version), it may lead to some slight changes in that API:
+
+* We may decide to move the `.quotaAutomation` field from MultiKueueConfig to ClusterQueueSpec.
+* We may make the `MultiKueueManagerQuotaAutomation` Condition more informative, or at least let its `lastTransitionTime` track the time of the most recent quota adjustment.
 
 ### MultiKueue ClusterQueue Reconciler
 
@@ -644,16 +657,18 @@ Correspondingly, `lastTransitionTime` would track the last moment when such a ri
 
 **Reasons for discarding/deferring**
 
-The ClusterQueue quotas (part of `.Spec`) and Conditions (part of `.Status`) cannot be updated simultaneously. Thus, every auto-adjustment of quotas would introduce a short-lived divergence between the Condition and the actual quotas, also at the level of specific numbers. This would bring a risk of user confusion, of at least two kinds:
+In **Alpha1**, we are hit by the restriction that the ClusterQueue quotas (part of `.Spec`) and Conditions (part of `.Status`) cannot be updated simultaneously. Thus, every auto-adjustment of quotas would introduce a short-lived divergence between the Condition and the actual quotas, also at the level of specific numbers. This would bring a risk of user confusion, of at least two kinds:
 
 * A "sufficiently atomic" snapshot of cluster content might reveal a ClusterQueue's `.Status` inconsistent with its `.Spec` (for example, nominal quota being 50 CPU while the Condition claiming it's "20 CPU with a 3x multiplier").
 
 * The Condition's `lastTransitionTime` would become somewhat misleading in one way or another. \
   (That is, it will necessarily diverge either from the actual quota change time or from the Condition update time, as these two times will differ. Each choice may be perceived as confusing).
 
-**A takeaway for the proposed approach**
+Starting from **Alpha2**, the above issues will no longer apply, as quota automation will no longer update ClusterQueueSpec. This will unblock equipping the status Condition with more info.
 
-While our proposed design does not _fully eliminate_ the above inconsistencies (when enabling quota automation for a pre-existing ClusterQueue, we'll still need to update the quota and the Condition _separately_, in some order), it decreases its frequency, and makes it less confusing. \
+**A takeaway for the Alpha1 approach**
+
+While our proposed Alpha1 design does not _fully eliminate_ the above inconsistencies (when enabling quota automation for a pre-existing ClusterQueue, we'll still need to update the quota and the Condition _separately_, in some order), it decreases its frequency, and makes it less confusing. \
 In particular, if we choose to update the Condition before the quota, the intermediate state can be still interpreted as the Condition saying "quota management has been [just] enabled [but hasn't yet managed to act]", which may be considered legitimate.
 
 ### Take Cohorts into account
