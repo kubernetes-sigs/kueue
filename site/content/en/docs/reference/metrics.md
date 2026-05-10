@@ -25,6 +25,7 @@ Use the following metrics to monitor the health of the kueue controllers:
 | --- | --- | --- | --- |
 | `kueue_admission_attempt_duration_seconds` | Histogram | The latency of an admission attempt.<br>The label 'result' can have the following values:<br>- 'success' means that at least one workload was admitted.,<br>- 'inadmissible' means that no workload was admitted. | `result`: possible values are `success` or `inadmissible`<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 | `kueue_admission_attempts_total` | Counter | The total number of attempts to admit workloads.<br>Each admission attempt might try to admit more than one workload.<br>The label 'result' can have the following values:<br>- 'success' means that at least one workload was admitted.,<br>- 'inadmissible' means that no workload was admitted. | `result`: possible values are `success` or `inadmissible`<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
+| `kueue_workload_creation_latency_seconds` | Histogram | The time between a job was created until its workload was created, per 'job_kind'. Entries are only recorded for objects with generation 1. | `job_kind`: the kind of the job<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 <!-- END GENERATED TABLE: health -->
 
 ## ClusterQueue status

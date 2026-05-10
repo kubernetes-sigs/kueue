@@ -230,6 +230,11 @@ func TestGitVersionMetric(t *testing.T) {
 	expectFilteredMetricsCount(t, buildInfo, 1, "platform", versionInfo.Platform)
 }
 
+func TestRecordWorkloadCreationLatency(t *testing.T) {
+	RecordWorkloadCreationLatency("Job", 5*time.Second, nil, nil)
+	expectFilteredMetricsCount(t, WorkloadCreationLatency, 1, "job_kind", "Job")
+}
+
 func TestReportLocalQueueAdmissionChecksWaitTimeHasPriorityLabel(t *testing.T) {
 	lq := LocalQueueReference{Name: "lq3", Namespace: "ns3"}
 	ReportLocalQueueAdmissionChecksWaitTime(lq, "p2", 0, nil, nil)

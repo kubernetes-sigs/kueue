@@ -47,6 +47,7 @@ import (
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -71,6 +72,7 @@ type Reconciler struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	roleTracker                  *roletracker.RoleTracker
+	customLabels                 *metrics.CustomLabels
 }
 
 const controllerName = "statefulset"
@@ -286,6 +288,9 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, sts *appsv1.Sta
 		sts, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload,
 		"Created Workload: %v", workload.Key(createdWorkload),
 	)
+
+	jobframework.RecordWorkloadCreationLatency(ctx, sts, sts.GroupVersionKind().Kind, createdWorkload, r.customLabels, r.roleTracker)
+
 	return nil
 }
 
@@ -355,6 +360,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		roleTracker:                  options.RoleTracker,
+		customLabels:                 options.CustomLabels,
 	}, nil
 }
 

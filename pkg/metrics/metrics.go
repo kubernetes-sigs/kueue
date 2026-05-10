@@ -192,6 +192,12 @@ var (
 	// +metricsdoc:labels=cluster_queue="the evicted workload's ClusterQueue from status.admission on the workload before quota was released (only present when the metric records a sample)",reason="eviction or preemption reason (same values as evicted_workloads_total)",replica_role="one of `leader`, `follower`, or `standalone`"
 	WorkloadEvictionLatencySeconds *prometheus.HistogramVec
 
+	// Metrics tied to the job framework
+
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
+	WorkloadCreationLatency *prometheus.HistogramVec
+
 	// Metrics tied to the cache.
 
 	// +metricsdoc:group=clusterqueue
@@ -550,6 +556,15 @@ The label 'underlying_cause' can have the following values:
 		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, extraLabels...),
 	)
 
+	WorkloadCreationLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "workload_creation_latency_seconds",
+			Help:      "The time between a job was created until its workload was created, per 'job_kind'. Entries are only recorded for objects with generation 1.",
+			Buckets:   prometheus.ExponentialBuckets(0.01, 2, 11),
+		}, append([]string{"job_kind", "replica_role"}, extraLabels...),
+	)
+
 	EvictedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -858,6 +873,11 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration, tracker *r
 	role := roletracker.GetRole(tracker)
 	AdmissionAttemptsTotal.WithLabelValues(string(result), role).Inc()
 	admissionAttemptDuration.WithLabelValues(string(result), role).Observe(duration.Seconds())
+}
+
+func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
+	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
 }
 
 func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1318,6 +1338,9 @@ func Register() {
 		CohortSubtreeResourceReservations,
 		CohortSubtreeAdmittedActiveWorkloads,
 	)
+	if features.Enabled(features.MetricForWorkloadCreationLatency) {
+		metrics.Registry.MustRegister(WorkloadCreationLatency)
+	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
 	}

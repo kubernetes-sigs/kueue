@@ -131,20 +131,17 @@ test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkg
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
-## Label Taxonomy:
-##   Features: appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1,ha
-##
-## Examples:
-##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e
-##   Run only certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e
-##   Run only jobset and trainjob tests: GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
 test-e2e: E2E_NPROCS := 4
 .PHONY: test-e2e
 test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
-.PHONY: test-e2e-helm
-test-e2e-helm: E2E_USE_HELM=true
-test-e2e-helm: test-e2e
+.PHONY: test-e2e-baseline-helm
+test-e2e-baseline-helm: E2E_USE_HELM=true
+test-e2e-baseline-helm: test-e2e
+
+.PHONY: test-e2e-extended-helm
+test-e2e-extended-helm: E2E_USE_HELM=true
+test-e2e-extended-helm: test-e2e
 
 .PHONY: test-multikueue-e2e-parallel-builds
 test-multikueue-e2e-parallel-builds:
@@ -161,18 +158,96 @@ test-multikueue-e2e-sequential: setup-e2e-env test-multikueue-e2e-parallel-build
 test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
 
+<<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 1abea974a (reverted changes for test check)
+=======
+## Label Taxonomy:
+##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,tas,trainjob
+##
+## Examples:
+##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
+>>>>>>> 64e94ec2b (did all the changes)
+.PHONY: test-e2e-extended
+test-e2e-extended: E2E_USE_HELM=true
+test-e2e-extended: test-e2e
+
+## Label Taxonomy:
+##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,e2e_v1beta1,ha
+##
+## Examples:
+##   Run only job tests: GINKGO_ARGS="--label-filter=feature:job" make test-e2e-baseline
+.PHONY: test-e2e-baseline
+test-e2e-baseline: E2E_USE_HELM=true
+test-e2e-baseline: test-e2e
+
+<<<<<<< HEAD
+<<<<<<< HEAD
+## Label Taxonomy:
+##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,tas,trainjob
+##
+## Examples:
+##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e
+##   Run only certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e
+##   Run only jobset and trainjob tests: GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
+
+.PHONY: test-e2e-extended
+test-e2e-extended: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+<<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 8e137f4ed (lets see)
+.PHONY: test-e2e-extended-helm
+test-e2e-extended-helm: E2E_USE_HELM=true
+test-e2e-extended-helm: test-e2e-extended
+
+<<<<<<< HEAD
+## Label Taxonomy (Baseline):
+=======
+=======
+>>>>>>> 8e137f4ed (lets see)
+=======
+>>>>>>> 0a46a7b11 (hope)
+## Label Taxonomy:
+>>>>>>> 404076554 (two helm deleted one)
+##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,e2e_v1beta1,ha
+##
+## Examples:
+##   Run only job tests: GINKGO_ARGS="--label-filter=feature:job" make test-e2e-baseline
+test-e2e-baseline: E2E_NPROCS := 4
+.PHONY: test-e2e-baseline
+<<<<<<< HEAD
+test-e2e-baseline: E2E_USE_HELM=true
+test-e2e-baseline: test-e2e
+=======
+test-e2e-baseline: setup-e2e-env kueuectl run-test-e2e-singlecluster-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+>>>>>>> 404076554 (two helm deleted one)
+=======
+=======
+>>>>>>> 1abea974a (reverted changes for test check)
 .PHONY: test-tas-e2e
 test-tas-e2e: test-tas-e2e-baseline test-tas-e2e-extended
+>>>>>>> 7249e3c25 (reverted to check)
 
+=======
+>>>>>>> db0d21bd1 (Update Makefile-test.mk)
 .PHONY: test-tas-e2e-baseline
 test-tas-e2e-baseline: setup-e2e-env run-test-tas-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-extended
 test-tas-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
-.PHONY: test-tas-e2e-helm
-test-tas-e2e-helm: E2E_USE_HELM=true
-test-tas-e2e-helm: test-tas-e2e
+.PHONY: test-tas-e2e-baseline-helm
+test-tas-e2e-baseline-helm: E2E_USE_HELM=true
+test-tas-e2e-baseline-helm: test-tas-e2e-baseline
+
+.PHONY: test-tas-e2e-extended-helm
+test-tas-e2e-extended-helm: E2E_USE_HELM=true
+test-tas-e2e-extended-helm: test-tas-e2e-extended
 
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -247,6 +322,7 @@ run-test-multikueue-e2e-%:
 		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		E2E_TARGET_FOLDER="multikueue/baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
@@ -384,7 +460,7 @@ run-test-e2e-multikueue-dra-%:
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
-		E2E_TARGET_FOLDER="multikueuedra" \
+		E2E_TARGET_FOLDER="multikueue/dra" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-multikueue-test.sh
@@ -397,7 +473,7 @@ run-test-e2e-multikueue-sequential-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		E2E_TARGET_FOLDER="multikueuesequential" \
+		E2E_TARGET_FOLDER="multikueue/sequential" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		CLUSTERPROFILE_VERSION=$(CLUSTERPROFILE_VERSION) \
 		CLUSTERPROFILE_PLUGIN_IMAGE_VERSION=$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \

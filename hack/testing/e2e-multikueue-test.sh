@@ -21,8 +21,8 @@ set -o pipefail
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/../.."
 
-# E2E_TARGET_FOLDER allows running different test suites (multikueue, multikueuedra, multikueuesequential)
-E2E_TARGET_FOLDER=${E2E_TARGET_FOLDER:-multikueue}
+# E2E_TARGET_FOLDER allows running different test suites (multikueue/baseline, multikueue/dra, multikueue/sequential)
+E2E_TARGET_FOLDER=${E2E_TARGET_FOLDER:-multikueue/baseline}
 
 export MANAGER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-manager
 export WORKER1_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker1

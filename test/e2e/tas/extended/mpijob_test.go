@@ -24,10 +24,14 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -314,6 +318,66 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 					"worker/3":   "kind-worker3",
 				}
 				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
+			})
+		})
+	})
+
+	ginkgo.When("Creating an MPIJob with an unknown replica", func() {
+		ginkgo.It("Should accept the MPIJob and create a Workload with podsets only for known replica types", func() {
+			unknownReplicaType := kfmpi.MPIReplicaType("Unknown")
+
+			mpijob := testingmpijob.MakeMPIJob("malformed-replica-type", ns.Name).
+				Queue(localQueue.Name).
+				MPIJobReplicaSpecs(
+					testingmpijob.MPIJobReplicaSpecRequirement{
+						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
+						ReplicaCount:  1,
+						RestartPolicy: corev1.RestartPolicyOnFailure,
+						Image:         util.GetAgnHostImage(),
+						Args:          util.BehaviorExitFast,
+					},
+				).
+				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
+				Obj()
+
+			// The MPIJob wrapper only pre-populates Launcher/Worker entries, so unknown replica types must be set on the spec map directly
+			delete(mpijob.Spec.MPIReplicaSpecs, kfmpi.MPIReplicaTypeLauncher)
+			mpijob.Spec.MPIReplicaSpecs[unknownReplicaType] = &kfmpi.ReplicaSpec{
+				Replicas: ptr.To[int32](1),
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						},
+					},
+					Spec: corev1.PodSpec{
+						RestartPolicy: corev1.RestartPolicyOnFailure,
+						Containers: []corev1.Container{
+							{
+								Name:  "mpijob",
+								Image: util.GetAgnHostImage(),
+								Args:  util.BehaviorExitFast,
+							},
+						},
+					},
+				},
+			}
+
+			ginkgo.By("MPIJob is admitted by the kueue webhook without panicking", func() {
+				util.MustCreate(ctx, k8sClient, mpijob)
+			})
+
+			ginkgo.By("the resulting Workload has podsets only for known replica types", func() {
+				wlLookupKey := types.NamespacedName{
+					Name:      workloadmpijob.GetWorkloadNameForMPIJob(mpijob.Name, mpijob.UID),
+					Namespace: ns.Name,
+				}
+				wl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				gomega.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
+				gomega.Expect(wl.Spec.PodSets[0].Name).To(gomega.Equal(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker))))
 			})
 		})
 	})
