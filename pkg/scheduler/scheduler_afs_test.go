@@ -354,25 +354,14 @@ func TestScheduleForAFS(t *testing.T) {
 							Obj(),
 					).
 					Obj(),
+				// wl-b2 has no Pending condition because SchedulingEquivalenceHashing
+				// bulk-moves it to inadmissible before individual evaluation.
 				*utiltestingapi.MakeWorkload("wl-b2", "default").
 					Queue("lq-b").
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Creation(now.Add(3 * time.Second)).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 4 more needed",
-						LastTransitionTime: metav1.NewTime(now),
-					}).
-					ResourceRequests(kueue.PodSetRequest{
-						Name: "one",
-						Resources: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("4"),
-						},
-					}).
 					Obj(),
 			},
 		},

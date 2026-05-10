@@ -55,13 +55,15 @@ import (
 type RequeueReason string
 
 const (
-	RequeueReasonFailedAfterNomination RequeueReason = "FailedAfterNomination"
-	RequeueReasonNamespaceMismatch     RequeueReason = "NamespaceMismatch"
-	RequeueReasonGeneric               RequeueReason = ""
-	RequeueReasonPreemptionGated       RequeueReason = "PreemptionGated"
-	RequeueReasonPendingPreemption     RequeueReason = "PendingPreemption"
-	RequeueReasonPendingMigration      RequeueReason = "PendingMigration"
-	RequeueReasonPreemptionFailed      RequeueReason = "PreemptionFailed"
+	RequeueReasonFailedAfterNomination  RequeueReason = "FailedAfterNomination"
+	RequeueReasonNamespaceMismatch      RequeueReason = "NamespaceMismatch"
+	RequeueReasonGeneric                RequeueReason = ""
+	RequeueReasonPreemptionGated        RequeueReason = "PreemptionGated"
+	RequeueReasonPendingPreemption      RequeueReason = "PendingPreemption"
+	RequeueReasonPendingMigration       RequeueReason = "PendingMigration"
+	RequeueReasonPreemptionFailed       RequeueReason = "PreemptionFailed"
+	RequeueReasonNoFit                  RequeueReason = "NoFit"
+	RequeueReasonPreemptionNoCandidates RequeueReason = "PreemptionNoCandidates"
 )
 
 var (
@@ -106,8 +108,8 @@ type ClusterQueue struct {
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads inadmissibleWorkloads
 
-	// noFitSchedulingHashes tracks scheduling equivalence classes that received NoFit.
-	// Cleared when queueInadmissibleWorkloads runs.
+	// noFitSchedulingHashes tracks scheduling equivalence classes that received
+	// NoFit or PreemptionNoCandidates. Cleared when queueInadmissibleWorkloads runs.
 	noFitSchedulingHashes sets.Set[string]
 
 	finishedWorkloads sets.Set[workload.Reference]
@@ -494,7 +496,10 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 // or if there was a call to QueueInadmissibleWorkloads after a call to Pop,
 // the workload will be pushed back to heap directly. Otherwise, the workload
 // will be put into the inadmissibleWorkloads.
-func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool) bool {
+// When SchedulingEquivalenceHashing is enabled and the reason is NoFit or
+// PreemptionNoCandidates, equivalent workloads in the heap are bulk-moved
+// to inadmissible.
+func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
@@ -537,7 +542,8 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	}
 	log.V(2).Info(logMsg, "clusterQueue", c.name, "workload", key)
 
-	if features.Enabled(features.SchedulingEquivalenceHashing) && wInfo.SchedulingHash != workload.SchedulingHashUnknown && !immediate {
+	if features.Enabled(features.SchedulingEquivalenceHashing) && wInfo.SchedulingHash != workload.SchedulingHashUnknown &&
+		(reason == RequeueReasonNoFit || reason == RequeueReasonPreemptionNoCandidates) {
 		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash); moved > 0 {
 			log.V(2).Info("Bulk-moved equivalent workloads to inadmissible", "hash", wInfo.SchedulingHash, "movedCount", moved)
 		}
@@ -869,7 +875,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 			reason == RequeueReasonPendingMigration ||
 			reason == RequeueReasonPreemptionFailed
 	}
-	return c.requeueIfNotPresent(log, wInfo, immediate)
+	return c.requeueIfNotPresent(log, wInfo, immediate, reason)
 }
 
 // baseCompareFunc orders workloads by sticky status, priority, timestamp, and UID.

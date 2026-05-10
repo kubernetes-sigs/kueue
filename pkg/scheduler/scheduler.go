@@ -399,12 +399,14 @@ func (s *Scheduler) processEntry(
 	}
 
 	if mode == flavorassigner.NoFit {
+		e.requeueReason = qcache.RequeueReasonNoFit
 		log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
 		return
 	}
 
 	if mode == flavorassigner.Preempt {
 		if len(e.preemptionTargets) == 0 {
+			e.requeueReason = qcache.RequeueReasonPreemptionNoCandidates
 			s.reserveCapacityForUnreclaimablePreempt(log, e, cq)
 			return
 		}

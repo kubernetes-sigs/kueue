@@ -632,12 +632,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.UnholdClusterQueue(ctx, k8sClient, prodClusterQ)
 
-				ginkgo.By("checking the workloads with lower priority do not get admitted")
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wlLow, wlMid1, wlMid2)
-
 				ginkgo.By("checking the workloads with high priority get admitted")
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlHigh1, wlHigh2)
 
+				ginkgo.By("checking the lower-priority workloads are not admitted")
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 3)
 				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 2)
 				util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, "", 2)
@@ -732,12 +730,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.UnholdLocalQueue(ctx, k8sClient, prodQueue)
 
-				ginkgo.By("checking the workloads with lower priority do not get admitted")
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wlLow, wlMid1, wlMid2)
-
 				ginkgo.By("checking the workloads with high priority get admitted")
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlHigh1, wlHigh2)
 
+				ginkgo.By("checking the lower-priority workloads are not admitted")
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 3)
 				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 2)
 				util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, "", 2)
@@ -771,7 +767,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.MustCreate(ctx, k8sClient, smallWl1)
 			util.MustCreate(ctx, k8sClient, smallWl2)
 
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, smallWl1, smallWl2)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
 

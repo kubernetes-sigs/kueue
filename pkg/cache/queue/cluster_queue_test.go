@@ -34,6 +34,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -287,7 +288,7 @@ func TestPushOrUpdateGenerationChanged(t *testing.T) {
 			// Simulate RequeueWorkload with info.Update: inadmissible entry gets new generation.
 			updatedInfo := workload.NewInfo(tc.updatedWorkload)
 			updatedInfo.LastEvaluatedGeneration = head.LastEvaluatedGeneration
-			cq.requeueIfNotPresent(log, updatedInfo, false)
+			cq.requeueIfNotPresent(log, updatedInfo, false, RequeueReasonGeneric)
 
 			// PushOrUpdate from informer event with the updated workload.
 			cq.PushOrUpdate(workload.NewInfo(tc.updatedWorkload))
@@ -399,7 +400,7 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 				cq.PushOrUpdate(workload.NewInfo(w))
 			}
 			for _, w := range tc.inadmissibleWorkloads {
-				cq.requeueIfNotPresent(log, workload.NewInfo(w), false)
+				cq.requeueIfNotPresent(log, workload.NewInfo(w), false, RequeueReasonGeneric)
 			}
 
 			firstSnap := cq.Snapshot()
@@ -502,7 +503,7 @@ func TestPendingResources(t *testing.T) {
 
 	cq.PushOrUpdate(wl1)
 	cq.PushOrUpdate(wl3)
-	cq.requeueIfNotPresent(log, wl2, false)
+	cq.requeueIfNotPresent(log, wl2, false, RequeueReasonGeneric)
 
 	// Pop wl1 or wl3 to make it inflight (heap pops in creation order).
 	inflight := cq.Pop()
@@ -555,7 +556,7 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 
 	for _, w := range inadmissibleWorkloads {
 		wInfo := workload.NewInfo(w)
-		cq.requeueIfNotPresent(log, wInfo, false)
+		cq.requeueIfNotPresent(log, wInfo, false, RequeueReasonGeneric)
 		qImpl.AddOrUpdate(wInfo)
 	}
 
@@ -742,10 +743,10 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			for _, w := range test.inadmissibleWorkloadsToRequeue {
-				cq.requeueIfNotPresent(log, w, false)
+				cq.requeueIfNotPresent(log, w, false, RequeueReasonGeneric)
 			}
 			for _, w := range test.admissibleWorkloadsToRequeue {
-				cq.requeueIfNotPresent(log, w, true)
+				cq.requeueIfNotPresent(log, w, true, RequeueReasonGeneric)
 			}
 
 			for _, w := range test.workloadsToUpdate {
@@ -792,7 +793,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	// Simulate requeuing during scheduling attempt.
 	head := cq.Pop()
 	queueInadmissibleWorkloads(ctx, cq, cl)
-	cq.requeueIfNotPresent(log, head, false)
+	cq.requeueIfNotPresent(log, head, false, RequeueReasonGeneric)
 
 	activeWorkloads, _ = cq.Dump()
 	wantActiveWorkloads = []workload.Reference{workload.Key(wl)}
@@ -802,7 +803,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 
 	// Simulating scheduling again without requeuing.
 	head = cq.Pop()
-	cq.requeueIfNotPresent(log, head, false)
+	cq.requeueIfNotPresent(log, head, false, RequeueReasonGeneric)
 	activeWorkloads, _ = cq.Dump()
 	wantActiveWorkloads = nil
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads, cmpDump...); diff != "" {
@@ -912,6 +913,14 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				},
 			},
 			wantInadmissible: false,
+		},
+		"nofit": {
+			reason:           RequeueReasonNoFit,
+			wantInadmissible: true,
+		},
+		"preempt no candidates": {
+			reason:           RequeueReasonPreemptionNoCandidates,
+			wantInadmissible: true,
 		},
 	}
 
@@ -1496,5 +1505,59 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 	active, inadmissible := cq.Pending()
 	if active != 1 || inadmissible != 0 {
 		t.Errorf("after requeue: active=%d inadmissible=%d, want active=1 inadmissible=0", active, inadmissible)
+	}
+}
+
+func TestRequeueHashTriggerByReason(t *testing.T) {
+	tests := map[string]struct {
+		reason   RequeueReason
+		wantHash bool
+	}{
+		"nofit triggers hash": {
+			reason:   RequeueReasonNoFit,
+			wantHash: true,
+		},
+		"preempt no candidates triggers hash": {
+			reason:   RequeueReasonPreemptionNoCandidates,
+			wantHash: true,
+		},
+		"namespace mismatch does not trigger hash": {
+			reason:   RequeueReasonNamespaceMismatch,
+			wantHash: false,
+		},
+		"preemption gated does not trigger hash": {
+			reason:   RequeueReasonPreemptionGated,
+			wantHash: false,
+		},
+		"generic does not trigger hash": {
+			reason:   RequeueReasonGeneric,
+			wantHash: false,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cq, _ := newClusterQueue(ctx, nil,
+				&kueue.ClusterQueue{
+					Spec: kueue.ClusterQueueSpec{
+						QueueingStrategy: kueue.BestEffortFIFO,
+					},
+				},
+				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
+				nil, nil, nil)
+
+			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
+				Request(corev1.ResourceCPU, "1").Obj()
+			info := workload.NewInfo(wl)
+			info.SchedulingHash = "test-hash-abc"
+			cq.RequeueIfNotPresent(ctx, info, tc.reason)
+
+			gotHash := cq.noFitSchedulingHashes.Has("test-hash-abc")
+			if gotHash != tc.wantHash {
+				t.Errorf("noFitSchedulingHashes.Has(hash) = %v, want %v", gotHash, tc.wantHash)
+			}
+		})
 	}
 }

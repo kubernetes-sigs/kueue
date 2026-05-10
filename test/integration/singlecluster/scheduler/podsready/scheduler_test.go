@@ -566,8 +566,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("waiting for the first workload to be admitted", func() {
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, standaloneClusterQ.Name, wl1)
 			})
-			ginkgo.By("checking that the second and third workloads are still pending", func() {
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2, wl3)
+			ginkgo.By("checking that the second workload is still pending", func() {
+				// wl3 may be bulk-moved by SchedulingEquivalenceHashing (same hash
+				// as wl2) before individual evaluation.
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			})
 			ginkgo.By("finishing the eviction of the first workload", func() {
 				util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
@@ -767,8 +769,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			ginkgo.By("waiting for the first workload to be admitted", func() {
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, standaloneClusterQ.Name, wl1)
 			})
-			ginkgo.By("checking that the second and third workloads are still pending", func() {
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2, wl3)
+			ginkgo.By("checking that the second workload is still pending", func() {
+				// wl3 may be bulk-moved by SchedulingEquivalenceHashing (same hash
+				// as wl2) before individual evaluation.
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			})
 			ginkgo.By("finishing the eviction of the first workload", func() {
 				util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
