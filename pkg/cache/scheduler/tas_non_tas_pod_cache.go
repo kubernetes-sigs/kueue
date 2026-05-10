@@ -70,6 +70,7 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, coords []podMetricCoord, log 
 	if utilpod.IsTerminated(pod) {
 		log.V(5).Info("Deleting terminated pod from the cache")
 		if old, found := n.podUsage[key]; found {
+			n.removeNodeUsage(old.node, old.usage, log)
 			delete(n.podUsage, key)
 			return &old, nil
 		}
@@ -79,6 +80,10 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, coords []podMetricCoord, log 
 	log.V(5).Info("Adding non-TAS pod to the cache")
 	old, existed := n.podUsage[key]
 
+	if existed {
+		n.removeNodeUsage(old.node, old.usage, log)
+	}
+
 	c := coords
 	if existed && len(old.coords) > 0 {
 		// Preserve coords from when the pod was first cached; topology coordinates
@@ -86,12 +91,14 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, coords []podMetricCoord, log 
 		c = old.coords
 	}
 
+	requests := resources.NewRequestsFromPodSpec(&pod.Spec)
 	newEntry := podUsageValue{
 		node:   pod.Spec.NodeName,
 		coords: c,
-		usage:  resources.NewRequestsFromPodSpec(&pod.Spec),
+		usage:  requests,
 	}
 	n.podUsage[key] = newEntry
+	n.addNodeUsage(pod.Spec.NodeName, requests)
 	if existed {
 		return &old, &newEntry
 	}
@@ -103,6 +110,7 @@ func (n *nonTasUsageCache) delete(key client.ObjectKey) *podUsageValue {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 	if old, found := n.podUsage[key]; found {
+		n.removeNodeUsage(old.node, old.usage, logr.Discard())
 		delete(n.podUsage, key)
 		return &old
 	}
