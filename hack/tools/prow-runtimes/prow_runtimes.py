@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Copyright The Kubernetes Authors.
 
@@ -14,7 +15,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
