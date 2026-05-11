@@ -289,7 +289,7 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, sts *appsv1.Sta
 		"Created Workload: %v", workload.Key(createdWorkload),
 	)
 
-	jobframework.RecordWorkloadCreationLatency(sts, sts.GroupVersionKind().Kind, createdWorkload, r.customLabels, r.roleTracker)
+	jobframework.RecordWorkloadCreationLatency(ctx, sts, sts.GroupVersionKind().Kind, createdWorkload, r.customLabels, r.roleTracker)
 
 	return nil
 }

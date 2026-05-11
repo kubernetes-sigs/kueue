@@ -20,6 +20,7 @@ import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -80,8 +81,9 @@ func sanitizeContainer(container *corev1.Container) {
 }
 
 // RecordWorkloadCreationLatency records the latency between job creation and workload creation.
-func RecordWorkloadCreationLatency(job client.Object, jobKind string, wl *kueue.Workload, customLabels *metrics.CustomLabels, tracker *roletracker.RoleTracker) {
+func RecordWorkloadCreationLatency(ctx context.Context, job client.Object, jobKind string, wl *kueue.Workload, customLabels *metrics.CustomLabels, tracker *roletracker.RoleTracker) {
 	if job.GetGeneration() > 1 {
+		ctrl.LoggerFrom(ctx).V(4).Info("Skip recording the workload creation metrics as the owner generation is already greater than 1", "generation", job.GetGeneration())
 		return
 	}
 	jobCreationTime := job.GetCreationTimestamp().Time
@@ -90,3 +92,4 @@ func RecordWorkloadCreationLatency(job client.Object, jobKind string, wl *kueue.
 	customLabelValues := customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
 	metrics.RecordWorkloadCreationLatency(jobKind, latency, customLabelValues, tracker)
 }
+

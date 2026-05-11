@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -113,8 +114,9 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 	)
 
 	testCases := map[string]struct {
-		jobKind string
-		makeJob func() client.Object
+		jobKind         string
+		makeJob         func() client.Object
+		expectedLatency float64
 	}{
 		"LeaderWorkerSet": {
 			jobKind: "LeaderWorkerSet",
@@ -124,6 +126,7 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 					Queue(string(testLocalQueueName)).
 					Obj()
 			},
+			expectedLatency: 5.0,
 		},
 		"GenericJob": {
 			jobKind: "Job",
@@ -133,6 +136,7 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 					Queue(testLocalQueueName).
 					Obj()
 			},
+			expectedLatency: 5.0,
 		},
 		"StatefulSet": {
 			jobKind: "StatefulSet",
@@ -142,6 +146,7 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 					Queue(string(testLocalQueueName)).
 					Obj()
 			},
+			expectedLatency: 5.0,
 		},
 	}
 
@@ -159,21 +164,22 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 			wl.CreationTimestamp = metav1.NewTime(baseTime)
 
 			job.SetGeneration(2)
-			jobframework.RecordWorkloadCreationLatency(job, tc.jobKind, wl, nil, nil)
+			jobframework.RecordWorkloadCreationLatency(context.Background(), job, tc.jobKind, wl, nil, nil)
 			if count, err := testutil.GetHistogramMetricCount(metrics.WorkloadCreationLatency.WithLabelValues(tc.jobKind, roletracker.RoleStandalone)); err != nil || count != 0 {
 				t.Errorf("Expecting metric count 0 for generation > 1, got count %d, err %v", count, err)
 			}
 
 			job.SetGeneration(1)
-			jobframework.RecordWorkloadCreationLatency(job, tc.jobKind, wl, nil, nil)
+			jobframework.RecordWorkloadCreationLatency(context.Background(), job, tc.jobKind, wl, nil, nil)
 
 			val, err := testutil.GetHistogramMetricValue(metrics.WorkloadCreationLatency.WithLabelValues(tc.jobKind, roletracker.RoleStandalone))
 			if err != nil {
 				t.Fatalf("Failed to get histogram metric value: %v", err)
 			}
-			if val != 5.0 {
-				t.Errorf("Expecting metric value 5.0, got %f", val)
+			if val != tc.expectedLatency {
+				t.Errorf("Expecting metric value %f, got %f", tc.expectedLatency, val)
 			}
 		})
 	}
 }
+

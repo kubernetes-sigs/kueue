@@ -556,7 +556,7 @@ The label 'underlying_cause' can have the following values:
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "workload_creation_latency_seconds",
-			Help:      "The time between a job was created until its workload was created, per 'job_kind'",
+			Help:      "The time between a job was created until its workload was created, per 'job_kind'. Entries are only recorded for objects with generation 1.",
 			Buckets:   prometheus.ExponentialBuckets(0.01, 2, 11),
 		}, append([]string{"job_kind", "replica_role"}, extraLabels...),
 	)
