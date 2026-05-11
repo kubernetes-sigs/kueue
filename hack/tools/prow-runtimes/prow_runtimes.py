@@ -243,6 +243,11 @@ def main() -> int:
     parser.add_argument("--only-success", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--csv", action="store_true")
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        return 0
+
     args = parser.parse_args()
 
     jobs = load_kueue_periodic_jobs() if args.kueue_periodics else args.job
