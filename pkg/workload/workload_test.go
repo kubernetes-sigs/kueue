@@ -1050,8 +1050,8 @@ func TestFlavorResourceUsage(t *testing.T) {
 				}},
 			},
 			want: resources.FlavorResourceQuantities{
-				{Flavor: "", Resource: "cpu"}:             1_000,
-				{Flavor: "", Resource: "example.com/gpu"}: 3,
+				{Flavor: "", Resource: "cpu"}:             resources.NewAmount(1_000),
+				{Flavor: "", Resource: "example.com/gpu"}: resources.NewAmount(3),
 			},
 		},
 		"one podset, multiple flavors": {
@@ -1068,8 +1068,8 @@ func TestFlavorResourceUsage(t *testing.T) {
 				}},
 			},
 			want: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "cpu"}:         1_000,
-				{Flavor: "gpu", Resource: "example.com/gpu"}: 3,
+				{Flavor: "default", Resource: "cpu"}:         resources.NewAmount(1_000),
+				{Flavor: "gpu", Resource: "example.com/gpu"}: resources.NewAmount(3),
 			},
 		},
 		"multiple podsets, multiple flavors": {
@@ -1106,10 +1106,10 @@ func TestFlavorResourceUsage(t *testing.T) {
 				},
 			},
 			want: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "cpu"}:             3_000,
-				{Flavor: "default", Resource: "memory"}:          2 * utiltesting.Gi,
-				{Flavor: "model_a", Resource: "example.com/gpu"}: 3,
-				{Flavor: "model_b", Resource: "example.com/gpu"}: 1,
+				{Flavor: "default", Resource: "cpu"}:             resources.NewAmount(3_000),
+				{Flavor: "default", Resource: "memory"}:          resources.NewAmount(2 * utiltesting.Gi),
+				{Flavor: "model_a", Resource: "example.com/gpu"}: resources.NewAmount(3),
+				{Flavor: "model_b", Resource: "example.com/gpu"}: resources.NewAmount(1),
 			},
 		},
 	}

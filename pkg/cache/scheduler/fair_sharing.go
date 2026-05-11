@@ -75,7 +75,7 @@ func (d DRS) IsBorrowing() bool {
 // FlavorResource present in requestedFRs.
 func (d DRS) IsBorrowingOn(requestedFRs resources.FlavorResourceQuantities) bool {
 	for _, fr := range d.borrowedFRs {
-		if requestedFRs[fr] > 0 {
+		if requestedFRs[fr].CmpInt64(0) > 0 {
 			return true
 		}
 	}
@@ -146,7 +146,7 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	var borrowedFRs []resources.FlavorResource
 	borrowing := make(map[corev1.ResourceName]int64, len(node.getResourceNode().SubtreeQuota))
 	for fr, quota := range node.getResourceNode().SubtreeQuota {
-		amountBorrowed := wlReq[fr] + node.getResourceNode().Usage[fr] - quota
+		amountBorrowed := wlReq[fr].Add(node.getResourceNode().Usage[fr]).Sub(quota).Int64()
 		if amountBorrowed > 0 {
 			borrowing[fr.Resource] += amountBorrowed
 			borrowedFRs = append(borrowedFRs, fr)

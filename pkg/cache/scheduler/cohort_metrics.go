@@ -104,8 +104,8 @@ func (c *Cache) collectCohortMetricPoints(cohortName kueue.CohortReference, simu
 			points = append(points, cohortMetricPoint{
 				cohortName:      ancestor.Name,
 				flavorResource:  fr,
-				quotaQty:        ancestorSubtreeQuota[fr],
-				reservationsQty: ancestorSubtreeReservations[fr],
+				quotaQty:        ancestorSubtreeQuota[fr].Int64(),
+				reservationsQty: ancestorSubtreeReservations[fr].Int64(),
 			})
 		}
 	}
@@ -172,7 +172,7 @@ func (m subtreeReservationMemo) total(ch *cohort) resources.FlavorResourceQuanti
 
 func accumulateReservations(total, usage resources.FlavorResourceQuantities) {
 	for fr, qty := range usage {
-		total[fr] += qty
+		total[fr] = total[fr].Add(qty)
 	}
 }
 

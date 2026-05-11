@@ -22,6 +22,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -46,7 +47,6 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 		)
 
 		ginkgo.BeforeAll(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.QuotaCheckStrategy, true)
 			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 				configapi.QuotaCheckIgnoreUndeclared,
 				&configapi.AdmissionFairSharing{
@@ -61,6 +61,7 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 		})
 
 		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.QuotaCheckStrategy, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-strategy-")
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -131,6 +132,30 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 			gomega.Eventually(func(g gomega.Gomega) {
 				penalty := qManager.AfsEntryPenalties.Peek(lqKey)
 				g.Expect(penalty).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+		ginkgo.It("should admit workload when nominalQuota is 1E for cpu", func() {
+			updatedCq := &kueue.ClusterQueue{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)).To(gomega.Succeed())
+				updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("1E")
+				g.Expect(k8sClient.Update(ctx, updatedCq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			wl := utiltestingapi.MakeWorkload("wl-1", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			createdWl := &kueue.Workload{}
+			wlKey := client.ObjectKeyFromObject(wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(createdWl)).To(gomega.BeTrue(), "expected workload to be admitted with very large nominal quota")
+				cond := apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Message).NotTo(gomega.ContainSubstring("maximum capacity (0)"))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

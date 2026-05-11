@@ -236,7 +236,7 @@ func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resour
 				continue
 			}
 			flv := a.PodSets[i].Flavors[res].Name
-			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
+			usage[resources.FlavorResource{Flavor: flv, Resource: res}] = usage[resources.FlavorResource{Flavor: flv, Resource: res}].AddInt64(q)
 		}
 	}
 	return usage
@@ -781,7 +781,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 			requestAmount -= oldRequest
 		}
 
-		a.Usage.Quota[fr] += requestAmount
+		a.Usage.Quota[fr] = a.Usage.Quota[fr].AddInt64(requestAmount)
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
 	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
@@ -890,7 +890,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			// Check considering the flavor usage by previous pod sets.
 			fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 
-			preemptionMode, borrow, s := a.fitsResourceQuota(log, fr, assignmentUsage[fr], val, resQuota)
+			preemptionMode, borrow, s := a.fitsResourceQuota(log, fr, assignmentUsage[fr].Int64(), val, resQuota)
 			if s != nil {
 				flavorQuotaReasons = append(flavorQuotaReasons, s.reasons...)
 				status.reasons = append(status.reasons, s.reasons...)
@@ -1099,7 +1099,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 	status.appendf("insufficient unused quota for %s in flavor %s, %s more needed",
 		fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val-available))
 
-	if val <= rQuota.Nominal || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
+	if rQuota.Nominal.CmpInt64(val) >= 0 || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
 		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val)
 		mode := fromPreemptionPossibility(preemptionPossiblity)
 		return mode, borrowAfterPreemptions, &status

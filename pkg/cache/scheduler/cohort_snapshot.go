@@ -88,5 +88,5 @@ func (c *CohortSnapshot) fairWeight() float64 {
 }
 
 func (c *CohortSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {
-	return c.ResourceNode.Usage[fr]+val > c.ResourceNode.SubtreeQuota[fr]
+	return c.ResourceNode.SubtreeQuota[fr].Cmp(c.ResourceNode.Usage[fr].AddInt64(val)) < 0
 }

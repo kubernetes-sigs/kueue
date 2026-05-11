@@ -387,7 +387,7 @@ func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
 	for _, psReqs := range i.TotalRequests {
 		for res, q := range psReqs.Requests {
 			flv := psReqs.Flavors[res]
-			total[resources.FlavorResource{Flavor: flv, Resource: res}] += q
+			total[resources.FlavorResource{Flavor: flv, Resource: res}] = total[resources.FlavorResource{Flavor: flv, Resource: res}].AddInt64(q)
 		}
 	}
 	return total

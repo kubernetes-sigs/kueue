@@ -617,10 +617,10 @@ func cqIsBorrowing(cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Se
 // if it belongs to one.
 func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 	for fr, v := range preemptionCtx.workloadUsage.Quota {
-		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
+		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v.Int64()) {
 			return false
 		}
-		if v > preemptionCtx.preemptorCQ.Available(fr) {
+		if v.Int64() > preemptionCtx.preemptorCQ.Available(fr) {
 			return false
 		}
 	}
@@ -644,7 +644,7 @@ func workloadFitsForFairSharing(preemptionCtx *preemptionCtx) bool {
 // for all flavor-resources needing preemption.
 func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {
 	for fr := range preemptionCtx.frsNeedPreemption {
-		if preemptionCtx.preemptorCQ.ResourceNode.Usage[fr] >= preemptionCtx.preemptorCQ.QuotaFor(fr).Nominal {
+		if preemptionCtx.preemptorCQ.QuotaFor(fr).Nominal.Cmp(preemptionCtx.preemptorCQ.ResourceNode.Usage[fr]) <= 0 {
 			return false
 		}
 	}

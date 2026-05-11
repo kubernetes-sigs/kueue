@@ -23,6 +23,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 // resourceNode is the shared representation of Quotas and Usage, used
@@ -33,7 +34,8 @@ type resourceNode struct {
 	Quotas map[resources.FlavorResource]ResourceQuota
 	// SubtreeQuota is the sum of the node's quota, as well as
 	// resources available from its children, constrained by
-	// LendingLimits.
+	// LendingLimits. It uses Amount because individual quotas (or their
+	// aggregation) may saturate to Unlimited.
 	SubtreeQuota resources.FlavorResourceQuantities
 	// Usage is the quantity which counts against this node's
 	// SubtreeQuota. For ClusterQueues, this is simply its
@@ -65,7 +67,10 @@ func (r resourceNode) Clone() resourceNode {
 // this capacity will never be lent out to the parent Cohort.
 func (r resourceNode) localQuota(fr resources.FlavorResource) int64 {
 	if lendingLimit := r.Quotas[fr].LendingLimit; lendingLimit != nil {
-		return max(0, r.SubtreeQuota[fr]-*lendingLimit)
+		// SubtreeQuota - LendingLimit, saturated to int64 and clamped at 0.
+		// Returning int64 here is fine: the caller compares it against int64
+		// Usage values.
+		return max(0, r.SubtreeQuota[fr].Sub(*lendingLimit).Int64())
 	}
 	return 0
 }
@@ -89,7 +94,7 @@ type flatResourceNode interface {
 // how much guaranteed quota in this flavor exceeds usage.
 // This quota is available at this node but is not visible at its parent.
 func LocalAvailable(node flatResourceNode, fr resources.FlavorResource) int64 {
-	return max(0, node.getResourceNode().localQuota(fr)-node.getResourceNode().Usage[fr])
+	return max(0, node.getResourceNode().localQuota(fr)-node.getResourceNode().Usage[fr].Int64())
 }
 
 // available determines how much capacity remains for the current
@@ -104,29 +109,33 @@ func LocalAvailable(node flatResourceNode, fr resources.FlavorResource) int64 {
 func available(node hierarchicalResourceNode, fr resources.FlavorResource) int64 {
 	r := node.getResourceNode()
 	if !node.HasParent() {
-		return r.SubtreeQuota[fr] - r.Usage[fr]
+		return r.SubtreeQuota[fr].SubInt64(r.Usage[fr].Int64()).Int64()
 	}
 	parentAvailable := available(node.parentHRN(), fr)
 
 	if borrowingLimit := r.Quotas[fr].BorrowingLimit; borrowingLimit != nil {
-		storedInParent := r.SubtreeQuota[fr] - r.localQuota(fr)
-		usedInParent := max(0, r.Usage[fr]-r.localQuota(fr))
-		withMaxFromParent := storedInParent - usedInParent + *borrowingLimit
+		// All of these can be Unlimited; Amount methods propagate that.
+		storedInParent := r.SubtreeQuota[fr].SubInt64(r.localQuota(fr))
+		usedInParent := max(0, r.Usage[fr].Int64()-r.localQuota(fr))
+		withMaxFromParent := storedInParent.SubInt64(usedInParent).Add(*borrowingLimit).Int64()
 		parentAvailable = min(withMaxFromParent, parentAvailable)
 	}
-	return LocalAvailable(node, fr) + parentAvailable
+	return utilmath.SaturatingAdd(LocalAvailable(node, fr), parentAvailable)
 }
 
 // potentialAvailable returns the maximum capacity available to this node,
 // assuming no usage, while respecting BorrowingLimits.
+//
+// Uses saturating arithmetic so sums of large (potentially MaxAmount) quotas
+// from this node and its ancestors never wrap around int64.
 func potentialAvailable(node hierarchicalResourceNode, fr resources.FlavorResource) int64 {
 	r := node.getResourceNode()
 	if !node.HasParent() {
-		return r.SubtreeQuota[fr]
+		return r.SubtreeQuota[fr].Int64()
 	}
-	available := r.localQuota(fr) + potentialAvailable(node.parentHRN(), fr)
+	available := utilmath.SaturatingAdd(r.localQuota(fr), potentialAvailable(node.parentHRN(), fr))
 	if borrowingLimit := r.Quotas[fr].BorrowingLimit; borrowingLimit != nil {
-		maxWithBorrowing := r.SubtreeQuota[fr] + *borrowingLimit
+		maxWithBorrowing := r.SubtreeQuota[fr].Add(*borrowingLimit).Int64()
 		available = min(maxWithBorrowing, available)
 	}
 	return available
@@ -134,26 +143,32 @@ func potentialAvailable(node hierarchicalResourceNode, fr resources.FlavorResour
 
 // addUsage adds usage to the current node, and bubbles up usage to
 // its Cohort when usage exceeds localQuota.
-func addUsage(node hierarchicalResourceNode, fr resources.FlavorResource, val int64) {
+func addUsage(node hierarchicalResourceNode, fr resources.FlavorResource, val resources.Amount) {
 	r := node.getResourceNode()
 	localAvailable := LocalAvailable(node, fr)
-	r.Usage[fr] += val
-	if node.HasParent() && val > localAvailable {
-		deltaParentUsage := val - localAvailable
+	r.Usage[fr] = r.Usage[fr].Add(val)
+	if r.Usage[fr].CmpInt64(0) == 0 {
+		delete(r.Usage, fr)
+	}
+	if node.HasParent() && val.CmpInt64(localAvailable) > 0 {
+		deltaParentUsage := val.SubInt64(localAvailable)
 		addUsage(node.parentHRN(), fr, deltaParentUsage)
 	}
 }
 
 // removeUsage removes usage from the current node, and removes usage
 // past localQuota that it was storing in its Cohort.
-func removeUsage(node hierarchicalResourceNode, fr resources.FlavorResource, val int64) {
+func removeUsage(node hierarchicalResourceNode, fr resources.FlavorResource, val resources.Amount) {
 	r := node.getResourceNode()
-	usageStoredInParent := r.Usage[fr] - r.localQuota(fr)
-	r.Usage[fr] -= val
+	usageStoredInParent := r.Usage[fr].Int64() - r.localQuota(fr)
+	r.Usage[fr] = r.Usage[fr].Sub(val)
+	if r.Usage[fr].CmpInt64(0) == 0 {
+		delete(r.Usage, fr)
+	}
 	if usageStoredInParent <= 0 || !node.HasParent() {
 		return
 	}
-	deltaParentUsage := min(val, usageStoredInParent)
+	deltaParentUsage := resources.MinAmount(val, resources.NewAmount(usageStoredInParent))
 	removeUsage(node.parentHRN(), fr, deltaParentUsage)
 }
 
@@ -209,10 +224,15 @@ func updateCohortTreeResourcesIfNoCycle(cohort *cohort) {
 
 func accumulateFromChild(parent *cohort, child flatResourceNode) {
 	for fr, childQuota := range child.getResourceNode().SubtreeQuota {
-		parent.resourceNode.SubtreeQuota[fr] += childQuota - child.getResourceNode().localQuota(fr)
+		delta := childQuota.SubInt64(child.getResourceNode().localQuota(fr))
+		// Add saturates at MaxInt64 on overflow, so large children never wrap the parent SubtreeQuota negative.
+		parent.resourceNode.SubtreeQuota[fr] = parent.resourceNode.SubtreeQuota[fr].Add(delta)
 	}
 	for fr, childUsage := range child.getResourceNode().Usage {
-		parent.resourceNode.Usage[fr] += max(0, childUsage-child.getResourceNode().localQuota(fr))
+		parent.resourceNode.Usage[fr] = parent.resourceNode.Usage[fr].AddInt64(max(0, childUsage.Int64()-child.getResourceNode().localQuota(fr)))
+		if parent.resourceNode.Usage[fr].CmpInt64(0) == 0 {
+			delete(parent.resourceNode.Usage, fr)
+		}
 	}
 }
 
@@ -224,10 +244,10 @@ func QuantitiesFitInQuota(node flatResourceNode, requests resources.FlavorResour
 	fits := true
 	remainingRequests := make(resources.FlavorResourceQuantities, len(requests))
 	for fr, v := range requests {
-		if node.getResourceNode().Usage[fr]+v > node.getResourceNode().SubtreeQuota[fr] {
+		if node.getResourceNode().SubtreeQuota[fr].Cmp(node.getResourceNode().Usage[fr].Add(v)) < 0 {
 			fits = false
 		}
-		remainingRequests[fr] = max(0, v-LocalAvailable(node, fr))
+		remainingRequests[fr] = resources.NewAmount(max(0, v.Int64()-LocalAvailable(node, fr)))
 	}
 	return fits, remainingRequests
 }
@@ -236,7 +256,7 @@ func QuantitiesFitInQuota(node flatResourceNode, requests resources.FlavorResour
 // nominal quota in any resource flavor out of a set of resource flavours.
 func IsWithinNominalInResources(node flatResourceNode, frs sets.Set[resources.FlavorResource]) bool {
 	for fr := range frs {
-		if node.getResourceNode().Usage[fr] > node.getResourceNode().SubtreeQuota[fr] {
+		if node.getResourceNode().SubtreeQuota[fr].Cmp(node.getResourceNode().Usage[fr]) < 0 {
 			return false
 		}
 	}

@@ -219,7 +219,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 		}
 
 		wantQuotas := resources.FlavorResourceQuantities{
-			{Flavor: "red", Resource: "cpu"}: 10_000,
+			{Flavor: "red", Resource: "cpu"}: resources.NewAmount(10_000),
 		}
 		if diff := cmp.Diff(wantQuotas, cohortSnap.ResourceNode.SubtreeQuota); diff != "" {
 			t.Fatalf("unexpected quota (-want +got) %s", diff)
@@ -263,7 +263,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 		}
 
 		wantQuotas := resources.FlavorResourceQuantities{
-			{Flavor: "red", Resource: "cpu"}: 5_000,
+			{Flavor: "red", Resource: "cpu"}: resources.NewAmount(5_000),
 		}
 		if diff := cmp.Diff(wantQuotas, cohortSnap.ResourceNode.SubtreeQuota); diff != "" {
 			t.Fatalf("unexpected quota (-want +got) %s", diff)

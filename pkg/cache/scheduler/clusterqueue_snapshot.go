@@ -121,7 +121,7 @@ func (c *ClusterQueueSnapshot) updateTASUsage(usage workload.TASUsage, op usageO
 
 func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) bool {
 	for fr, q := range usage.Quota {
-		if c.Available(fr) < q {
+		if c.Available(fr) < q.Int64() {
 			return false
 		}
 	}
@@ -145,7 +145,7 @@ func (c *ClusterQueueSnapshot) Borrowing(fr resources.FlavorResource) bool {
 }
 
 func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {
-	return c.ResourceNode.Usage[fr]+val > c.QuotaFor(fr).Nominal
+	return c.QuotaFor(fr).Nominal.Cmp(c.ResourceNode.Usage[fr].AddInt64(val)) < 0
 }
 
 // Available returns the current capacity available, before preempting

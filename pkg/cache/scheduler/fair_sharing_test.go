@@ -60,8 +60,8 @@ func TestDominantResourceShare(t *testing.T) {
 	}{
 		"no cohort": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-				{Flavor: "default", Resource: "example.com/gpu"}:  2,
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+				{Flavor: "default", Resource: "example.com/gpu"}:  resources.NewAmount(2),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
@@ -82,8 +82,8 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"usage below nominal": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-				{Flavor: "default", Resource: "example.com/gpu"}:  2,
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+				{Flavor: "default", Resource: "example.com/gpu"}:  resources.NewAmount(2),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
@@ -129,8 +129,8 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"usage above nominal": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
-				{Flavor: "default", Resource: "example.com/gpu"}:  7,
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+				{Flavor: "default", Resource: "example.com/gpu"}:  resources.NewAmount(7),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
@@ -176,7 +176,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"usage slightly above nominal in a cohort with large quotas": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "example.com/gpu"}: 501,
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(501),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
@@ -220,7 +220,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"usage way above nominal in a cohort with large quotas and weights": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "example.com/gpu"}: 800,
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(800),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
@@ -264,8 +264,8 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"one resource above nominal": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
-				{Flavor: "default", Resource: "example.com/gpu"}:  3,
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+				{Flavor: "default", Resource: "example.com/gpu"}:  resources.NewAmount(3),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
@@ -311,8 +311,8 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"usage with workload above nominal": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-				{Flavor: "default", Resource: "example.com/gpu"}:  2,
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+				{Flavor: "default", Resource: "example.com/gpu"}:  resources.NewAmount(2),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
@@ -333,8 +333,8 @@ func TestDominantResourceShare(t *testing.T) {
 						Obj(),
 				).Obj(),
 			flvResQ: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-				{Flavor: "default", Resource: "example.com/gpu"}:  4,
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
+				{Flavor: "default", Resource: "example.com/gpu"}:  resources.NewAmount(4),
 			},
 			want: []fairSharingResult{
 				{
@@ -362,8 +362,8 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"A resource with zero lendable": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-				{Flavor: "default", Resource: "example.com/gpu"}:  1,
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+				{Flavor: "default", Resource: "example.com/gpu"}:  resources.NewAmount(1),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
@@ -384,8 +384,8 @@ func TestDominantResourceShare(t *testing.T) {
 						Obj(),
 				).Obj(),
 			flvResQ: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-				{Flavor: "default", Resource: "example.com/gpu"}:  4,
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
+				{Flavor: "default", Resource: "example.com/gpu"}:  resources.NewAmount(4),
 			},
 			want: []fairSharingResult{
 				{
@@ -413,8 +413,8 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"multiple flavors": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 15_000,
-				{Flavor: "spot", Resource: corev1.ResourceCPU}:      5_000,
+				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: resources.NewAmount(15_000),
+				{Flavor: "spot", Resource: corev1.ResourceCPU}:      resources.NewAmount(5_000),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
@@ -436,7 +436,7 @@ func TestDominantResourceShare(t *testing.T) {
 						Obj(),
 				).Obj(),
 			flvResQ: resources.FlavorResourceQuantities{
-				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10_000,
+				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			want: []fairSharingResult{
 				{
@@ -464,7 +464,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"above nominal with integer weight": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "example.com/gpu"}: 7,
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(7),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
@@ -508,7 +508,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"above nominal with decimal weight": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "example.com/gpu"}: 7,
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(7),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
@@ -552,7 +552,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"above nominal with zero weight": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "example.com/gpu"}: 7,
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(7),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
@@ -596,7 +596,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"cohort has resource share": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "example.com/gpu"}: 10,
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(10),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("child-cohort").
@@ -640,7 +640,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"resource share defined for resources only available at the root cohort": {
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "example.com/gpu"}: 10,
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(10),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("child-cohort").
@@ -687,7 +687,7 @@ func TestDominantResourceShare(t *testing.T) {
 			// from view of child-cohort are 50. So, they get
 			// different FairSharing values.
 			usage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "example.com/gpu"}: 10,
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(10),
 			},
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("child-cohort").
@@ -759,7 +759,7 @@ func TestDominantResourceShare(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.ResourceQuantity(fr.Resource, v)
+				quantity := resources.ResourceQuantity(fr.Resource, v.Int64())
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
@@ -845,31 +845,31 @@ func TestIsBorrowingOn(t *testing.T) {
 		wantBorrowing            bool
 	}{
 		"borrows on requested flavor": {
-			usage:                    resources.FlavorResourceQuantities{cpuDefault: 3_000},
-			requestedFRs:             resources.FlavorResourceQuantities{cpuDefault: 1_000},
+			usage:                    resources.FlavorResourceQuantities{cpuDefault: resources.NewAmount(3_000)},
+			requestedFRs:             resources.FlavorResourceQuantities{cpuDefault: resources.NewAmount(1_000)},
 			wantBorrowingOnRequested: true,
 			wantBorrowing:            true,
 		},
 		"borrows on unrequested flavor only": {
-			usage:                    resources.FlavorResourceQuantities{cpuDefault: 1_000, gpuDefault: 7},
-			requestedFRs:             resources.FlavorResourceQuantities{cpuDefault: 1_000},
+			usage:                    resources.FlavorResourceQuantities{cpuDefault: resources.NewAmount(1_000), gpuDefault: resources.NewAmount(7)},
+			requestedFRs:             resources.FlavorResourceQuantities{cpuDefault: resources.NewAmount(1_000)},
 			wantBorrowingOnRequested: false,
 			wantBorrowing:            true,
 		},
 		"borrows on both, requests one": {
-			usage:                    resources.FlavorResourceQuantities{cpuDefault: 3_000, gpuDefault: 7},
-			requestedFRs:             resources.FlavorResourceQuantities{gpuDefault: 1},
+			usage:                    resources.FlavorResourceQuantities{cpuDefault: resources.NewAmount(3_000), gpuDefault: resources.NewAmount(7)},
+			requestedFRs:             resources.FlavorResourceQuantities{gpuDefault: resources.NewAmount(1)},
 			wantBorrowingOnRequested: true,
 			wantBorrowing:            true,
 		},
 		"no borrowing": {
-			usage:                    resources.FlavorResourceQuantities{cpuDefault: 1_000, gpuDefault: 2},
-			requestedFRs:             resources.FlavorResourceQuantities{cpuDefault: 1_000},
+			usage:                    resources.FlavorResourceQuantities{cpuDefault: resources.NewAmount(1_000), gpuDefault: resources.NewAmount(2)},
+			requestedFRs:             resources.FlavorResourceQuantities{cpuDefault: resources.NewAmount(1_000)},
 			wantBorrowingOnRequested: false,
 			wantBorrowing:            false,
 		},
 		"nil requestedFRs": {
-			usage:                    resources.FlavorResourceQuantities{cpuDefault: 3_000},
+			usage:                    resources.FlavorResourceQuantities{cpuDefault: resources.NewAmount(3_000)},
 			requestedFRs:             nil,
 			wantBorrowingOnRequested: false,
 			wantBorrowing:            true,
@@ -908,7 +908,7 @@ func TestIsBorrowingOn(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.ResourceQuantity(fr.Resource, v)
+				quantity := resources.ResourceQuantity(fr.Resource, v.Int64())
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
