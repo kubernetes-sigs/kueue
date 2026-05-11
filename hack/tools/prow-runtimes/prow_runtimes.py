@@ -188,8 +188,6 @@ def load_kueue_periodic_jobs(*, verbose: bool = False) -> list[str]:
     if verbose:
         print(text, file=sys.stderr)
     names = re.findall(r"(?m)^\s*-?\s+name:\s+(periodic-kueue[-A-Za-z0-9_.]+)\s*$", text)
-    if verbose:
-        print(names, file=sys.stderr)
     return sorted(dict.fromkeys(names))
 def fmt_duration(seconds: float | int) -> str:
     seconds = int(round(seconds))
