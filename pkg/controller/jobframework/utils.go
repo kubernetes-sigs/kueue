@@ -96,4 +96,3 @@ func RecordWorkloadCreationLatency(ctx context.Context, job client.Object, jobKi
 	customLabelValues := customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
 	metrics.RecordWorkloadCreationLatency(jobKind, latency, customLabelValues, tracker)
 }
-

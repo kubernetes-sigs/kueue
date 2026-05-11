@@ -153,6 +153,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: MetricForWorkloadCreationLatency
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: MultiKueue
   versionedSpecs:
   - default: false

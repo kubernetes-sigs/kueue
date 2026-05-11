@@ -181,4 +181,3 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 		})
 	}
 }
-
