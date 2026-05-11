@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -52,6 +53,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -583,6 +585,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		if workload.HasQuotaReservation(wl) {
+			// Delete any child gang indexed Jobs with stale CompletedIndexes so
+			// the parent controller (e.g., JobSet) recreates them with clean state
+			// on re-admission. Gated on HasQuotaReservation to avoid redundant
+			// List calls on subsequent reconciles after admission is cleared.
+			if err := r.deleteStaleGangChildJobs(ctx, object); err != nil {
+				return ctrl.Result{}, err
+			}
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
 				err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
@@ -1775,4 +1784,60 @@ func mergeAnnotations(job GenericJob, customAnnotations map[string]string) (map[
 		}
 	}
 	return merged, changed
+}
+
+
+// hasStaleGangCompletions returns true if a gang indexed Job has stale
+// CompletedIndexes (Succeeded > 0 in a gang where parallelism == completions).
+func hasStaleGangCompletions(batchJob *batchv1.Job) bool {
+	parallelism := ptr.Deref(batchJob.Spec.Parallelism, 1)
+	if parallelism <= 1 {
+		// Single-pod Jobs (parallelism=1) are effectively complete when Succeeded=1,
+		// so the stale CompletedIndexes problem doesn't cause a gang deadlock.
+		return false
+	}
+	completions := ptr.Deref(batchJob.Spec.Completions, parallelism)
+	if parallelism != completions {
+		return false
+	}
+	if batchJob.Spec.CompletionMode == nil || *batchJob.Spec.CompletionMode != batchv1.IndexedCompletion {
+		return false
+	}
+	return batchJob.Status.Succeeded > 0
+}
+
+// deleteStaleGangChildJobs lists child batch Jobs of a parent object (e.g., JobSet)
+// and deletes any that have stale CompletedIndexes. The parent controller will
+// recreate them with clean state on re-admission. Uses foreground propagation to
+// ensure stale Succeeded pods are deleted before the Job object is removed,
+// preventing the k8s Job controller from re-adopting them on recreation.
+//
+// This runs for all GenericJob types during eviction. For non-parent types
+// (e.g., standalone batch/v1 Job), the List returns empty and is a no-op.
+// For parent types with children (JobSet, MPIJob, etc.), only gang indexed
+// child Jobs with Succeeded > 0 are deleted — non-gang and non-indexed
+// children are unaffected.
+func (r *JobReconciler) deleteStaleGangChildJobs(ctx context.Context, parent client.Object) error {
+	log := ctrl.LoggerFrom(ctx)
+	var childJobs batchv1.JobList
+	if err := r.client.List(ctx, &childJobs,
+		client.InNamespace(parent.GetNamespace()),
+		client.MatchingFields{indexer.OwnerReferenceUID: string(parent.GetUID())},
+	); err != nil {
+		return fmt.Errorf("listing child jobs for stale gang cleanup: %w", err)
+	}
+	for i := range childJobs.Items {
+		childJob := &childJobs.Items[i]
+		if hasStaleGangCompletions(childJob) {
+			log.V(2).Info("Deleting gang child Job with stale completedIndexes for clean recreation",
+				"job", klog.KObj(childJob),
+				"succeeded", childJob.Status.Succeeded,
+				"completedIndexes", childJob.Status.CompletedIndexes)
+			if err := r.client.Delete(ctx, childJob,
+				client.PropagationPolicy(metav1.DeletePropagationForeground)); client.IgnoreNotFound(err) != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

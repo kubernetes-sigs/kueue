@@ -24,6 +24,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1133,6 +1134,132 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.L
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
+		})
+	})
+
+	ginkgo.It("Should delete gang child Job with stale completedIndexes on eviction", framework.SlowSpec, func() {
+		ginkgo.By("creating localQueue")
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+
+		jobSet := testingjobset.MakeJobSet(jobSetName, ns.Name).ReplicatedJobs(
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "worker",
+				Replicas:    1,
+				Parallelism: 10,
+				Completions: 10,
+			},
+		).Queue(localQueue.Name).
+			Request("worker", corev1.ResourceCPU, "100m").
+			Obj()
+
+		createdWorkload := &kueue.Workload{}
+		var wlLookupKey types.NamespacedName
+
+		ginkgo.By("create the jobset and admit the workload", func() {
+			util.MustCreate(ctx, k8sClient, jobSet)
+			wlLookupKey = types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			admission := utiltestingapi.MakeAdmission(localQueue.Name).PodSets(
+				kueue.PodSetAssignment{
+					Name: createdWorkload.Spec.PodSets[0].Name,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+					},
+				},
+			).Obj()
+			util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+		})
+
+		ginkgo.By("wait for the jobset to be unsuspended", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), jobSet)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(jobSet.Spec.Suspend, false)).Should(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("create a child Job with stale completedIndexes (simulating pods that exited 0 during node failure)", func() {
+			childJob := &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      jobSet.Name + "-worker-0",
+					Namespace: ns.Name,
+					OwnerReferences: []metav1.OwnerReference{{
+						APIVersion: "jobset.x-k8s.io/v1alpha2",
+						Kind:       "JobSet",
+						Name:       jobSet.Name,
+						UID:        jobSet.UID,
+						Controller: ptr.To(true),
+					}},
+				},
+				Spec: batchv1.JobSpec{
+					Parallelism:    ptr.To[int32](10),
+					Completions:    ptr.To[int32](10),
+					CompletionMode: ptr.To(batchv1.IndexedCompletion),
+					Suspend:        ptr.To(false),
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							RestartPolicy: corev1.RestartPolicyNever,
+							Containers: []corev1.Container{{
+								Name:  "worker",
+								Image: "pause",
+							}},
+						},
+					},
+				},
+			}
+			util.MustCreate(ctx, k8sClient, childJob)
+
+			// Set stale status: 2 pods "succeeded" during node failure
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(childJob), childJob)).To(gomega.Succeed())
+				childJob.Status.Succeeded = 2
+				childJob.Status.CompletedIndexes = "0,1"
+				g.Expect(k8sClient.Status().Update(ctx, childJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("mark the jobset as active", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), jobSet)).To(gomega.Succeed())
+				jobSet.Status.ReplicatedJobsStatus = []jobsetapi.ReplicatedJobStatus{{
+					Name:   "worker",
+					Active: 8,
+				}}
+				g.Expect(k8sClient.Status().Update(ctx, jobSet)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("evict the workload (simulating preemption)", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, createdWorkload,
+					kueue.WorkloadEvicted, metav1.ConditionTrue,
+					kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the child Job with stale completedIndexes is deleted", func() {
+			childJobKey := types.NamespacedName{Name: jobSet.Name + "-worker-0", Namespace: ns.Name}
+			// First confirm the child Job exists before eviction
+			childJob := &batchv1.Job{}
+			gomega.Expect(k8sClient.Get(ctx, childJobKey, childJob)).To(gomega.Succeed(),
+				"child Job should exist before eviction")
+			gomega.Expect(childJob.Status.Succeeded).To(gomega.Equal(int32(2)),
+				"child Job should have stale Succeeded=2")
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				childJob := &batchv1.Job{}
+				err := k8sClient.Get(ctx, childJobKey, childJob)
+				if apierrors.IsNotFound(err) {
+					return // deleted — success
+				}
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(childJob.DeletionTimestamp).NotTo(gomega.BeNil(),
+					"child Job should be marked for deletion")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
