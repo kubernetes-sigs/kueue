@@ -269,8 +269,7 @@ def main() -> int:
     rows = []
 
     for job in jobs:
-        if args.verbose:
-            print("checking: " + job, file=sys.stderr)
+        print("checking: " + job, file=sys.stderr)
         try:
             builds = last_n_builds(
                 job,
