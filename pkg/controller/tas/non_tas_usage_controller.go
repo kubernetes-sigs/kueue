@@ -66,15 +66,14 @@ func (r *NonTasUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if client.IgnoreNotFound(err) != nil {
 			return ctrl.Result{}, err
 		}
-		log.V(5).Info("Idempotently deleting not found pod")
-		r.cache.TASCache().DeletePodByKey(req.NamespacedName, log)
+		r.cache.TASCache().DeletePodByKey(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 
 	if belongsToNonTASCache(&pod) {
 		r.cache.TASCache().Update(&pod, log)
 	} else {
-		r.cache.TASCache().DeletePodByKey(req.NamespacedName, log)
+		r.cache.TASCache().DeletePodByKey(req.NamespacedName)
 	}
 	return ctrl.Result{}, nil
 }

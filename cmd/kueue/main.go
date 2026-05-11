@@ -232,6 +232,7 @@ func main() {
 	options.Metrics = metricsServerOptions
 
 	lqMetrics := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
+	metrics.InitTASMetricsConfig(cfg.Metrics.TASMetrics)
 
 	var customLabels *metrics.CustomLabels
 	if features.Enabled(features.CustomMetricLabels) {

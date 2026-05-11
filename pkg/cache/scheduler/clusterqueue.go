@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -586,6 +588,35 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 	}
 }
 
+// tasDomainFullLevelValues resolves the full set of topology level values for a TAS domain.
+//
+// When kubernetes.io/hostname is the lowest topology level, buildAssignment stores only the
+// hostname in TopologyAssignment as an optimization, omitting ancestor levels (e.g. block,
+// rack). The missing ancestor values are recovered here by looking up the node in the live
+// node cache and reading its labels.
+//
+// Returns values unchanged in two cases:
+//   - All levels already have values (e.g. levels=[block,rack,hostname],
+//     values=["block-1","rack-1","node-1"]) — nothing to fill in.
+//   - kubernetes.io/hostname is not among the stored levels (e.g. topology is
+//     [block,rack] with no hostname level) — no node key to look up ancestors with.
+func tasDomainFullLevelValues(nc *nodesCache, allLevels, values []string) []string {
+	if len(values) == len(allLevels) {
+		return values
+	}
+	// The assignment stores values for allLevels[offset:]. Find whether kubernetes.io/hostname
+	// is among those levels so we can use its value to look up the node's full label set.
+	offset := len(allLevels) - len(values)
+	hostnameIdx := slices.Index(allLevels[offset:], corev1.LabelHostname)
+	if hostnameIdx < 0 {
+		return values
+	}
+	if node := nc.findByHostname(values[hostnameIdx]); node != nil {
+		return utiltas.LevelValues(allLevels, node.Labels)
+	}
+	return values
+}
+
 func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info, op usageOp) {
 	if !features.Enabled(features.TopologyAwareScheduling) || !wi.IsUsingTAS() {
 		return
@@ -603,9 +634,36 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 		case tasFlvCache == nil:
 			log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
 		case op == add:
-			tasFlvCache.addUsage(key, tasUsage)
+			addTASFlavorUsage(c.tasCache.nodesCache, tasFlvCache, tasFlavor, key, tasUsage)
 		case op == subtract:
-			tasFlvCache.removeUsage(key)
+			removeTASFlavorUsage(c.tasCache.nodesCache, tasFlvCache, tasFlavor, key)
+		}
+	}
+}
+
+func addTASFlavorUsage(nc *nodesCache, fc *TASFlavorCache, flavor kueue.ResourceFlavorReference, key workload.Reference, usage workload.TASFlavorUsage) {
+	fc.addUsage(key, usage)
+	emitTASDomainUsage(nc, fc, flavor, usage, add)
+}
+
+func removeTASFlavorUsage(nc *nodesCache, fc *TASFlavorCache, flavor kueue.ResourceFlavorReference, key workload.Reference) {
+	removed := fc.removeUsage(key)
+	emitTASDomainUsage(nc, fc, flavor, removed, subtract)
+}
+
+func emitTASDomainUsage(nc *nodesCache, fc *TASFlavorCache, flavor kueue.ResourceFlavorReference, usage workload.TASFlavorUsage, op usageOp) {
+	if !features.Enabled(features.TASNodeMetrics) {
+		return
+	}
+	levels := fc.TopologyLevels()
+	for _, tr := range usage {
+		values := tasDomainFullLevelValues(nc, levels, tr.Values)
+		for resource, qty := range tr.TotalRequests() {
+			if op == add {
+				metrics.AddTASDomainUsage(flavor, levels, values, resource, qty)
+			} else {
+				metrics.SubTASDomainUsage(flavor, levels, values, resource, qty)
+			}
 		}
 	}
 }

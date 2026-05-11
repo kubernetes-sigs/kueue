@@ -102,3 +102,8 @@ func Convert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in *v1beta2.MultiKueue, ou
 func Convert_v1beta2_Resources_To_v1beta1_Resources(in *v1beta2.Resources, out *Resources, s conversionapi.Scope) error {
 	return autoConvert_v1beta2_Resources_To_v1beta1_Resources(in, out, s)
 }
+
+// Convert_v1beta2_ControllerMetrics_To_v1beta1_ControllerMetrics drops TASMetrics which does not exist in v1beta1.
+func Convert_v1beta2_ControllerMetrics_To_v1beta1_ControllerMetrics(in *v1beta2.ControllerMetrics, out *ControllerMetrics, s conversionapi.Scope) error {
+	return autoConvert_v1beta2_ControllerMetrics_To_v1beta1_ControllerMetrics(in, out, s)
+}

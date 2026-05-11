@@ -160,16 +160,16 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 			}
 
 			for _, pod := range tc.initialPods {
-				cache.update(pod, log)
+				cache.update(pod, nil, log)
 			}
 			if tc.podsUpdate != nil {
 				tc.podsUpdate(tc.initialPods)
 				for _, pod := range tc.initialPods {
-					cache.update(pod, log)
+					cache.update(pod, nil, log)
 				}
 			}
 			for _, key := range tc.podsDelete {
-				cache.delete(key, log)
+				cache.delete(key)
 			}
 
 			verifyNodeUsageConsistency(t, cache)

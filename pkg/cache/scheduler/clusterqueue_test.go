@@ -20,14 +20,19 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestClusterQueueUpdateWithFlavors(t *testing.T) {
@@ -645,6 +650,120 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantMessage, gotMessage); diff != "" {
 				t.Errorf("Unexpected inactiveMessage (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// ---- TAS metrics: updateWorkloadTASUsage tests ----
+
+const (
+	cqTestTASFlavorName   = kueue.ResourceFlavorReference("cq-tas-metrics-flavor")
+	cqTestTASTopologyName = kueue.TopologyReference("cq-tas-metrics-topology")
+	cqTestTASRackLabel    = "cloud.com/rack"
+)
+
+func makeCQWithTASCache() (*clusterQueue, *tasCache) {
+	tc := NewTASCache(utiltesting.NewFakeClient())
+	tc.AddTopology(utiltestingapi.MakeTopology(string(cqTestTASTopologyName)).
+		Levels(cqTestTASRackLabel, corev1.LabelHostname).Obj())
+	tc.AddFlavor(utiltestingapi.MakeResourceFlavor(string(cqTestTASFlavorName)).
+		TopologyName(string(cqTestTASTopologyName)).Obj())
+	cq := &clusterQueue{
+		tasCache: &tc,
+		tasFlavors: map[kueue.ResourceFlavorReference]kueue.TopologyReference{
+			cqTestTASFlavorName: cqTestTASTopologyName,
+		},
+	}
+	return cq, &tc
+}
+
+func makeTASWorkloadInfo(name, ns string, values []string, singlePodRequests resources.Requests, count int32) *workload.Info {
+	return &workload.Info{
+		Obj: &kueue.Workload{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		},
+		TotalRequests: []workload.PodSetResources{{
+			Name: "main",
+			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU: cqTestTASFlavorName,
+			},
+			TopologyRequest: &workload.TopologyRequest{
+				DomainRequests: []workload.TopologyDomainRequests{{
+					Values:            values,
+					SinglePodRequests: singlePodRequests,
+					Count:             count,
+				}},
+			},
+		}},
+	}
+}
+
+func TestUpdateWorkloadTASUsage(t *testing.T) {
+	type wantGauge struct {
+		labels prometheus.Labels
+		value  float64
+	}
+	tests := []struct {
+		name       string
+		gates      map[featuregate.Feature]bool
+		ops        []usageOp
+		wantGauges []wantGauge
+		wantNone   prometheus.Labels
+	}{
+		{
+			name: "add emits gauge at each topology level",
+			gates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+				features.TASNodeMetrics:          true,
+			},
+			ops: []usageOp{add},
+			wantGauges: []wantGauge{
+				{labels: prometheus.Labels{"flavor": string(cqTestTASFlavorName), "domain": cqTestTASRackLabel, "domain_id": "rack-1", "resource": string(corev1.ResourceCPU)}, value: 4000},
+				{labels: prometheus.Labels{"flavor": string(cqTestTASFlavorName), "domain": corev1.LabelHostname, "domain_id": "node-1", "resource": string(corev1.ResourceCPU)}, value: 4000},
+			},
+		},
+		{
+			name: "subtract after add resets gauge to zero",
+			gates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+				features.TASNodeMetrics:          true,
+			},
+			ops: []usageOp{add, subtract},
+			wantGauges: []wantGauge{
+				{labels: prometheus.Labels{"flavor": string(cqTestTASFlavorName), "domain": cqTestTASRackLabel, "domain_id": "rack-1", "resource": string(corev1.ResourceCPU)}, value: 0},
+				{labels: prometheus.Labels{"flavor": string(cqTestTASFlavorName), "domain": corev1.LabelHostname, "domain_id": "node-1", "resource": string(corev1.ResourceCPU)}, value: 0},
+			},
+		},
+		{
+			name: "TASNodeMetrics gate disabled suppresses emission",
+			gates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+				features.TASNodeMetrics:          false,
+			},
+			ops:      []usageOp{add},
+			wantNone: prometheus.Labels{"flavor": string(cqTestTASFlavorName), "domain_id": "node-1"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.gates)
+			_, log := utiltesting.ContextWithLog(t)
+			cq, _ := makeCQWithTASCache()
+			// 2 pods × 2000m CPU = 4000m total
+			wi := makeTASWorkloadInfo("wl", "ns", []string{"rack-1", "node-1"},
+				resources.Requests{corev1.ResourceCPU: 2000}, 2)
+			t.Cleanup(func() { metrics.ClearTASFlavorUsage(cqTestTASFlavorName) })
+
+			for _, op := range tc.ops {
+				cq.updateWorkloadTASUsage(log, wi, op)
+			}
+
+			if tc.wantNone != nil {
+				expectGaugeCount(t, metrics.TASDomainUsage, 0, tc.wantNone)
+			}
+			for _, g := range tc.wantGauges {
+				expectGaugeValue(t, metrics.TASDomainUsage, g.labels, g.value)
 			}
 		})
 	}

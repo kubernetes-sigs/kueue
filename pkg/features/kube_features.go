@@ -379,6 +379,15 @@ const (
 	//
 	// Enables Concurrent Admission feature which allows pursuing multiple ResourceFlavors in parallel.
 	ConcurrentAdmission featuregate.Feature = "ConcurrentAdmission"
+
+	// owner: @amy
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10505
+	// Enable Prometheus metrics exposing TAS resource usage and capacity per topology
+	// domain, enabling Grafana time-series dashboards for topology fragmentation analysis.
+	// Opt-in due to high label cardinality at scale (one series per flavor × topology level
+	// × domain × resource; dominated by the node/leaf level).
+	TASNodeMetrics featuregate.Feature = "TASNodeMetrics"
 )
 
 func init() {
@@ -579,10 +588,15 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	FinishOrphanedWorkloads: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
+
 	ConcurrentAdmission: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	QuotaCheckStrategy: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	TASNodeMetrics: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

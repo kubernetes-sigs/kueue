@@ -33,6 +33,7 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -43,8 +44,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/features"
+	pkgmetrics "sigs.k8s.io/kueue/pkg/metrics"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utilmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -6109,6 +6112,318 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			ginkgo.By("verify the workload is not admitted", func() {
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
 			})
+		})
+	})
+
+	ginkgo.When("TAS domain usage metrics", func() {
+		var (
+			topology     *kueue.Topology
+			tasFlavor    *kueue.ResourceFlavor
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			nodes        []corev1.Node
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASNodeMetrics, true)
+
+			nodes = []corev1.Node{
+				*testingnode.MakeNode("tas-metrics-node").
+					Label("node-group", "tas-metrics").
+					Label(utiltesting.DefaultBlockTopologyLevel, "block-1").
+					Label(utiltesting.DefaultRackTopologyLevel, "rack-1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().Obj(),
+			}
+			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+			topology = utiltestingapi.MakeDefaultTwoLevelTopology("tas-metrics-topology")
+			util.MustCreate(ctx, k8sClient, topology)
+
+			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-metrics-flavor").
+				NodeLabel("node-group", "tas-metrics").
+				TopologyName(topology.Name).Obj()
+			util.MustCreate(ctx, k8sClient, tasFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("tas-metrics-cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+					Resource(corev1.ResourceCPU, "4").Obj()).Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("tas-metrics-lq", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			for i := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+			}
+		})
+
+		ginkgo.It("should update usage gauge when reclaimable pods reduce admitted count", func() {
+			ginkgo.By("creating a workload with 2 pods requesting 500m CPU each")
+			wl := utiltestingapi.MakeWorkload("wl-tas-reclaim", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("main", 2).
+					RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).Obj()).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("waiting for the workload to be admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("checking TASDomainUsage gauge at rack level is 1000m (2 pods × 500m)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+					tasFlavor.Name, utiltesting.DefaultRackTopologyLevel, "rack-1", string(corev1.ResourceCPU),
+				))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(v).Should(gomega.Equal(float64(1000)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("marking 1 pod as reclaimable")
+			util.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "main", Count: 1}})
+
+			ginkgo.By("checking TASDomainUsage gauge at rack level drops to 500m (1 active pod)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+					tasFlavor.Name, utiltesting.DefaultRackTopologyLevel, "rack-1", string(corev1.ResourceCPU),
+				))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(v).Should(gomega.Equal(float64(500)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should emit usage gauge at each topology level on admission and clear on finish", func() {
+			ginkgo.By("creating a workload requesting 500m CPU at rack level")
+			wl := utiltestingapi.MakeWorkload("wl-tas-metrics", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).Obj()).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("waiting for the workload to be admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("checking TASDomainUsage gauge at block level is 500m")
+			gomega.Eventually(func(g gomega.Gomega) {
+				v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+					tasFlavor.Name, utiltesting.DefaultBlockTopologyLevel, "block-1", string(corev1.ResourceCPU),
+				))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(v).Should(gomega.Equal(float64(500)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking TASDomainUsage gauge at rack level is 500m")
+			gomega.Eventually(func(g gomega.Gomega) {
+				v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+					tasFlavor.Name, utiltesting.DefaultRackTopologyLevel, "rack-1", string(corev1.ResourceCPU),
+				))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(v).Should(gomega.Equal(float64(500)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("finishing the workload")
+			util.FinishWorkloads(ctx, k8sClient, wl)
+
+			ginkgo.By("checking TASDomainUsage gauge decrements to 0 at block level")
+			gomega.Eventually(func(g gomega.Gomega) {
+				v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+					tasFlavor.Name, utiltesting.DefaultBlockTopologyLevel, "block-1", string(corev1.ResourceCPU),
+				))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(v).Should(gomega.Equal(float64(0)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking TASDomainUsage gauge decrements to 0 at rack level")
+			gomega.Eventually(func(g gomega.Gomega) {
+				v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+					tasFlavor.Name, utiltesting.DefaultRackTopologyLevel, "rack-1", string(corev1.ResourceCPU),
+				))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(v).Should(gomega.Equal(float64(0)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should include non-TAS pod usage in the domain usage gauge", func() {
+			const hostName = "tas-metrics-node-host"
+
+			ginkgo.By("creating a three-level topology, flavor, and node with hostname label")
+			threeLevel := utiltestingapi.MakeTopology("tas-metrics-3level-topology").
+				Levels(utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel, corev1.LabelHostname).
+				Obj()
+			util.MustCreate(ctx, k8sClient, threeLevel)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, threeLevel, true)
+			})
+
+			threeLevelFlavor := utiltestingapi.MakeResourceFlavor("tas-metrics-3level-flavor").
+				NodeLabel("node-group", "tas-metrics-3level").
+				TopologyName(threeLevel.Name).Obj()
+			util.MustCreate(ctx, k8sClient, threeLevelFlavor)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, threeLevelFlavor, true)
+			})
+
+			node := testingnode.MakeNode(hostName).
+				Label("node-group", "tas-metrics-3level").
+				Label(utiltesting.DefaultBlockTopologyLevel, "block-1").
+				Label(utiltesting.DefaultRackTopologyLevel, "rack-1").
+				Label(corev1.LabelHostname, hostName).
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("4"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().Obj()
+			util.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node})
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, node, true)
+			})
+
+			ginkgo.By("creating a non-TAS pod on the topology node requesting 500m CPU")
+			nonTasPod := testingpod.MakePod("non-tas-pod", ns.Name).
+				NodeName(hostName).
+				Request(corev1.ResourceCPU, "500m").
+				Obj()
+			util.MustCreate(ctx, k8sClient, nonTasPod)
+
+			ginkgo.By("checking TASDomainUsage gauge reflects the non-TAS pod at all three topology levels")
+			for _, tc := range []struct {
+				level    string
+				domainID string
+			}{
+				{utiltesting.DefaultBlockTopologyLevel, "block-1"},
+				{utiltesting.DefaultRackTopologyLevel, "rack-1"},
+				{corev1.LabelHostname, hostName},
+			} {
+				level, domainID := tc.level, tc.domainID
+				gomega.Eventually(func(g gomega.Gomega) {
+					v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+						threeLevelFlavor.Name, level, domainID, string(corev1.ResourceCPU),
+					))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(v).Should(gomega.Equal(float64(500)), "level=%s domain=%s", level, domainID)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+
+			ginkgo.By("terminating the non-TAS pod to trigger cache removal")
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, nonTasPod)
+
+			ginkgo.By("checking TASDomainUsage gauge drops to 0 at all three topology levels")
+			for _, tc := range []struct {
+				level    string
+				domainID string
+			}{
+				{utiltesting.DefaultBlockTopologyLevel, "block-1"},
+				{utiltesting.DefaultRackTopologyLevel, "rack-1"},
+				{corev1.LabelHostname, hostName},
+			} {
+				level, domainID := tc.level, tc.domainID
+				gomega.Eventually(func(g gomega.Gomega) {
+					v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+						threeLevelFlavor.Name, level, domainID, string(corev1.ResourceCPU),
+					))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(v).Should(gomega.Equal(float64(0)), "level=%s domain=%s", level, domainID)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+		})
+
+		ginkgo.It("should sum TAS and non-TAS usage in the domain usage gauge", func() {
+			const nodeName = "tas-metrics-node"
+
+			ginkgo.By("creating a non-TAS pod consuming 2000m CPU on the outer node")
+			nonTasPod := testingpod.MakePod("combined-non-tas-pod", ns.Name).
+				NodeName(nodeName).
+				Request(corev1.ResourceCPU, "2000m").
+				Obj()
+			util.MustCreate(ctx, k8sClient, nonTasPod)
+
+			ginkgo.By("admitting a TAS workload consuming 1000m CPU via the outer cluster queue")
+			wl := utiltestingapi.MakeWorkload("combined-tas-wl", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).Obj()).
+				Request(corev1.ResourceCPU, "1000m").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("checking TASDomainUsage at rack level is 3000m (2000m nonTAS + 1000m TAS)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+					tasFlavor.Name, utiltesting.DefaultRackTopologyLevel, "rack-1", string(corev1.ResourceCPU),
+				))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(v).Should(gomega.Equal(float64(3000)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("finishing the TAS workload and checking gauge drops to 2000m")
+			util.FinishWorkloads(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+					tasFlavor.Name, utiltesting.DefaultRackTopologyLevel, "rack-1", string(corev1.ResourceCPU),
+				))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(v).Should(gomega.Equal(float64(2000)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("terminating the non-TAS pod and checking gauge drops to 0")
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, nonTasPod)
+			gomega.Eventually(func(g gomega.Gomega) {
+				v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+					tasFlavor.Name, utiltesting.DefaultRackTopologyLevel, "rack-1", string(corev1.ResourceCPU),
+				))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(v).Should(gomega.Equal(float64(0)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should not emit usage gauge for excluded topology levels", func() {
+			ginkgo.By("configuring TAS metrics to exclude rack level")
+			pkgmetrics.InitTASMetricsConfig(&config.TASMetrics{
+				ExcludedTopologyLevels: []string{utiltesting.DefaultRackTopologyLevel},
+			})
+			ginkgo.DeferCleanup(func() { pkgmetrics.InitTASMetricsConfig(nil) })
+
+			ginkgo.By("creating a workload requesting 500m CPU at rack level")
+			wl := utiltestingapi.MakeWorkload("wl-tas-excluded-level", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).Obj()).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("waiting for the workload to be admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("checking TASDomainUsage gauge at block level is emitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				v, err := testutil.GetGaugeMetricValue(pkgmetrics.TASDomainUsage.WithLabelValues(
+					tasFlavor.Name, utiltesting.DefaultBlockTopologyLevel, "block-1", string(corev1.ResourceCPU),
+				))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(v).Should(gomega.Equal(float64(500)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking TASDomainUsage gauge at rack level is not emitted")
+			gomega.Consistently(func(g gomega.Gomega) {
+				count := len(utilmetrics.CollectFilteredGaugeVec(pkgmetrics.TASDomainUsage,
+					map[string]string{
+						"flavor": tasFlavor.Name,
+						"domain": utiltesting.DefaultRackTopologyLevel,
+					}))
+				g.Expect(count).To(gomega.Equal(0))
+			}, util.ShortTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

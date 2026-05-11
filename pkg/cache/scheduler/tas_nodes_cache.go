@@ -59,6 +59,14 @@ func (t *nodesCache) deleteWithoutLock(nodeName string) {
 	delete(t.nodes, nodeName)
 }
 
+// findByHostname returns the nodeInfo for the given kubernetes.io/hostname label value.
+// The nodes map is keyed by node name, which Kubernetes guarantees equals the hostname label.
+func (t *nodesCache) findByHostname(hostname string) *nodeInfo {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+	return t.nodes[hostname]
+}
+
 func (t *nodesCache) find(nodeLabels map[string]string, levels []string) []*nodeInfo {
 	t.lock.RLock()
 	defer t.lock.RUnlock()

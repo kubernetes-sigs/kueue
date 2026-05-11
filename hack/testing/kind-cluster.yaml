@@ -24,6 +24,8 @@ nodes:
 - role: worker
   labels:
     instance-type: on-demand
+    cloud.provider.com/topology-block: b1
+    cloud.provider.com/topology-rack: r1
 - role: worker
   labels:
     instance-type: spot

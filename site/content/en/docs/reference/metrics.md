@@ -118,3 +118,25 @@ For more details [see](/docs/tasks/manage/setup_wait_for_pods_ready).
 | `kueue_local_queue_ready_wait_time_seconds` | Histogram | The time between a workload was created or requeued until ready, per 'local_queue' | `name`: the name of the LocalQueue<br> `namespace`: the namespace of the LocalQueue<br> `priority_class`: the priority class name<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 | `kueue_ready_wait_time_seconds` | Histogram | The time between a workload was created or requeued until ready, per 'cluster_queue' | `cluster_queue`: the name of the ClusterQueue<br> `priority_class`: the priority class name<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 <!-- END GENERATED TABLE: optional_wait_for_pods_ready -->
+
+## TAS Domain Usage (alpha)
+
+The following metrics are available only if the `TASNodeMetrics` feature gate is enabled. Check the [Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) section of the [Installation](/docs/installation/) for details.
+
+{{% alert title="Cardinality warning" color="warning" %}}
+`kueue_tas_domain_usage` emits one time series per `flavor × topology level × domain × resource` combination. At the node/leaf level (e.g. `domain="kubernetes.io/hostname"`), the number of series grows with the size of your cluster. Enable this feature gate only after estimating the resulting cardinality for your topology.
+
+To exclude high-cardinality topology levels from metrics, use `metrics.tasMetrics.excludedTopologyLevels` in the [manager's configuration](/docs/installation/#install-a-custom-configured-released-version):
+```yaml
+metrics:
+  tasMetrics:
+    excludedTopologyLevels:
+    - kubernetes.io/hostname
+```
+{{% /alert %}}
+
+<!-- BEGIN GENERATED TABLE: tas -->
+| Metric name | Type | Description | Labels |
+| --- | --- | --- | --- |
+| `kueue_tas_domain_usage` | Gauge | Resource usage per TAS topology domain at each topology level.<br>Emitted for TAS workload usage at all levels (node, rack, block, etc.).<br>Only available when the TASNodeMetrics feature gate is enabled. | `flavor`: the resource flavor name<br> `domain`: topology level label key (e.g. kubernetes.io/hostname)<br> `domain_id`: value of the topology level label<br> `resource`: the resource name |
+<!-- END GENERATED TABLE: tas -->
