@@ -455,6 +455,9 @@ func (s *Scheduler) processEntry(
 
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
 		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
+			if !s.isMigrationAllowed(cq, e, log) {
+				return
+			}
 			s.issueMigration(ctx, log, e, lessFavorableSibling)
 			return
 		}
@@ -1172,6 +1175,25 @@ func (s *Scheduler) findAdmittedSiblingMatching(wl *workload.Info, cq *schdcache
 		}
 	}
 	return nil
+}
+
+func (s *Scheduler) isMigrationAllowed(cq *schdcache.ClusterQueueSnapshot, e *entry, log klog.Logger) bool {
+	if cq.ConcurrentAdmissionPolicy == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName == nil {
+		return true
+	}
+	minPrefFlavor := *cq.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName
+	flavors := cq.ResourceGroups[0].Flavors
+	minPrefIdx := slices.Index(flavors, minPrefFlavor)
+	wlFlavorIdx, err := getFlavorIndex(&e.Info, flavors)
+	if err != nil || minPrefIdx < 0 {
+		return true
+	}
+	if wlFlavorIdx > minPrefIdx {
+		log.V(3).Info("Skipping migration as target flavor is below MinPreferredFlavorName", "targetFlavor", concurrentadmission.GetVariantFlavor(e.Obj), "minPreferredFlavor", minPrefFlavor)
+		e.inadmissibleMsg = "Target flavor is below MinPreferredFlavorName"
+		return false
+	}
+	return true
 }
 
 func getFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReference) (int, error) {
