@@ -161,18 +161,11 @@ test-multikueue-e2e-sequential: setup-e2e-env test-multikueue-e2e-parallel-build
 test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
 
-.PHONY: test-tas-e2e
-test-tas-e2e: test-tas-e2e-baseline test-tas-e2e-extended
-
 .PHONY: test-tas-e2e-baseline
 test-tas-e2e-baseline: setup-e2e-env run-test-tas-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-extended
 test-tas-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
-
-.PHONY: test-tas-e2e-helm
-test-tas-e2e-helm: E2E_USE_HELM=true
-test-tas-e2e-helm: test-tas-e2e
 
 .PHONY: test-tas-e2e-baseline-helm
 test-tas-e2e-baseline-helm: E2E_USE_HELM=true
