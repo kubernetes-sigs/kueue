@@ -1300,7 +1300,6 @@ func Register() {
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
 		WorkloadEvictionLatencySeconds,
-		WorkloadCreationLatency,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
 		ClusterQueueByStatus,
@@ -1316,6 +1315,9 @@ func Register() {
 		CohortSubtreeResourceReservations,
 		CohortSubtreeAdmittedActiveWorkloads,
 	)
+	if features.Enabled(features.MetricForWorkloadCreationLatency) {
+		metrics.Registry.MustRegister(WorkloadCreationLatency)
+	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
 	}

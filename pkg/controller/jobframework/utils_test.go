@@ -17,7 +17,6 @@ limitations under the License.
 package jobframework_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -164,13 +163,13 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 			wl.CreationTimestamp = metav1.NewTime(baseTime)
 
 			job.SetGeneration(2)
-			jobframework.RecordWorkloadCreationLatency(context.Background(), job, tc.jobKind, wl, nil, nil)
+			jobframework.RecordWorkloadCreationLatency(t.Context(), job, tc.jobKind, wl, nil, nil)
 			if count, err := testutil.GetHistogramMetricCount(metrics.WorkloadCreationLatency.WithLabelValues(tc.jobKind, roletracker.RoleStandalone)); err != nil || count != 0 {
 				t.Errorf("Expecting metric count 0 for generation > 1, got count %d, err %v", count, err)
 			}
 
 			job.SetGeneration(1)
-			jobframework.RecordWorkloadCreationLatency(context.Background(), job, tc.jobKind, wl, nil, nil)
+			jobframework.RecordWorkloadCreationLatency(t.Context(), job, tc.jobKind, wl, nil, nil)
 
 			val, err := testutil.GetHistogramMetricValue(metrics.WorkloadCreationLatency.WithLabelValues(tc.jobKind, roletracker.RoleStandalone))
 			if err != nil {

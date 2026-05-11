@@ -379,6 +379,9 @@ const (
 	//
 	// Enables Concurrent Admission feature which allows pursuing multiple ResourceFlavors in parallel.
 	ConcurrentAdmission featuregate.Feature = "ConcurrentAdmission"
+
+	// Enable recording of WorkloadCreationLatency metric.
+	MetricForWorkloadCreationLatency featuregate.Feature = "MetricForWorkloadCreationLatency"
 )
 
 func init() {
@@ -584,6 +587,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	QuotaCheckStrategy: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MetricForWorkloadCreationLatency: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
 	},
 }
 
