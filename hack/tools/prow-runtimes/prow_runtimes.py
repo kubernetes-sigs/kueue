@@ -186,10 +186,10 @@ def last_n_builds(
 def load_kueue_periodic_jobs(*, verbose: bool = False) -> list[str]:
     text = http_get(KUEUE_PERIODICS_URL).decode("utf-8")
     if verbose:
-        print(text)
+        print(text, file=sys.stderr)
     names = re.findall(r"(?m)^\s*-?\s+name:\s+(periodic-kueue[-A-Za-z0-9_.]+)\s*$", text)
     if verbose:
-        print(names)
+        print(names, file=sys.stderr)
     return sorted(dict.fromkeys(names))
 def fmt_duration(seconds: float | int) -> str:
     seconds = int(round(seconds))
@@ -272,7 +272,7 @@ def main() -> int:
 
     for job in jobs:
         if args.verbose:
-            print("checking: " + job)
+            print("checking: " + job, file=sys.stderr)
         try:
             builds = last_n_builds(
                 job,
