@@ -174,7 +174,11 @@ func AssertMsg[T runtime.Object](message string, objs ...T) func() string {
 		var output strings.Builder
 		fmt.Fprintln(&output, message)
 		for _, obj := range objs {
-			fmt.Fprintln(&output, format.Object(obj, 1))
+			objYAML, ok := formatK8sObject(obj)
+			if !ok {
+				objYAML = format.Object(obj, 1)
+			}
+			fmt.Fprintln(&output, objYAML)
 		}
 		return output.String()
 	}
