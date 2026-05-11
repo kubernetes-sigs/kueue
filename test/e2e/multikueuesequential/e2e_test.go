@@ -827,7 +827,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 					worker1Error := k8sWorker1Client.Get(ctx, highWlKey, worker1HighWorkload)
 					worker2Error := k8sWorker2Client.Get(ctx, highWlKey, worker2HighWorkload)
 
-					g.Expect(worker1Error == nil).NotTo(gomega.Equal(worker2Error == nil)) //
+					g.Expect(worker1Error == nil).NotTo(gomega.Equal(worker2Error == nil))
 
 					if worker1Error == nil {
 						g.Expect(worker1HighWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
