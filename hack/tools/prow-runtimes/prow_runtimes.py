@@ -183,14 +183,14 @@ def last_n_builds(
             break
 
     return out
-
-def load_kueue_periodic_jobs() -> list[str]:
+def load_kueue_periodic_jobs(*, verbose: bool = False) -> list[str]:
     text = http_get(KUEUE_PERIODICS_URL).decode("utf-8")
-    print(text)
+    if verbose:
+        print(text)
     names = re.findall(r"(?m)^\s*-?\s+name:\s+(periodic-kueue[-A-Za-z0-9_.]+)\s*$", text)
-    print(names)
+    if verbose:
+        print(names)
     return sorted(dict.fromkeys(names))
-
 def fmt_duration(seconds: float | int) -> str:
     seconds = int(round(seconds))
     h, rem = divmod(seconds, 3600)
@@ -259,6 +259,7 @@ def main() -> int:
     parser.add_argument("--only-success", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--csv", action="store_true")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output (prints raw data from URLs).")
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -266,11 +267,12 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    jobs = load_kueue_periodic_jobs() if args.kueue_periodics else args.job
+    jobs = load_kueue_periodic_jobs(verbose=args.verbose) if args.kueue_periodics else args.job
     rows = []
 
     for job in jobs:
-        print("checking: " + job)
+        if args.verbose:
+            print("checking: " + job)
         try:
             builds = last_n_builds(
                 job,
