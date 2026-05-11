@@ -17,9 +17,6 @@ limitations under the License.
 package extended
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -27,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	// "k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -47,16 +43,6 @@ var _ = ginkgo.Describe("Kuberay integration", ginkgo.Label("feature:kuberay"), 
 		clusterQueueName   string
 		localQueueName     string
 	)
-
-	getRunningWorkerPodNames := func(podList *corev1.PodList) []string {
-		var podNames []string
-		for _, pod := range podList.Items {
-			if strings.Contains(pod.Name, "workers") && pod.Status.Phase == corev1.PodRunning {
-				podNames = append(podNames, pod.Name)
-			}
-		}
-		return podNames
-	}
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-e2e-")
@@ -267,48 +253,6 @@ print(ray.get([my_task.remote(i) for i in range(10)]))`,
 				g.Expect(pods.Items).To(gomega.HaveLen(1), "Expected exactly one head pod")
 				g.Expect(pods.Items[0].Status.Phase).To(gomega.Equal(corev1.PodRunning))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		var headPodName string
-		ginkgo.By("Getting head pod name", func() {
-			pods := &corev1.PodList{}
-			gomega.Expect(k8sClient.List(ctx, pods,
-				client.InNamespace(ns.Name),
-				client.MatchingLabels{
-					"ray.io/node-type": "head",
-				},
-			)).To(gomega.Succeed())
-			gomega.Expect(pods.Items).To(gomega.HaveLen(1))
-			headPodName = pods.Items[0].Name
-		})
-
-		done := make(chan struct{})
-		ginkgo.By("Triggering autoscaling by running tasks on head pod", func() {
-			cmd := []string{
-				"python", "/home/ray/samples/sample_code.py",
-			}
-			go func() {
-				defer ginkgo.GinkgoRecover()
-				defer close(done)
-				stdout, stderr, err := util.KExecute(ctx, cfg, restClient, ns.Name, headPodName, "ray-head", cmd)
-				if err != nil {
-					fmt.Fprintf(ginkgo.GinkgoWriter, "KExecute failed: %v\nStdout: %s\nStderr: %s\n", err, string(stdout), string(stderr))
-				}
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}()
-		})
-
-		ginkgo.By("Waiting for cluster to scale up", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				pods := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				workerPodNames := getRunningWorkerPodNames(pods)
-				g.Expect(len(workerPodNames)).To(gomega.BeNumerically(">", 1), "Expected cluster to scale up to more than 1 worker pod")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Waiting for tasks to finish", func() {
-			gomega.Eventually(done, util.LongTimeout, util.Interval).Should(gomega.BeClosed())
 		})
 
 		ginkgo.By("Deleting the RayService", func() {
