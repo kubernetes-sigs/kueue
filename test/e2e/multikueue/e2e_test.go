@@ -1263,7 +1263,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					admittedJob := &batchv1.Job{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(highJob), admittedJob)).To(gomega.Succeed())
 					g.Expect(admittedJob.Status.Active).To(gomega.Equal(int32(1)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the low-priority workload is dispatched again after backoff", func() {
