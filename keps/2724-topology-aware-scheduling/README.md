@@ -63,6 +63,8 @@
   - [Support for Elastic Workloads](#support-for-elastic-workloads)
   - [Balanced placement](#balanced-placement)
     - [Example](#example-3)
+  - [Support for Preferred Node Affinity](#support-for-preferred-node-affinity)
+    - [Future Vision](#future-vision)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
     - [Determining the need for second pass](#determining-the-need-for-second-pass)
     - [Targeting the newly provisioned nodes](#targeting-the-newly-provisioned-nodes)
@@ -1747,6 +1749,25 @@ For a 3-level topology (block, rack, hostname), in the TopologyRequest, the user
 | [[10, 5], [5, 5, 5]] | 15|1 |  [[0, 0], [5, 5, 5]] | prefer more balanced rack
 | [[15],[15]] [[15, 15]] | 25 | 1 | [[0],[0]] [[13, 12]] | prefer block where the request fits in a single rack
 | [[15], [15], [15, 15]] | 25|5 |  [[0], [0], [15, 10]] | `podset-slice-required-topology = hostname`
+
+### Support for Preferred Node Affinity
+
+TAS supports evaluating `preferredDuringSchedulingIgnoredDuringExecution`
+node affinities during the scheduling cycle. When the
+`TASPreferredSchedulingAffinity` feature gate is enabled, the preferred
+affinity scores are evaluated when selecting candidate topology domains,
+allowing affinity preferences to guide placement decisions. Preferred affinity
+takes precedence over capacity fitness of a domain.
+
+#### Future Vision
+The long-term goal is to decommission this strict precedence model and its
+associated `TASPreferredSchedulingAffinity` feature gate in favor of a generic
+weighted scoring model of domains. Similar to the kube-scheduler scheduling
+plugins scoring model, candidate topology domains will be evaluated using
+a configurable list of individual scoring components (such as affinity
+preferences and capacity packing efficiency) that contribute to a normalized,
+unified final score to determine the globally optimal placement.
+
 ### Support for ProvisioningRequests
 
 We are going to support autoscaling via ProvisioningRequest AdmissionCheck.
@@ -1916,6 +1937,9 @@ Consider the following improvements and implement if feasible:
 - perform full scheduling simulation rather than just capacity counting
  (including pod affinities and anti-affinities)
 - drop `TASLeastAllocated` feature gate
+- drop `TASPreferredSchedulingAffinity` feature gate upon decommissioning the
+ strict precedence affinity model in favor of the Weighted Scoring Model of
+ domains (see [Future Vision](#future-vision))
 - introduce configuration for setting TAS profiles/algorithms: https://github.com/kubernetes-sigs/kueue/issues/4570
 - introduce a performance test for TAS [#4634](https://github.com/kubernetes-sigs/kueue/issues/4634)
 - add observability metrics, some ideas are in the [discussion](https://github.com/kubernetes-sigs/kueue/pull/5078#discussion_r2060580973)
