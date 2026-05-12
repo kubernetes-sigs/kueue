@@ -367,7 +367,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			})
 
 			ginkgo.By("reserving quota for a Workload", func() {
-				util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(clusterQueue.Name).Obj())
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).Obj())
 			})
 
 			ginkgo.By("setting the check conditions", func() {
@@ -431,7 +431,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 					ctx,
 					k8sClient,
 					wlKey,
-					utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(podSet).Obj(),
+					utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(podSet).Obj(),
 				)
 
 				gomega.Eventually(func(g gomega.Gomega) {

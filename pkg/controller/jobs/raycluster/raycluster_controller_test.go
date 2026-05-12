@@ -362,7 +362,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("cq").
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference("cq")).
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -415,7 +415,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("cq").
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference("cq")).
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -479,7 +479,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference("cq")).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
 					Generation(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -515,7 +515,7 @@ func TestReconciler(t *testing.T) {
 							}).
 							Obj(),
 					).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference("cq")).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
 					Generation(1).
 					PastAdmittedTime(1).
 					Condition(metav1.Condition{
@@ -594,7 +594,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("cq").
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference("cq")).
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -647,7 +647,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("cq").
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference("cq")).
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").

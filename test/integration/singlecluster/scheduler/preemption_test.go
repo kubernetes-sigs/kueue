@@ -845,8 +845,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.MustCreate(ctx, k8sClient, aBestEffortLowWl)
 
 			ginkgo.By("Await for the a-best-effort-low workload to be admitted")
-			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aBestEffortLowWl,
-				utiltestingapi.MakeAdmission(aBestEffortCQ.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "5").Obj()).Obj(),
+			util.ExpectWorkloadToBeAdmittedAs(
+				ctx,
+				k8sClient,
+				aBestEffortLowWl,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(aBestEffortCQ.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "5").Obj()).
+					Obj(),
 			)
 
 			ginkgo.By("Create a low priority workload which is not borrowing")
@@ -858,8 +863,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.MustCreate(ctx, k8sClient, bBestEffortLowWl)
 
 			ginkgo.By("Await for the b-best-effort-low workload to be admitted")
-			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, bBestEffortLowWl,
-				utiltestingapi.MakeAdmission(bBestEffortCQ.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "1").Obj()).Obj(),
+			util.ExpectWorkloadToBeAdmittedAs(
+				ctx,
+				k8sClient,
+				bBestEffortLowWl,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(bBestEffortCQ.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "1").Obj()).
+					Obj(),
 			)
 
 			ginkgo.By("Create a high priority workload (above MaxPriorityThreshold) which requires borrowing")
@@ -871,8 +881,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.MustCreate(ctx, k8sClient, bStandardWl)
 
 			ginkgo.By("Await for the b-standard-high workload to be admitted")
-			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, bStandardWl,
-				utiltestingapi.MakeAdmission(bStandardCQ.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "5").Obj()).Obj(),
+			util.ExpectWorkloadToBeAdmittedAs(
+				ctx,
+				k8sClient,
+				bStandardWl,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(bStandardCQ.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "5").Obj()).
+					Obj(),
 			)
 
 			ginkgo.By("Create the a-standard-very-high workload")
@@ -904,23 +919,43 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.FinishEvictionForWorkloads(ctx, k8sClient, aBestEffortLowWl)
 
 			ginkgo.By("Verify the a-standard-very-high workload is admitted")
-			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aStandardVeryHighWl,
-				utiltestingapi.MakeAdmission(aStandardCQ.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "7").Obj()).Obj(),
+			util.ExpectWorkloadToBeAdmittedAs(
+				ctx,
+				k8sClient,
+				aStandardVeryHighWl,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(aStandardCQ.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "7").Obj()).
+					Obj(),
 			)
 
 			ginkgo.By("Verify the a-best-effort-low workload is re-admitted, but using flavor 2")
-			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aBestEffortLowWl,
-				utiltestingapi.MakeAdmission(aBestEffortCQ.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "fallback", "5").Obj()).Obj(),
+			util.ExpectWorkloadToBeAdmittedAs(
+				ctx,
+				k8sClient,
+				aBestEffortLowWl,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(aBestEffortCQ.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "fallback", "5").Obj()).
+					Obj(),
 			)
 
 			ginkgo.By("Verify the b-standard-high workload remains admitted")
-			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, bStandardWl,
-				utiltestingapi.MakeAdmission(bStandardCQ.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "5").Obj()).Obj(),
+			util.ExpectWorkloadToBeAdmittedAs(
+				ctx,
+				k8sClient,
+				bStandardWl,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(bStandardCQ.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "5").Obj()).
+					Obj(),
 			)
 
 			ginkgo.By("Verify for the b-best-effort-low workload remains admitted")
-			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, bBestEffortLowWl,
-				utiltestingapi.MakeAdmission(bBestEffortCQ.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "1").Obj()).Obj(),
+			util.ExpectWorkloadToBeAdmittedAs(
+				ctx,
+				k8sClient,
+				bBestEffortLowWl,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(bBestEffortCQ.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "1").Obj()).
+					Obj(),
 			)
 		})
 	})
@@ -975,8 +1010,14 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
 
-			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3,
-				utiltestingapi.MakeAdmission(prodCQ.Name).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "alpha", "4").Obj()).Obj())
+			util.ExpectWorkloadToBeAdmittedAs(
+				ctx,
+				k8sClient,
+				wl3,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(prodCQ.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "alpha", "4").Obj()).
+					Obj(),
+			)
 		})
 	})
 
