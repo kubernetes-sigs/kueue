@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 		})
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 
 			util.ExpectAdmissionCheckStateWithMessage(
@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 	})
 
 	ginkgo.It("Should not create a MPIJob workload, when MPIJob adapter is not enabled", func() {
-		admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
 			kueue.PodSetAssignment{
 				Name: "launcher",
 			}, kueue.PodSetAssignment{

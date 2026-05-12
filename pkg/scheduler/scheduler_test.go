@@ -7699,7 +7699,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Admission(
-						utiltestingapi.MakeAdmission(cq.Name).
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
 								Obj()).
