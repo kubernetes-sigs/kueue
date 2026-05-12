@@ -14,7 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+<<<<<<< HEAD:test/e2e/singlecluster/job_test.go
 package e2e
+=======
+package baseline
+>>>>>>> This is a squashed commit for test : split e2e singlecluster to baseline and extended:test/e2e/singlecluster/baseline/job_test.go
 
 import (
 	"fmt"

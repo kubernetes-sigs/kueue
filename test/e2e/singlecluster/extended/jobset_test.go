@@ -14,7 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+<<<<<<< HEAD:test/e2e/singlecluster/jobset_test.go
 package e2e
+=======
+package extended
+>>>>>>> This is a squashed commit for test : split e2e singlecluster to baseline and extended:test/e2e/singlecluster/extended/jobset_test.go
 
 import (
 	"github.com/onsi/ginkgo/v2"

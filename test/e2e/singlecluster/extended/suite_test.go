@@ -14,12 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package e2e
+package extended
 
 import (
 	"context"
-	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -28,24 +26,18 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
-	visibility "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
-	kueuectlPath                 = filepath.Join("..", "..", "..", "bin", "kubectl-kueue")
-	k8sClient                    client.WithWatch
-	cfg                          *rest.Config
-	restClient                   *rest.RESTClient
-	ctx                          context.Context
-	kueueClientset               kueueclientset.Interface
-	impersonatedVisibilityClient visibility.VisibilityV1beta2Interface
-	kueueNS                      = util.GetKueueNamespace()
+	k8sClient  client.WithWatch
+	cfg        *rest.Config
+	restClient *rest.RESTClient
+	ctx        context.Context
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End Suite")
+	util.RunE2ESuite(t, "End To End Extended Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -55,9 +47,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	k8sClient, cfg, err = util.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	restClient = util.CreateRestClient(cfg)
-	kueueClientset = util.CreateKueueClientset("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	impersonatedVisibilityClient = util.CreateVisibilityClient(fmt.Sprintf("system:serviceaccount:%s:default", kueueNS))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 

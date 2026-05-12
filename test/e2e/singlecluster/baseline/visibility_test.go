@@ -14,7 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+<<<<<<< HEAD:test/e2e/singlecluster/visibility_test.go
 package e2e
+=======
+package baseline
+>>>>>>> This is a squashed commit for test : split e2e singlecluster to baseline and extended:test/e2e/singlecluster/baseline/visibility_test.go
 
 import (
 	"github.com/google/go-cmp/cmp"
