@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package e2e
+package baseline
 
 import (
 	"context"
@@ -25,6 +25,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -34,18 +35,19 @@ import (
 )
 
 var (
-	kueuectlPath                 = filepath.Join("..", "..", "..", "bin", "kubectl-kueue")
+	kueuectlPath                 = filepath.Join("..", "..", "..", "..", "bin", "kubectl-kueue")
 	k8sClient                    client.WithWatch
 	cfg                          *rest.Config
 	restClient                   *rest.RESTClient
 	ctx                          context.Context
 	kueueClientset               kueueclientset.Interface
 	impersonatedVisibilityClient visibility.VisibilityV1beta2Interface
+	prometheusClient             prometheusv1.API
 	kueueNS                      = util.GetKueueNamespace()
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End Suite")
+	util.RunE2ESuite(t, "End To End Baseline Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -64,23 +66,9 @@ var _ = ginkgo.BeforeSuite(func() {
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
 	labelFilter := ginkgo.GinkgoLabelFilter()
-	if ginkgo.Label("feature:jobset", "feature:tas", "feature:trainjob").MatchesLabelFilter(labelFilter) {
-		util.WaitForJobSetAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:leaderworkerset").MatchesLabelFilter(labelFilter) {
-		util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:appwrapper").MatchesLabelFilter(labelFilter) {
-		util.WaitForAppWrapperAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:jaxjob", "feature:pytorchjob").MatchesLabelFilter(labelFilter) {
-		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:kuberay").MatchesLabelFilter(labelFilter) {
-		util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:tas", "feature:trainjob").MatchesLabelFilter(labelFilter) {
-		util.WaitForKubeFlowTrainnerControllerManagerAvailability(ctx, k8sClient)
+	if ginkgo.Label("feature:prometheus").MatchesLabelFilter(labelFilter) {
+		prometheusClient = util.CreatePrometheusClient(cfg)
+		util.WaitForPrometheusAvailability(ctx, k8sClient)
 	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",

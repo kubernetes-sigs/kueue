@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package e2e
+package extended
 
 import (
 	"fmt"
@@ -23,9 +23,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -223,7 +221,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				jobSetKey := client.ObjectKeyFromObject(jobSet)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobSetKey, jobSet)).To(gomega.Succeed())
-					g.Expect(jobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(jobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -475,15 +473,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				TrainerImage(util.GetAgnHostImage(), []string{"/agnhost"}, util.BehaviorExitFast).
 				TrainerRequest(corev1.ResourceCPU, "500m").
 				TrainerRequest(corev1.ResourceMemory, "200Mi").
-				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
-					{
-						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
-							{Name: "node"},
-						},
-						Metadata: &metav1.ObjectMeta{
-							Annotations: map[string]string{kueue.PodSetRequiredTopologyAnnotation: corev1.LabelHostname},
-						},
-					},
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("test-e2e/tas").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("node").
+								PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+								Obj(),
+						).
+						Obj(),
 				}).
 				Obj()
 
@@ -495,13 +492,16 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				trainjobKey := client.ObjectKeyFromObject(trainjob)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, trainjobKey, trainjob)).To(gomega.Succeed())
-					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(new(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("verify the TrainJob has nodeSelector set", func() {
-				gomega.Expect(trainjob.Spec.PodTemplateOverrides).To(gomega.HaveLen(2))
-				gomega.Expect(trainjob.Spec.PodTemplateOverrides[1].Spec.NodeSelector).To(gomega.Equal(
+			ginkgo.By("Verify that the trainjob has a runtime patch from kueue", func() {
+				kueueRuntimePatch := testingtrainjob.KueueRuntimePatch(trainjob)
+				gomega.Expect(kueueRuntimePatch).ToNot(gomega.BeNil())
+				rJobs := kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs
+				gomega.Expect(rJobs).To(gomega.HaveLen(1))
+				gomega.Expect(rJobs[0].Template.Spec.Template.Spec.NodeSelector).To(gomega.Equal(
 					map[string]string{
 						"instance-type": "on-demand",
 					},
@@ -531,6 +531,114 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
 				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+			})
+		})
+	})
+
+	ginkgo.When("Scaling a Job requesting TAS via workload slices", func() {
+		var (
+			topology     *kueue.Topology
+			onDemandRF   *kueue.ResourceFlavor
+			localQueue   *kueue.LocalQueue
+			clusterQueue *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname-" + ns.Name)
+			util.MustCreate(ctx, k8sClient, topology)
+
+			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
+				NodeLabel("instance-type", "on-demand").TopologyName(topology.Name).Obj()
+			util.MustCreate(ctx, k8sClient, onDemandRF)
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(onDemandRF.Name).
+						Resource(corev1.ResourceCPU, "4").
+						Resource(corev1.ResourceMemory, "4Gi").
+						Obj(),
+				).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			// Force remove workloads to be sure that cluster queue can be removed.
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		})
+
+		ginkgo.It("should preserve topology assignment during scale-up", func() {
+			sampleJob := testingjob.MakeJob("test-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Parallelism(1).
+				Completions(10).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "20Mi").
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Obj()
+			util.MustCreate(ctx, k8sClient, sampleJob)
+
+			var createdWorkload *kueue.Workload
+			var originalNodeName string
+			ginkgo.By("await for admission of workload and record topology", func() {
+				// Use ExpectWorkloadsInNamespace instead of computing workload name
+				// because with workload slicing enabled, the name includes generation
+				workloads := util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)
+				createdWorkload = &workloads[0]
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+					g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+
+				ta := tas.InternalFrom(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				gomega.Expect(ta.Domains).ShouldNot(gomega.BeEmpty())
+				originalNodeName = ta.Domains[0].Values[0]
+			})
+
+			scaledParallelism := int32(2)
+			ginkgo.By("scale up the job parallelism", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
+					sampleJob.Spec.Parallelism = new(scaledParallelism)
+					g.Expect(k8sClient.Update(ctx, sampleJob)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify scaled workload preserves original topology assignment", func() {
+				scaledWorkload := util.ExpectNewWorkloadSlice(ctx, k8sClient, createdWorkload)
+				gomega.Expect(scaledWorkload).ShouldNot(gomega.BeNil())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(scaledWorkload), scaledWorkload)).To(gomega.Succeed())
+					g.Expect(scaledWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(scaledWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
+					g.Expect(scaledWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(scaledParallelism))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+
+				ta := tas.InternalFrom(scaledWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				gomega.Expect(ta).ShouldNot(gomega.BeNil())
+
+				foundOriginal := false
+				for _, domain := range ta.Domains {
+					if len(domain.Values) > 0 && domain.Values[0] == originalNodeName {
+						foundOriginal = true
+						break
+					}
+				}
+				gomega.Expect(foundOriginal).To(gomega.BeTrue(),
+					"original node %s should be preserved in scaled assignment", originalNodeName)
 			})
 		})
 	})
