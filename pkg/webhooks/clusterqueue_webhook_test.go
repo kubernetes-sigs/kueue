@@ -460,9 +460,9 @@ func TestValidateClusterQueue(t *testing.T) {
 				field.Invalid(
 					specPath.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("minPreferredFlavorName"),
 					kueue.ResourceFlavorReference("non-existent-flavor"),
-					"must be one of the flavors defined in the ResourceGroup: [flavor1]"),
+					"must be one of the flavors defined in the ClusterQueue: [flavor1]"),
 			},
-			wantDetail:   "must be one of the flavors defined in the ResourceGroup: [flavor1]",
+			wantDetail:   "must be one of the flavors defined in the ClusterQueue: [flavor1]",
 			wantBadValue: "non-existent-flavor",
 		},
 	}

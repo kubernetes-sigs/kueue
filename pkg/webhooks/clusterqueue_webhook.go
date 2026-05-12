@@ -19,7 +19,6 @@ package webhooks
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -250,12 +249,13 @@ func validateConcurrentAdmissionPolicy(cq *kueue.ClusterQueue, path *field.Path)
 
 	if cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil && cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName != nil {
 		minPrefFlavor := *cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName
-		if len(cq.Spec.ResourceGroups) == 1 {
-			flavorNames := utilslices.Map(cq.Spec.ResourceGroups[0].Flavors, func(f *kueue.FlavorQuotas) string { return string(f.Name) })
-			if !slices.Contains(flavorNames, string(minPrefFlavor)) {
-				allErrs = append(allErrs, field.Invalid(path.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("minPreferredFlavorName"), minPrefFlavor,
-					fmt.Sprintf("must be one of the flavors defined in the ResourceGroup: %v", flavorNames)))
-			}
+		validFlavors := utilqueue.AllFlavors(cq.Spec.ResourceGroups)
+		if !validFlavors.Has(minPrefFlavor) {
+			allowedFlavors := utilslices.Map(validFlavors.UnsortedList(), func(f *kueue.ResourceFlavorReference) string { return string(*f) })
+			allErrs = append(allErrs, field.Invalid(
+				path.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("minPreferredFlavorName"),
+				minPrefFlavor,
+				fmt.Sprintf("must be one of the flavors defined in the ClusterQueue: %v", allowedFlavors)))
 		}
 	}
 
