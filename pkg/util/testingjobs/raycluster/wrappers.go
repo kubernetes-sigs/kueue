@@ -290,6 +290,17 @@ func (j *ClusterWrapper) Image(rayType rayv1.RayNodeType, image string, args []s
 	return j
 }
 
+// Env sets the environment for the specified ray node type.
+func (j *ClusterWrapper) Env(rayType rayv1.RayNodeType, env []corev1.EnvVar) *ClusterWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		j.Spec.HeadGroupSpec.Template.Spec.Containers[0].Env = env
+	case rayv1.WorkerNode:
+		j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = env
+	}
+	return j
+}
+
 func (j *ClusterWrapper) RayVersion(rv string) *ClusterWrapper {
 	j.Spec.RayVersion = rv
 	return j
