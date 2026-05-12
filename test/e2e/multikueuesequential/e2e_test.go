@@ -839,7 +839,8 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 						unaffectedWorkerClient = k8sWorker1Client
 					}
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), func() string {
-					return util.AssertMsgForMk(ctx, "Workload not Admitted in worker1", worker1HighWorkload, k8sManagerClient, k8sWorker1Client, k8sWorker2Client)() + util.AssertMsgForMk(ctx, "Workload not Admitted in worker2", worker2HighWorkload, k8sManagerClient, k8sWorker1Client, k8sWorker2Client)()
+					return util.AssertMsgForMk(ctx, "Workload not Admitted in worker1", worker1HighWorkload, k8sManagerClient, k8sWorker1Client, k8sWorker2Client)() +
+						util.AssertMsgForMk(ctx, "Workload not Admitted in worker2", worker2HighWorkload, k8sManagerClient, k8sWorker1Client, k8sWorker2Client)()
 				})
 			})
 
