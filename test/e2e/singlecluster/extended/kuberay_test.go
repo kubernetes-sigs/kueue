@@ -14,7 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+<<<<<<< HEAD:test/e2e/singlecluster/kuberay_test.go
 package e2e
+=======
+package extended
+>>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended):test/e2e/singlecluster/extended/kuberay_test.go
 
 import (
 	"encoding/json"
