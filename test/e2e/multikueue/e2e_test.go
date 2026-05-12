@@ -1390,7 +1390,7 @@ app = HelloWorld.bind()`,
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(managerWl)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk("Workload not admitted in manager", managerWl, ctx, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload not admitted in manager", managerWl, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
 			ginkgo.By("Checking that the workload is created on worker1", func() {
@@ -1398,13 +1398,13 @@ app = HelloWorld.bind()`,
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk("Workload not admitted in worker1", workerWorkload, ctx, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload not admitted in worker1", workerWorkload, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
 			ginkgo.By("Checking that the workload is not created on worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk("Workload present in worker2", workerWorkload, ctx, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload present in worker2", workerWorkload, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
 			ginkgo.By("Switching worker cluster queues' resources to enforce re-admission on the worker2", func() {
@@ -1439,7 +1439,7 @@ app = HelloWorld.bind()`,
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
 					g.Expect(managerWl.Status.ClusterName).To(gomega.HaveValue(gomega.Equal(workerCluster2.Name)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk("Workload not Admitted in worker2", managerWl, ctx, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload not Admitted in worker2", managerWl, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
 			ginkgo.By("Checking that the workload is created in worker2", func() {
@@ -1447,13 +1447,13 @@ app = HelloWorld.bind()`,
 					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk("Workload not Admitted in worker2", workerWorkload, ctx, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload not Admitted in worker2", workerWorkload, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
 			ginkgo.By("Checking that the workload is not created in worker1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk("Workload present in worker1", workerWorkload, ctx, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload present in worker1", workerWorkload, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 		})
 

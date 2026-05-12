@@ -805,19 +805,19 @@ func SetResourceNominalQuota(cq *kueue.ClusterQueue, resourceName corev1.Resourc
 	return cq
 }
 
-func AssertMsgForMk(msg string, wl *kueue.Workload, ctx context.Context, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
+func AssertMsgForMk(ctx context.Context, msg string, wl *kueue.Workload, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
 	return func() string {
 		wlKey := client.ObjectKeyFromObject(wl)
 		return strings.Join([]string{
 			AssertMsg(msg, wl)(),
-			AssertMsg("Manager", getWorkload(k8sManagerClient, wlKey, ctx))(),
-			AssertMsg("Worker1", getWorkload(k8sWorker1Client, wlKey, ctx))(),
-			AssertMsg("Worker2", getWorkload(k8sWorker2Client, wlKey, ctx))(),
+			AssertMsg("Manager", getWorkload(ctx, k8sManagerClient, wlKey))(),
+			AssertMsg("Worker1", getWorkload(ctx, k8sWorker1Client, wlKey))(),
+			AssertMsg("Worker2", getWorkload(ctx, k8sWorker2Client, wlKey))(),
 		}, "\n")
 	}
 }
 
-func getWorkload(c client.Client, wlKey client.ObjectKey, ctx context.Context) *kueue.Workload {
+func getWorkload(ctx context.Context, c client.Client, wlKey client.ObjectKey) *kueue.Workload {
 	wl := &kueue.Workload{}
 	err := c.Get(ctx, wlKey, wl)
 	if err != nil {
