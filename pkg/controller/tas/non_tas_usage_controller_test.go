@@ -76,7 +76,7 @@ func TestBelongsToNonTASCache(t *testing.T) {
 	}
 }
 
-func TestNonTasUsageReconcilerCreateDelete(t *testing.T) {
+func TestNonTasUsageReconcilerCreate(t *testing.T) {
 	reconciler := &NonTasUsageReconciler{}
 
 	tests := []struct {
@@ -114,6 +114,50 @@ func TestNonTasUsageReconcilerCreateDelete(t *testing.T) {
 			if got := reconciler.Create(event.TypedCreateEvent[*corev1.Pod]{Object: tc.pod}); got != tc.want {
 				t.Errorf("Create() = %v, want %v", got, tc.want)
 			}
+		})
+	}
+}
+
+func TestNonTasUsageReconcilerDelete(t *testing.T) {
+	reconciler := &NonTasUsageReconciler{}
+
+	// Delete should return true for any scheduled non-TAS pod regardless of phase,
+	// so that we always attempt to remove it from the cache. The informer may deliver
+	// the Delete event with the pod already Succeeded if it missed the Running→Succeeded
+	// Update; without reconciling in that case, the pod's usage would never be subtracted.
+	// DeletePodByKey is idempotent, so double-removal is safe.
+	tests := []struct {
+		name string
+		pod  *corev1.Pod
+		want bool
+	}{
+		{
+			name: "scheduled non-TAS pod",
+			pod:  testingpod.MakePod("pod", "ns").NodeName("node-a").Obj(),
+			want: true,
+		},
+		{
+			name: "unscheduled pod",
+			pod:  testingpod.MakePod("pod", "ns").Obj(),
+			want: false,
+		},
+		{
+			name: "scheduled TAS pod",
+			pod: testingpod.MakePod("pod", "ns").
+				NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				Obj(),
+			want: false,
+		},
+		{
+			name: "terminated scheduled non-TAS pod",
+			pod:  testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodSucceeded).Obj(),
+			want: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			if got := reconciler.Delete(event.TypedDeleteEvent[*corev1.Pod]{Object: tc.pod}); got != tc.want {
 				t.Errorf("Delete() = %v, want %v", got, tc.want)
 			}
