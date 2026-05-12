@@ -3953,6 +3953,111 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		//           b1           b2
+		//      /    |    \       |
+		//   r1     r2    r3     r1
+		//   |      |     |      |
+		//   x1:3  x2:3  x3:8   x4:11
+		// request: 7
+		// leaders: 1 (5 GPUs)
+		// expected outcome: x1:3, x2:1, x3:3 + leader
+		"balanced placement; fallback to BestFit when leader worker set cannot meet threshold": {
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("12"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("12"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("12"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r1-x4").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("11"),
+						corev1.ResourcePods: resource.MustParse("12"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   ptr.To(tasBlockLabel),
+						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 5,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"x3"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred: ptr.To(tasBlockLabel),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 1,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           7,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  3,
+								Values: []string{"x1"},
+							},
+							{
+								Count:  1,
+								Values: []string{"x2"},
+							},
+							{
+								Count:  3,
+								Values: []string{"x3"},
+							},
+						},
+					},
+				},
+			},
+		},
 		"block required for podset; rack required for slices; podset fits in a block, but slices do not fit in racks": {
 
 			//         b1
