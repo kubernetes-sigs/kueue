@@ -626,17 +626,19 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if workload.HasQuotaReservation(wl) {
 			r.recordAdmissionCheckUpdate(wl, job)
 		}
-		// update queue name if changed.
-		q := QueueName(job)
-		if wl.Spec.QueueName != q {
-			log.V(2).Info("Job changed queues, updating workload")
-			wl.Spec.QueueName = q
+
+		// Update queue-name if changed.
+		if queueName := QueueName(job); wl.Spec.QueueName != queueName {
+			qLog := log.WithValues("oldQueueName", wl.Spec.QueueName, "newQueueName", queueName)
+			qLog.V(2).Info("Job changed queue-name, updating workload")
+			wl.Spec.QueueName = queueName
 			err := r.client.Update(ctx, wl)
 			if err != nil {
-				log.Error(err, "Updating workload queue")
+				qLog.Error(err, "Updating workload queue-name")
 			}
 			return ctrl.Result{}, err
 		}
+
 		log.V(3).Info("Job is suspended and workload not yet admitted by a clusterQueue, nothing to do")
 		return ctrl.Result{}, nil
 	}
