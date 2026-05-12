@@ -5786,6 +5786,52 @@ func TestSchedule(t *testing.T) {
 				"eng-beta": {"eng-beta/preemptor"},
 			},
 		},
+		"prevent integer overflow in ResourceValue conversion to MilliValue": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("overflow-cq").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("overflow-queue", "default").ClusterQueue("overflow-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("vuln-wl", "default").
+					Queue("overflow-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("ps1", 1).Request(corev1.ResourceCPU, "9223372036854776").Obj(),
+					).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("vuln-wl", "default").
+					Queue("overflow-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("ps1", 1).Request(corev1.ResourceCPU, "9223372036854776").Obj(),
+					).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "couldn't assign flavors to pod set ps1: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (9223372036854775807m) > maximum capacity (10)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "ps1",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("9223372036854775807m"),
+						},
+					}).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"overflow-cq": {"default/vuln-wl"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "vuln-wl", "Pending", corev1.EventTypeWarning).Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {

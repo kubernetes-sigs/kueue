@@ -99,11 +99,30 @@ func (r Requests) ToResourceList() corev1.ResourceList {
 	return ret
 }
 
+var (
+	maxMilliValue = *resource.NewMilliQuantity(math.MaxInt64, resource.DecimalSI)
+	minMilliValue = *resource.NewMilliQuantity(math.MinInt64, resource.DecimalSI)
+	maxValue      = *resource.NewQuantity(math.MaxInt64, resource.DecimalSI)
+	minValue      = *resource.NewQuantity(math.MinInt64, resource.DecimalSI)
+)
+
 // ResourceValue returns the integer value for the resource name.
 // It's milli-units for CPU and absolute units for everything else.
 func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 	if name == corev1.ResourceCPU {
+		if q.Cmp(maxMilliValue) > 0 {
+			return math.MaxInt64
+		}
+		if q.Cmp(minMilliValue) < 0 {
+			return math.MinInt64
+		}
 		return q.MilliValue()
+	}
+	if q.Cmp(maxValue) > 0 {
+		return math.MaxInt64
+	}
+	if q.Cmp(minValue) < 0 {
+		return math.MinInt64
 	}
 	return q.Value()
 }
