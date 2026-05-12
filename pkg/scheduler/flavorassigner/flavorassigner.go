@@ -1036,7 +1036,13 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 
 	available := a.cq.Available(fr)
 	maxCapacity := a.cq.PotentialAvailable(fr)
-	val := assumedUsage + requestUsage
+
+	var val int64
+	if requestUsage > 0 && assumedUsage > math.MaxInt64-requestUsage {
+		val = math.MaxInt64
+	} else {
+		val = assumedUsage + requestUsage
+	}
 
 	// No Fit
 	if val > maxCapacity {
