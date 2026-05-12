@@ -1595,18 +1595,21 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		selector *nodeaffinity.NodeSelector
 		weight   int64
 	}
-	compiledTerms := make([]compiledPreferredTerm, 0, len(requirements.preferredNodeAffinity))
-	for _, term := range requirements.preferredNodeAffinity {
-		if term.Preference.MatchExpressions == nil && term.Preference.MatchFields == nil {
-			continue
-		}
-		if nodeSelector, err := nodeaffinity.NewNodeSelector(&corev1.NodeSelector{
-			NodeSelectorTerms: []corev1.NodeSelectorTerm{term.Preference},
-		}); err == nil {
-			compiledTerms = append(compiledTerms, compiledPreferredTerm{
-				selector: nodeSelector,
-				weight:   int64(term.Weight),
-			})
+	var compiledTerms []compiledPreferredTerm
+	if features.Enabled(features.TASPreferredSchedulingAffinity) {
+		compiledTerms = make([]compiledPreferredTerm, 0, len(requirements.preferredNodeAffinity))
+		for _, term := range requirements.preferredNodeAffinity {
+			if term.Preference.MatchExpressions == nil && term.Preference.MatchFields == nil {
+				continue
+			}
+			if nodeSelector, err := nodeaffinity.NewNodeSelector(&corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{term.Preference},
+			}); err == nil {
+				compiledTerms = append(compiledTerms, compiledPreferredTerm{
+					selector: nodeSelector,
+					weight:   int64(term.Weight),
+				})
+			}
 		}
 	}
 
