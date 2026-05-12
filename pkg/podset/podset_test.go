@@ -358,6 +358,17 @@ func TestMergeRestore(t *testing.T) {
 				Obj(),
 			wantRestoreChanges: true,
 		},
+		"don't duplicate tolerations that differ only by empty vs Equal Operator": {
+			podSet: basePodSet.DeepCopy(),
+			info: PodSetInfo{
+				Tolerations: []corev1.Toleration{{
+					Key:    "t0",
+					Value:  "t0v",
+					Effect: corev1.TaintEffectNoSchedule,
+				}},
+			},
+			wantPodSet: basePodSet.DeepCopy(),
+		},
 		"conflicting label": {
 			podSet: basePodSet.DeepCopy(),
 			info: PodSetInfo{
