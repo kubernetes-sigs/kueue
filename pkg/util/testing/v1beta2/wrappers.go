@@ -648,6 +648,37 @@ func (p *PodSetWrapper) PreferredDuringSchedulingIgnoredDuringExecution(preferre
 	return p
 }
 
+func (p *PodSetWrapper) RequiredNodeSelectorRequirement(key string, op corev1.NodeSelectorOperator, values ...string) *PodSetWrapper {
+	return p.RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+		{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      key,
+					Operator: op,
+					Values:   values,
+				},
+			},
+		},
+	})
+}
+
+func (p *PodSetWrapper) PreferredNodeSelectorRequirement(weight int32, key string, op corev1.NodeSelectorOperator, values ...string) *PodSetWrapper {
+	return p.PreferredDuringSchedulingIgnoredDuringExecution([]corev1.PreferredSchedulingTerm{
+		{
+			Weight: weight,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      key,
+						Operator: op,
+						Values:   values,
+					},
+				},
+			},
+		},
+	})
+}
+
 func (p *PodSetWrapper) NodeName(name string) *PodSetWrapper {
 	p.Template.Spec.NodeName = name
 	return p

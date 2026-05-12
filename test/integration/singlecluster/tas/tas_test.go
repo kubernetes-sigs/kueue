@@ -3655,20 +3655,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						wl1 = utiltestingapi.MakeWorkload("wl-preferred", ns.Name).
 							Queue(kueue.LocalQueueName(localQueue.Name)).
 							PodSets(*utiltestingapi.MakePodSet("main", 1).
-								PreferredDuringSchedulingIgnoredDuringExecution([]corev1.PreferredSchedulingTerm{
-									{
-										Weight: 10,
-										Preference: corev1.NodeSelectorTerm{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													Key:      "region",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"us-west"},
-												},
-											},
-										},
-									},
-								}).
+								PreferredNodeSelectorRequirement(10, "region", corev1.NodeSelectorOpIn, "us-west").
 								Request(corev1.ResourceCPU, "1").
 								Obj()).
 							Obj()
@@ -3679,23 +3666,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 						util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-						expectedAssignment := &kueue.TopologyAssignment{
-							Levels: []string{
-								corev1.LabelHostname,
-							},
-							Slices: []kueue.TopologyAssignmentSlice{
-								{
-									DomainCount: 1,
-									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-										{Universal: new("node-bad")},
-									},
-									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-										Universal: ptr.To[int32](1),
-									},
+						gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+							utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+								Levels: []string{corev1.LabelHostname},
+								Domains: []utiltas.TopologyDomainAssignment{
+									{Count: 1, Values: []string{"node-bad"}},
 								},
-							},
-						}
-						gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(expectedAssignment))
+							}),
+						))
 					})
 				})
 
@@ -3707,31 +3685,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						wl1 = utiltestingapi.MakeWorkload("wl-combined", ns.Name).
 							Queue(kueue.LocalQueueName(localQueue.Name)).
 							PodSets(*utiltestingapi.MakePodSet("main", 1).
-								RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
-									{
-										MatchExpressions: []corev1.NodeSelectorRequirement{
-											{
-												Key:      "zone",
-												Operator: corev1.NodeSelectorOpIn,
-												Values:   []string{"us"},
-											},
-										},
-									},
-								}).
-								PreferredDuringSchedulingIgnoredDuringExecution([]corev1.PreferredSchedulingTerm{
-									{
-										Weight: 10,
-										Preference: corev1.NodeSelectorTerm{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													Key:      "region",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"us-west"},
-												},
-											},
-										},
-									},
-								}).
+								RequiredNodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "us").
+								PreferredNodeSelectorRequirement(10, "region", corev1.NodeSelectorOpIn, "us-west").
 								Request(corev1.ResourceCPU, "1").
 								Obj()).
 							Obj()
@@ -3742,23 +3697,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 						util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-						expectedAssignment := &kueue.TopologyAssignment{
-							Levels: []string{
-								corev1.LabelHostname,
-							},
-							Slices: []kueue.TopologyAssignmentSlice{
-								{
-									DomainCount: 1,
-									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
-										{Universal: new("node-best")},
-									},
-									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-										Universal: ptr.To[int32](1),
-									},
+						gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+							utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+								Levels: []string{corev1.LabelHostname},
+								Domains: []utiltas.TopologyDomainAssignment{
+									{Count: 1, Values: []string{"node-best"}},
 								},
-							},
-						}
-						gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(expectedAssignment))
+							}),
+						))
 					})
 				})
 			})

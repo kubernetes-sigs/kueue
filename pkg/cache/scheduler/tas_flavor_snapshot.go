@@ -442,7 +442,7 @@ type topologyAssignmentPodRequirements struct {
 	tolerations               []corev1.Toleration
 	selector                  labels.Selector
 	affinitySelector          *nodeaffinity.NodeSelector
-	preferredNodeAffinity     []corev1.PreferredSchedulingTerm
+	preferredSchedulingTerms  *nodeaffinity.PreferredSchedulingTerms
 	requiredReplacementDomain utiltas.TopologyDomainID
 	simulateEmpty             bool
 }
@@ -899,7 +899,15 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			}
 			requirements.affinitySelector = affinitySelector
 		}
-		requirements.preferredNodeAffinity = info.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+		preferredAffinity := info.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+		if features.Enabled(features.TASPreferredSchedulingAffinity) && len(preferredAffinity) > 0 {
+			prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
+			if err != nil {
+				s.log.V(5).Info("ignoring invalid preferred node affinity terms", "err", err)
+			} else {
+				requirements.preferredSchedulingTerms = prefTerms
+			}
+		}
 	}
 
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
@@ -1591,28 +1599,6 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		domain.affinityScore = 0
 	}
 
-	type compiledPreferredTerm struct {
-		selector *nodeaffinity.NodeSelector
-		weight   int64
-	}
-	var compiledTerms []compiledPreferredTerm
-	if features.Enabled(features.TASPreferredSchedulingAffinity) {
-		compiledTerms = make([]compiledPreferredTerm, 0, len(requirements.preferredNodeAffinity))
-		for _, term := range requirements.preferredNodeAffinity {
-			if term.Preference.MatchExpressions == nil && term.Preference.MatchFields == nil {
-				continue
-			}
-			if nodeSelector, err := nodeaffinity.NewNodeSelector(&corev1.NodeSelector{
-				NodeSelectorTerms: []corev1.NodeSelectorTerm{term.Preference},
-			}); err == nil {
-				compiledTerms = append(compiledTerms, compiledPreferredTerm{
-					selector: nodeSelector,
-					weight:   int64(term.Weight),
-				})
-			}
-		}
-	}
-
 	for _, leaf := range s.leaves {
 		state.stats.TotalNodes++
 		// Gather node level information only when the node is the lowest level of the topology
@@ -1649,10 +1635,8 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 			}
 
 			// 4. Calculate Affinity Score
-			for _, term := range compiledTerms {
-				if term.selector.Match(nodeObj) {
-					leaf.affinityScore += term.weight
-				}
+			if features.Enabled(features.TASPreferredSchedulingAffinity) && requirements.preferredSchedulingTerms != nil {
+				leaf.affinityScore += requirements.preferredSchedulingTerms.Score(nodeObj)
 			}
 		}
 

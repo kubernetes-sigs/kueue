@@ -40,16 +40,18 @@ import (
 
 // PodSetTestCase defines a test case for a single podset in the consolidated test.
 type PodSetTestCase struct {
-	podSetName         string
-	topologyRequest    *kueue.PodSetTopologyRequest
-	requests           resources.Requests
-	count              int32
-	tolerations        []corev1.Toleration
-	nodeSelector       map[string]string
-	podSetGroupName    *string
-	previousAssignment *kueue.TopologyAssignment
-	wantAssignment     *tas.TopologyAssignment
-	wantReason         string
+	podSetName                string
+	topologyRequest           *kueue.PodSetTopologyRequest
+	requests                  resources.Requests
+	count                     int32
+	tolerations               []corev1.Toleration
+	nodeSelector              map[string]string
+	requiredNodeSelectorTerms []corev1.NodeSelectorTerm
+	preferredSchedulingTerms  []corev1.PreferredSchedulingTerm
+	podSetGroupName           *string
+	previousAssignment        *kueue.TopologyAssignment
+	wantAssignment            *tas.TopologyAssignment
+	wantReason                string
 }
 
 func TestFindTopologyAssignments(t *testing.T) {
@@ -6263,6 +6265,191 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"with preferred affinity": {
+			featureGates: map[featuregate.Feature]bool{features.TASPreferredSchedulingAffinity: true},
+			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-preferred").
+					Label("cloud.com/topology-rack", "rack-preferred").
+					Label("kubernetes.io/hostname", "node-preferred").
+					Label("region", "us-west").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-other").
+					Label("cloud.com/topology-rack", "rack-other").
+					Label("kubernetes.io/hostname", "node-other").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("cloud.com/topology-rack"),
+				},
+				preferredSchedulingTerms: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-preferred"}}).
+					TopologyAssignment,
+			}},
+		},
+		"with required and preferred affinity": {
+			featureGates: map[featuregate.Feature]bool{features.TASPreferredSchedulingAffinity: true},
+			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-preferred").
+					Label("cloud.com/topology-rack", "rack-preferred").
+					Label("kubernetes.io/hostname", "node-preferred").
+					Label("region", "us-west").
+					Label("zone", "us").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-other").
+					Label("cloud.com/topology-rack", "rack-other").
+					Label("kubernetes.io/hostname", "node-other").
+					Label("region", "us-east").
+					Label("zone", "us").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-excluded").
+					Label("cloud.com/topology-rack", "rack-excluded").
+					Label("kubernetes.io/hostname", "node-excluded").
+					Label("region", "us-west").
+					Label("zone", "eu").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("cloud.com/topology-rack"),
+				},
+				requiredNodeSelectorTerms: utiltesting.MakeNodeSelectorTerms().Term("zone", corev1.NodeSelectorOpIn, "us").Obj(),
+				preferredSchedulingTerms:  utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-preferred"}}).
+					TopologyAssignment,
+			}},
+		},
+		"with multiple preferred affinities": {
+			featureGates: map[featuregate.Feature]bool{features.TASPreferredSchedulingAffinity: true},
+			levels:       []string{"cloud.com/topology-block", "cloud.com/topology-rack", "kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-a").
+					Label("cloud.com/topology-block", "b1").
+					Label("cloud.com/topology-rack", "r1").
+					Label("kubernetes.io/hostname", "node-a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-b").
+					Label("cloud.com/topology-block", "b1").
+					Label("cloud.com/topology-rack", "r2").
+					Label("kubernetes.io/hostname", "node-b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-c").
+					Label("cloud.com/topology-block", "b2").
+					Label("cloud.com/topology-rack", "r1").
+					Label("kubernetes.io/hostname", "node-c").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("cloud.com/topology-rack"),
+				},
+				preferredSchedulingTerms: utiltesting.MakePreferredSchedulingTerms().
+					Term(10, "cloud.com/topology-block", corev1.NodeSelectorOpIn, "b1").
+					Term(100, "cloud.com/topology-rack", corev1.NodeSelectorOpIn, "r1").
+					Obj(),
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-a"}}).
+					TopologyAssignment,
+			}},
+		},
+		"affinity takes precedence over best fit": {
+			featureGates: map[featuregate.Feature]bool{features.TASPreferredSchedulingAffinity: true},
+			levels:       []string{"kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-better-fit").
+					Label("kubernetes.io/hostname", "node-better-fit").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-has-affinity").
+					Label("kubernetes.io/hostname", "node-has-affinity").
+					Label("region", "us-west").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("kubernetes.io/hostname"),
+				},
+				preferredSchedulingTerms: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-has-affinity"}}).
+					TopologyAssignment,
+			}},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -6301,6 +6488,21 @@ func TestFindTopologyAssignments(t *testing.T) {
 			flavorTASRequests := make([]TASPodSetRequests, 0, len(tc.podSets))
 			wantResult := make(TASAssignmentsResult)
 			for _, ps := range tc.podSets {
+				var affinity *corev1.Affinity
+				if len(ps.requiredNodeSelectorTerms) > 0 || len(ps.preferredSchedulingTerms) > 0 {
+					nodeAffinity := &corev1.NodeAffinity{}
+					if len(ps.requiredNodeSelectorTerms) > 0 {
+						nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{
+							NodeSelectorTerms: ps.requiredNodeSelectorTerms,
+						}
+					}
+					if len(ps.preferredSchedulingTerms) > 0 {
+						nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = ps.preferredSchedulingTerms
+					}
+					affinity = &corev1.Affinity{
+						NodeAffinity: nodeAffinity,
+					}
+				}
 				tasInput := TASPodSetRequests{
 					PodSet: &kueue.PodSet{
 						Name:            kueue.NewPodSetReference(ps.podSetName),
@@ -6309,6 +6511,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 							Spec: corev1.PodSpec{
 								Tolerations:  ps.tolerations,
 								NodeSelector: ps.nodeSelector,
+								Affinity:     affinity,
 							},
 						},
 					},

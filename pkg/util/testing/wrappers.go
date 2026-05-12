@@ -291,6 +291,51 @@ func (p *PodTemplateWrapper) RequiredDuringSchedulingIgnoredDuringExecution(node
 	return p
 }
 
+func (p *PodTemplateWrapper) PreferredDuringSchedulingIgnoredDuringExecution(preferredSchedulingTerms []corev1.PreferredSchedulingTerm) *PodTemplateWrapper {
+	if p.Template.Spec.Affinity == nil {
+		p.Template.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity == nil {
+		p.Template.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	p.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = append(
+		p.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution,
+		preferredSchedulingTerms...,
+	)
+	return p
+}
+
+func (p *PodTemplateWrapper) RequiredNodeSelectorRequirement(key string, op corev1.NodeSelectorOperator, values ...string) *PodTemplateWrapper {
+	return p.RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+		{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      key,
+					Operator: op,
+					Values:   values,
+				},
+			},
+		},
+	})
+}
+
+func (p *PodTemplateWrapper) PreferredNodeSelectorRequirement(weight int32, key string, op corev1.NodeSelectorOperator, values ...string) *PodTemplateWrapper {
+	return p.PreferredDuringSchedulingIgnoredDuringExecution([]corev1.PreferredSchedulingTerm{
+		{
+			Weight: weight,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      key,
+						Operator: op,
+						Values:   values,
+					},
+				},
+			},
+		},
+	})
+}
+
 func (p *PodTemplateWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *PodTemplateWrapper {
 	AppendOwnerReference(&p.PodTemplate, gvk, name, uid, new(true), new(true))
 	return p
@@ -731,4 +776,57 @@ func (rb *RoleBindingWrapper) Subject(kind, name, namespace string) *RoleBinding
 		Namespace: namespace,
 	})
 	return rb
+}
+
+type PreferredSchedulingTermsWrapper struct {
+	terms []corev1.PreferredSchedulingTerm
+}
+
+func MakePreferredSchedulingTerms() *PreferredSchedulingTermsWrapper {
+	return &PreferredSchedulingTermsWrapper{}
+}
+
+func (w *PreferredSchedulingTermsWrapper) Term(weight int32, key string, op corev1.NodeSelectorOperator, values ...string) *PreferredSchedulingTermsWrapper {
+	w.terms = append(w.terms, corev1.PreferredSchedulingTerm{
+		Weight: weight,
+		Preference: corev1.NodeSelectorTerm{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      key,
+					Operator: op,
+					Values:   values,
+				},
+			},
+		},
+	})
+	return w
+}
+
+func (w *PreferredSchedulingTermsWrapper) Obj() []corev1.PreferredSchedulingTerm {
+	return w.terms
+}
+
+type NodeSelectorTermsWrapper struct {
+	terms []corev1.NodeSelectorTerm
+}
+
+func MakeNodeSelectorTerms() *NodeSelectorTermsWrapper {
+	return &NodeSelectorTermsWrapper{}
+}
+
+func (w *NodeSelectorTermsWrapper) Term(key string, op corev1.NodeSelectorOperator, values ...string) *NodeSelectorTermsWrapper {
+	w.terms = append(w.terms, corev1.NodeSelectorTerm{
+		MatchExpressions: []corev1.NodeSelectorRequirement{
+			{
+				Key:      key,
+				Operator: op,
+				Values:   values,
+			},
+		},
+	})
+	return w
+}
+
+func (w *NodeSelectorTermsWrapper) Obj() []corev1.NodeSelectorTerm {
+	return w.terms
 }
