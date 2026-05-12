@@ -5786,7 +5786,7 @@ func TestSchedule(t *testing.T) {
 				"eng-beta": {"eng-beta/preemptor"},
 			},
 		},
-		"integer overflow vulnerability in CPU requests": {
+		"prevent integer overflow when sum of requests over podsets exceeds MaxInt64": {
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("overflow-cq").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
