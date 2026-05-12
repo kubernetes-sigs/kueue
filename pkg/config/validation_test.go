@@ -1131,8 +1131,9 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"cannot set TAS profile with TAS disabled": {
 			featureGateMap: map[string]bool{
-				string(features.TASProfileMixed):         true,
-				string(features.TopologyAwareScheduling): false,
+				string(features.TASProfileMixed):             true,
+				string(features.TopologyAwareScheduling):     false,
+				string(features.TASHandleOverlappingFlavors): false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TASProfileMixed:         false,
@@ -1172,6 +1173,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
 				string(features.ElasticJobsViaWorkloadSlices):        true,
 				string(features.TopologyAwareScheduling):             false,
+				string(features.TASHandleOverlappingFlavors):         false,
 				string(features.TASProfileMixed):                     false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
@@ -1206,12 +1208,14 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TASProfileMixed):                     true,
 				string(features.TopologyAwareScheduling):             false,
+				string(features.TASHandleOverlappingFlavors):         true,
 				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
 				string(features.ElasticJobsViaWorkloadSlices):        false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TASProfileMixed:                     false,
 				features.TopologyAwareScheduling:             true,
+				features.TASHandleOverlappingFlavors:         true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
 				features.ElasticJobsViaWorkloadSlices:        true,
 			},
@@ -1220,6 +1224,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "cannot use a TAS profile with TAS disabled",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASHandleOverlappingFlavors requires TopologyAwareScheduling to be enabled",
 				},
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
@@ -1248,6 +1257,36 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 					Field:  "featureGates",
 					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
 				},
+			},
+		},
+		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):     false,
+				string(features.TASProfileMixed):             false,
+				string(features.TASHandleOverlappingFlavors): true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+				features.TopologyAwareScheduling:     true,
+				features.TASProfileMixed:             true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASHandleOverlappingFlavors requires TopologyAwareScheduling to be enabled",
+				},
+			},
+		},
+		"TASHandleOverlappingFlavors valid when all dependencies enabled": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):     true,
+				string(features.TASHandleOverlappingFlavors): true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+				features.TopologyAwareScheduling:     true,
+				features.TASProfileMixed:             true,
 			},
 		},
 	}

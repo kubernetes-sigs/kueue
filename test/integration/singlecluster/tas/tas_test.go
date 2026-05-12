@@ -5186,6 +5186,334 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 		})
+
+		// Two TAS ResourceFlavors share the same physical nodes (same NodeLabel)
+		// but are made mutually exclusive via flavor-only NodeTaints
+		// (tas-class=a on flavor-a, tas-class=b on flavor-b) so each workload
+		// targets exactly one flavor. It also blocks exercise the
+		// cross-flavor TAS usage aggregation on shared nodes in the following:
+		//   1. It verifies the add side (sibling-flavor placement skips a node already
+		//   occupied by the primary flavor)
+		//   2. the second It verifies the subtract side (the freed node becomes reusable
+		//   by the sibling flavor once the primary workload finishes).
+		ginkgo.When("Two TAS ResourceFlavors share nodes", func() {
+			var (
+				tasFlavorA   *kueue.ResourceFlavor
+				tasFlavorB   *kueue.ResourceFlavor
+				topology     *kueue.Topology
+				localQueue   *kueue.LocalQueue
+				clusterQueue *kueue.ClusterQueue
+				nodes        []corev1.Node
+			)
+
+			ginkgo.BeforeEach(func() {
+				nodes = []corev1.Node{
+					*testingnode.MakeNode("x1").
+						Label("node-group", "tas").
+						Label(corev1.LabelHostname, "x1").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("400m"),
+							corev1.ResourceMemory: resource.MustParse("400Mi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Taints(corev1.Taint{
+							Key:    "node-group",
+							Value:  "tas",
+							Effect: corev1.TaintEffectNoSchedule,
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("x2").
+						Label("node-group", "tas").
+						Label(corev1.LabelHostname, "x2").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("400m"),
+							corev1.ResourceMemory: resource.MustParse("400Mi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Taints(corev1.Taint{
+							Key:    "node-group",
+							Value:  "tas",
+							Effect: corev1.TaintEffectNoSchedule,
+						}).
+						Ready().
+						Obj(),
+				}
+				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+				topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
+				util.MustCreate(ctx, k8sClient, topology)
+
+				tasFlavorA = utiltestingapi.MakeResourceFlavor("tas-flavor-a").
+					NodeLabel("node-group", "tas").
+					Taint(corev1.Taint{
+						Key:    "node-group",
+						Value:  "tas",
+						Effect: corev1.TaintEffectNoSchedule,
+					}).
+					Taint(corev1.Taint{
+						Key:    "tas-class",
+						Value:  "a",
+						Effect: corev1.TaintEffectNoSchedule,
+					}).
+					TopologyName("default").
+					Obj()
+				util.MustCreate(ctx, k8sClient, tasFlavorA)
+
+				tasFlavorB = utiltestingapi.MakeResourceFlavor("tas-flavor-b").
+					NodeLabel("node-group", "tas").
+					Taint(corev1.Taint{
+						Key:    "node-group",
+						Value:  "tas",
+						Effect: corev1.TaintEffectNoSchedule,
+					}).
+					Taint(corev1.Taint{
+						Key:    "tas-class",
+						Value:  "b",
+						Effect: corev1.TaintEffectNoSchedule,
+					}).
+					TopologyName("default").
+					Obj()
+				util.MustCreate(ctx, k8sClient, tasFlavorB)
+
+				clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(tasFlavorA.Name).
+							Resource(corev1.ResourceCPU, "400m").
+							Resource(corev1.ResourceMemory, "400Mi").Obj(),
+						*utiltestingapi.MakeFlavorQuotas(tasFlavorB.Name).
+							Resource(corev1.ResourceCPU, "100m").
+							Resource(corev1.ResourceMemory, "100Mi").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+					}).
+					Obj()
+				util.MustCreate(ctx, k8sClient, clusterQueue)
+
+				localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+				util.MustCreate(ctx, k8sClient, localQueue)
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavorA, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavorB, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+				for _, node := range nodes {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
+			})
+
+			ginkgo.It("should admit the pending workload to tas-flavor-b on the free node when tas-flavor-a is full", func() {
+				var (
+					primaryWl1 *kueue.Workload
+					primaryWl2 *kueue.Workload
+					pendingWl  *kueue.Workload
+				)
+
+				ginkgo.By("creating the first tas-flavor-a workload pinned to x1", func() {
+					primaryWl1 = utiltestingapi.MakeWorkload("primary-wl1", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("one", 1).
+							NodeSelector(map[string]string{corev1.LabelHostname: "x1"}).
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "200m").
+							Request(corev1.ResourceMemory, "200Mi").
+							Toleration(corev1.Toleration{
+								Key:      "node-group",
+								Operator: corev1.TolerationOpEqual,
+								Value:    "tas",
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Toleration(corev1.Toleration{
+								Key:      "tas-class",
+								Operator: corev1.TolerationOpEqual,
+								Value:    "a",
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Obj()).Obj()
+					util.MustCreate(ctx, k8sClient, primaryWl1)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, primaryWl1)
+					createPodsForWorkload(primaryWl1, ns.Name, false, true)
+				})
+
+				ginkgo.By("creating the second tas-flavor-a workload pinned to x1", func() {
+					primaryWl2 = utiltestingapi.MakeWorkload("primary-wl2", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("one", 1).
+							NodeSelector(map[string]string{corev1.LabelHostname: "x1"}).
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "200m").
+							Request(corev1.ResourceMemory, "200Mi").
+							Toleration(corev1.Toleration{
+								Key:      "node-group",
+								Operator: corev1.TolerationOpEqual,
+								Value:    "tas",
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Toleration(corev1.Toleration{
+								Key:      "tas-class",
+								Operator: corev1.TolerationOpEqual,
+								Value:    "a",
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Obj()).Obj()
+					util.MustCreate(ctx, k8sClient, primaryWl2)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, primaryWl2)
+					createPodsForWorkload(primaryWl2, ns.Name, false, true)
+				})
+
+				ginkgo.By("verifying both primary workloads consumed tas-flavor-a and share node x1", func() {
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(primaryWl1), primaryWl1)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(primaryWl2), primaryWl2)).To(gomega.Succeed())
+					for _, wl := range []*kueue.Workload{primaryWl1, primaryWl2} {
+						gomega.Expect(wl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(
+							gomega.Equal(kueue.ResourceFlavorReference(tasFlavorA.Name)))
+						gomega.Expect(wl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceMemory]).To(
+							gomega.Equal(kueue.ResourceFlavorReference(tasFlavorA.Name)))
+						ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+						gomega.Expect(ta.Domains).To(gomega.HaveLen(1))
+						gomega.Expect(ta.Domains[0].Values).To(gomega.Equal([]string{"x1"}))
+					}
+				})
+
+				ginkgo.By("creating the pending workload that tolerates both taints", func() {
+					pendingWl = utiltestingapi.MakeWorkload("pending-wl", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("one", 1).
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "100m").
+							Request(corev1.ResourceMemory, "100Mi").
+							Toleration(corev1.Toleration{
+								Key:      "node-group",
+								Operator: corev1.TolerationOpEqual,
+								Value:    "tas",
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Toleration(corev1.Toleration{
+								Key:      "tas-class",
+								Operator: corev1.TolerationOpEqual,
+								Value:    "b",
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Obj()).Obj()
+					util.MustCreate(ctx, k8sClient, pendingWl)
+				})
+
+				ginkgo.By("verifying the pending workload is admitted to tas-flavor-b on the free node x2", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, pendingWl)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pendingWl), pendingWl)).To(gomega.Succeed())
+					gomega.Expect(pendingWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(
+						gomega.Equal(kueue.ResourceFlavorReference(tasFlavorB.Name)))
+					gomega.Expect(pendingWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceMemory]).To(
+						gomega.Equal(kueue.ResourceFlavorReference(tasFlavorB.Name)))
+					gomega.Expect(pendingWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []utiltas.TopologyDomainAssignment{
+								{
+									Count:  1,
+									Values: []string{"x2"},
+								},
+							},
+						}),
+					))
+				})
+			})
+
+			ginkgo.It("should admit a sibling-flavor workload on the freed node once the primary workload finishes", func() {
+				var (
+					primaryWl *kueue.Workload
+					siblingWl *kueue.Workload
+				)
+
+				ginkgo.By("admitting a tas-flavor-a workload that fully consumes x1", func() {
+					primaryWl = utiltestingapi.MakeWorkload("primary-wl", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("one", 1).
+							NodeSelector(map[string]string{corev1.LabelHostname: "x1"}).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "400m").
+							Request(corev1.ResourceMemory, "400Mi").
+							Toleration(corev1.Toleration{
+								Key:      "node-group",
+								Operator: corev1.TolerationOpEqual,
+								Value:    "tas",
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Toleration(corev1.Toleration{
+								Key:      "tas-class",
+								Operator: corev1.TolerationOpEqual,
+								Value:    "a",
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Obj()).Obj()
+					util.MustCreate(ctx, k8sClient, primaryWl)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, primaryWl)
+					createPodsForWorkload(primaryWl, ns.Name, false, true)
+				})
+
+				ginkgo.By("creating a tas-flavor-b workload pinned to x1 that must stay pending while the sibling flavor occupies the node", func() {
+					siblingWl = utiltestingapi.MakeWorkload("sibling-wl", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("one", 1).
+							NodeSelector(map[string]string{corev1.LabelHostname: "x1"}).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "100m").
+							Request(corev1.ResourceMemory, "100Mi").
+							Toleration(corev1.Toleration{
+								Key:      "node-group",
+								Operator: corev1.TolerationOpEqual,
+								Value:    "tas",
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Toleration(corev1.Toleration{
+								Key:      "tas-class",
+								Operator: corev1.TolerationOpEqual,
+								Value:    "b",
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Obj()).Obj()
+					util.MustCreate(ctx, k8sClient, siblingWl)
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, siblingWl)
+				})
+
+				ginkgo.By("verifying the sibling workload stays pending while the primary workload still holds x1", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(siblingWl), siblingWl)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(siblingWl)).To(gomega.BeFalse())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("finishing the tas-flavor-a workload to release x1 in the shared TAS usage", func() {
+					util.FinishWorkloads(ctx, k8sClient, primaryWl)
+				})
+
+				ginkgo.By("verifying the sibling tas-flavor-b workload is admitted on the freed node x1", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, siblingWl)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(siblingWl), siblingWl)).To(gomega.Succeed())
+					gomega.Expect(siblingWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(
+						gomega.Equal(kueue.ResourceFlavorReference(tasFlavorB.Name)))
+					gomega.Expect(siblingWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceMemory]).To(
+						gomega.Equal(kueue.ResourceFlavorReference(tasFlavorB.Name)))
+					gomega.Expect(siblingWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []utiltas.TopologyDomainAssignment{
+								{
+									Count:  1,
+									Values: []string{"x1"},
+								},
+							},
+						}),
+					))
+				})
+			})
+		})
 	})
 
 	// The purpose of this test is to demonstrate a TAS use case

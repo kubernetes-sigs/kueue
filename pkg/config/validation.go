@@ -561,6 +561,10 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
 		allErrs = append(allErrs, field.Invalid(featureGatesPath, enabledProfilesCount, "cannot use a TAS profile with TAS disabled"))
 	}
+	if !features.Enabled(features.TopologyAwareScheduling) && features.Enabled(features.TASHandleOverlappingFlavors) {
+		allErrs = append(allErrs, field.Invalid(featureGatesPath, features.TASHandleOverlappingFlavors,
+			fmt.Sprintf("%s requires %s to be enabled", features.TASHandleOverlappingFlavors, features.TopologyAwareScheduling)))
+	}
 
 	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
 		if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
