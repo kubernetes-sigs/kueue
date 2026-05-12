@@ -216,7 +216,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 		}
 
 		ginkgo.By("setting quota reservation on manager cluster", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
 				PodSets(
 					utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(managerRf.Name), "2").
@@ -234,7 +234,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 		})
 
 		ginkgo.By("setting quota reservation on worker cluster", func() {
-			admission := utiltestingapi.MakeAdmission(worker1Cq.Name).
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(worker1Cq.Name)).
 				PodSets(
 					utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(worker1Rf.Name), "2").
@@ -311,7 +311,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 		worker2Wl := &kueue.Workload{}
 
 		ginkgo.By("setting quota reservation on manager cluster", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
 				PodSets(
 					utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(managerRf.Name), "2").
@@ -330,7 +330,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 		})
 
 		ginkgo.By("setting quota reservation on worker1 (creates ProvisioningRequest)", func() {
-			admission := utiltestingapi.MakeAdmission(worker1Cq.Name).
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(worker1Cq.Name)).
 				PodSets(
 					utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(worker1Rf.Name), "2").

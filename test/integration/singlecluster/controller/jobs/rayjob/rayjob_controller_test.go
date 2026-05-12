@@ -164,7 +164,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 				*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
-		admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 			kueue.PodSetAssignment{
 				Name: createdWorkload.Spec.PodSets[0].Name,
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{

@@ -149,7 +149,7 @@ func (w *WorkloadWrapper) Active(a bool) *WorkloadWrapper {
 
 // SimpleReserveQuota reserves the quota for all the requested resources in one flavor.
 // It assumes one podset with one container.
-func (w *WorkloadWrapper) SimpleReserveQuota(cq, flavor string, now time.Time) *WorkloadWrapper {
+func (w *WorkloadWrapper) SimpleReserveQuota(cq kueue.ClusterQueueReference, flavor string, now time.Time) *WorkloadWrapper {
 	admission := MakeAdmission(cq, w.Spec.PodSets[0].Name)
 	resReq := make(corev1.ResourceList)
 	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
@@ -690,9 +690,9 @@ func (p *PodSetWrapper) ResourceClaim(claimName, resourceClaimName string) *PodS
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
-func MakeAdmission(cq string, podSetNames ...kueue.PodSetReference) *AdmissionWrapper {
+func MakeAdmission(cq kueue.ClusterQueueReference, podSetNames ...kueue.PodSetReference) *AdmissionWrapper {
 	wrap := &AdmissionWrapper{kueue.Admission{
-		ClusterQueue: kueue.ClusterQueueReference(cq),
+		ClusterQueue: cq,
 	}}
 
 	if len(podSetNames) == 0 {

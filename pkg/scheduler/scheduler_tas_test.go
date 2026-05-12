@@ -6912,7 +6912,7 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuotaAt(
-					utiltestingapi.MakeAdmission(cq.Name).
+					utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 						PodSets(utiltestingapi.MakePodSetAssignment("one").
 							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1000m").
 							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
@@ -6933,7 +6933,7 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(cq.Name).
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 							PodSets(utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1000m").
 								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
