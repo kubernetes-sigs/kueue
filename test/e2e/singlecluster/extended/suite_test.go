@@ -18,7 +18,6 @@ package extended
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -27,19 +26,14 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
-	visibility "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
-	k8sClient                    client.WithWatch
-	cfg                          *rest.Config
-	restClient                   *rest.RESTClient
-	ctx                          context.Context
-	kueueClientset               kueueclientset.Interface
-	impersonatedVisibilityClient visibility.VisibilityV1beta2Interface
-	kueueNS                      = util.GetKueueNamespace()
+	k8sClient  client.WithWatch
+	cfg        *rest.Config
+	restClient *rest.RESTClient
+	ctx        context.Context
 )
 
 func TestAPIs(t *testing.T) {
@@ -53,9 +47,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	k8sClient, cfg, err = util.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	restClient = util.CreateRestClient(cfg)
-	kueueClientset = util.CreateKueueClientset("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	impersonatedVisibilityClient = util.CreateVisibilityClient(fmt.Sprintf("system:serviceaccount:%s:default", kueueNS))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 

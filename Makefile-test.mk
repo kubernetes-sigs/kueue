@@ -158,18 +158,11 @@ test-multikueue-e2e-sequential: setup-e2e-env test-multikueue-e2e-parallel-build
 test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 1abea974a (reverted changes for test check)
-=======
 ## Label Taxonomy:
 ##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,tas,trainjob
 ##
 ## Examples:
 ##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
->>>>>>> 64e94ec2b (did all the changes)
 .PHONY: test-e2e-extended
 test-e2e-extended: E2E_USE_HELM=true
 test-e2e-extended: test-e2e
@@ -183,58 +176,6 @@ test-e2e-extended: test-e2e
 test-e2e-baseline: E2E_USE_HELM=true
 test-e2e-baseline: test-e2e
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-## Label Taxonomy:
-##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,tas,trainjob
-##
-## Examples:
-##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e
-##   Run only certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e
-##   Run only jobset and trainjob tests: GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
-
-.PHONY: test-e2e-extended
-test-e2e-extended: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
-
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 8e137f4ed (lets see)
-.PHONY: test-e2e-extended-helm
-test-e2e-extended-helm: E2E_USE_HELM=true
-test-e2e-extended-helm: test-e2e-extended
-
-<<<<<<< HEAD
-## Label Taxonomy (Baseline):
-=======
-=======
->>>>>>> 8e137f4ed (lets see)
-=======
->>>>>>> 0a46a7b11 (hope)
-## Label Taxonomy:
->>>>>>> 404076554 (two helm deleted one)
-##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,e2e_v1beta1,ha
-##
-## Examples:
-##   Run only job tests: GINKGO_ARGS="--label-filter=feature:job" make test-e2e-baseline
-test-e2e-baseline: E2E_NPROCS := 4
-.PHONY: test-e2e-baseline
-<<<<<<< HEAD
-test-e2e-baseline: E2E_USE_HELM=true
-test-e2e-baseline: test-e2e
-=======
-test-e2e-baseline: setup-e2e-env kueuectl run-test-e2e-singlecluster-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
->>>>>>> 404076554 (two helm deleted one)
-=======
-=======
->>>>>>> 1abea974a (reverted changes for test check)
-.PHONY: test-tas-e2e
-test-tas-e2e: test-tas-e2e-baseline test-tas-e2e-extended
->>>>>>> 7249e3c25 (reverted to check)
-
-=======
->>>>>>> db0d21bd1 (Update Makefile-test.mk)
 .PHONY: test-tas-e2e-baseline
 test-tas-e2e-baseline: setup-e2e-env run-test-tas-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
