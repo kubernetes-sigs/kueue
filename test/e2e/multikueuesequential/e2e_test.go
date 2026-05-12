@@ -829,13 +829,11 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 					if worker1Error == nil {
 						g.Expect(worker1HighWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-						g.Expect(workload.IsAdmitted(worker1HighWorkload)).To(gomega.BeTrue(), util.AssertMsgForMk("Workload not Admitted in worker1", worker1HighWorkload, ctx, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 						evictedWlKey = lowWlKey1
 						unaffectedWlKey = lowWlKey2
 						unaffectedWorkerClient = k8sWorker2Client
 					} else {
 						g.Expect(worker2HighWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-						g.Expect(workload.IsAdmitted(worker2HighWorkload)).To(gomega.BeTrue(), util.AssertMsgForMk("Workload not Admitted in worker2", worker2HighWorkload, ctx, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 						evictedWlKey = lowWlKey2
 						unaffectedWlKey = lowWlKey1
 						unaffectedWorkerClient = k8sWorker1Client
