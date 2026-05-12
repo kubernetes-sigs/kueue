@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -166,8 +167,6 @@ func (r *CQReconciler) getMultiKueueAdmissionCheck(ctx context.Context, cq *kueu
 }
 
 func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.ClusterQueue, cfg *kueue.MultiKueueConfig) (map[corev1.ResourceName]resource.Quantity, error) {
-	totals := make(map[corev1.ResourceName]resource.Quantity)
-
 	localLQs := &kueue.LocalQueueList{}
 	if err := r.client.List(ctx, localLQs, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name}); err != nil {
 		return nil, fmt.Errorf("listing local LocalQueues: %w", err)
@@ -178,15 +177,17 @@ func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 		lqKeys.Insert(types.NamespacedName{Namespace: llq.Namespace, Name: llq.Name})
 	}
 
-	for _, clusterName := range cfg.Spec.Clusters {
-		rc, found := r.clusters.controllerFor(clusterName)
-		if !found || rc.connecting.Load() {
-			continue
-		}
+	workerTotals := make([]map[corev1.ResourceName]resource.Quantity, len(cfg.Spec.Clusters))
 
+	err := parallelize.Until(ctx, len(cfg.Spec.Clusters), func(i int) error {
+		workerName := cfg.Spec.Clusters[i]
+		rc, found := r.clusters.controllerFor(workerName)
+		if !found || rc.connecting.Load() {
+			return nil
+		}
 		remoteLQs, err := getOrList(ctx, rc.client, lqKeys, lqItemsGetter{})
 		if err != nil {
-			continue
+			return client.IgnoreNotFound(err)
 		}
 
 		remoteCQKeys := sets.New[types.NamespacedName]()
@@ -196,23 +197,39 @@ func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 
 		remoteCQs, err := getOrList(ctx, rc.client, remoteCQKeys, cqItemsGetter{})
 		if err != nil {
-			continue
+			return client.IgnoreNotFound(err)
 		}
 
+		workerTotal := make(map[corev1.ResourceName]resource.Quantity)
 		for _, rcq := range remoteCQs {
 			for _, rg := range rcq.Spec.ResourceGroups {
 				for _, flavor := range rg.Flavors {
 					for _, res := range flavor.Resources {
-						curr := totals[res.Name]
+						curr := workerTotal[res.Name]
 						curr.Add(res.NominalQuota)
-						totals[res.Name] = curr
+						workerTotal[res.Name] = curr
 					}
 				}
 			}
 		}
+		workerTotals[i] = workerTotal
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	return totals, nil
+	total := make(map[corev1.ResourceName]resource.Quantity)
+	for _, wt := range workerTotals {
+		for name, qty := range wt {
+			curr := total[name]
+			curr.Add(qty)
+			total[name] = curr
+		}
+	}
+
+	return total, nil
 }
 
 type listItemsGetter[T any, PL client.ObjectList] interface {
