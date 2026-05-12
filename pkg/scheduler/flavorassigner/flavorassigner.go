@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -1037,12 +1038,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 	available := a.cq.Available(fr)
 	maxCapacity := a.cq.PotentialAvailable(fr)
 
-	var val int64
-	if assumedUsage > math.MaxInt64-requestUsage {
-		val = math.MaxInt64
-	} else {
-		val = assumedUsage + requestUsage
-	}
+	val := utilmath.SaturatingAdd(assumedUsage, requestUsage)
 
 	// No Fit
 	if val > maxCapacity {
