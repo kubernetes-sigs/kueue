@@ -64,7 +64,8 @@ make test-e2e-sequential-extended
 make test-e2e-sequential-baseline
 make test-e2e-certmanager
 make test-e2e-kueueviz
-make test-multikueue-e2e
+make test-multikueue-e2e-main
+make test-multikueue-e2e-sequential
 ```
 
 你可以通过设置 `E2E_K8S_FULL_VERSION` 变量来指定用于运行 e2e 测试的 Kubernetes 版本：
@@ -128,21 +129,12 @@ func TestValidateClusterQueue(t *testing.T) {
 
 ```shell
 # 若不存在则创建；若已存在则复用。构建镜像、运行测试，并保留集群。
-<<<<<<< HEAD
-E2E_MODE=dev make test-e2e
-=======
 E2E_MODE=dev make kind-image-build test-e2e-baseline
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended)
 
 # MultiKueue 的 dev 模式
-E2E_MODE=dev make test-multikueue-e2e
+E2E_MODE=dev make kind-image-build test-multikueue-e2e-main
 
 # 循环运行（直到失败），同时保留集群
-<<<<<<< HEAD
-E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make test-e2e
-```
-
-=======
 E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e-baseline
 ```
 
@@ -164,20 +156,23 @@ E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
 
 适用于在特定已发布版本上复现问题（例如值班排查）。若要在真实集群（非 e2e）中安装已发布版本，请参阅[安装已发布版本](/zh-CN/docs/installation/#install-a-released-version)。
 
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended)
 {{% alert title="Note" color="primary" %}}
 当在 `E2E_MODE=dev` 下复用保留的集群时，外部算子（MPI、KubeRay 等）只会安装一次。
 如需在每次运行时强制重新安装它们，请设置 `E2E_ENFORCE_OPERATOR_UPDATE=true`。
 {{% /alert %}}
 
 测试结束后如需删除保留的集群：
-
-```shell
-kind delete clusters kind kind-manager kind-worker1 kind-worker2
-```
+- 常规 e2e 测试，请运行：
+    ```shell
+    kind delete clusters kind
+    ```
+- MultiKueue 测试，请运行：
+    ```shell
+    kind delete clusters kind kind-manager kind-worker1 kind-worker2
+    ```
 
 ### 旧方式：交互式附加模式
-运行 `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` 并等待 `Do you want to cleanup? [Y/n] ` 出现（CI 风格行为）。
+运行 `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-main` 并等待 `Do you want to cleanup? [Y/n] ` 出现（CI 风格行为）。
 
 集群已准备就绪，现在你可以从另一个终端运行测试：
 ```shell
