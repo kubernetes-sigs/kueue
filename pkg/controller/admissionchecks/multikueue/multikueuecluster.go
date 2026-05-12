@@ -44,6 +44,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
@@ -99,8 +100,11 @@ type remoteClient struct {
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
 
-	connecting         atomic.Bool
-	failedConnAttempts uint
+	connecting           atomic.Bool
+	failedConnAttempts   uint
+	retryConnNextAttempt metav1.Time
+
+	clock clock.Clock
 
 	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
 	// and creating valid kubeconfig content is not trivial.
@@ -116,6 +120,7 @@ func newRemoteClient(localClient client.Client, wlUpdateCh, watchEndedCh chan<- 
 		localClient:  localClient,
 		origin:       origin,
 		adapters:     adapters,
+		clock:        clock.RealClock{},
 	}
 	rc.connecting.Store(true)
 	return rc
@@ -148,19 +153,39 @@ func (*workloadKueueWatcher) WorkloadKeysFor(o runtime.Object) ([]types.Namespac
 	return []types.NamespacedName{client.ObjectKeyFromObject(wl)}, nil
 }
 
+func (rc *remoteClient) resetFailedConnAttempt() {
+	rc.failedConnAttempts = 0
+	rc.retryConnNextAttempt = metav1.Time{}
+}
+
+func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
+	rc.failedConnAttempts++
+	d := retryAfter(rc.failedConnAttempts)
+	rc.retryConnNextAttempt = metav1.NewTime(rc.clock.Now().Add(d))
+	return &d
+}
+
 // setConfig - will try to recreate the k8s client and restart watching if the new config is different than
 // the one currently used or a reconnect was requested.
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
 func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig) (*time.Duration, error) {
 	configChanged := !equality.Semantic.DeepEqual(config, rc.config)
-	if !configChanged && !rc.connecting.Load() {
+	connecting := rc.connecting.Load()
+	if !configChanged && !connecting {
 		return nil, nil
 	}
 
 	rc.StopWatchers()
+
 	if configChanged {
 		rc.config = config
-		rc.failedConnAttempts = 0
+		rc.resetFailedConnAttempt()
+	}
+
+	if connecting {
+		if untilNextAttempt := rc.retryConnNextAttempt.Sub(rc.clock.Now()); untilNextAttempt > 0 {
+			return &untilNextAttempt, nil
+		}
 	}
 
 	builder := newClientWithWatch
@@ -177,8 +202,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 	watchCtx, rc.watchCancel = context.WithCancel(watchCtx)
 	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
-		rc.failedConnAttempts++
-		return new(retryAfter(rc.failedConnAttempts)), err
+		return rc.increaseFailedConnAttempt(), err
 	}
 
 	// add a watch for all the adapters implementing multiKueueWatcher
@@ -192,13 +216,12 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to start the watcher", "kind", kind)
 			// however let's not accept this for now.
-			rc.failedConnAttempts++
-			return new(retryAfter(rc.failedConnAttempts)), err
+			return rc.increaseFailedConnAttempt(), err
 		}
 	}
 
 	rc.connecting.Store(false)
-	rc.failedConnAttempts = 0
+	rc.resetFailedConnAttempt()
 	return nil, nil
 }
 
@@ -420,6 +443,9 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 	if retryAfter, err := client.setConfig(clientCtx, config); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
+	} else if retryAfter != nil {
+		ctrl.LoggerFrom(ctx).V(2).Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.failedConnAttempts)
+		return retryAfter, nil
 	}
 	return nil, nil
 }
@@ -470,6 +496,8 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		} else {
 			return reconcile.Result{RequeueAfter: ptr.Deref(retryAfter, 0)}, nil
 		}
+	} else if retryAfter != nil {
+		return reconcile.Result{RequeueAfter: ptr.Deref(retryAfter, 0)}, nil
 	}
 
 	return reconcile.Result{}, client.IgnoreNotFound(c.updateStatus(ctx, cluster, true, "Active", "Connected"))
