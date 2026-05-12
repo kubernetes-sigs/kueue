@@ -271,6 +271,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASHandleOverlappingFlavors
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: TASProfileLeastFreeCapacity
   versionedSpecs:
   - default: false

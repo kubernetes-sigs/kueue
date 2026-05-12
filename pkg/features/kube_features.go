@@ -314,6 +314,12 @@ const (
 	// stale workload accumulation (e.g., after PodsReady timeout eviction
 	// deletes a Deployment-owned pod).
 	FinishOrphanedWorkloads featuregate.Feature = "FinishOrphanedWorkloads"
+
+	// owner: @tenzen-y
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10659
+	// Enable accurately topology aware scheduling when multiple flavors cover the same Node.
+	TASHandleOverlappingFlavors featuregate.Feature = "TASHandleOverlappingFlavors"
 )
 
 func init() {
@@ -479,6 +485,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FinishOrphanedWorkloads: {
 		{Version: version.MustParse("0.16"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	TASHandleOverlappingFlavors: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

@@ -33,8 +33,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -192,8 +194,27 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		for flavor, cache := range c.tasCache.Clone() {
-			tasSnapshots[flavor] = cache.snapshot(log, c.tasCache.nodesCache.find(cache.flavor.NodeLabels, cache.topology.Levels))
+		var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
+		flvTASCache := c.tasCache.Clone()
+
+		if features.Enabled(features.TASHandleOverlappingFlavors) {
+			aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
+			for _, cache := range flvTASCache {
+				c.snapshotTopologyDomainUsages(cache, aggregatedDomainUsages)
+			}
+		}
+		for flavor, cache := range flvTASCache {
+			// Only when this flavor is aggregation targets,
+			// we should propagate aggregated domain usages to snapshot constructions.
+			var aggregatedDomainUsagesForFlavor map[utiltas.TopologyDomainID]resources.Requests
+			if features.Enabled(features.TASHandleOverlappingFlavors) && utiltas.IsLowestLevelHostname(cache.topology.Levels) {
+				aggregatedDomainUsagesForFlavor = aggregatedDomainUsages
+			}
+			tasSnapshots[flavor] = cache.snapshot(
+				log,
+				c.tasCache.nodesCache.find(cache.flavor.NodeLabels, cache.topology.Levels),
+				aggregatedDomainUsagesForFlavor,
+			)
 		}
 	}
 	for _, cq := range cqNames {
@@ -219,6 +240,24 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	// Shallow copy is enough
 	maps.Copy(snap.ResourceFlavors, c.resourceFlavors)
 	return &snap, nil
+}
+
+func (c *Cache) snapshotTopologyDomainUsages(
+	tasFlvCache *TASFlavorCache, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+) {
+	tasFlvCache.RLock()
+	defer tasFlvCache.RUnlock()
+
+	if len(tasFlvCache.topology.Levels) == 0 || !utiltas.IsLowestLevelHostname(tasFlvCache.topology.Levels) {
+		return
+	}
+	for domainID, domainUsage := range tasFlvCache.usage {
+		if _, ok := aggregatedDomainUsages[domainID]; ok {
+			aggregatedDomainUsages[domainID].Add(domainUsage)
+		} else {
+			aggregatedDomainUsages[domainID] = domainUsage.Clone()
+		}
+	}
 }
 
 // skipInactiveCQReason reports why the CQ should not be considered for
