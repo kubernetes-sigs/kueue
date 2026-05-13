@@ -12,6 +12,8 @@
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
+  - [MultiKueue Workload Status Condition](#multikueue-workload-status-condition)
+  - [Global Status Summary](#global-status-summary)
   - [Test Plan](#test-plan)
     - [Unit tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -20,7 +22,6 @@
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
-  - [Global Status Summary](#global-status-summary)
   - [Visibility API](#visibility-api)
   - [Consolidated Workload State](#consolidated-workload-state)
   - [Granular Conditions](#granular-conditions)
@@ -34,12 +35,15 @@
 The Workload status in the MultiKueue Manager Cluster must reflect the true state of the workload derived from the Worker Clusters,
 including a human-readable message explaining the state (e.g., "Waiting for quota in cluster X").
 
-This KEP focuses on a mechanism to provide such a high-level summary in the form of a new Workload Status Condition - the **MultiKueueWorkload** condition.
-The condition:
+This KEP focuses on a mechanism to provide such a high-level summary in the form of a new Workload Status Condition - the **MultiKueueWorkload** condition. Later the condition will be replaced in favor of a Global Status Summary Structure: either as a new Workload Status Field or a separate resource. The decision is to be made based on implementation feedback.
+
+The initial condition:
 1. Will be populated for workloads created on the Manager Cluster.
 2. Will provide a high-level, human-readable message explaining the state of the Manager Workload.
 3. Will provide insights into the Workload's progress throughout its **whole lifecycle**.
 4. Will aggregate information from all the Remote Workloads dispatched by MultiKueue to Worker Clusters for the subject Manager Workload.
+
+The final Global Status Summary Structure will be populated in an analogous way. It may be extended with additional fields based on requirements and feedback.
 
 ## Motivation
 
@@ -102,7 +106,7 @@ flowchart TD
       AnyWorkerAdmitted
     end
 
-    subgraph WorkertSelected [Worker Selected]
+    subgraph WorkerSelected [Worker Selected]
       WORKER_SELECTED
       WorkerAdmitted
       RUNNING
@@ -132,7 +136,7 @@ flowchart TD
 
   EvictedOnManager --> WAITING_FOR_MANAGER_QUOTA
   CoreLogic --> EvictedOnManager
-  WorkertSelected --> EvictedOnWorker
+  WorkerSelected --> EvictedOnWorker
 
   END@{ shape: dbl-circ, label: "END" }
   SUCCESS --> END
@@ -163,6 +167,8 @@ The **MultiKueueWorkload** condition will be defined as:
 
 The condition will be gated behind the **MultiKueueGlobalStatusCondition** feature gate.
 
+The Global Status Summary structure at its simplest will provide the same information as the initial MultiKueueWorkload condition. It may be extended with additional fields based on requirements and feedback.
+
 ### User Stories
 
 #### Story 1
@@ -186,9 +192,7 @@ As in [Story 1](#story-1), I have to query multiple workers to verify which one 
 This proposal is limited to only providing the user with a high-level summary.
 This is a minimum value proposition, lacking in a few key areas:
 * In the WAITING_FOR_WORKER state we only provide a minuscule summary of what is happening on the Workers. In reality, this state is much more complex than the messages we propose can describe and could greatly benefit from being accompanied by a set of aggregations describing in greater detail what is the status of each Remote Workload.
-* In an effort to keep the condition message concise, we are limited in how much data relevant to the user we can provide.
-
-In the [alternatives section](#global-status-summary) we briefly describe an expanded Global Status Summary proposal to be revisited in the future if the new condition by itself is deemed insufficient.
+* In an effort to keep the condition message concise, we are limited in how much data relevant to the user we can provide. Depending on the feedback we receive, this could be expanded upon in the future as part of Alpha-2.
 
 ### Risks and Mitigations
 
@@ -200,6 +204,12 @@ Another issue stems from the MultiKueue's complex logic itself. It may prove dif
 Countering that will require thorough test coverage, with a special emphasis on implementing a wide coverage in E2E tests.
 
 ## Design Details
+
+Implementation will be split into two phases:
+- Alpha-1: Implementing the condition and the logic to populate it.
+- Alpha-2: Implementing the Global Status Summary structure. The final format of the structure's placement will be determined at this stage.
+
+### MultiKueue Workload Status Condition
 
 The new condition type will be defined alongside existing ones in the workload types file.
 
@@ -258,7 +268,7 @@ const (
 )
 ```
 
-This set of states will directly translate to the reasons provided in the body of the Condtion, with the adjustment of using CammelCase instead of SNAKE_CASE (e.g. WORKER_SELECTED status will translate to WorkerSelected reason).
+This set of states will directly translate to the reasons provided in the body of the Condition, with the adjustment of using CamelCase instead of SNAKE_CASE (e.g. WORKER_SELECTED status will translate to WorkerSelected reason).
 
 The condition will be populated inside the Reconciler of the MultiKueue Core Controller.
 This reconciler already gathers all the necessary data in the form of the Workload Group internal structure.
@@ -275,6 +285,21 @@ For the defined messages, each variable can be determined using the data present
 * _number of remotes_ is number of the noted remotes,
 * _worker selected by the primary local workload_ and _primary local workload reference_ are already identified in the current reconciliation process,
 * _multi-workload resource type name_ can be determined by verifying the type of the underlying job.
+
+### Global Status Summary
+
+We introduce a new structure to house the Global Summary of the MultiKueue Workload - **GlobalStatusSummary**. The structure will replace the condition and will be calculated the same way in its base format.
+In its base format, it will be composed of the **GlobalStatus** and the **GlobalStatusMessage**.
+
+The structure will be implemented either as a new (Optional) Workload Status field or as a separate resource accompanying each Manager Workload throughout its lifetime.
+
+Aside from  these, the structure could also be extended with the following fields:
+- WorkloadReference of the related Manager Workload (necessary if the structure is implemented as a separate resource rather than a new Status field),
+- AdditionalMessages - additional messages describing the state; a list with contents depending on which type of state is assigned,
+- Admission - a field containing the data on the selected Worker and Remote when in WORKER_SELECTED/RUNNING state. Empty in any other state,
+- AdmissionHistory - a list of entries representing Workers which historically were selected for this local workload but have failed to reach the Finished state. A remote is moved here from the Admission field when a backoff occurs,
+- WorkerDetails - a field containing a detailed description of the state of the workers and their remotes in the form of high-level aggregations,
+- MultiWorkloadSpec - a specification of the multi-workload setup if local workload is part of one, otherwise empty.
 
 ### Test Plan
 
@@ -296,45 +321,37 @@ E2E Tests for assigning the expected condition correctly for each Global Status 
 
 ### Graduation Criteria
 
-- **Alpha**:
-  - Feature is implemented behind the **MultiKueueGlobalStatusCondition** feature gate. FG disabled by default.
+- **Alpha-1**:
+  - Condition Variant is implemented behind the **MultiKueueGlobalStatusCondition** feature gate. FG disabled by default.
+  - Unit, integration and E2E tests are implemented and confirmed passing and non-flaky.
+- **Alpha-2**:
+  - Global Status Summary placement and extending fields are decided upon and the structure is implemented.
+     - Selected placement: **TBD**
+     - Additional fields: **TBD**
+  - Change is implemented behind the **MultiKueueGlobalStatusCondition** feature gate. FG disabled by default.
   - Unit, integration and E2E tests are implemented and confirmed passing and non-flaky.
 - **Beta**:
   - Feature Gate is enabled by default.
-  - The condition is confirmed (using a production-like environment) to populate correctly and reflect the actual state of the Manager Workload.
+  - The data is confirmed (using a production-like environment) to populate correctly and reflect the actual state of the Manager Workload.
   - User feedback is gathered and taken into consideration.
 - **Stable**:
-  - The condition is populated as expected, as confirmed by tests and users.
+  - The data is populated as expected, as confirmed by tests and users.
   - Feature gate is removed.
   - Feature is confirmed as stable.
 
 ## Implementation History
 
 - **2026-04-01**: initial KEP draft.
+- **2026-05-13**: revised, two-phase approach is introduced.
 
 ## Drawbacks
 
 - We add a Condition that does not behave as a typical one would:
   - it is expected to either be True or not present,
   - the Condition Reason is not really a reason, but rather a Manager Workload state identifier.
-- The information provided remains minimal. The users are still missing any substantial details on what is happening with the underlying architecture as the Workload enters the **WAITING_FOR_WORKER** state.
+- The information provided remains minimal. The users are still missing any substantial details on what is happening with the underlying architecture as the Workload enters the **WAITING_FOR_WORKER** state. This may be amended in Phase 2 by introducing extending fields to the Global Status Summary structure.
 
 ## Alternatives
-
-### Global Status Summary
-
-We define a new resource - **GlobalStatusSummary** - to be created on the Manager Cluster alongside the Manager Workload.
-Aside from the **GlobalStatus** and the **GlobalStatusMessage** it would also contain the following:
-- WorkloadReference of the related Manager Workload,
-- AdditionalMessages - additional messages describing the state; a list with contents depending on which type of state is assigned,
-- Admission - a field containing the data on the selected Worker and Remote when in WORKER_SELECTED/RUNNING state. Empty in any other state,
-- AdmissionHistory - a list of entries representing Workers which historically were selected for this local workload but have failed to reach the Finished state. A remote is moved here from the Admission field when a backoff occurs,
-- WorkerDetails - a field containing a detailed description of the state of the workers and their remotes in the form of high-level aggregations,
-- MultiWorkloadSpec - a specification of the multi-workload setup if local workload is part of one, otherwise empty.
-
-The resource would be calculated in the same place as the proposed Condition and created as an object accompanying the Manager Workload throughout its lifetime.
-
-This approach can be considered as a natural extension of the one proposed in the KEP and will be revisited in the future if need arises.
 
 ### Visibility API
 
@@ -383,7 +400,7 @@ Nil denotes a condition not having an equivalent. If not otherwise stated, the *
 |WAITING_FOR_MANAGER_QUOTA|**State**: False|
 
 This alternative reduces data duplication from listing the SUCCESS and FAILED states.
-Outside of that, it closely resembles the proposed solution, especially given that both Reason and Message values can be copied directly in all cases (except the Reson being different for the INACTIVE status).
+Outside of that, it closely resembles the proposed solution, especially given that both Reason and Message values can be copied directly in all cases (except the Reason being different for the INACTIVE status).
 
 #### Condition per status
 
@@ -397,4 +414,4 @@ These conditions could be one or more of:
 
 #### Disadvantages
 
-The main issue here is that, while we ensure the status covers all MultiKueue cases, reading the state of the job's execution remains complex. We still have to read and understand a multitude of conditions and status information to piece together the inner workings of MultiKueue, isntead of being provided with a clear, human-readable summary. This is especially apparent when considering the latter variant, where the number of added conditions expands to 3 or 4.
+The main issue here is that, while we ensure the status covers all MultiKueue cases, reading the state of the job's execution remains complex. We still have to read and understand a multitude of conditions and status information to piece together the inner workings of MultiKueue, instead of being provided with a clear, human-readable summary. This is especially apparent when considering the latter variant, where the number of added conditions expands to 3 or 4.
