@@ -1,0 +1,193 @@
+# skillsaw configuration
+# https://github.com/stbenjam/skillsaw
+version: "0.9.2"
+rules:
+  # Skill just have valid name, description and kubernetes additionally
+  # enforces `license` and `copyright`.
+  agentskill-valid:
+    enabled: auto
+    severity: error
+    required-fields:
+      - license
+    required-metadata:
+      - copyright
+
+  # Skill name must be lowercase with hyphens and match directory name
+  agentskill-name:
+    enabled: auto
+    severity: error
+
+  # Skill description should be meaningful and within length limits
+  agentskill-description:
+    enabled: auto
+    severity: warning
+
+  # Skill directories should only contain recognized subdirectories (stricter than spec)
+  agentskill-structure:
+    enabled: false
+    severity: warning
+    # allowed_dirs:
+    #   - assets
+    #   - evals
+    #   - references
+    #   - scripts
+
+  # Require evals/evals.json for each skill (opt-in)
+  agentskill-evals-required:
+    enabled: false
+    severity: warning
+
+  # Validate evals/evals.json format when present
+  agentskill-evals:
+    enabled: auto
+    severity: warning
+
+  # Instruction files (AGENTS.md, CLAUDE.md, GEMINI.md) must be valid and non-empty
+  instruction-file-valid:
+    enabled: auto
+    severity: warning
+
+  # Import references (@path) in CLAUDE.md and GEMINI.md must point to existing files
+  instruction-imports-valid:
+    enabled: auto
+    severity: warning
+
+  # Warn when instruction or config files exceed recommended token limits
+  context-budget:
+    enabled: auto
+    severity: warning
+    # limits:
+    #   agents-md:
+    #     warn: 6000
+    #     error: 12000
+    #   claude-md:
+    #     warn: 6000
+    #     error: 12000
+    #   gemini-md:
+    #     warn: 6000
+    #     error: 12000
+    #   instruction:
+    #     warn: 4000
+    #     error: 8000
+    #   skill:
+    #     warn: 3000
+    #     error: 6000
+    #   command:
+    #     warn: 2000
+    #     error: 4000
+    #   agent:
+    #     warn: 2000
+    #     error: 4000
+    #   rule:
+    #     warn: 2000
+    #     error: 4000
+    #   skill-description:
+    #     warn: 200
+    #     error: 500
+    #   command-description:
+    #     warn: 200
+    #     error: 500
+
+  # Detect hedging, vague, and non-actionable language in instruction files
+  content-weak-language:
+    enabled: auto
+    severity: warning
+
+  # Detect tautological instructions that the model already follows by default
+  content-tautological:
+    enabled: auto
+    severity: warning
+
+  # Detect critical instructions in the middle of files where LLM attention is lowest
+  content-critical-position:
+    enabled: auto
+    severity: warning
+    min-lines: 50
+
+  # Detect instructions that duplicate .editorconfig, ESLint, Prettier, or tsconfig settings
+  content-redundant-with-tooling:
+    enabled: auto
+    severity: warning
+
+  # Check if instruction count in a file exceeds LLM instruction budget (~150)
+  content-instruction-budget:
+    enabled: auto
+    severity: warning
+
+  # Detect prohibitions without a positive alternative (agent has no path forward)
+  content-negative-only:
+    enabled: auto
+    severity: warning
+
+  # Warn about markdown sections longer than ~500 tokens
+  content-section-length:
+    enabled: auto
+    severity: info
+    # max-tokens: 500
+
+  # Detect likely contradictions within instruction files using keyword-pair heuristics
+  content-contradiction:
+    enabled: auto
+    severity: warning
+
+  # Score instruction files on actionability (verb density, commands, file references)
+  content-actionability-score:
+    enabled: auto
+    severity: info
+
+  # Check that instruction files are organized into cognitive chunks with headings
+  content-cognitive-chunks:
+    enabled: auto
+    severity: info
+
+  # Detect potential API keys, tokens, and passwords in instruction files
+  content-embedded-secrets:
+    enabled: auto
+    severity: error
+
+  # Detect banned or deprecated model names, APIs, and custom patterns
+  content-banned-references:
+    enabled: auto
+    severity: warning
+    # banned: []
+    # skip-builtins: false
+
+  # Detect inconsistent terminology across instruction files (e.g., mixing 'directory' and 'folder')
+  content-inconsistent-terminology:
+    enabled: auto
+    severity: info
+
+  # Detect markdown links where the target file does not exist
+  content-broken-internal-reference:
+    enabled: auto
+    severity: warning
+
+  # Detect bare path-like strings not wrapped in markdown link syntax
+  content-unlinked-internal-reference:
+    enabled: auto
+    severity: info
+    # patterns:
+    #   - "./**/*.*"
+    #   - "references/**/*.md"
+
+  # Detect TODO markers, bracket placeholders, and unfilled template text
+  content-placeholder-text:
+    enabled: auto
+    severity: warning
+
+# Load custom rules from these files
+custom-rules: []
+
+# Exclude patterns (glob format)
+# Use exclude: [] to disable all excludes including defaults
+exclude:
+    # - "**/template/**"
+    # - "**/templates/**"
+    # - "**/_template/**"
+
+# Additional markdown files to run content rules on (glob format)
+content-paths:
+  - cmd/experimental/agent/skills/**
+
+# Treat warnings as errors
+strict: true

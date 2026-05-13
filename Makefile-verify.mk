@@ -16,7 +16,7 @@
 
 GO_FMT ?= gofmt
 CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
-SKILLSAW_IMAGE ?= ghcr.io/stbenjam/skillsaw:0.6.0
+SKILLSAW_IMAGE ?= ghcr.io/stbenjam/skillsaw:0.9.2
 VERIFY_NPROCS ?= 8
 # Output sync mode for parallel verification. Set to empty to disable.
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
@@ -158,7 +158,8 @@ endef
 
 # Validates skills against https://agentskills.io/specification
 define _skills_lint_recipe
-$(CONTAINER_ENGINE) run --rm -v $(PROJECT_DIR):/workspace:Z $(SKILLSAW_IMAGE) --strict cmd/experimental/agent/skills/
+mkdir -p $(ARTIFACTS)
+$(CONTAINER_ENGINE) run --rm -v $(PROJECT_DIR):/workspace:Z -v $(ARTIFACTS):/out:Z $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
 endef
 
 

@@ -1,6 +1,9 @@
 ---
 name: kueue-lineage
 description: Trace workload lineage to pods. Use when a user wants to trace lineage across any tier such as workload to pods, pod to workload, or job to workload. The user may provide a resource at any level (Workload, Job, Pod, JobSet, etc.) and this skill produces the full tree from Workload down to Pods.
+license: Apache-2.0
+metadata:
+  copyright: The Kubernetes Authors
 ---
 
 Use this when a user wants to trace lineage across any tier: workload → pods, pod → workload, job → workload, etc. The user may provide a resource at **any level** (Workload, Job, Pod, JobSet, etc.) — always produce the full tree from Workload down to Pods.

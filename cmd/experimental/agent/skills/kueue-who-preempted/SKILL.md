@@ -1,6 +1,9 @@
 ---
 name: kueue-who-preempted
 description: Identify what preempted a workload. Use when a user asks why their workload was evicted or preempted, or wants to identify what preempted it. Investigates Kubernetes events, workload status conditions, and controller logs to trace preemption.
+license: Apache-2.0
+metadata:
+  copyright: The Kubernetes Authors
 ---
 
 Use this when a user asks why their workload was evicted or preempted, or wants to identify what preempted it.
@@ -70,7 +73,7 @@ Extract:
 
 Since LocalQueues in different namespaces can feed the same ClusterQueue, the preemptor workload may live in a namespace different from the victim's.
 
-`kubectl get kueueworkload -A` requires cluster-scoped `list` permission — it does **not** gracefully show only accessible namespaces; it returns `403 Forbidden` if you lack that permission. Use the access check below to pick the right path:
+`kubectl get kueueworkload -A` requires cluster-scoped `list` permission — it does **not** filter to accessible namespaces; it returns `403 Forbidden` if you lack that permission. Use the access check below to pick the right path:
 
 ```bash
 kubectl auth can-i list kueueworkloads --all-namespaces
@@ -95,7 +98,7 @@ Proceed to Step 5 with the returned workload.
 
 #### Path B: Limited namespace access
 
-`-A` will be forbidden. Try to enumerate the namespaces you can see; note that namespace listing may also be forbidden — always include the victim's namespace as a fallback:
+`-A` will be forbidden. Enumerate the namespaces you can see; namespace listing may also be forbidden — always include the victim's namespace as a fallback:
 
 ```bash
 # Attempt to list visible namespaces; this may itself be forbidden
