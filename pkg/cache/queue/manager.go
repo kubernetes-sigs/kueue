@@ -447,13 +447,16 @@ func (m *Manager) DefaultLocalQueueExist(namespace string) bool {
 	return ok
 }
 
-func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
+// addLocalQueueLocked registers the local queue under the manager lock and
+// returns the DRA reconcile channel and any workloads that need DRA reconciling.
+// Callers must send events to the channel after this returns (outside any lock).
+func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) (chan<- event.TypedGenericEvent[*kueue.Workload], []*kueue.Workload, error) {
 	m.Lock()
+	defer m.Unlock()
 
 	key := queue.Key(q)
 	if _, ok := m.localQueues[key]; ok {
-		m.Unlock()
-		return fmt.Errorf("queue %q already exists", q.Name)
+		return nil, nil, fmt.Errorf("queue %q already exists", q.Name)
 	}
 	qImpl := newLocalQueue(q)
 	m.localQueues[key] = qImpl
@@ -467,10 +470,9 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	// queue might have been added earlier.
 	var workloads kueue.WorkloadList
 	if err := m.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadQueueKey: q.Name}, client.InNamespace(q.Namespace)); err != nil {
-		m.Unlock()
-		return fmt.Errorf("listing workloads that match the queue: %w", err)
+		return nil, nil, fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
-	var draWorkloadsToReconcile []*kueue.Workload
+	var draWorkloads []*kueue.Workload
 	for _, w := range workloads.Items {
 		m.assignWorkload(workload.Key(&w), qImpl.Key)
 
@@ -485,10 +487,9 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
 		if dra.NeedsDRAReconcile(&w) {
 			if m.draReconcileChannel != nil {
-				// Defer sending until after releasing the manager lock:
-				// - avoid blocking sends while holding the lock
-				// - keep a stable object pointer (range variable address is unsafe)
-				draWorkloadsToReconcile = append(draWorkloadsToReconcile, w.DeepCopy())
+				// Collect DRA workloads to send outside the lock; DeepCopy keeps a
+				// stable pointer since the range variable is reused each iteration.
+				draWorkloads = append(draWorkloads, w.DeepCopy())
 			}
 			continue
 		}
@@ -503,16 +504,19 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		m.Broadcast()
 	}
 
-	// Unlock before sending DRA reconcile events.
-	ch := m.draReconcileChannel
-	m.Unlock()
+	return m.draReconcileChannel, draWorkloads, nil
+}
 
-	if ch != nil {
-		for _, wl := range draWorkloadsToReconcile {
-			log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
-			ch <- event.TypedGenericEvent[*kueue.Workload]{Object: wl}
-			log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")
-		}
+func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
+	ch, draWorkloads, err := m.addLocalQueueLocked(ctx, q)
+	if err != nil {
+		return err
+	}
+
+	for _, wl := range draWorkloads {
+		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
+		ch <- event.TypedGenericEvent[*kueue.Workload]{Object: wl}
+		log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")
 	}
 
 	return nil
