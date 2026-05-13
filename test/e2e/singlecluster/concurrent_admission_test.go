@@ -101,11 +101,12 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 				Obj()
 			util.MustCreate(ctx, k8sClient, job)
 
+			parentWlKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
 			ginkgo.By("Verifying the Parent Workload is labeled correctly", func() {
-				parentWlKey := types.NamespacedName{
-					Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
-					Namespace: ns.Name,
-				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					var parentWl kueue.Workload
 					g.Expect(k8sClient.Get(ctx, parentWlKey, &parentWl)).To(gomega.Succeed())
@@ -130,10 +131,6 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 			})
 
 			ginkgo.By("Verifying each Variant has an owner reference pointing to the Parent", func() {
-				parentWlKey := types.NamespacedName{
-					Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
-					Namespace: ns.Name,
-				}
 				var parentWl kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, parentWlKey, &parentWl)).To(gomega.Succeed())
 
@@ -155,58 +152,42 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 					g.Expect(variantCount).To(gomega.Equal(2))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
-		})
-	})
 
-	ginkgo.When("Migration from less favorable to more favorable flavor", func() {
-		var (
-			reservationRF     *kueue.ResourceFlavor
-			spotRF            *kueue.ResourceFlavor
-			cq                *kueue.ClusterQueue
-			lq                *kueue.LocalQueue
-			reservationFlavor string
-			spotFlavor        string
-		)
+			ginkgo.By("Verifying Pods have the correct instance-type node selector matching the admitted flavor", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var parentWl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, parentWlKey, &parentWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(&parentWl)).To(gomega.BeTrue())
+					g.Expect(parentWl.Status.Admission).ToNot(gomega.BeNil())
+					g.Expect(parentWl.Status.Admission.PodSetAssignments).ToNot(gomega.BeEmpty())
+					admittedFlavor := string(parentWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU])
 
-		ginkgo.BeforeEach(func() {
-			reservationFlavor = "reservation-" + ns.Name
-			spotFlavor = "spot-" + ns.Name
+					expectedInstanceType := "reservation"
+					if admittedFlavor == spotFlavor {
+						expectedInstanceType = "spot"
+					}
 
-			reservationRF = utiltestingapi.MakeResourceFlavor(reservationFlavor).
-				NodeLabel("instance-type", "reservation").Obj()
-			util.MustCreate(ctx, k8sClient, reservationRF)
-
-			spotRF = utiltestingapi.MakeResourceFlavor(spotFlavor).
-				NodeLabel("instance-type", "spot").Obj()
-			util.MustCreate(ctx, k8sClient, spotRF)
-
-			// reservation starts with 0 quota so the Job is initially admitted on spot
-			cq = utiltestingapi.MakeClusterQueue("cq-migrate-"+ns.Name).
-				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas(reservationFlavor).
-						Resource(corev1.ResourceCPU, "0").
-						Resource(corev1.ResourceMemory, "0").Obj(),
-					*utiltestingapi.MakeFlavorQuotas(spotFlavor).
-						Resource(corev1.ResourceCPU, "5").
-						Resource(corev1.ResourceMemory, "1Gi").Obj(),
-				).Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
-
-			lq = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(cq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
-		})
-
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, reservationRF, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotRF, true)
+					var podList corev1.PodList
+					g.Expect(k8sClient.List(ctx, &podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(podList.Items).ToNot(gomega.BeEmpty())
+					for _, pod := range podList.Items {
+						g.Expect(pod.Spec.NodeSelector).To(gomega.HaveKeyWithValue("instance-type", expectedInstanceType))
+					}
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.It("Should migrate Job to more favorable flavor when its quota becomes available", func() {
+			ginkgo.By("Setting reservation quota to zero to force initial admission on spot", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updatedCq kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: cq.Name}, &updatedCq)).To(gomega.Succeed())
+					updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("0")
+					updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[1].NominalQuota = resource.MustParse("0")
+					g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
