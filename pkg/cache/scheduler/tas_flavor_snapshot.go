@@ -904,6 +904,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
 			if err != nil {
 				s.log.V(5).Info("ignoring invalid preferred node affinity terms", "err", err)
+				return nil, fmt.Sprintf("invalid preferred node affinity terms: %v, reason: %s", preferredAffinity, err)
 			} else {
 				requirements.preferredSchedulingTerms = prefTerms
 			}

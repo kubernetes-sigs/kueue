@@ -40,18 +40,17 @@ import (
 
 // PodSetTestCase defines a test case for a single podset in the consolidated test.
 type PodSetTestCase struct {
-	podSetName                string
-	topologyRequest           *kueue.PodSetTopologyRequest
-	requests                  resources.Requests
-	count                     int32
-	tolerations               []corev1.Toleration
-	nodeSelector              map[string]string
-	requiredNodeSelectorTerms []corev1.NodeSelectorTerm
-	preferredSchedulingTerms  []corev1.PreferredSchedulingTerm
-	podSetGroupName           *string
-	previousAssignment        *kueue.TopologyAssignment
-	wantAssignment            *tas.TopologyAssignment
-	wantReason                string
+	podSetName         string
+	topologyRequest    *kueue.PodSetTopologyRequest
+	requests           resources.Requests
+	count              int32
+	tolerations        []corev1.Toleration
+	nodeSelector       map[string]string
+	nodeAffinity       *corev1.NodeAffinity
+	podSetGroupName    *string
+	previousAssignment *kueue.TopologyAssignment
+	wantAssignment     *tas.TopologyAssignment
+	wantReason         string
 }
 
 func TestFindTopologyAssignments(t *testing.T) {
@@ -6295,7 +6294,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: new("cloud.com/topology-rack"),
 				},
-				preferredSchedulingTerms: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().
+						Term(10, "region", corev1.NodeSelectorOpIn, "us-west").
+						Obj(),
+				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
 				},
@@ -6348,8 +6351,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: new("cloud.com/topology-rack"),
 				},
-				requiredNodeSelectorTerms: utiltesting.MakeNodeSelectorTerms().Term("zone", corev1.NodeSelectorOpIn, "us").Obj(),
-				preferredSchedulingTerms:  utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				nodeAffinity: &corev1.NodeAffinity{
+					RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+						NodeSelectorTerms: utiltesting.MakeNodeSelectorTerms().Term("zone", corev1.NodeSelectorOpIn, "us").Obj(),
+					},
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
 				},
@@ -6399,10 +6406,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: new("cloud.com/topology-rack"),
 				},
-				preferredSchedulingTerms: utiltesting.MakePreferredSchedulingTerms().
-					Term(10, "cloud.com/topology-block", corev1.NodeSelectorOpIn, "b1").
-					Term(100, "cloud.com/topology-rack", corev1.NodeSelectorOpIn, "r1").
-					Obj(),
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().
+						Term(10, "cloud.com/topology-block", corev1.NodeSelectorOpIn, "b1").
+						Term(100, "cloud.com/topology-rack", corev1.NodeSelectorOpIn, "r1").
+						Obj(),
+				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
 				},
@@ -6440,7 +6449,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: new("kubernetes.io/hostname"),
 				},
-				preferredSchedulingTerms: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
 				},
@@ -6489,18 +6500,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			wantResult := make(TASAssignmentsResult)
 			for _, ps := range tc.podSets {
 				var affinity *corev1.Affinity
-				if len(ps.requiredNodeSelectorTerms) > 0 || len(ps.preferredSchedulingTerms) > 0 {
-					nodeAffinity := &corev1.NodeAffinity{}
-					if len(ps.requiredNodeSelectorTerms) > 0 {
-						nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{
-							NodeSelectorTerms: ps.requiredNodeSelectorTerms,
-						}
-					}
-					if len(ps.preferredSchedulingTerms) > 0 {
-						nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = ps.preferredSchedulingTerms
-					}
+				if ps.nodeAffinity != nil {
 					affinity = &corev1.Affinity{
-						NodeAffinity: nodeAffinity,
+						NodeAffinity: ps.nodeAffinity,
 					}
 				}
 				tasInput := TASPodSetRequests{
