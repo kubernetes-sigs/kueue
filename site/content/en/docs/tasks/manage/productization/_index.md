@@ -11,3 +11,7 @@ For a streamlined installation and simplified upgrades, we recommend deploying K
 You can customize the deployment with a local `values.yaml` file to fit your environment.  
 See the [Helm chart installation guide](/docs/installation/#install-by-helm) for full instructions.
 {{% /alert %}}
+
+For production deployments, you may also want to review
+[Opt-in Namespace Management](/docs/tasks/manage/enforce_job_management/opt_in_namespace_management/),
+which restricts Kueue to explicitly labeled namespaces.
