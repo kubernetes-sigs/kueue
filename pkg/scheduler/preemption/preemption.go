@@ -416,11 +416,13 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 			candWl := candCQ.PopWorkload()
 			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
 			passed := strategy(preemptorNewShare, targetOldShare, targetNewShare)
-			if logV := preemptionCtx.log.V(6); logV.Enabled() {
+			if logV := preemptionCtx.log.V(4); logV.Enabled() {
 				logV.Info("Evaluating FairSharing strategy",
-					"preemptorNewShare", preemptorNewShare,
-					"targetOldShare", targetOldShare,
-					"targetNewShare", targetNewShare,
+					"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
+					"targetCQ", klog.KRef("", string(candCQ.GetTargetCq().Name)),
+					"targetWl", klog.KObj(candWl.Obj),
+					"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
+					"targetNewShare", schdcache.DRS(targetNewShare).PreciseWeightedShare(),
 					"strategyPassed", passed)
 			}
 			if passed {
@@ -450,10 +452,11 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		passed := fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{})
-		if logV := preemptionCtx.log.V(6); logV.Enabled() {
+		if logV := preemptionCtx.log.V(4); logV.Enabled() {
 			logV.Info("Evaluating FairSharing strategy",
-				"preemptorNewShare", preemptorNewShare,
-				"targetOldShare", targetOldShare,
+				"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
+				"targetCQ", klog.KRef("", string(candCQ.GetTargetCq().Name)),
+				"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
 				"strategyPassed", passed)
 		}
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
