@@ -431,7 +431,7 @@ We will introduce a new reconciler for manager-side ClusterQueue objects. Reconc
 3. **Aggregate quotas:** Find all [related worker ClusterQueues](#defining-related-worker-clusterqueues). Sum their quotas and update `Q`'s quotas accordingly.
 
 The reconciler will be triggered by:
-* **Manager events:** Creation, deletion, or relevant updates to ClusterQueues, LocalQueues, AdmissionChecks, or MultiKueueConfigs.
+* **Manager events:** Creation, deletion, or relevant updates to ClusterQueues, LocalQueues, AdmissionChecks, MultiKueueConfigs and MultiKueueClusters.
 * **Remote events:** Propagated from the [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler) when remote LocalQueues or ClusterQueues change.
 
 ### MultiKueue Cluster Reconciler
@@ -570,7 +570,6 @@ Issue [#5704](https://github.com/kubernetes-sigs/kueue/issues/5704) aims at allo
   * The feature has been successfully used in a production environment.
   * [Future work ideas](#future-work-ideas) have been reconsidered, based on any newly gathered feedback.
   * No warning signs on performance were seen (in particular, no news of any external automation of worker ClusterQueue quotas) - or, if any were, they have been addressed.
-  * Issue [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) (see [Drawback 2](#drawbacks)) is diagnosed, its impact on quota automation is understood and any mitigations deemed necessary are implemented.
 
 * **Stable:**
   * The feature (offered functionality, API surface and implementation) has stabilized, without raising concerns.
@@ -588,12 +587,7 @@ Besides introducing some risks (see [Risks and Mitigations](#risks-and-mitigatio
 
    While we propose accepting this drawback for Alpha1, our plan for Alpha2 is to eliminate this drawback by [this follow-up idea](#move-the-aggregated-quota-out-of-clusterqueuespec).
 
-2. The proposed solution fails to react to some types of detectable worker connection issues. \
-   See [#10428](https://github.com/kubernetes-sigs/kueue/issues/10428) which describes this problem in more detail, and speculates that it may already affect existing MultiKueue reconcilers (e.g. the one for Workloads).
-
-   If this turns out problematic, it should be fixable by caching the "manager ClusterQueue <-> MultiKueueCluster" relationship.
-
-3. We have fully ignored the topic of Cohorts, shared quota and quota borrowing. This is deliberate, and intended to retain any reasonable simplicity of the feature, at least in the Alpha stage. (See [Take Cohorts into account](#take-cohorts-into-account) in the Alternatives section).
+2. We have fully ignored the topic of Cohorts, shared quota and quota borrowing. This is deliberate, and intended to retain any reasonable simplicity of the feature, at least in the Alpha stage. (See [Take Cohorts into account](#take-cohorts-into-account) in the Alternatives section).
 
 ## Alternatives
 
