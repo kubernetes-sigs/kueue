@@ -17,7 +17,6 @@ limitations under the License.
 package math
 
 import (
-	"math"
 	stdmath "math"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -36,17 +35,17 @@ func SaturatingAdd(a, b int64) int64 {
 }
 
 var (
-	maxMilliValue = *resource.NewMilliQuantity(math.MaxInt64, resource.DecimalSI)
-	minMilliValue = *resource.NewMilliQuantity(math.MinInt64, resource.DecimalSI)
+	maxMilliValue = *resource.NewMilliQuantity(stdmath.MaxInt64, resource.DecimalSI)
+	minMilliValue = *resource.NewMilliQuantity(stdmath.MinInt64, resource.DecimalSI)
 )
 
 // SafeMilliValue returns the integer milli-value for the resource quantity, clamped to math.MinInt64 and math.MaxInt64.
 func SafeMilliValue(q resource.Quantity) int64 {
 	if q.Cmp(maxMilliValue) > 0 {
-		return math.MaxInt64
+		return stdmath.MaxInt64
 	}
 	if q.Cmp(minMilliValue) < 0 {
-		return math.MinInt64
+		return stdmath.MinInt64
 	}
 	return q.MilliValue()
 }
