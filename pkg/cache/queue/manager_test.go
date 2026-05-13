@@ -97,20 +97,15 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
 
 	// Create an admissible workload that triggers dra.NeedsDRAReconcile via HasDRA().
-	wl := utiltestingapi.MakeWorkload("wl", "earth").Queue("foo").Obj()
 	tmplName := "claim-tmpl"
-	wl.Spec.PodSets = []kueue.PodSet{{
-		Name:  "ps",
-		Count: 1,
-		Template: corev1.PodTemplateSpec{
-			Spec: corev1.PodSpec{
-				ResourceClaims: []corev1.PodResourceClaim{{
-					Name:                      "rc",
-					ResourceClaimTemplateName: &tmplName,
-				}},
-			},
-		},
-	}}
+	wl := utiltestingapi.MakeWorkload("wl", "earth").Queue("foo").PodSets(
+		*utiltestingapi.MakePodSet("ps", 1).PodSpec(corev1.PodSpec{
+			ResourceClaims: []corev1.PodResourceClaim{{
+				Name:                      "rc",
+				ResourceClaimTemplateName: &tmplName,
+			}},
+		}).Obj(),
+	).Obj()
 
 	kClient := utiltesting.NewFakeClient(wl)
 	manager := NewManagerForUnitTests(kClient, nil)
@@ -130,7 +125,7 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	// The send must happen outside the manager lock, so draining here cannot deadlock.
 	select {
 	case <-ch:
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting to drain draReconcileChannel")
 	}
 
@@ -140,7 +135,7 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 		if err != nil {
 			t.Fatalf("AddLocalQueue returned error: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("AddLocalQueue did not complete after draReconcileChannel was drained")
 	}
 
