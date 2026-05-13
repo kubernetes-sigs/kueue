@@ -360,17 +360,19 @@ type MultiKueueConfigSpec struct {
    // Supported modes:
    // - `Manual`: Quota automation is manual.
    // - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
-   // If unspecified, the default mode depends on the MultiKueueManagerQuotaAutomation feature gate.
-   QuotaManagement *QuotaManagementMode
+   // If unspecified, defaults to `Manual`.
+   QuotaManagement *MultiKueueConfigQuotaManagementMode
 }
 
-type QuotaManagementMode string
+type MultiKueueConfigQuotaManagementMode string
 
 const (
-   QuotaManagementManual QuotaManagementMode = "Manual"
-   QuotaManagementAutomated  QuotaManagementMode = "Automated"
+   QuotaManagementManual MultiKueueConfigQuotaManagementMode = "Manual"
+   QuotaManagementAutomated  MultiKueueConfigQuotaManagementMode = "Automated"
 )
 ```
+
+For Alpha1, unspecified `QuotaManagement` is interpreted as `Manual`. This may be revisited in the next version, depending on user feedback. For example, for Beta, we may decide to set the default based on the feature gate state.
 
 The status of the feature will be communicated by a new Condition added to ClusterQueueStatus. The Condition will be present in all ClusterQueues enrolled in MultiKueue.
 
@@ -565,6 +567,7 @@ Issue [#5704](https://github.com/kubernetes-sigs/kueue/issues/5704) aims at allo
 
 * **Beta:**
   * The feature gate is enabled by default.
+  * The defaulting rule for `QuotaManagement` is reconsidered, and aligned on.
   * User documentation is published on the website.
   * The feature is mentioned in the release notes, in particular mentioning how to opt out.
   * The feature has been successfully used in a production environment.
