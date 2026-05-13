@@ -338,7 +338,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 
 	notifyRetryInadmissibleWithoutLock(m, sets.New(cqImpl.name))
 	reportPendingWorkloads(m, cqImpl.name)
-
+	reportCQQueuedWorkloads(m, cqImpl)
 	if addedWorkloads {
 		m.Broadcast()
 	}
@@ -634,6 +634,8 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	m.preemptionExpectations.ObservedUID(log, client.ObjectKeyFromObject(w), w.UID)
 	reportLQPendingWorkloads(m, q)
 	reportCQPendingWorkloads(m, cq)
+	reportCQQueuedWorkloads(m, cq)
+	reportLQQueuedWorkloads(m, q)
 	m.Broadcast()
 	log.V(5).Info("Added/updated workload in queues; Broadcast successful.")
 	return nil
@@ -673,7 +675,9 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 	added := cq.RequeueIfNotPresent(ctx, info, reason)
 	reportCQPendingWorkloads(m, cq)
+	reportCQQueuedWorkloads(m, cq)
 	reportLQPendingWorkloads(m, q)
+	reportLQQueuedWorkloads(m, q)
 	if added {
 		m.Broadcast()
 	}
@@ -724,6 +728,8 @@ func (m *Manager) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Refe
 	if cq != nil {
 		cq.Delete(log, wlKey)
 		reportCQPendingWorkloads(m, cq)
+		reportCQQueuedWorkloads(m, cq)
+		reportLQQueuedWorkloads(m, q)
 	}
 	reportLQPendingWorkloads(m, q)
 
@@ -900,17 +906,18 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 	}
 }
 
-// ResyncGaugeMetrics re-reports pending and finished workload gauge metrics.
 func (m *Manager) ResyncGaugeMetrics() {
 	m.RLock()
 	defer m.RUnlock()
 	for _, cq := range m.hm.ClusterQueues() {
 		reportCQPendingWorkloads(m, cq)
+		reportCQQueuedWorkloads(m, cq) // ADD — cq is in scope here
 		reportCQFinishedWorkloads(cq, m.roleTracker, m.customLabels)
 	}
 	if m.lqMetrics.IsEnabled() {
 		for _, lq := range m.localQueues {
 			reportLQPendingWorkloads(m, lq)
+			reportLQQueuedWorkloads(m, lq)
 			reportLQFinishedWorkloads(m, lq)
 		}
 	}

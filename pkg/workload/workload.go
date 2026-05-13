@@ -71,7 +71,8 @@ const (
 	StatusFinished      = "finished"
 
 	// SchedulingHashUnknown indicates the scheduling hash could not be computed.
-	SchedulingHashUnknown = "unknown"
+	SchedulingHashUnknown        = "unknown"
+	WorkloadReasonFlavorMismatch = "FlavorMismatch"
 )
 
 var (

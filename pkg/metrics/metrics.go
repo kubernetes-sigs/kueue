@@ -93,6 +93,14 @@ var (
 	LocalQueuePendingWorkloads *prometheus.GaugeVec
 
 	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",reason="reason from the workload QuotaReserved condition (Pending, Inadmissible, Waiting, FlavorMismatch)",replica_role="one of `leader`, `follower`, or `standalone`"
+	QueuedWorkloads *prometheus.GaugeVec
+
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",reason="reason from the workload QuotaReserved condition (Pending, Inadmissible, Waiting, FlavorMismatch)",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueueQueuedWorkloads *prometheus.GaugeVec
+
+	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	FinishedWorkloads *prometheus.GaugeVec
 
@@ -377,6 +385,32 @@ The label 'result' can have the following values:
 		}, append([]string{"name", "namespace", "status", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(LocalQueuePendingWorkloads, gaugeCleanupScopeLocalQueue)
+
+	QueuedWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "queued_workloads",
+			Help: `The number of queued workloads per 'cluster_queue' and 'reason'.
+'reason' maps 1:1 to the Reason field of the workload's QuotaReserved status condition:
+- "Pending" means the workload is waiting for available resources.
+- "Inadmissible" means the LocalQueue or ClusterQueue doesn't exist or is inactive.
+- "Waiting" means the workload is blocked pending admission checks.
+- "FlavorMismatch" means no ResourceFlavor matches the workload's requirements.
+New reasons added in future Kueue versions will appear automatically as new label values.`,
+		}, append([]string{"cluster_queue", "reason", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(QueuedWorkloads, gaugeCleanupScopeClusterQueue)
+
+	LocalQueueQueuedWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_queued_workloads",
+			Help: `The number of queued workloads per 'local_queue' and 'reason'.
+'reason' maps 1:1 to the Reason field of the workload's QuotaReserved status condition.
+See kueue_queued_workloads for the full list of possible reason values.`,
+		}, append([]string{"name", "namespace", "reason", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(LocalQueueQueuedWorkloads, gaugeCleanupScopeLocalQueue)
 
 	FinishedWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -988,6 +1022,38 @@ func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissib
 	LocalQueuePendingWorkloads.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
 }
 
+// ReportQueuedWorkloads sets the queued workload count broken down by condition
+// reason for the given ClusterQueue. reasonCounts maps Reason string -> count.
+// Any reason not present in reasonCounts will not update an existing series,
+// so callers should pass the full snapshot on every call.
+func ReportQueuedWorkloads(
+	cqName kueue.ClusterQueueReference,
+	reasonCounts map[string]int,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	role := roletracker.GetRole(tracker)
+	for reason, count := range reasonCounts {
+		labels := append([]string{string(cqName), reason, role}, customLabelValues...)
+		QueuedWorkloads.WithLabelValues(labels...).Set(float64(count))
+	}
+}
+
+// ReportLocalQueueQueuedWorkloads sets the queued workload count broken down
+// by condition reason for the given LocalQueue.
+func ReportLocalQueueQueuedWorkloads(
+	lq LocalQueueReference,
+	reasonCounts map[string]int,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	role := roletracker.GetRole(tracker)
+	for reason, count := range reasonCounts {
+		labels := append([]string{string(lq.Name), lq.Namespace, reason, role}, customLabelValues...)
+		LocalQueueQueuedWorkloads.WithLabelValues(labels...).Set(float64(count))
+	}
+}
+
 func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason, underlyingCause, priorityClass string, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cqName), evictionReason, underlyingCause, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
 	EvictedWorkloadsTotal.WithLabelValues(labels...).Inc()
@@ -1032,6 +1098,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	AdmissionWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmissionChecksWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QueuedUntilReadyWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	QueuedWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmittedUntilReadyWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	EvictedWorkloadsOnceTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -1058,6 +1125,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueQueuedUntilReadyWaitTime.DeletePartialMatch(lbls)
 	LocalQueueAdmittedUntilReadyWaitTime.DeletePartialMatch(lbls)
 	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(lbls)
+	LocalQueueQueuedWorkloads.DeletePartialMatch(lbls)
 }
 
 func ClearCohortMetrics(cohortName kueue.CohortReference) {
@@ -1317,6 +1385,7 @@ func Register() {
 		AdmissionWaitTime,
 		AdmissionChecksWaitTime,
 		QueuedUntilReadyWaitTime,
+		QueuedWorkloads,
 		AdmittedUntilReadyWaitTime,
 		EvictedWorkloadsTotal,
 		EvictedWorkloadsOnceTotal,
@@ -1355,6 +1424,7 @@ func RegisterLQMetrics() {
 		LocalQueueQuotaReservedWaitTime,
 		LocalQueueAdmittedWorkloadsTotal,
 		LocalQueueAdmissionWaitTime,
+		LocalQueueQueuedWorkloads,
 		LocalQueueAdmissionChecksWaitTime,
 		LocalQueueQueuedUntilReadyWaitTime,
 		LocalQueueAdmittedUntilReadyWaitTime,

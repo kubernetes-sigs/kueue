@@ -19,6 +19,7 @@ package singlecluster
 import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/gstruct"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -26,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -556,6 +558,113 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 			ginkgo.By("checking that eviction and preemption metrics are no longer available", func() {
 				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+			})
+		})
+	})
+	ginkgo.When("workload configuration is incorrect", func() {
+		var (
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			clusterQueue = utiltestingapi.MakeClusterQueue("").
+				GeneratedName("test-cq-miscfg-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
+				GeneratedName("test-lq-miscfg-").
+				ClusterQueue(clusterQueue.Name).
+				Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		})
+
+		ginkgo.It("should count workload with missing LocalQueue as Inadmissible in queued_workloads", func() {
+			wl := utiltestingapi.MakeWorkload("missing-lq-wl", ns.Name).
+				Queue("this-local-queue-does-not-exist").
+				PodSets(*utiltestingapi.MakePodSet("ps1", 1).Obj()).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			defer util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+
+			// Workload must be marked Inadmissible by the workload reconciler
+			// because its LocalQueue does not exist.
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).To(gomega.ContainElement(
+					gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+						"Type":   gomega.Equal(string(kueue.WorkloadQuotaReserved)),
+						"Status": gomega.Equal(metav1.ConditionFalse),
+						"Reason": gomega.Equal("Inadmissible"),
+					}),
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			metrics := [][]string{
+				{"kueue_queued_workloads", "Inadmissible"},
+			}
+			ginkgo.By("checking kueue_queued_workloads with reason=Inadmissible is present", func() {
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient,
+					curlPod.Name, curlContainerName, metrics)
+			})
+		})
+
+		ginkgo.It("should count workload with flavor mismatch in queued_workloads with reason=FlavorMismatch", func() {
+			// This toleration will never match any ResourceFlavor, causing a mismatch.
+			wl := utiltestingapi.MakeWorkload("flavor-mismatch-wl", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 1).
+					Toleration(corev1.Toleration{
+						Key:      "nonexistent-taint-key",
+						Operator: corev1.TolerationOpExists,
+						Effect:   corev1.TaintEffectNoSchedule,
+					}).
+					Obj(),
+				).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			defer util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+
+			metrics := [][]string{
+				{"kueue_queued_workloads", clusterQueue.Name, "FlavorMismatch"},
+				{"kueue_local_queue_queued_workloads", ns.Name, localQueue.Name, "FlavorMismatch"},
+			}
+			ginkgo.By("checking kueue_queued_workloads with reason=FlavorMismatch is present", func() {
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient,
+					curlPod.Name, curlContainerName, metrics)
+			})
+		})
+
+		ginkgo.It("should count normal pending workload in queued_workloads with reason=Pending", func() {
+			// Request more CPU than the CQ provides — workload stays Pending.
+			wl := utiltestingapi.MakeWorkload("resource-starved-wl", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 1).Obj()).
+				RequestAndLimit(corev1.ResourceCPU, "999").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			defer util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+
+			metrics := [][]string{
+				{"kueue_queued_workloads", clusterQueue.Name, "Pending"},
+				{"kueue_local_queue_queued_workloads", ns.Name, localQueue.Name, "Pending"},
+			}
+			ginkgo.By("checking kueue_queued_workloads with reason=Pending is present", func() {
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient,
+					curlPod.Name, curlContainerName, metrics)
 			})
 		})
 	})
