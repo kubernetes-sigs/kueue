@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
@@ -232,6 +233,25 @@ func (p *Preemptor) IssuePreemptions(
 		)
 		if err != nil {
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
+			if apierrors.IsNotFound(err) {
+				// The target was deleted between the cache snapshot and this
+				// eviction patch. This is most pronounced after a controller
+				// restart, when the scheduler cache is rebuilt en masse from a
+				// List and may briefly contain workloads the API server has
+				// already deleted
+
+				wlKey := workload.Key(target.WorkloadInfo.Obj)
+				if deleteErr := cache.DeleteWorkload(log, wlKey); deleteErr != nil {
+					log.V(2).Info("Failed to remove deleted workload from scheduler cache",
+						"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+						"error", deleteErr)
+				} else {
+					log.V(2).Info("Removed deleted workload from scheduler cache after NotFound",
+						"targetWorkload", klog.KObj(target.WorkloadInfo.Obj))
+				}
+				successfullyPreempted.Add(1)
+				return
+			}
 			errCh.SendErrorWithCancel(err, cancel)
 			preemptionErrors.Add(1)
 			return

@@ -18,6 +18,7 @@ package preemption
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -27,8 +28,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
@@ -4837,5 +4840,305 @@ func TestPriorityInfo(t *testing.T) {
 					gotEff, gotBase, gotBoost, tc.wantEffective, tc.wantBase, tc.wantBoost)
 			}
 		})
+	}
+}
+
+func TestIssuePreemptionsTreatsNotFoundAsTerminal(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	rf := utiltestingapi.MakeResourceFlavor("default").Obj()
+
+	cases := map[string]struct {
+		cqCPU         string
+		incoming      *kueue.Workload
+		cacheWls      []kueue.Workload
+		apiWls        []kueue.Workload
+		interceptors  interceptor.Funcs
+		wantTargets   int
+		wantPreempted int
+		wantFailed    int
+		wantErr       bool
+		// cleanedWlKey, when non-empty, asserts the workload was removed from
+		// the scheduler cache after IssuePreemptions returned.
+		cleanedWlKey workload.Reference
+	}{
+		"deleted target alone — missing from API List": {
+			cqCPU: "6",
+			incoming: utiltestingapi.MakeWorkload("in", "").
+				UID("wl-in").
+				ResourceVersion("1").
+				Label(controllerconstants.JobUIDLabel, "job-in").Clone().
+				Priority(1).
+				Request(corev1.ResourceCPU, "2").
+				Obj(),
+			cacheWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("deleted", "").
+					UID("deleted-uid").
+					ResourceVersion("1").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			// apiWls left empty: the target is absent from the API server.
+			wantTargets:   1,
+			wantPreempted: 1,
+			cleanedWlKey:  workload.NewReference("", "deleted"),
+		},
+		"deleted target alongside alive — does not cancel alive": {
+			cqCPU: "4",
+			incoming: utiltestingapi.MakeWorkload("in", "").
+				UID("wl-in").
+				ResourceVersion("1").
+				Label(controllerconstants.JobUIDLabel, "job-in").Clone().
+				Priority(1).
+				Request(corev1.ResourceCPU, "4").
+				Obj(),
+			cacheWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("deleted", "").
+					UID("deleted-uid").
+					ResourceVersion("1").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("alive", "").
+					UID("alive-uid").
+					ResourceVersion("1").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			apiWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("alive", "").
+					UID("alive-uid").
+					ResourceVersion("1").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			wantTargets:   2,
+			wantPreempted: 2, // deleted counted as success + alive evicted
+			cleanedWlKey:  workload.NewReference("", "deleted"),
+		},
+		"deleted target surfaced via Get inside Evict": {
+			cqCPU: "6",
+			incoming: utiltestingapi.MakeWorkload("in", "ns").
+				UID("wl-in").
+				ResourceVersion("1").
+				Label(controllerconstants.JobUIDLabel, "job-in").Clone().
+				Priority(1).
+				Request(corev1.ResourceCPU, "2").
+				Obj(),
+			cacheWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("deleted", "ns").
+					UID("deleted-uid").
+					ResourceVersion("1").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			// PatchAdmissionStatus performs a Get before patching; this
+			// interceptor surfaces NotFound from that Get specifically.
+			interceptors: interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*kueue.Workload); ok && key.Name == "deleted" {
+						return apierrors.NewNotFound(
+							schema.GroupResource{Group: "kueue.x-k8s.io", Resource: "workloads"},
+							"deleted",
+						)
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
+			wantTargets:   1,
+			wantPreempted: 1,
+			cleanedWlKey:  workload.NewReference("ns", "deleted"),
+		},
+		"non-NotFound error still propagates as failure": {
+			cqCPU: "6",
+			incoming: utiltestingapi.MakeWorkload("in", "").
+				UID("wl-in").
+				ResourceVersion("1").
+				Label(controllerconstants.JobUIDLabel, "job-in").Clone().
+				Priority(1).
+				Request(corev1.ResourceCPU, "2").
+				Obj(),
+			cacheWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("target", "").
+					UID("target-uid").
+					ResourceVersion("1").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			apiWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("target", "").
+					UID("target-uid").
+					ResourceVersion("1").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			interceptors: interceptor.Funcs{
+				SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+					return apierrors.NewInternalError(errors.New("simulated server error"))
+				},
+			},
+			wantTargets:   1,
+			wantPreempted: 0,
+			wantFailed:    1,
+			wantErr:       true,
+			// cleanedWlKey left empty: no cache cleanup is expected.
+		},
+	}
+
+	for name, tc := range cases {
+		for _, useMergePatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+				ctx, log := utiltesting.ContextWithLog(t)
+
+				cq := utiltestingapi.MakeClusterQueue("standalone").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, tc.cqCPU).
+							Obj(),
+					).ResourceGroup().
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					Obj()
+
+				interceptors := tc.interceptors
+				if interceptors.SubResourcePatch == nil {
+					interceptors.SubResourcePatch = utiltesting.TreatSSAAsStrategicMerge
+				}
+
+				cl := utiltesting.NewClientBuilder().
+					WithLists(&kueue.WorkloadList{Items: tc.apiWls}).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptors).
+					Build()
+
+				cqCache := schdcache.New(cl)
+				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+				}
+				for i := range tc.cacheWls {
+					cqCache.AddOrUpdateWorkload(log, tc.cacheWls[i].DeepCopy())
+				}
+
+				broadcaster := record.NewBroadcaster()
+				scheme := runtime.NewScheme()
+				if err := kueue.AddToScheme(scheme); err != nil {
+					t.Fatalf("Failed adding kueue scheme: %v", err)
+				}
+				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+
+				snapshot, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+
+				wlInfo := workload.NewInfo(tc.incoming)
+				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
+				assignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
+					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+						Name: kueue.ResourceFlavorReference(rf.Name),
+						Mode: flavorassigner.Preempt,
+					},
+				})
+				targets := preemptor.GetTargets(log, *wlInfo, assignment, snapshot)
+
+				if len(targets) != tc.wantTargets {
+					t.Fatalf("Expected %d preemption targets, got %d", tc.wantTargets, len(targets))
+				}
+
+				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshot.ClusterQueue(wlInfo.ClusterQueue))
+
+				if tc.wantErr && err == nil {
+					t.Error("Expected an error from IssuePreemptions, got nil")
+				}
+				if !tc.wantErr && err != nil {
+					t.Errorf("IssuePreemptions returned unexpected error: %v", err)
+				}
+				if preempted != tc.wantPreempted {
+					t.Errorf("Expected %d preempted, got %d", tc.wantPreempted, preempted)
+				}
+				if failed != tc.wantFailed {
+					t.Errorf("Expected %d failedPreemptions, got %d", tc.wantFailed, failed)
+				}
+
+				if tc.cleanedWlKey != "" {
+					snapshot2, err := cqCache.Snapshot(ctx)
+					if err != nil {
+						t.Fatalf("unexpected error while building snapshot: %v", err)
+					}
+					cqSnap := snapshot2.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
+					if cqSnap == nil {
+						t.Fatal("ClusterQueue snapshot is nil")
+					}
+					if _, found := cqSnap.Workloads[tc.cleanedWlKey]; found {
+						t.Errorf("Expected workload %q to be removed from scheduler cache, but it is still present", tc.cleanedWlKey)
+					}
+				}
+			})
+		}
 	}
 }
