@@ -805,11 +805,9 @@ func SetResourceNominalQuota(cq *kueue.ClusterQueue, resourceName corev1.Resourc
 	return cq
 }
 
-func AssertMsgForMk(ctx context.Context, msg string, wl *kueue.Workload, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
+func AssertMsgForMk(ctx context.Context, msg string, wlKey client.ObjectKey, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
 	return func() string {
-		wlKey := client.ObjectKeyFromObject(wl)
 		return strings.Join([]string{
-			AssertMsg(msg, wl)(),
 			AssertMsg("Manager", getWorkload(ctx, k8sManagerClient, wlKey))(),
 			AssertMsg("Worker1", getWorkload(ctx, k8sWorker1Client, wlKey))(),
 			AssertMsg("Worker2", getWorkload(ctx, k8sWorker2Client, wlKey))(),
