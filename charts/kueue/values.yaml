@@ -138,6 +138,8 @@ managerConfig:
     #    backoffBaseSeconds: 60
     #    backoffMaxSeconds: 3600
     #manageJobsWithoutQueueName: true
+    # See "Opt-in Namespace Management" for guidance on namespace management:
+    # https://kueue.sigs.k8s.io/docs/tasks/manage/enforce_job_management/opt_in_namespace_management/
     #managedJobsNamespaceSelector:
     #  matchExpressions:
     #    - key: kubernetes.io/metadata.name
