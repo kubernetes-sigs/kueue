@@ -8,7 +8,7 @@ description: >
 
 Kueue includes experimental agent skills that help an AI agent follow repeatable troubleshooting
 runbooks for common workload investigations. The skills live in
-[`cmd/experimental/agent/skills`](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/agent/skills)
+[`cmd/experimental/skills`](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/skills)
 and are intended for agents that can read repository instructions such as `AGENTS.md`.
 
 {{% alert title="Experimental" color="warning" %}}
@@ -23,7 +23,7 @@ the results before taking action.
 Before using these skills, make sure:
 
 - You add an `@AGENTS.md` reference to your agent's configuration file.
-- The agent can understand `AGENTS.md` and the files under `cmd/experimental/agent/skills`.
+- The agent can understand `AGENTS.md` and the files under `cmd/experimental/skills`.
 - You have a local copy of the Kueue repository that includes the skills.
 - `kubectl` is configured for the cluster you want to inspect.
 - Your Kubernetes RBAC permissions allow reading the Workloads, parent jobs, Pods, events,
@@ -86,6 +86,6 @@ The repository [`AGENTS.md`](https://github.com/kubernetes-sigs/kueue/blob/main/
 directs compatible agents to the skills index. The detailed runbooks are maintained with the
 skills:
 
-- [`cmd/experimental/agent/skills/README.md`](https://github.com/kubernetes-sigs/kueue/blob/main/cmd/experimental/agent/skills/README.md)
-- [`cmd/experimental/agent/skills/kueue-lineage.md`](https://github.com/kubernetes-sigs/kueue/blob/main/cmd/experimental/agent/skills/kueue-lineage.md)
-- [`cmd/experimental/agent/skills/kueue-who-preempted.md`](https://github.com/kubernetes-sigs/kueue/blob/main/cmd/experimental/agent/skills/kueue-who-preempted.md)
+- [`cmd/experimental/skills/README.md`](https://github.com/kubernetes-sigs/kueue/blob/main/cmd/experimental/skills/README.md)
+- [`cmd/experimental/skills/kueue-lineage.md`](https://github.com/kubernetes-sigs/kueue/blob/main/cmd/experimental/skills/kueue-lineage.md)
+- [`cmd/experimental/skills/kueue-who-preempted.md`](https://github.com/kubernetes-sigs/kueue/blob/main/cmd/experimental/skills/kueue-who-preempted.md)
