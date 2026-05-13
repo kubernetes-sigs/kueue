@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -438,10 +439,29 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 	levels := []string{"block"}
 
 	testCases := map[string]struct {
-		domains       []*domain
-		unconstrained bool
-		wantOrder     []string
+		domains                              []*domain
+		unconstrained                        bool
+		enableTASPreferredSchedulingAffinity bool
+		wantOrder                            []string
 	}{
+		"affinityScore descending: higher affinity score comes first": {
+			enableTASPreferredSchedulingAffinity: true,
+			domains: []*domain{
+				{id: "low-affinity", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"a"}},
+				{id: "high-affinity", affinityScore: 100, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"high-affinity", "low-affinity"},
+		},
+		"affinityScore ignored when feature gate is disabled": {
+			enableTASPreferredSchedulingAffinity: false,
+			domains: []*domain{
+				{id: "low-affinity", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"a"}},
+				{id: "high-affinity", affinityScore: 100, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"low-affinity", "high-affinity"},
+		},
 		"leaderState descending: domains that can host leader come first": {
 			domains: []*domain{
 				{id: "no-leader", leaderState: 0, sliceStateWithLeader: 10, stateWithLeader: 10, levelValues: []string{"a"}},
@@ -499,6 +519,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASPreferredSchedulingAffinity, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "test", levels, nil)
 
