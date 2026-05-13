@@ -419,8 +419,8 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 			if logV := preemptionCtx.log.V(4); logV.Enabled() {
 				logV.Info("Evaluating FairSharing strategy",
 					"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
-					"targetCQ", klog.KRef("", string(candCQ.GetTargetCq().Name)),
-					"targetWl", klog.KObj(candWl.Obj),
+					"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
+					"targetWorkload", klog.KObj(candWl.Obj),
 					"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
 					"targetNewShare", schdcache.DRS(targetNewShare).PreciseWeightedShare(),
 					"strategyPassed", passed)
@@ -455,7 +455,7 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 		if logV := preemptionCtx.log.V(4); logV.Enabled() {
 			logV.Info("Evaluating FairSharing strategy",
 				"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
-				"targetCQ", klog.KRef("", string(candCQ.GetTargetCq().Name)),
+				"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
 				"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
 				"strategyPassed", passed)
 		}
