@@ -21,6 +21,7 @@
   - [globalDefault field on WorkloadPriorityClass](#globaldefault-field-on-workloadpriorityclass)
   - [Defaulting in the Workload rather than in the Job webhook](#defaulting-in-the-workload-rather-than-in-the-job-webhook)
   - [Per-ClusterQueue default WorkloadPriorityClass](#per-clusterqueue-default-workloadpriorityclass)
+  - [Soft enforcement when a Pod PriorityClass is set](#soft-enforcement-when-a-pod-priorityclass-is-set)
 <!-- /toc -->
 
 ## Summary
@@ -272,3 +273,29 @@ label (set by the user or by `ApplyDefaultLocalQueue`), the webhook would:
 
 - Admins who want a single default for every `ClusterQueue` must set the
   field on each one (or use their templating / policy tooling).
+
+### Soft enforcement when a Pod PriorityClass is set
+
+As proposed, defaulting stamps `kueue.x-k8s.io/priority-class: default` on every
+Job that does not already carry the label, regardless of whether the Job's
+`PodTemplateSpec` sets a Kubernetes `priorityClassName` ("strong" enforcement).
+
+A "soft" enforcement mode could instead apply the default `WorkloadPriorityClass`
+only when the Job's `PodTemplateSpec` has no `priorityClassName`, leaving Jobs
+that set a Pod `PriorityClass` to fall through to the Kubernetes PriorityClass
+chain for their Kueue queueing priority.
+
+In clusters with a mix of batch and non-batch workloads, Pod `PriorityClass` is
+typically used cluster-wide to drive quota and scheduling priority for
+non-batch workloads handled by the default Kubernetes scheduler, while
+`WorkloadPriorityClass` expresses a separate, tenant-scoped queueing and
+preemption priority for Kueue-managed batch Jobs. Batch Jobs frequently still
+set a Pod `PriorityClass` to participate in the cluster-wide quota and
+scheduling system, and those are exactly the Jobs where decoupling Kueue
+queueing priority from scheduler priority matters most. Strong enforcement
+keeps WPC defaulting effective for those Jobs and preserves the clean
+separation between scheduler priority and Kueue queueing priority that this
+KEP aims to establish.
+
+This decision will be re-evaluated before Beta based on user feedback from
+Alpha.
