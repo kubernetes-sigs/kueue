@@ -47,7 +47,7 @@ feature-gates:
   - name: TASBalancedPlacement
   - name: TASReplaceNodeOnNodeTaints
   - name: TASMultiLayerTopology
-  - name: TASPreferredSchedulingAffinity
+  - name: TASRespectNodeAffinityPreferred
 disable-supported: true
 
 # The following PRR answers are required at beta release

@@ -900,7 +900,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			requirements.affinitySelector = affinitySelector
 		}
 		preferredAffinity := info.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution
-		if features.Enabled(features.TASPreferredSchedulingAffinity) && len(preferredAffinity) > 0 {
+		if features.Enabled(features.TASRespectPreferredSchedulingAffinity) && len(preferredAffinity) > 0 {
 			prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
 			if err != nil {
 				s.log.V(5).Info("ignoring invalid preferred node affinity terms", "err", err)
@@ -1526,7 +1526,7 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		if features.Enabled(features.TASPreferredSchedulingAffinity) && a.affinityScore != b.affinityScore {
+		if features.Enabled(features.TASRespectPreferredSchedulingAffinity) && a.affinityScore != b.affinityScore {
 			return cmp.Compare(b.affinityScore, a.affinityScore)
 		}
 
@@ -1563,7 +1563,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		if features.Enabled(features.TASPreferredSchedulingAffinity) && a.affinityScore != b.affinityScore {
+		if features.Enabled(features.TASRespectPreferredSchedulingAffinity) && a.affinityScore != b.affinityScore {
 			return cmp.Compare(b.affinityScore, a.affinityScore)
 		}
 
@@ -1635,7 +1635,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 			}
 
 			// 4. Calculate Affinity Score
-			if features.Enabled(features.TASPreferredSchedulingAffinity) && requirements.preferredSchedulingTerms != nil {
+			if features.Enabled(features.TASRespectPreferredSchedulingAffinity) && requirements.preferredSchedulingTerms != nil {
 				leaf.affinityScore += requirements.preferredSchedulingTerms.Score(nodeObj)
 			}
 		}

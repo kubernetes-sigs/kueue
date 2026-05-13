@@ -387,12 +387,6 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
-- name: TASPreferredSchedulingAffinity
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.18"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false
@@ -419,6 +413,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASRespectPreferredSchedulingAffinity
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: TLSOptions
   versionedSpecs:
   - default: true

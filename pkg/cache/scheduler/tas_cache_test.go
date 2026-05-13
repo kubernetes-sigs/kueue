@@ -6266,7 +6266,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 		},
 		"with preferred affinity": {
-			featureGates: map[featuregate.Feature]bool{features.TASPreferredSchedulingAffinity: true},
+			featureGates: map[featuregate.Feature]bool{features.TASRespectPreferredSchedulingAffinity: true},
 			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("node-preferred").
@@ -6306,7 +6306,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"with required and preferred affinity": {
-			featureGates: map[featuregate.Feature]bool{features.TASPreferredSchedulingAffinity: true},
+			featureGates: map[featuregate.Feature]bool{features.TASRespectPreferredSchedulingAffinity: true},
 			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("node-preferred").
@@ -6360,7 +6360,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"with multiple preferred affinities": {
-			featureGates: map[featuregate.Feature]bool{features.TASPreferredSchedulingAffinity: true},
+			featureGates: map[featuregate.Feature]bool{features.TASRespectPreferredSchedulingAffinity: true},
 			levels:       []string{"cloud.com/topology-block", "cloud.com/topology-rack", "kubernetes.io/hostname"},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("node-a").
@@ -6413,7 +6413,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"affinity takes precedence over best fit": {
-			featureGates: map[featuregate.Feature]bool{features.TASPreferredSchedulingAffinity: true},
+			featureGates: map[featuregate.Feature]bool{features.TASRespectPreferredSchedulingAffinity: true},
 			levels:       []string{"kubernetes.io/hostname"},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("node-better-fit").

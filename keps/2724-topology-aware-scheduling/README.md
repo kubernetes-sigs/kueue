@@ -1752,21 +1752,23 @@ For a 3-level topology (block, rack, hostname), in the TopologyRequest, the user
 
 ### Support for Preferred Node Affinity
 
-TAS supports evaluating `preferredDuringSchedulingIgnoredDuringExecution`
-node affinities during the scheduling cycle. When the
-`TASPreferredSchedulingAffinity` feature gate is enabled, the preferred
-affinity scores are evaluated when selecting candidate topology domains,
-allowing affinity preferences to guide placement decisions. Preferred affinity
-takes precedence over capacity fitness of a domain.
+In 0.18 we introduce the pilot support for domain affinity based on `preferredDuringSchedulingIgnoredDuringExecution`, behind the 
+`TASRespectNodeAffinityPreferred` feature gate (alpha).
+When the feature gate is enabled, we compute the "domain affinity scores" at all levels by
+aggregating (summing) the scores from child topology domains.
+Then, the "domain affinity scores" takes precedence over standard placement ordering of domains (based on BestFit or LeastFreeCapacity policies).
+This feature only works when the lowest topology level specified in the Topology CRD is `kubernetes.io/hostname`.
 
 #### Future Vision
-The long-term goal is to decommission this strict precedence model and its
-associated `TASPreferredSchedulingAffinity` feature gate in favor of a generic
-weighted scoring model of domains. Similar to the kube-scheduler scheduling
-plugins scoring model, candidate topology domains will be evaluated using
-a configurable list of individual scoring components (such as affinity
+
+One drawback of the proposed solution is that it introduces a strict precedence between the 
+"domain affinity score" and the "placement policy". 
+A more generic approach using weighted scoring model of domains is considered, similar to
+the kube-scheduler scheduling plugins scoring model, candidate topology domains will be
+evaluated using a configurable list of individual scoring components (such as affinity
 preferences and capacity packing efficiency) that contribute to a normalized,
 unified final score to determine the globally optimal placement.
+We are going to re-evaluate the next steps based on the user and community feedback.
 
 ### Support for ProvisioningRequests
 
@@ -1937,9 +1939,8 @@ Consider the following improvements and implement if feasible:
 - perform full scheduling simulation rather than just capacity counting
  (including pod affinities and anti-affinities)
 - drop `TASLeastAllocated` feature gate
-- drop `TASPreferredSchedulingAffinity` feature gate upon decommissioning the
- strict precedence affinity model in favor of the Weighted Scoring Model of
- domains (see [Future Vision](#future-vision))
+- re-evaluate the status of the `TASRespectPreferredSchedulingAffinity` feature gate - either graduate,
+  or decommission with the more generic model of weighted scores (see [Future Vision](#future-vision))
 - introduce configuration for setting TAS profiles/algorithms: https://github.com/kubernetes-sigs/kueue/issues/4570
 - introduce a performance test for TAS [#4634](https://github.com/kubernetes-sigs/kueue/issues/4634)
 - add observability metrics, some ideas are in the [discussion](https://github.com/kubernetes-sigs/kueue/pull/5078#discussion_r2060580973)
