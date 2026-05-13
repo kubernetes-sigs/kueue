@@ -9,7 +9,10 @@
   - [User Stories](#user-stories)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+  - [Notes/Constraints/Caveats](#notesconstraintscaveats)
+    - [Naming convention](#naming-convention)
+    - [Interaction with <code>managedJobsNamespaceSelector</code>](#interaction-with-managedjobsnamespaceselector)
+    - [Compatibility with <code>manageJobsWithoutQueueName</code>](#compatibility-with-managejobswithoutqueuename)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Defaulting mechanism](#defaulting-mechanism)
@@ -90,12 +93,33 @@ creating a `default` WorkloadPriorityClass with a low value, new workloads that
 forget to set a priority class get a well-defined baseline rather than inheriting
 an unrelated value from the Kubernetes PriorityClass chain.
 
-### Notes/Constraints/Caveats (Optional)
+### Notes/Constraints/Caveats
+
+#### Naming convention
 
 The name `default` is a convention, consistent with how `LocalQueueDefaulting`
 works. Administrators who want a descriptive name can create a
 `WorkloadPriorityClass` with their preferred name and instruct users to reference
 it via label; this feature only covers the case where no label is set at all.
+
+#### Interaction with `managedJobsNamespaceSelector`
+
+When the `default` WorkloadPriorityClass exists, the webhook sets the
+`kueue.x-k8s.io/priority-class: default` label on every Job that passes
+through it, including Jobs in namespaces excluded by
+`managedJobsNamespaceSelector`. This mirrors how `LocalQueueDefaulting` sets
+the `kueue.x-k8s.io/queue-name` label, since both run before the
+`ApplyDefaultForSuspend` check where the namespace-selector filter is
+applied. The label is noop on excluded-namespace Jobs: Kueue does not
+reconcile those Jobs, so no `Workload` is created and the label is never
+read.
+
+#### Compatibility with `manageJobsWithoutQueueName`
+
+Defaulting does not depend on the `kueue.x-k8s.io/queue-name` label, so Jobs
+admitted under `manageJobsWithoutQueueName=true` — including those without a
+LocalQueue reference — receive the default `WorkloadPriorityClass` on the same
+terms as any other Kueue-managed Job.
 
 ### Risks and Mitigations
 
@@ -251,8 +275,8 @@ label (set by the user or by `ApplyDefaultLocalQueue`), the webhook would:
    (`Manager.ClusterQueueFromLocalQueue`, already used by
    `ApplyDefaultForManagedBy`).
 2. Read `ClusterQueue.Spec.DefaultWorkloadPriorityClass`.
-3. If set and the Job has no `kueue.x-k8s.io/priority-class` label, stamp the
-   label with that value.
+3. If set and the Job has no `kueue.x-k8s.io/priority-class` label, set the
+   label to that value.
 
 **Advantages over the cluster-wide `default` WPC:**
 
@@ -260,9 +284,9 @@ label (set by the user or by `ApplyDefaultLocalQueue`), the webhook would:
   vs `batch`), aligning with how admins typically configure per-partition QoS
   in systems like Slurm.
 - Operators can change the default `WorkloadPriorityClass` one `ClusterQueue`
-  at a time, so Jobs already stamped with the old default keep resolving
+  at a time, so Jobs already labeled with the old default keep resolving
   successfully while the new default is rolled out. With the cluster-wide
-  `default` WPC convention, deleting it leaves every already-stamped Job
+  `default` WPC convention, deleting it leaves every already-labeled Job
   unable to produce a Workload until the old WPC is restored or the label is
   stripped.
 - Defaulting is opt-in per `ClusterQueue`. Operators can enable WPC defaulting
@@ -276,7 +300,7 @@ label (set by the user or by `ApplyDefaultLocalQueue`), the webhook would:
 
 ### Soft enforcement when a Pod PriorityClass is set
 
-As proposed, defaulting stamps `kueue.x-k8s.io/priority-class: default` on every
+As proposed, defaulting sets `kueue.x-k8s.io/priority-class: default` on every
 Job that does not already carry the label, regardless of whether the Job's
 `PodTemplateSpec` sets a Kubernetes `priorityClassName` ("strong" enforcement).
 
