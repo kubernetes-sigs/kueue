@@ -6,40 +6,74 @@ configurations:
 - kustomizeconfig.yaml
 
 patches:
-- target:
-    kind: MutatingWebhookConfiguration
-    name: mutating-webhook-configuration
-  patch: |-
-    - op: add
-      path: /webhooks/0/namespaceSelector
-      value:
+ - patch: |-
+    apiVersion: admissionregistration.k8s.io/v1
+    kind: ValidatingWebhookConfiguration
+    metadata:
+      name: validating-webhook-configuration
+    webhooks:
+    - name: vpod.kb.io
+      namespaceSelector:
         matchExpressions:
-          - key: kubernetes.io/metadata.name
-            operator: NotIn
-            values:
-            - kube-system
-            - kueue-system
-
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+          - kube-system
+          - kueue-system
 
 # as kustomize does not allow * targeting in path, we use replacements
 # to apply the same namespaceSelector to all webhooks
 replacements:
 - source:
-    kind: MutatingWebhookConfiguration
-    name: mutating-webhook-configuration
-    fieldPath: webhooks.0.namespaceSelector
+    kind: ValidatingWebhookConfiguration
+    name: validating-webhook-configuration
+    fieldPath: webhooks.[name=vpod.kb.io].namespaceSelector
   targets:
     - select:
         kind: MutatingWebhookConfiguration
         name: mutating-webhook-configuration
       fieldPaths:
-        - webhooks.*.namespaceSelector
+        - webhooks.[name=mappwrapper.kb.io].namespaceSelector
+        - webhooks.[name=mdeployment.kb.io].namespaceSelector
+        - webhooks.[name=mjaxjob.kb.io].namespaceSelector
+        - webhooks.[name=mjob.kb.io].namespaceSelector
+        - webhooks.[name=mjobset.kb.io].namespaceSelector
+        - webhooks.[name=mleaderworkerset.kb.io].namespaceSelector
+        - webhooks.[name=mmpijob.kb.io].namespaceSelector
+        - webhooks.[name=mpaddlejob.kb.io].namespaceSelector
+        - webhooks.[name=mpod.kb.io].namespaceSelector
+        - webhooks.[name=mpytorchjob.kb.io].namespaceSelector
+        - webhooks.[name=mraycluster.kb.io].namespaceSelector
+        - webhooks.[name=mrayjob.kb.io].namespaceSelector
+        - webhooks.[name=mrayservice.kb.io].namespaceSelector
+        - webhooks.[name=msparkapplication.kb.io].namespaceSelector
+        - webhooks.[name=mstatefulset.kb.io].namespaceSelector
+        - webhooks.[name=mtfjob.kb.io].namespaceSelector
+        - webhooks.[name=mtrainjob.kb.io].namespaceSelector
+        - webhooks.[name=mxgboostjob.kb.io].namespaceSelector
       options:
         create: true
     - select:
         kind: ValidatingWebhookConfiguration
         name: validating-webhook-configuration
       fieldPaths:
-        - webhooks.*.namespaceSelector
+        - webhooks.[name=vappwrapper.kb.io].namespaceSelector
+        - webhooks.[name=vdeployment.kb.io].namespaceSelector
+        - webhooks.[name=vjaxjob.kb.io].namespaceSelector
+        - webhooks.[name=vjob.kb.io].namespaceSelector
+        - webhooks.[name=vjobset.kb.io].namespaceSelector
+        - webhooks.[name=vleaderworkerset.kb.io].namespaceSelector
+        - webhooks.[name=vmpijob.kb.io].namespaceSelector
+        - webhooks.[name=vpaddlejob.kb.io].namespaceSelector
+        - webhooks.[name=vpod.kb.io].namespaceSelector
+        - webhooks.[name=vpytorchjob.kb.io].namespaceSelector
+        - webhooks.[name=vraycluster.kb.io].namespaceSelector
+        - webhooks.[name=vrayjob.kb.io].namespaceSelector
+        - webhooks.[name=vrayservice.kb.io].namespaceSelector
+        - webhooks.[name=vsparkapplication.kb.io].namespaceSelector
+        - webhooks.[name=vstatefulset.kb.io].namespaceSelector
+        - webhooks.[name=vtfjob.kb.io].namespaceSelector
+        - webhooks.[name=vtrainjob.kb.io].namespaceSelector
+        - webhooks.[name=vxgboostjob.kb.io].namespaceSelector
       options:
         create: true

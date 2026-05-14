@@ -277,8 +277,8 @@ files:
           failurePolicy: Ignore
           {{- end }}
           namespaceSelector:
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- else }}
             matchExpressions:
               - key: kubernetes.io/metadata.name
@@ -298,8 +298,8 @@ files:
           failurePolicy: Ignore
           {{- end }}
           namespaceSelector:
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- else }}
             matchExpressions:
               - key: kubernetes.io/metadata.name
@@ -319,8 +319,8 @@ files:
           failurePolicy: Ignore
           {{- end }}
           namespaceSelector:
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- else }}
             matchExpressions:
               - key: kubernetes.io/metadata.name
@@ -340,8 +340,8 @@ files:
           failurePolicy: Ignore
           {{- end }}
           namespaceSelector:
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- else }}
             matchExpressions:
               - key: kubernetes.io/metadata.name
@@ -361,8 +361,8 @@ files:
           failurePolicy: Ignore
           {{- end }}
           namespaceSelector:
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- else }}
             matchExpressions:
               - key: kubernetes.io/metadata.name
@@ -382,8 +382,8 @@ files:
           failurePolicy: Ignore
           {{- end }}
           namespaceSelector:
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- else }}
             matchExpressions:
               - key: kubernetes.io/metadata.name
