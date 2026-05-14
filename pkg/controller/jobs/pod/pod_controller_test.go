@@ -421,7 +421,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Queue(localTestQueueName + "-changed").
+					Queue("test-queue-changed").
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
@@ -430,7 +430,7 @@ func TestReconciler(t *testing.T) {
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
-					Queue(localTestQueueName + "-changed").
+					Queue("test-queue-changed").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -442,7 +442,7 @@ func TestReconciler(t *testing.T) {
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
-					Queue(localTestQueueName).
+					Queue("test-queue").
 					Priority(0).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Labels(map[string]string{
@@ -459,7 +459,7 @@ func TestReconciler(t *testing.T) {
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
-					Queue(localTestQueueName+"-changed").
+					Queue("test-queue-changed").
 					Priority(0).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Labels(map[string]string{
@@ -478,7 +478,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					Queue(localTestQueueName + "-changed").
+					Queue("test-queue-changed").
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -488,7 +488,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					Queue(localTestQueueName + "-changed").
+					Queue("test-queue-changed").
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
@@ -499,7 +499,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					Queue(localTestQueueName + "-changed").
+					Queue("test-queue-changed").
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -509,7 +509,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					Queue(localTestQueueName + "-changed").
+					Queue("test-queue-changed").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -521,7 +521,7 @@ func TestReconciler(t *testing.T) {
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
-					Queue(localTestQueueName).
+					Queue("test-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -539,7 +539,7 @@ func TestReconciler(t *testing.T) {
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
-					Queue(localTestQueueName+"-changed").
+					Queue("test-queue-changed").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -559,7 +559,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					Queue(localTestQueueName + "-changed").
+					Queue("test-queue-changed").
 					PodGroupServingAnnotation().
 					Obj(),
 				*basePodWrapper.
@@ -570,7 +570,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					Queue(localTestQueueName + "-changed").
+					Queue("test-queue-changed").
 					PodGroupServingAnnotation().
 					Obj(),
 			},
@@ -582,7 +582,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					Queue(localTestQueueName + "-changed").
+					Queue("test-queue-changed").
 					PodGroupServingAnnotation().
 					Obj(),
 				*basePodWrapper.
@@ -593,7 +593,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					Queue(localTestQueueName + "-changed").
+					Queue("test-queue-changed").
 					PodGroupServingAnnotation().
 					Obj(),
 			},
@@ -606,7 +606,7 @@ func TestReconciler(t *testing.T) {
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
-					Queue(localTestQueueName).
+					Queue("test-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -624,7 +624,7 @@ func TestReconciler(t *testing.T) {
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
-					Queue(localTestQueueName).
+					Queue("test-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
