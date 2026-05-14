@@ -519,7 +519,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TASRespectPreferredSchedulingAffinity, tc.enableTASPreferredSchedulingAffinity)
+			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "test", levels, nil)
 

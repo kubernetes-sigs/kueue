@@ -413,7 +413,7 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
-- name: TASRespectPreferredSchedulingAffinity
+- name: TASRespectNodeAffinityPreferred
   versionedSpecs:
   - default: false
     lockToDefault: false

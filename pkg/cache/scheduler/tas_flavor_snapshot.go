@@ -899,13 +899,13 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			}
 			requirements.affinitySelector = affinitySelector
 		}
-		preferredAffinity := info.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution
-		if features.Enabled(features.TASRespectPreferredSchedulingAffinity) && len(preferredAffinity) > 0 {
-			prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
-			if err != nil {
-				s.log.V(5).Info("ignoring invalid preferred node affinity terms", "err", err)
-				return nil, fmt.Sprintf("invalid preferred node affinity terms: %v, reason: %s", preferredAffinity, err)
-			} else {
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) {
+			preferredAffinity := info.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+			if len(preferredAffinity) > 0 {
+				prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
+				if err != nil {
+					return nil, fmt.Sprintf("invalid preferred node affinity terms: %v, reason: %s", preferredAffinity, err)
+				}
 				requirements.preferredSchedulingTerms = prefTerms
 			}
 		}
@@ -1263,7 +1263,8 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 	sliceCount := state.count / state.sliceSize
 	if useBestFitAlgorithm(state.unconstrained) && topDomain.sliceStateWithLeader >= sliceCount && topDomain.leaderState >= state.leaderCount {
 		// optimize the potentially last domain
-		topDomain = findBestFitDomainForSlices(sortedDomain, sliceCount, state.leaderCount)
+		candidates := topAffinityTierDomains(sortedDomain)
+		topDomain = findBestFitDomainForSlices(candidates, sliceCount, state.leaderCount)
 	}
 	notFitReason := func(slicesFitCount, totalRequestsSlicesCount int32) string {
 		if len(state.multiLayerConstraints) > 0 {
@@ -1285,8 +1286,17 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 	}
 	if topDomain.sliceStateWithLeader < sliceCount || topDomain.leaderState < state.leaderCount {
 		if state.required {
+			// Scan remaining domains to support preferred affinity before failing
+			for i := 1; i < len(sortedDomain); i++ {
+				d := sortedDomain[i]
+				if d.sliceStateWithLeader >= sliceCount && d.leaderState >= state.leaderCount {
+					candidates := topAffinityTierDomains(sortedDomain[i:])
+					return searchLevelIdx, []*domain{findBestFitDomainForSlices(candidates, sliceCount, state.leaderCount)}, ""
+				}
+			}
 			return 0, nil, notFitReason(topDomain.sliceState, sliceCount)
 		}
+
 		if searchLevelIdx > 0 && !state.unconstrained {
 			return s.findLevelWithFitDomains(searchLevelIdx-1, state)
 		}
@@ -1303,7 +1313,8 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 			domain := sortedDomain[idx]
 			if useBestFitAlgorithm(state.unconstrained) && sortedDomain[idx].sliceStateWithLeader >= remainingSliceCount {
 				// optimize the last domain
-				domain = findBestFitDomainForSlices(sortedDomain[idx:], remainingSliceCount, remainingLeaderCount)
+				candidates := topAffinityTierDomains(sortedDomain[idx:])
+				domain = findBestFitDomainForSlices(candidates, remainingSliceCount, remainingLeaderCount)
 			}
 			results = append(results, domain)
 
@@ -1321,7 +1332,8 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 			domain := sortedDomain[idx]
 			if useBestFitAlgorithm(state.unconstrained) && sortedDomain[idx].sliceState >= remainingSliceCount {
 				// optimize the last domain
-				domain = findBestFitDomainForSlices(sortedDomain[idx:], remainingSliceCount, 0)
+				candidates := topAffinityTierDomains(sortedDomain[idx:])
+				domain = findBestFitDomainForSlices(candidates, remainingSliceCount, 0)
 			}
 			results = append(results, domain)
 
@@ -1333,6 +1345,26 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		return searchLevelIdx, results, ""
 	}
 	return searchLevelIdx, []*domain{topDomain}, ""
+}
+
+// topAffinityTierDomains truncates the candidate list to include only the domains
+// sharing the highest affinity score present in the slice.
+//
+// Since candidates are already sorted by affinity score descending, this helper scans
+// consecutive matches from the beginning and truncates the slice as soon as the score drops.
+// This prevents the capacity-focused BestFit algorithm from optimizing across affinity tiers,
+// guaranteeing that affinity scores take absolute precedence over capacity minimization.
+func topAffinityTierDomains(candidates []*domain) []*domain {
+	if !features.Enabled(features.TASRespectNodeAffinityPreferred) || len(candidates) == 0 {
+		return candidates
+	}
+	score := candidates[0].affinityScore
+	for i, c := range candidates {
+		if c.affinityScore != score {
+			return candidates[:i]
+		}
+	}
+	return candidates
 }
 
 func useBestFitAlgorithm(unconstrained bool) bool {
@@ -1373,12 +1405,13 @@ func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(
 ) (*domain, bool) {
 	if useBestFitAlgorithm(unconstrained) && *withLeader >= *remainingPrimary && domain.leaderState >= *remainingLeaderCount {
 		// optimize the last domain
+		candidates := topAffinityTierDomains(remainingDomains)
 		if slices {
-			domain = findBestFitDomainForSlices(remainingDomains, *remainingPrimary, *remainingLeaderCount)
+			domain = findBestFitDomainForSlices(candidates, *remainingPrimary, *remainingLeaderCount)
 			withLeader = &domain.sliceStateWithLeader
 			primary = &domain.sliceState
 		} else {
-			domain = findBestFitDomain(remainingDomains, *remainingPrimary, *remainingLeaderCount)
+			domain = findBestFitDomain(candidates, *remainingPrimary, *remainingLeaderCount)
 			withLeader = &domain.stateWithLeader
 			primary = &domain.state
 		}
@@ -1445,7 +1478,8 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		if slices {
 			if useBestFitAlgorithm(unconstrained) && dom.sliceState >= remainingPrimary {
 				// optimize the last domain
-				dom = findBestFitDomainForSlices(domains[i:], remainingPrimary, 0)
+				candidates := topAffinityTierDomains(domains[i:])
+				dom = findBestFitDomainForSlices(candidates, remainingPrimary, 0)
 			}
 			dom.leaderState = 0
 			if dom.sliceState >= remainingPrimary {
@@ -1463,7 +1497,8 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		// pods (slices=false)
 		if useBestFitAlgorithm(unconstrained) && dom.state >= remainingPrimary {
 			// optimize the last domain
-			dom = findBestFitDomain(domains[i:], remainingPrimary, 0)
+			candidates := topAffinityTierDomains(domains[i:])
+			dom = findBestFitDomain(candidates, remainingPrimary, 0)
 		}
 		dom.leaderState = 0
 		if dom.state >= remainingPrimary {
@@ -1527,7 +1562,7 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		if features.Enabled(features.TASRespectPreferredSchedulingAffinity) && a.affinityScore != b.affinityScore {
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) && a.affinityScore != b.affinityScore {
 			return cmp.Compare(b.affinityScore, a.affinityScore)
 		}
 
@@ -1564,7 +1599,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		if features.Enabled(features.TASRespectPreferredSchedulingAffinity) && a.affinityScore != b.affinityScore {
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) && a.affinityScore != b.affinityScore {
 			return cmp.Compare(b.affinityScore, a.affinityScore)
 		}
 
@@ -1636,7 +1671,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 			}
 
 			// 4. Calculate Affinity Score
-			if features.Enabled(features.TASRespectPreferredSchedulingAffinity) && requirements.preferredSchedulingTerms != nil {
+			if features.Enabled(features.TASRespectNodeAffinityPreferred) && requirements.preferredSchedulingTerms != nil {
 				leaf.affinityScore += requirements.preferredSchedulingTerms.Score(nodeObj)
 			}
 		}

@@ -6265,7 +6265,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 		},
 		"with preferred affinity": {
-			featureGates: map[featuregate.Feature]bool{features.TASRespectPreferredSchedulingAffinity: true},
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
 			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("node-preferred").
@@ -6309,7 +6309,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"with required and preferred affinity": {
-			featureGates: map[featuregate.Feature]bool{features.TASRespectPreferredSchedulingAffinity: true},
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
 			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("node-preferred").
@@ -6367,7 +6367,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"with multiple preferred affinities": {
-			featureGates: map[featuregate.Feature]bool{features.TASRespectPreferredSchedulingAffinity: true},
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
 			levels:       []string{"cloud.com/topology-block", "cloud.com/topology-rack", "kubernetes.io/hostname"},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("node-a").
@@ -6422,7 +6422,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"affinity takes precedence over best fit": {
-			featureGates: map[featuregate.Feature]bool{features.TASRespectPreferredSchedulingAffinity: true},
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
 			levels:       []string{"kubernetes.io/hostname"},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("node-better-fit").
@@ -6458,6 +6458,103 @@ func TestFindTopologyAssignments(t *testing.T) {
 				count: 1,
 				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
 					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-has-affinity"}}).
+					TopologyAssignment,
+			}},
+		},
+		"affinity ordering with required topology level chooses secondary domain if primary is too small": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-preferred-small").
+					Label("cloud.com/topology-rack", "rack-preferred").
+					Label("kubernetes.io/hostname", "node-preferred-small").
+					Label("region", "us-west").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-secondary-large-1").
+					Label("cloud.com/topology-rack", "rack-secondary").
+					Label("kubernetes.io/hostname", "node-secondary-large-1").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-secondary-large-2").
+					Label("cloud.com/topology-rack", "rack-secondary").
+					Label("kubernetes.io/hostname", "node-secondary-large-2").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new("cloud.com/topology-rack"),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 4,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 4, Values: []string{"node-secondary-large-1"}}).
+					TopologyAssignment,
+			}},
+		},
+		"affinity ordering with preferred inner topology level bubbles up to parent level to avoid splitting across parent domains": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"cloud.com/topology-rack", "cloud.com/topology-switch", "kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-preferred-small").
+					Label("cloud.com/topology-rack", "r1").
+					Label("cloud.com/topology-switch", "s1").
+					Label("kubernetes.io/hostname", "node-preferred-small").
+					Label("region", "us-west").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-secondary-large").
+					Label("cloud.com/topology-rack", "r1").
+					Label("cloud.com/topology-switch", "s2").
+					Label("kubernetes.io/hostname", "node-secondary-large").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("cloud.com/topology-switch"),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 4,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-preferred-small"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-secondary-large"}}).
 					TopologyAssignment,
 			}},
 		},

@@ -3416,13 +3416,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 		})
 
-		ginkgo.When("Workloads use preferred node affinity and TASRespectPreferredSchedulingAffinity is enabled", func() {
+		ginkgo.When("Workloads use preferred node affinity and TASRespectNodeAffinityPreferred is enabled", func() {
 			var (
 				nodes []corev1.Node
 			)
 
 			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASRespectPreferredSchedulingAffinity, true)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASRespectNodeAffinityPreferred, true)
 				gomega.Expect(k8sClient.DeleteAllOf(ctx, &corev1.Node{}, client.MatchingLabels{"node-group": "tas"})).Should(gomega.Succeed())
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("node-best").

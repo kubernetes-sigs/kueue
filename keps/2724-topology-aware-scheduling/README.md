@@ -16,6 +16,7 @@
     - [Story 7](#story-7)
     - [Story 8](#story-8)
     - [Story 9](#story-9)
+    - [Story 10](#story-10)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Integration support](#integration-support)
       - [Job](#job)
@@ -64,6 +65,7 @@
   - [Balanced placement](#balanced-placement)
     - [Example](#example-3)
   - [Support for Preferred Node Affinity](#support-for-preferred-node-affinity)
+    - [Behavioral impact on LeaderWorkerSet / Leader placement](#behavioral-impact-on-leaderworkerset--leader-placement)
     - [Future Vision](#future-vision)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
     - [Determining the need for second pass](#determining-the-need-for-second-pass)
@@ -224,6 +226,17 @@ Similar to [Story 1](#story-1), but I want a Job's Pods to be placed across a
 multi-layer topology based on user-specified constraints. For example, I want
 to ensure that a Job is scheduled onto the same data center, in multiples
 of 64 on the same "block", and in multiples of 16 on the same "rack".
+
+#### Story 10
+
+As a user, I have a performance-costly procedure for preparing infrastructure
+on specific topology domains. I want to prioritize scheduling workloads onto
+domains with already prepared ("hot") infrastructure as much as possible using
+preferred node affinity. If a workload cannot be scheduled entirely on the
+"hot" domains, I am willing to fall back to another domain and warm it up, but
+because this warm-up procedure is highly expensive, I want the scheduler to
+strictly prioritize the preferred node affinity even at the cost of workload
+fragmentation across multiple domains.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -1759,6 +1772,18 @@ aggregating (summing) the scores from child topology domains.
 Then, the "domain affinity scores" takes precedence over standard placement ordering of domains (based on BestFit or LeastFreeCapacity policies).
 This feature only works when the lowest topology level specified in the Topology CRD is `kubernetes.io/hostname`.
 
+#### Behavioral impact on LeaderWorkerSet / Leader placement
+
+Introducing node affinity precedence adjusts the placement behavior for leader
+pods in configurations like LeaderWorkerSet. When
+`TASRespectNodeAffinityPreferred` is active, candidate topology domains for the
+leader are prioritized primarily by their domain affinity scores. While this
+may shift the leader pod's final placement to a different domain to satisfy
+soft affinity preferences, it acts strictly as an ordering optimization rather
+than a hard filter. If a capable domain exists in the cluster, the scheduler
+will still find it; the feature will never convert a previously schedulable
+workload into an unschedulable one (`noFit`).
+
 #### Future Vision
 
 One drawback of the proposed solution is that it introduces a strict precedence between the 
@@ -1939,7 +1964,7 @@ Consider the following improvements and implement if feasible:
 - perform full scheduling simulation rather than just capacity counting
  (including pod affinities and anti-affinities)
 - drop `TASLeastAllocated` feature gate
-- re-evaluate the status of the `TASRespectPreferredSchedulingAffinity` feature gate - either graduate,
+- re-evaluate the status of the `TASRespectNodeAffinityPreferred` feature gate - either graduate,
   or decommission with the more generic model of weighted scores (see [Future Vision](#future-vision))
 - introduce configuration for setting TAS profiles/algorithms: https://github.com/kubernetes-sigs/kueue/issues/4570
 - introduce a performance test for TAS [#4634](https://github.com/kubernetes-sigs/kueue/issues/4634)
