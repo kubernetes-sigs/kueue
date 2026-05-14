@@ -1287,16 +1287,17 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 	if topDomain.sliceStateWithLeader < sliceCount || topDomain.leaderState < state.leaderCount {
 		if state.required {
 			// Scan remaining domains to support preferred affinity before failing
-			for i := 1; i < len(sortedDomain); i++ {
-				d := sortedDomain[i]
-				if d.sliceStateWithLeader >= sliceCount && d.leaderState >= state.leaderCount {
-					candidates := topAffinityTierDomains(sortedDomain[i:])
-					return searchLevelIdx, []*domain{findBestFitDomainForSlices(candidates, sliceCount, state.leaderCount)}, ""
+			if features.Enabled(features.TASRespectNodeAffinityPreferred) {
+				for i := 1; i < len(sortedDomain); i++ {
+					d := sortedDomain[i]
+					if d.sliceStateWithLeader >= sliceCount && d.leaderState >= state.leaderCount {
+						candidates := topAffinityTierDomains(sortedDomain[i:])
+						return searchLevelIdx, []*domain{findBestFitDomainForSlices(candidates, sliceCount, state.leaderCount)}, ""
+					}
 				}
 			}
 			return 0, nil, notFitReason(topDomain.sliceState, sliceCount)
 		}
-
 		if searchLevelIdx > 0 && !state.unconstrained {
 			return s.findLevelWithFitDomains(searchLevelIdx-1, state)
 		}
