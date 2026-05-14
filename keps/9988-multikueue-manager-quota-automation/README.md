@@ -47,6 +47,7 @@
   - [Different handling of many-to-many relationships between manager-side and worker-side ClusterQueues](#different-handling-of-many-to-many-relationships-between-manager-side-and-worker-side-clusterqueues)
   - [Make the <code>MultiKueueManagerQuotaAutomation</code> Condition message more informative](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative)
   - [Take Cohorts into account](#take-cohorts-into-account)
+  - [Set the default for <code>QuotaManagement</code> based on the feature gate state](#set-the-default-for-quotamanagement-based-on-the-feature-gate-state)
 <!-- /toc -->
 
 ## Summary
@@ -372,8 +373,6 @@ const (
 )
 ```
 
-For Alpha1, unspecified `QuotaManagement` is interpreted as `Manual`. This may be revisited in the next version, depending on user feedback. For example, for Beta, we may decide to set the default based on the feature gate state.
-
 The status of the feature will be communicated by a new Condition added to ClusterQueueStatus. The Condition will be present in all ClusterQueues enrolled in MultiKueue.
 
 When quota automation is requested and supported, the condition will look like this:
@@ -567,7 +566,6 @@ Issue [#5704](https://github.com/kubernetes-sigs/kueue/issues/5704) aims at allo
 
 * **Beta:**
   * The feature gate is enabled by default.
-  * The defaulting rule for `QuotaManagement` is reconsidered, and aligned on.
   * User documentation is published on the website.
   * The feature is mentioned in the release notes, in particular mentioning how to opt out.
   * The feature has been successfully used in a production environment.
@@ -717,3 +715,22 @@ There are many difficulties in defining the desired behavior. Example questions:
   * If yes, what should we do if that relationship is many-to-many?
 
 * How should we manage quota automation enablement for Cohorts if it may diverge for the underlying ClusterQueues?
+
+### Set the default for `QuotaManagement` based on the feature gate state
+
+Intuitively, doing so is appealing. MultiKueue documentation already recommends maintaining ClusterQueue quotas in sync with the workers' total, so by defaulting `QuotaManagement` to `Automated` we'd just make the users follow that recommendation by default (still leaving a way to opt out).
+
+**Reasons for discarding/deferring**
+
+Once `Automated` becomes the default, we'll break backward compatibility.
+
+Specifically, when a user creates a ClusterQueue with non-trivial nominal quotas (in `Spec`), and leaves `QuotaManagement` unset, quota automation would lead (depending on the status of the [effective quotas follow-up idea](#move-the-aggregated-quota-out-of-clusterqueuespec)) to either of:
+
+- overwriting nominal quotas with new values,
+- silently ignoring nominal quota values,
+- making the ClusterQueue `Inactive`,
+- rejecting such a config via a validation webhook
+
+where each choice would break the existing v1beta2 contract. Therefore, defaulting to `Automated` can only happen in v1beta3.
+
+While making such a change may be still desired, this is not tightly bound to the lifecycle of the feature gate, and hence out of scope of this KEP.
