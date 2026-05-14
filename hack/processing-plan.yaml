@@ -63,14 +63,14 @@ files:
         key: .metadata.labels
         value: |
           {{- include "kueue.labels" . | nindent 4 }}
-        onFileCondition: ".metadata.labels != null"
+        onFileCondition: '.metadata.labels != null'
       - type: INSERT_TEXT
         key: .metadata
         value: |
           labels:
           {{- include "kueue.labels" . | nindent 4 }}
         indentation: 2
-        onFileCondition: ".metadata.labels == null"
+        onFileCondition: '.metadata.labels == null'
   - path: ./config/components/visibility/*.yaml
     outputDir: ./charts/kueue/templates/visibility
     removeComments: true
