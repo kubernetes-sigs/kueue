@@ -108,7 +108,7 @@ func TestFetchLocalQueueWorkloads(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			h := &Handlers{client: &fakeWorkloadClient{workloads: tc.workloads, err: tc.listErr}}
 
-			got, err := h.fetchLocalQueueWorkloads(context.Background(), tc.namespace, tc.queueName)
+			got, err := h.fetchLocalQueueWorkloads(t.Context(), tc.namespace, tc.queueName)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
