@@ -1460,23 +1460,23 @@ func TestHeadsAsync(t *testing.T) {
 	}
 	cases := map[string]struct {
 		initialObjs []client.Object
-		op          func(context.Context, *Manager)
+		op          func(context.Context, *Manager, *sync.WaitGroup)
 		wantHeads   []workload.Info
 	}{
 		"AddClusterQueue": {
 			initialObjs: []client.Object{&wl, &queues[0]},
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
 				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
-				go func() {
+				wg.Go(func() {
 					if err := mgr.AddOrUpdateWorkload(logr.FromContextOrDiscard(ctx), &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1487,15 +1487,15 @@ func TestHeadsAsync(t *testing.T) {
 		},
 		"AddLocalQueue": {
 			initialObjs: []client.Object{&wl},
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
-				go func() {
+				wg.Go(func() {
 					if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 						t.Errorf("Failed adding queue: %s", err)
 					}
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1505,18 +1505,18 @@ func TestHeadsAsync(t *testing.T) {
 			},
 		},
 		"AddWorkload": {
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
 				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
-				go func() {
+				wg.Go(func() {
 					if err := mgr.AddOrUpdateWorkload(logr.FromContextOrDiscard(ctx), &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1526,19 +1526,19 @@ func TestHeadsAsync(t *testing.T) {
 			},
 		},
 		"UpdateWorkload": {
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
 				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
-				go func() {
+				wg.Go(func() {
 					log := logr.FromContextOrDiscard(ctx)
 					if err := mgr.UpdateWorkload(log, &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1549,7 +1549,7 @@ func TestHeadsAsync(t *testing.T) {
 		},
 		"RequeueWorkload": {
 			initialObjs: []client.Object{&wl},
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
@@ -1558,9 +1558,9 @@ func TestHeadsAsync(t *testing.T) {
 				}
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
-				go func() {
+				wg.Go(func() {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1571,7 +1571,7 @@ func TestHeadsAsync(t *testing.T) {
 		},
 		"RequeueWithOutOfDateWorkload": {
 			initialObjs: []client.Object{&wl},
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
@@ -1586,9 +1586,9 @@ func TestHeadsAsync(t *testing.T) {
 				}
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
-				go func() {
+				wg.Go(func() {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1599,7 +1599,7 @@ func TestHeadsAsync(t *testing.T) {
 		},
 		"RequeueWithQueueChangedWorkload": {
 			initialObjs: []client.Object{&wl},
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				for _, cq := range clusterQueues {
 					if err := mgr.AddClusterQueue(ctx, cq); err != nil {
 						t.Errorf("Failed adding clusterQueue: %v", err)
@@ -1618,9 +1618,9 @@ func TestHeadsAsync(t *testing.T) {
 				}
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
-				go func() {
+				wg.Go(func() {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1634,13 +1634,17 @@ func TestHeadsAsync(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
-			defer cancel()
+			var wg sync.WaitGroup
+			t.Cleanup(func() {
+				cancel()
+				wg.Wait()
+			})
 			client := utiltesting.NewFakeClient(tc.initialObjs...)
 			queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
 			manager := NewManagerForUnitTests(client, nil, queueOptions...)
 
 			go manager.CleanUpOnContext(ctx)
-			tc.op(ctx, manager)
+			tc.op(ctx, manager, &wg)
 			heads := manager.Heads(ctx)
 			if diff := cmp.Diff(tc.wantHeads, heads, ignoreTypeMeta, ignoreSchedulingHash); diff != "" {
 				t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
