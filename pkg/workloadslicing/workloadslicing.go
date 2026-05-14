@@ -125,7 +125,10 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 				if b.Annotations[WorkloadSliceReplacementFor] == string(workload.Key(&a)) {
 					return -1
 				}
-				return 1
+				if a.Annotations[WorkloadSliceReplacementFor] == string(workload.Key(&b)) {
+					return 1
+				}
+				return 0
 			},
 		)
 	})

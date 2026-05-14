@@ -283,6 +283,41 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 					Obj(),
 			},
 		},
+		// Regression test for https://github.com/kubernetes-sigs/kueue/issues/11166:
+		// When two workloads have identical timestamps and neither's ReplacementFor
+		// annotation points to the other (e.g., v1 and v3 from a v1→v2→v3 chain where
+		// v2 was finished), the comparator must return 0 rather than 1 in both
+		// directions, which would violate the antisymmetry required by slices.SortFunc.
+		"TwoActiveWorkloads_TimestampCollision_NeitherReplacesOther": {
+			args: args{
+				clnt: testWorkloadClientBuilder().WithLists(&kueue.WorkloadList{
+					Items: []kueue.Workload{
+						// test-23 (v3) has ReplacementFor pointing to test-22 (v2), not test-21 (v1).
+						*testWorkload("test-23", testJobObject.Name, testJobObject.UID, now).
+							ResourceVersion("300").
+							Annotation(WorkloadSliceReplacementFor, string(workload.NewReference("default", "test-22"))).
+							Obj(),
+						// test-21 (v1) has no ReplacementFor annotation (it was the first slice).
+						*testWorkload("test-21", testJobObject.Name, testJobObject.UID, now).
+							ResourceVersion("100").
+							Obj(),
+					},
+				}).Build(),
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			// Both workloads should be returned without a panic.
+			// Since neither replaces the other, the comparator returns 0 (equal).
+			want: []kueue.Workload{
+				*testWorkload("test-21", testJobObject.Name, testJobObject.UID, now).
+					ResourceVersion("100").
+					Obj(),
+				*testWorkload("test-23", testJobObject.Name, testJobObject.UID, now).
+					ResourceVersion("300").
+					Annotation(WorkloadSliceReplacementFor, string(workload.NewReference("default", "test-22"))).
+					Obj(),
+			},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
