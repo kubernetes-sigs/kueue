@@ -192,7 +192,11 @@ type TopLevelJob interface {
 	IsTopLevel() bool
 }
 
+// JobWithCustomQueueNameChange is an optional interface that allows jobs
+// to provide custom queue-name change logic.
 type JobWithCustomQueueNameChange interface {
+	// CustomQueueNameChange is called by the jobframework to allow the job
+	// to customize the workload queue-name using custom logic.
 	CustomQueueNameChange(ctx context.Context, c client.Client, wl *kueue.Workload) error
 }
 
