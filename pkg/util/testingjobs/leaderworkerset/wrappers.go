@@ -145,6 +145,12 @@ func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecQueue(q string) *LeaderWorker
 	return w.WorkerTemplateSpecLabel(constants.QueueLabel, q)
 }
 
+// WorkerTemplateSpecNodeSelector updates the nodeSelector of the pod template spec of the LeaderWorkerSet
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecNodeSelector(nodeSelector map[string]string) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.NodeSelector = nodeSelector
+	return w
+}
+
 // LeaderTemplateSpecLabel sets the label of the pod template spec of the LeaderLeaderSet
 func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecLabel(k, v string) *LeaderWorkerSetWrapper {
 	if w.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels == nil {

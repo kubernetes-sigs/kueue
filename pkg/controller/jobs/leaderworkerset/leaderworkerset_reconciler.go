@@ -77,6 +77,11 @@ type workloadToCreate struct {
 	index int
 }
 
+type workloadToUpdate struct {
+	wl    *kueue.Workload
+	index int
+}
+
 type Reconciler struct {
 	client                       client.Client
 	logName                      string
@@ -230,7 +235,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
-			return r.updateWorkload(ctx, lws, toUpdate[i])
+			return r.updateWorkload(ctx, lws, toUpdate[i].wl, toUpdate[i].index)
 		})
 	})
 
@@ -253,10 +258,10 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 //
 // During rolling updates with maxSurge, status.Replicas may temporarily exceed spec.Replicas.
 // This function ensures workloads exist for all groups including surge replicas.
-func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]workloadToCreate, []*kueue.Workload, []*kueue.Workload) {
+func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]workloadToCreate, []workloadToUpdate, []*kueue.Workload) {
 	var (
 		toCreate []workloadToCreate
-		toUpdate []*kueue.Workload
+		toUpdate []workloadToUpdate
 		toDelete = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
 			return e.Name
 		})
@@ -275,7 +280,7 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 	for i := range replicas {
 		workloadName := GetWorkloadName(ownerUID, lws.Name, fmt.Sprint(i))
 		if wl, ok := toDelete[workloadName]; ok {
-			toUpdate = append(toUpdate, wl)
+			toUpdate = append(toUpdate, workloadToUpdate{wl: wl, index: int(i)})
 			delete(toDelete, workloadName)
 		} else if !isMultiKueueRemote {
 			toCreate = append(toCreate, workloadToCreate{name: workloadName, index: int(i)})
@@ -423,7 +428,7 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {
+func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload, index int) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
 	log.V(3).Info("Update LeaderWorkerSet Workload")
 
@@ -433,7 +438,7 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 		return err
 	}
 	if !equality.ComparePodSetSlices(podSets, wl.Spec.PodSets) {
-		return r.deleteWorkload(ctx, wl)
+		return r.recreateWorkload(ctx, lws, wl, index)
 	}
 	if queueName := jobframework.QueueNameForObject(lws); wl.Spec.QueueName != queueName {
 		log.V(2).Info("LeaderWorkerSet changed queue, updating workload")
@@ -457,6 +462,27 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	}
 
 	return nil
+}
+
+func (r *Reconciler) recreateWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload, index int) error {
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
+	log.V(3).Info("Recreate LeaderWorkerSet Workload")
+
+	if err := r.deleteWorkload(ctx, wl); err != nil {
+		return err
+	}
+
+	// Delete old workloads. It could be a possible case when Pods are in Pending status.
+	// So we need to drop these pods to recreate them.
+	if err := r.client.DeleteAllOf(ctx, &corev1.Pod{},
+		client.InNamespace(lws.Namespace),
+		client.MatchingFields{podcontroller.PodGroupNameCacheKey: wl.Name},
+	); err != nil {
+		log.Error(err, "Failed to delete pods")
+		return err
+	}
+
+	return r.createWorkload(ctx, lws, wl.Name, index)
 }
 
 func (r *Reconciler) deleteWorkload(ctx context.Context, wl *kueue.Workload) error {

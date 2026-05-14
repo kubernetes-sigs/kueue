@@ -39,6 +39,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -193,6 +194,76 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should allow to mutate invalid nodeSelector", func() {
+			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Size(2).
+				Replicas(3).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
+				Queue(lq.Name).
+				WorkerTemplateSpecNodeSelector(map[string]string{"key": "value"}).
+				Obj()
+
+			ginkgo.By("Create a LeaderWorkerSet with invalid nodeSelector", func() {
+				util.MustCreate(ctx, k8sClient, lws)
+			})
+
+			wlKey := util.WorkloadKeyForLeaderWorkerSet(lws, "0")
+			createdWorkload := &kueue.Workload{}
+
+			ginkgo.By("Checking workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking pods in Pending status", func() {
+				pods := &corev1.PodList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
+						client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: lws.Name})).To(gomega.Succeed())
+					g.Expect(pods.Items).To(gomega.HaveLen(6))
+					g.Expect(pods.Items[0].Status.Phase).To(gomega.Equal(corev1.PodPending))
+					for _, pod := range pods.Items {
+						g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodPending))
+					}
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			oldUID := createdWorkload.UID
+
+			ginkgo.By("Resetting nodeSelector", func() {
+				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.NodeSelector = nil
+					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that workload recreated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.UID).ToNot(gomega.Equal(oldUID))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that workload is admitted", func() {
+				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
+			})
+
+			ginkgo.By("Waiting for replicas to be ready", func() {
+				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
 					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
