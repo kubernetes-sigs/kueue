@@ -230,13 +230,23 @@ function cluster_collect_artifacts {
     local name=$1
     local kubeconfig=${2:-}
 
+    if ! kind_cluster_exists "$name"; then
+        echo "Skipping artifact collection for '$name': cluster does not exist."
+        return 0
+    fi
+
+    $KIND export logs "$ARTIFACTS" --name "$name" || true
+
     local -a kubectl_args=()
     if [[ -n "${kubeconfig}" ]]; then
         kubectl_args=(--kubeconfig="${kubeconfig}")
     fi
 
-    kubectl config ${kubectl_args[@]+"${kubectl_args[@]}"} use-context "kind-${name}" || true
-    $KIND export logs "$ARTIFACTS" --name "$name" || true
+    if ! kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} version --request-timeout=30s >/dev/null 2>&1; then
+        echo "Skipping pod descriptions for '$name': API server is not reachable."
+        return 0
+    fi
+
     kubectl describe pods ${kubectl_args[@]+"${kubectl_args[@]}"} -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
     kubectl describe pods ${kubectl_args[@]+"${kubectl_args[@]}"} > "$ARTIFACTS/${name}-default-pods.log" || true
 }
@@ -368,12 +378,17 @@ function cluster_create {
         cat "$kind_config"
     fi
 
-    $KIND create cluster --name "$cluster" --image "$E2E_KIND_VERSION" --config "$kind_config" --kubeconfig="$kubeconfig" --wait 1m -v 5  > "$ARTIFACTS/$cluster-create.log" 2>&1 \
-    ||  { echo "unable to start the $cluster cluster "; cat "$ARTIFACTS/$cluster-create.log" ; }
+    if ! $KIND create cluster --name "$cluster" --image "$E2E_KIND_VERSION" \
+            --config "$kind_config" --kubeconfig="$kubeconfig" --wait 5m -v 5 \
+            > "$ARTIFACTS/$cluster-create.log" 2>&1; then
+        echo "ERROR: Unable to create kind cluster '$cluster'." >&2
+        cat "$ARTIFACTS/$cluster-create.log" >&2
+        return 1
+    fi
 
     kubectl config --kubeconfig="$kubeconfig" use-context "kind-$cluster"
     # wait for nodes to become ready before loading images or deploying components
-    kubectl wait --kubeconfig="$kubeconfig" --for=condition=Ready node --all --timeout=300s
+    kubectl wait --kubeconfig="$kubeconfig" --for=condition=Ready node --all --timeout=5m
     kubectl get nodes --kubeconfig="$kubeconfig" > "$ARTIFACTS/$cluster-nodes.log" || true
     kubectl describe pods --kubeconfig="$kubeconfig" -n kube-system > "$ARTIFACTS/$cluster-system-pods.log" || true
 }
