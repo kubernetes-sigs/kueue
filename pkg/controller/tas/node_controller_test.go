@@ -77,6 +77,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 		AdmittedAt(true, testStartTime).
 		Obj()
 
+	baseResourceFlavor := utiltestingapi.MakeResourceFlavor("unit-test-flavor").Obj()
+
 	workloadReassigned := utiltestingapi.MakeWorkload(wlName, nsName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
@@ -738,6 +740,87 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: nil,
 		},
+		"Node has NoSchedule taint tolerated by assigned ResourceFlavor -> Healthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				utiltestingapi.MakeResourceFlavor("rf-toleration-flavor").
+					Toleration(corev1.Toleration{
+						Key:      "foo",
+						Effect:   corev1.TaintEffectNoSchedule,
+						Operator: corev1.TolerationOpExists,
+					}).
+					Obj(),
+				utiltestingapi.MakeWorkload(wlName, nsName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "rf-toleration-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), testStartTime,
+					).
+					AdmittedAt(true, testStartTime).
+					Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints: true,
+			},
+		},
+		"Assigned node gets NoSchedule taint tolerated by AdmissionCheck PodSetUpdate -> Healthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				utiltestingapi.MakeWorkload(wlName, nsName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), testStartTime,
+					).
+					AdmittedAt(true, testStartTime).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Tolerations: []corev1.Toleration{
+									{
+										Key:      "foo",
+										Effect:   corev1.TaintEffectNoSchedule,
+										Operator: corev1.TolerationOpExists,
+									},
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints: true,
+			},
+		},
 		"Node NotReady, pod pending (assigned via nodeSelector) -> Unhealthy": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
@@ -987,8 +1070,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			fakeClock.SetTime(testStartTime)
 
+			initObjs := append([]client.Object{baseResourceFlavor.DeepCopy()}, tc.initObjs...)
 			clientBuilder := utiltesting.NewClientBuilder().
-				WithObjects(tc.initObjs...).
+				WithObjects(initObjs...).
 				WithStatusSubresource(tc.initObjs...).
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourcePatch: func(ctx context.Context, client client.Client, subResource string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
