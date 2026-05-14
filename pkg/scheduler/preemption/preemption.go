@@ -428,18 +428,19 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		passed := fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{})
+		// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
+		candWl := candCQ.PopWorkload()
 		if logV := preemptionCtx.log.V(4); logV.Enabled() {
 			logV.Info("Evaluating FairSharing strategy",
 				"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
 				"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
+				"targetWorkload", klog.KObj(candWl.Obj),
 				"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
 				"strategyPassed", passed)
 		}
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
 		if passed {
-			// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
-			candWl := candCQ.PopWorkload()
 			preemptionCtx.snapshot.RemoveWorkload(candWl)
 			targets = append(targets, &Target{
 				WorkloadInfo: candWl,
