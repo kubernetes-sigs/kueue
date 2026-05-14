@@ -6,63 +6,40 @@ configurations:
 - kustomizeconfig.yaml
 
 patches:
-- patch: |-
-    apiVersion: admissionregistration.k8s.io/v1
+- target:
     kind: MutatingWebhookConfiguration
-    metadata:
-      name: mutating-webhook-configuration
-    webhooks:
-    - name: mpod.kb.io
-      namespaceSelector:
+    name: mutating-webhook-configuration
+  patch: |-
+    - op: add
+      path: /webhooks/0/namespaceSelector
+      value:
         matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values:
+          - key: kubernetes.io/metadata.name
+            operator: NotIn
+            values:
             - kube-system
             - kueue-system
-    - name: mdeployment.kb.io
-      namespaceSelector:
-        matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values:
-            - kube-system
-            - kueue-system
-    - name: mstatefulset.kb.io
-      namespaceSelector:
-        matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values:
-            - kube-system
-            - kueue-system
-- patch: |-
-    apiVersion: admissionregistration.k8s.io/v1
-    kind: ValidatingWebhookConfiguration
-    metadata:
-      name: validating-webhook-configuration
-    webhooks:
-    - name: vpod.kb.io
-      namespaceSelector:
-        matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values:
-          - kube-system
-          - kueue-system
-    - name: vdeployment.kb.io
-      namespaceSelector:
-        matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values:
-          - kube-system
-          - kueue-system
-    - name: vstatefulset.kb.io
-      namespaceSelector:
-        matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values:
-            - kube-system
-            - kueue-system
+
+
+# as kustomize does not allow * targeting in path, we use replacements
+# to apply the same namespaceSelector to all webhooks
+replacements:
+- source:
+    kind: MutatingWebhookConfiguration
+    name: mutating-webhook-configuration
+    fieldPath: webhooks.0.namespaceSelector
+  targets:
+    - select:
+        kind: MutatingWebhookConfiguration
+        name: mutating-webhook-configuration
+      fieldPaths:
+        - webhooks.*.namespaceSelector
+      options:
+        create: true
+    - select:
+        kind: ValidatingWebhookConfiguration
+        name: validating-webhook-configuration
+      fieldPaths:
+        - webhooks.*.namespaceSelector
+      options:
+        create: true
