@@ -147,24 +147,6 @@ E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e-base
 ```
 
 若希望使用**已发布**或**预发布（staging）**的 Kueue 镜像而非从源码构建（无需执行 `kind-image-build`），可传入 `IMAGE_TAG` 并指定所需镜像：
-
-```shell
-# 已发布版本
-E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e-baseline
-E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e-main
-
-# 预发布镜像（例如来自 PR 或每日构建）
-E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-e2e-baseline
-```
-
-**使用与 manifest 匹配的已发布版本：** e2e 框架从仓库的 config 部署 CRD 等资源，仅通过 `IMAGE_TAG` 覆盖控制器镜像。若要对某一发布版本运行 e2e 且使用与该镜像匹配的 manifest：
-
-1. 检出该版本的 tag（例如 `git checkout v0.16.0`）。仓库中的 CRD 与部署配置在每个版本中均已提交，无需执行 `make manifests`。
-2. 使用相同镜像 tag 运行上述命令，例如 `E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e-baseline`。
-
-适用于在特定已发布版本上复现问题（例如值班排查）。若要在真实集群（非 e2e）中安装已发布版本，请参阅[安装已发布版本](/zh-CN/docs/installation/#install-a-released-version)。
-
-{{% alert title="Note" color="primary" %}}
 >>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended)
 当在 `E2E_MODE=dev` 下复用保留的集群时，外部算子（MPI、KubeRay 等）只会安装一次。
 如需在每次运行时强制重新安装它们，请设置 `E2E_ENFORCE_OPERATOR_UPDATE=true`。
