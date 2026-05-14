@@ -2724,6 +2724,40 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: nil,
 			wantError:    nil,
 		},
+		"should remove finalizer from owned finished workload already being deleted, object retention configured": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					LastTransitionTime: metav1.Time{
+						Time: now.Add(-2 * util.MediumTimeout),
+					},
+				}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				DeletionTimestamp(now).
+				Finalizers(kueue.ResourceInUseFinalizerName, "example.com/finalizer").
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(
+					&workloadRetentionConfig{
+						afterFinished: ptr.To(util.MediumTimeout),
+					},
+				),
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					LastTransitionTime: metav1.Time{
+						Time: now.Add(-2 * util.MediumTimeout),
+					},
+				}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				DeletionTimestamp(now).
+				Finalizers("example.com/finalizer").
+				Obj(),
+			wantError: nil,
+		},
 		"shouldn't try to delete the workload because the retention period hasn't elapsed yet, object retention configured": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
