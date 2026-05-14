@@ -14,11 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-<<<<<<< HEAD:test/e2e/singlecluster/metrics_test.go
-package e2e
-=======
 package baseline
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended):test/e2e/singlecluster/baseline/metrics_test.go
 
 import (
 	"github.com/onsi/ginkgo/v2"
@@ -29,7 +25,6 @@ import (
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -157,6 +152,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				{"kueue_cluster_queue_resource_usage", clusterQueue.Name},
 				{"kueue_cluster_queue_status", clusterQueue.Name},
 				{"kueue_cluster_queue_resource_reservation", clusterQueue.Name},
+				{"kueue_cluster_queue_resource_pending", clusterQueue.Name},
 				{"kueue_cluster_queue_nominal_quota", clusterQueue.Name},
 				{"kueue_cluster_queue_borrowing_limit", clusterQueue.Name},
 				{"kueue_cluster_queue_lending_limit", clusterQueue.Name},
@@ -193,6 +189,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				{"kueue_cluster_queue_resource_usage", clusterQueue.Name},
 				{"kueue_cluster_queue_status", clusterQueue.Name},
 				{"kueue_cluster_queue_resource_reservation", clusterQueue.Name},
+				{"kueue_cluster_queue_resource_pending", clusterQueue.Name},
 				{"kueue_cluster_queue_nominal_quota", clusterQueue.Name},
 				{"kueue_cluster_queue_borrowing_limit", clusterQueue.Name},
 				{"kueue_cluster_queue_lending_limit", clusterQueue.Name},
@@ -505,7 +502,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, blockerWorkloadKey, blockerWorkload)).To(gomega.Succeed())
 
-					blockerWorkload.Spec.Active = ptr.To(false)
+					blockerWorkload.Spec.Active = new(false)
 
 					g.Expect(k8sClient.Update(ctx, blockerWorkload)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

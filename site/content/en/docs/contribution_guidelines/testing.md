@@ -64,7 +64,8 @@ make test-e2e-sequential-extended
 make test-e2e-sequential-baseline
 make test-e2e-certmanager
 make test-e2e-kueueviz
-make test-multikueue-e2e
+make test-multikueue-e2e-main
+make test-multikueue-e2e-sequential
 ```
 
 You can specify the Kubernetes version used for running the e2e tests by setting the `E2E_K8S_FULL_VERSION` variable:
@@ -131,27 +132,20 @@ Use `E2E_MODE=dev` to create-or-reuse a kind cluster, rebuild/redeploy Kueue, ru
 E2E_MODE=dev make kind-image-build test-e2e-baseline
 
 # MultiKueue dev mode
-E2E_MODE=dev make kind-image-build test-multikueue-e2e
+E2E_MODE=dev make kind-image-build test-multikueue-e2e-main
 
 # Loop a suite (until it fails) while keeping the cluster
 E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e-baseline
 
 
 # Skip reinstallation of kueue (works only in dev mode)
-<<<<<<< HEAD
-E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-e2e
-E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e
-=======
 E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-e2e-baseline
 E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e-main
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended)
 
 # Skip re-pulling dependency images and re-importing them into kind when already present (dev mode only)
 E2E_MODE=dev E2E_SKIP_IMAGE_RELOAD=true make kind-image-build test-e2e-baseline
 ```
 
-<<<<<<< HEAD
-=======
 To use a **released** or **staging** Kueue image instead of building from source (no `kind-image-build` needed), pass `IMAGE_TAG` with the desired image:
 
 ```shell
@@ -170,7 +164,6 @@ E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
 
 This is useful to reproduce issues on a specific released version (e.g. for on-call debugging). For installing a released version into a real cluster (not e2e), see [Install a released version](/docs/installation/#install-a-released-version).
 
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended)
 {{% alert title="Note" color="primary" %}}
 When reusing a kept cluster in `E2E_MODE=dev`, external operators (MPI, KubeRay, etc.) are installed only once.
 To force re-installing them on every run, set `E2E_ENFORCE_OPERATOR_UPDATE=true`.
@@ -195,7 +188,7 @@ To delete the kept cluster(s) afterwards:
     ```
 
 ### Legacy: interactive attach mode
-Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` and wait for the `Do you want to cleanup? [Y/n] ` to appear (CI-style behavior).
+Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-main` and wait for the `Do you want to cleanup? [Y/n] ` to appear (CI-style behavior).
 
 The cluster is ready, and now you can run tests from another terminal:
 ```shell
@@ -203,8 +196,6 @@ The cluster is ready, and now you can run tests from another terminal:
 ```
 or from VSCode.
 
-<<<<<<< HEAD
-=======
 ## Debugging metrics with Prometheus
 
 To provision a Kind cluster with Prometheus pre-configured for metrics debugging:
@@ -215,7 +206,6 @@ E2E_MODE=dev GINKGO_ARGS="--label-filter=feature:prometheus" make kind-image-bui
 
 For more details, see [Setup Dev Monitoring](/docs/tasks/dev/setup_dev_monitoring).
 
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended)
 ## Running subset of integration or e2e tests
 
 ### Use label filters for integration tests
@@ -223,7 +213,7 @@ Integration tests are labeled by controller, job type, feature, and area to enab
 
 **Label Taxonomy:**
 - Controllers: `controller:workload`, `controller:localqueue`, `controller:clusterqueue`, `controller:admissioncheck`, `controller:resourceflavor`, `controller:provisioning`
-- Job Types: `job:batch`, `job:pod`, `job:jobset`, `job:pytorch`, `job:tensorflow`, `job:mpi`, `job:paddle`, `job:xgboost`, `job:jax`, `job:train`, `job:ray`, `job:appwrapper`
+- Job Types: `job:batch`, `job:pod`, `job:jobset`, `job:pytorch`, `job:tensorflow`, `job:mpi`, `job:paddle`, `job:xgboost`, `job:jax`, `job:train`, `job:ray`, `job:appwrapper`, `job:sparkapplication`
 - Features: `feature:tas`, `feature:multikueue`, `feature:provisioning`, `feature:fairsharing`, `feature:admissionfairsharing`
 - Areas: `area:core`, `area:jobs`, `area:admissionchecks`, `area:multikueue`
 
@@ -274,18 +264,18 @@ GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e-exten
 Sequential tests (Baseline and Extended) are labeled by feature. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
 
 **Label Taxonomy (Baseline):**
-- Features: `admissionfairsharing, certs, failurerecoverypolicy, objectretentionpolicies, podintegrationautoenablement, reconcile, visibility, waitforpodsready`
+- Features: `admissionfairsharing, certs, failurerecoverypolicy, localqueuemetrics, objectretentionpolicies, podintegrationautoenablement, reconcile, visibility, waitforpodsready`
 
 **Label Taxonomy (Extended):**
-- Features: `managejobswithoutqueuename`
+- Features: `managejobswithoutqueuename, spark`
 
 **Examples:**
 ```shell
 # Run only admissionfairsharing tests (Baseline)
 GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequential-baseline
 
-# Run only suite tests (Extended)
-GINKGO_ARGS="--label-filter=feature:suite" make test-e2e-sequential-extended
+# Run only spark tests (Extended)
+GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 ```
 
 ### Use Ginkgo --focus arg

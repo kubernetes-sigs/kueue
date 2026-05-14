@@ -14,11 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-<<<<<<< HEAD:test/e2e/singlecluster/suite_test.go
-package e2e
-=======
 package baseline
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended):test/e2e/singlecluster/baseline/suite_test.go
 
 import (
 	"context"
@@ -29,6 +25,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -45,6 +42,7 @@ var (
 	ctx                          context.Context
 	kueueClientset               kueueclientset.Interface
 	impersonatedVisibilityClient visibility.VisibilityV1beta2Interface
+	prometheusClient             prometheusv1.API
 	kueueNS                      = util.GetKueueNamespace()
 )
 
@@ -68,29 +66,9 @@ var _ = ginkgo.BeforeSuite(func() {
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
 	labelFilter := ginkgo.GinkgoLabelFilter()
-<<<<<<< HEAD:test/e2e/singlecluster/suite_test.go
-	if ginkgo.Label("feature:jobset", "feature:tas", "feature:trainjob").MatchesLabelFilter(labelFilter) {
-		util.WaitForJobSetAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:leaderworkerset").MatchesLabelFilter(labelFilter) {
-		util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:appwrapper").MatchesLabelFilter(labelFilter) {
-		util.WaitForAppWrapperAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:jaxjob", "feature:pytorchjob").MatchesLabelFilter(labelFilter) {
-		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:kuberay").MatchesLabelFilter(labelFilter) {
-		util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
-	}
-	if ginkgo.Label("feature:tas", "feature:trainjob").MatchesLabelFilter(labelFilter) {
-		util.WaitForKubeFlowTrainnerControllerManagerAvailability(ctx, k8sClient)
-=======
 	if ginkgo.Label("feature:prometheus").MatchesLabelFilter(labelFilter) {
 		prometheusClient = util.CreatePrometheusClient(cfg)
 		util.WaitForPrometheusAvailability(ctx, k8sClient)
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended):test/e2e/singlecluster/baseline/suite_test.go
 	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",

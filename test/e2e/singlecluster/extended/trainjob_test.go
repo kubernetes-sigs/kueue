@@ -14,11 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-<<<<<<< HEAD:test/e2e/singlecluster/trainjob_test.go
-package e2e
-=======
 package extended
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended):test/e2e/singlecluster/extended/trainjob_test.go
 
 import (
 	"github.com/onsi/ginkgo/v2"
@@ -101,7 +97,7 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 			ginkgo.By("Waiting for the trainjob to be unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
-					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(false)))
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -181,12 +177,18 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 			ginkgo.By("Waiting for the trainjob to be unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
-					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(false)))
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(new(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("Verify that the trainjob has a runtime patch from kueue", func() {
+				gomega.Expect(testingtrainjob.KueueRuntimePatch(trainjob)).ToNot(gomega.BeNil())
+			})
+
 			ginkgo.By("Verify the trainjob has nodeSelector set", func() {
-				gomega.Expect(trainjob.Spec.PodTemplateOverrides[0].Spec.NodeSelector).To(gomega.Equal(
+				rJobs := testingtrainjob.KueueRuntimePatch(trainjob).TrainingRuntimeSpec.Template.Spec.ReplicatedJobs
+				gomega.Expect(rJobs).To(gomega.HaveLen(1))
+				gomega.Expect(rJobs[0].Template.Spec.Template.Spec.NodeSelector).To(gomega.Equal(
 					map[string]string{
 						"instance-type": "on-demand",
 					},
@@ -203,7 +205,7 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 			ginkgo.By("Waiting for the TrainJob to be suspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
-					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(true)))
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.BeEquivalentTo(new(true)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

@@ -14,11 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-<<<<<<< HEAD:test/e2e/singlecluster/e2e_v1beta1_test.go
-package e2e
-=======
 package baseline
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended):test/e2e/singlecluster/baseline/e2e_v1beta1_test.go
 
 import (
 	"fmt"

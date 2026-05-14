@@ -14,11 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-<<<<<<< HEAD:test/e2e/singlecluster/pod_test.go
-package e2e
-=======
 package extended
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended):test/e2e/singlecluster/extended/pod_test.go
 
 import (
 	"fmt"
@@ -607,6 +603,16 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&p), &podWithHash)).To(gomega.Succeed())
 				initialRoleHash := podWithHash.Annotations[podconstants.RoleHashAnnotation]
 				gomega.Expect(initialRoleHash).NotTo(gomega.BeEmpty())
+			})
+
+			ginkgo.By("Verify pod has queue labels assigned", func() {
+				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
+				gomega.Eventually(func(g gomega.Gomega) {
+					var runningPod corev1.Pod
+					g.Expect(k8sClient.Get(ctx, pKey, &runningPod)).To(gomega.Succeed())
+					g.Expect(runningPod.Labels[constants.ClusterQueueLabel]).To(gomega.Equal(cq.Name))
+					g.Expect(runningPod.Labels[constants.LocalQueueLabel]).To(gomega.Equal(lq.Name))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify the pod is scheduled and runs", func() {

@@ -14,11 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-<<<<<<< HEAD:test/e2e/singlecluster/job_test.go
-package e2e
-=======
 package baseline
->>>>>>> b32db6f8a (This is a squashed commit for test : split e2e singlecluster to baseline and extended):test/e2e/singlecluster/baseline/job_test.go
 
 import (
 	"fmt"
@@ -35,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -183,7 +180,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cronJob), cronJob)).To(gomega.Succeed())
 					nextSchedule := cronJob.CreationTimestamp.Add(-2 * time.Minute)
-					cronJob.Status.LastScheduleTime = ptr.To(metav1.Time{Time: nextSchedule})
+					cronJob.Status.LastScheduleTime = new(metav1.Time{Time: nextSchedule})
 					g.Expect(k8sClient.Status().Update(ctx, cronJob)).Should(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -274,6 +271,20 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 					g.Expect(k8sClient.Get(ctx, jobKey, &job)).To(gomega.Succeed())
 					g.Expect(job.Status.Active).To(gomega.BeEquivalentTo(1))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify pods have queue labels assigned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var pods corev1.PodList
+					g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name), client.MatchingLabels{
+						"job-name": sampleJob.Name,
+					})).To(gomega.Succeed())
+					g.Expect(pods.Items).ToNot(gomega.BeEmpty())
+					for _, pod := range pods.Items {
+						g.Expect(pod.Labels[kueueconstants.ClusterQueueLabel]).To(gomega.Equal(clusterQueue.Name))
+						g.Expect(pod.Labels[kueueconstants.LocalQueueLabel]).To(gomega.Equal(localQueue.Name))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Delete all pods", func() {
@@ -431,6 +442,20 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 					"instance-type": "on-demand",
 				})
+			})
+
+			ginkgo.By("Verify pods have queue labels assigned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var pods corev1.PodList
+					g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name), client.MatchingLabels{
+						"job-name": sampleJob.Name,
+					})).To(gomega.Succeed())
+					g.Expect(pods.Items).ToNot(gomega.BeEmpty())
+					for _, pod := range pods.Items {
+						g.Expect(pod.Labels[kueueconstants.ClusterQueueLabel]).To(gomega.Equal(clusterQueue.Name))
+						g.Expect(pod.Labels[kueueconstants.LocalQueueLabel]).To(gomega.Equal(localQueue.Name))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify priority label is immutable when running", func() {
@@ -726,7 +751,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				jobKey := client.ObjectKeyFromObject(sampleJob)
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
@@ -787,7 +812,7 @@ func expectJobUnsuspended(key types.NamespacedName) {
 	job := &batchv1.Job{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
-		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+		g.Expect(job.Spec.Suspend).Should(gomega.Equal(new(false)))
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
