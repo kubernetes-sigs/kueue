@@ -177,6 +177,24 @@ func TestNewInfo(t *testing.T) {
 				features.ReclaimablePods: false,
 			},
 		},
+		"prevent int overflow in total requests": {
+			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2147483647).
+					Request(corev1.ResourceCPU, "4300000").
+					Obj()).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  kueue.DefaultPodSetName,
+						Count: 2147483647,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 9223372036854775807,
+						},
+					},
+				},
+			},
+		},
 		"admitted": {
 			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(

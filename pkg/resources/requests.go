@@ -25,6 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/utils/ptr"
+
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 // The following resources calculations are inspired on
@@ -75,7 +77,7 @@ func (r Requests) Divide(f int64) {
 
 func (r Requests) Mul(f int64) {
 	for k := range r {
-		r[k] *= f
+		r[k] = utilmath.SaturatingMul(r[k], f)
 	}
 }
 

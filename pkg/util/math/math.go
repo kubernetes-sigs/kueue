@@ -29,3 +29,22 @@ func SaturatingAdd(a, b int64) int64 {
 	}
 	return a + b
 }
+
+// SaturatingMul multiplies two int64s, returning math.MaxInt64 or math.MinInt64 if the
+// result would overflow or underflow.
+func SaturatingMul(a, b int64) int64 {
+	if a == 0 || b == 0 {
+		return 0
+	}
+	if (a == -1 && b == stdmath.MinInt64) || (b == -1 && a == stdmath.MinInt64) {
+		return stdmath.MaxInt64
+	}
+	res := a * b
+	if res/b != a {
+		if (a < 0) == (b < 0) {
+			return stdmath.MaxInt64
+		}
+		return stdmath.MinInt64
+	}
+	return res
+}
