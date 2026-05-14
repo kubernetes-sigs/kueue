@@ -4,6 +4,7 @@ kind: ClusterRole
 metadata:
   name: pytorchjob-editor-role
   labels:
+    rbac.kueue.x-k8s.io/role: "pytorchjob-editor"
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.kueue.x-k8s.io/batch-user: "true"
 rules:

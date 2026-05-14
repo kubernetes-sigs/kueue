@@ -4,6 +4,7 @@ kind: ClusterRole
 metadata:
   name: pending-workloads-lq-viewer-role
   labels:
+    rbac.kueue.x-k8s.io/role: "pending-workloads-lq-viewer"
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.kueue.x-k8s.io/batch-user: "true"
     rbac.authorization.k8s.io/aggregate-to-view: "true"

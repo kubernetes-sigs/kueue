@@ -3,6 +3,7 @@ kind: ClusterRole
 metadata:
   name: topology-viewer-role
   labels:
+    rbac.kueue.x-k8s.io/role: "topology-viewer"
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.authorization.k8s.io/aggregate-to-admin: "true"
 rules:
