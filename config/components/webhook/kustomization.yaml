@@ -21,8 +21,6 @@ patches:
           - kube-system
           - kueue-system
 
-# as kustomize does not allow * targeting in path, we use replacements
-# to apply the same namespaceSelector to all webhooks
 replacements:
 - source:
     kind: ValidatingWebhookConfiguration
