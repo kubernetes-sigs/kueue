@@ -57,7 +57,33 @@ function e2e_docker_pull_if_needed {
         echo "Image '$image' already cached locally; skipping pull (E2E_MODE=dev, E2E_SKIP_IMAGE_RELOAD=true)"
         return 0
     fi
-    docker pull "$image"
+
+    local max_retries=5
+    local retry_delay=1
+    local attempt output
+    for attempt in $(seq 1 "$max_retries"); do
+        if output=$(docker pull "$image" 2>&1); then
+            echo "$output"
+            return 0
+        fi
+        echo "$output"
+
+        if echo "$output" | grep -qiE 'manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device'; then
+            echo "ERROR: docker pull '$image' failed with a non-retriable error."
+            return 1
+        fi
+
+        if [ "$attempt" -eq "$max_retries" ]; then
+            break
+        fi
+
+        echo "WARNING: docker pull '$image' failed (attempt $attempt/$max_retries). Retrying in ${retry_delay}s..."
+        sleep "$retry_delay"
+        retry_delay=$((retry_delay * 2))
+    done
+
+    echo "ERROR: Failed to pull '$image' after $max_retries attempts."
+    return 1
 }
 
 function e2e_deployment_exists {
