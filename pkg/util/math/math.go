@@ -16,7 +16,11 @@ limitations under the License.
 
 package math
 
-import stdmath "math"
+import (
+	stdmath "math"
+
+	"k8s.io/apimachinery/pkg/api/resource"
+)
 
 // SaturatingAdd adds two int64s, returning math.MaxInt64 or math.MinInt64 if the
 // result would overflow or underflow.
@@ -28,6 +32,22 @@ func SaturatingAdd(a, b int64) int64 {
 		return stdmath.MinInt64
 	}
 	return a + b
+}
+
+var (
+	maxMilliValue = *resource.NewMilliQuantity(stdmath.MaxInt64, resource.DecimalSI)
+	minMilliValue = *resource.NewMilliQuantity(stdmath.MinInt64, resource.DecimalSI)
+)
+
+// SafeMilliValue returns the integer milli-value for the resource quantity, clamped to math.MinInt64 and math.MaxInt64.
+func SafeMilliValue(q resource.Quantity) int64 {
+	if q.Cmp(maxMilliValue) > 0 {
+		return stdmath.MaxInt64
+	}
+	if q.Cmp(minMilliValue) < 0 {
+		return stdmath.MinInt64
+	}
+	return q.MilliValue()
 }
 
 // SaturatingMul multiplies two int64s, returning math.MaxInt64 or math.MinInt64 if the

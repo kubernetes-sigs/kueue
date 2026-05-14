@@ -105,7 +105,7 @@ func (r Requests) ToResourceList() corev1.ResourceList {
 // It's milli-units for CPU and absolute units for everything else.
 func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 	if name == corev1.ResourceCPU {
-		return q.MilliValue()
+		return utilmath.SafeMilliValue(q)
 	}
 	return q.Value()
 }

@@ -30,7 +30,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -46,7 +46,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -74,7 +74,7 @@ type workloadToCreate struct {
 type Reconciler struct {
 	client                       client.Client
 	logName                      string
-	record                       record.EventRecorder
+	record                       events.EventRecorder
 	labelKeysToCopy              []string
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
@@ -84,7 +84,7 @@ type Reconciler struct {
 
 const controllerName = "leaderworkerset"
 
-func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
@@ -235,7 +235,8 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 		return err
 	}
 	r.record.Eventf(
-		lws, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload,
+		lws, nil, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload,
+		"CreatedWorkload",
 		"Created Workload: %v", workload.Key(createdWorkload),
 	)
 
@@ -254,16 +255,16 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	if createdWorkload.Labels == nil {
 		createdWorkload.Labels = make(map[string]string, 1)
 	}
-	createdWorkload.Labels[constants.JobUIDLabel] = string(lws.UID)
+	createdWorkload.Labels[controllerconstants.JobUIDLabel] = string(lws.UID)
 
 	// Add job owner annotations for reliable MultiKueue adapter lookup.
 	// These annotations persist even after Kubernetes GC removes owner references.
 	if createdWorkload.Annotations == nil {
 		createdWorkload.Annotations = make(map[string]string)
 	}
-	createdWorkload.Annotations[constants.JobOwnerGVKAnnotation] = gvk.String()
-	createdWorkload.Annotations[constants.JobOwnerNameAnnotation] = lws.Name
-	createdWorkload.Annotations[constants.ComponentWorkloadIndexAnnotation] = strconv.Itoa(index)
+	createdWorkload.Annotations[controllerconstants.JobOwnerGVKAnnotation] = gvk.String()
+	createdWorkload.Annotations[controllerconstants.JobOwnerNameAnnotation] = lws.Name
+	createdWorkload.Annotations[controllerconstants.ComponentWorkloadIndexAnnotation] = strconv.Itoa(index)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		jobframework.PropagateAdmissionGatedByAnnotation(lws, createdWorkload)

@@ -31,7 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/klog/v2"
@@ -123,7 +123,7 @@ type nodeReconciler struct {
 	cache       *schdcache.Cache
 	clock       clock.Clock
 	logName     string
-	recorder    record.EventRecorder
+	recorder    events.EventRecorder
 	roleTracker *roletracker.RoleTracker
 	watchers    []NodeUpdateWatcher
 }
@@ -240,7 +240,7 @@ func (r *nodeReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) bool {
 
 func newNodeReconciler(
 	client client.Client,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 	cache *schdcache.Cache,
 	roleTracker *roletracker.RoleTracker,
 	opts ...NodeReconcilerOption,
@@ -566,7 +566,7 @@ func (r *nodeReconciler) markPodsFailed(ctx context.Context, pods []*corev1.Pod)
 				return err
 			}
 		} else {
-			r.recorder.Eventf(p, corev1.EventTypeNormal, podTerminatedByKueueEventReason, podTerminatedByKueueConditionMessage)
+			r.recorder.Eventf(p, nil, corev1.EventTypeNormal, podTerminatedByKueueEventReason, "PodTerminated", podTerminatedByKueueConditionMessage)
 		}
 	}
 	return nil

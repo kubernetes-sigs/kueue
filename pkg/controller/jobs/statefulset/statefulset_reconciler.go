@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -67,7 +67,7 @@ var (
 
 type Reconciler struct {
 	client                       client.Client
-	record                       record.EventRecorder
+	record                       events.EventRecorder
 	logName                      string
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
@@ -285,7 +285,8 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, sts *appsv1.Sta
 		return client.IgnoreAlreadyExists(err)
 	}
 	r.record.Eventf(
-		sts, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload,
+		sts, nil, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload,
+		"CreatedWorkload",
 		"Created Workload: %v", workload.Key(createdWorkload),
 	)
 
@@ -350,7 +351,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{

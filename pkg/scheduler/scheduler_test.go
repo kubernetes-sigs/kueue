@@ -31,9 +31,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
@@ -45,7 +43,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -5839,6 +5836,52 @@ func TestSchedule(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "vuln-wl", "Pending", corev1.EventTypeWarning).Obj(),
 			},
 		},
+		"prevent integer overflow in ResourceValue conversion to MilliValue": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("overflow-cq").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("overflow-queue", "default").ClusterQueue("overflow-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("vuln-wl", "default").
+					Queue("overflow-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("ps1", 1).Request(corev1.ResourceCPU, "9223372036854776").Obj(),
+					).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("vuln-wl", "default").
+					Queue("overflow-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("ps1", 1).Request(corev1.ResourceCPU, "9223372036854776").Obj(),
+					).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "couldn't assign flavors to pod set ps1: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (9223372036854775807m) > maximum capacity (10)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "ps1",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("9223372036854775807m"),
+						},
+					}).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"overflow-cq": {"default/vuln-wl"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "vuln-wl", "Pending", corev1.EventTypeWarning).Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
@@ -7015,7 +7058,6 @@ func TestLastSchedulingContext(t *testing.T) {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", tc.name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				ctx, log := utiltesting.ContextWithLog(t)
-				scheme := runtime.NewScheme()
 
 				testWls := make([]kueue.Workload, 0, len(tc.workloads))
 				for _, wl := range tc.workloads {
@@ -7034,9 +7076,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 				cl := clientBuilder.Build()
-				broadcaster := record.NewBroadcaster()
-				recorder := broadcaster.NewRecorder(scheme,
-					corev1.EventSource{Component: constants.AdmissionName})
+				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
 				qManager, watcher := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache)
 				// Workloads are loaded into queues or clusterQueues as we add them.
@@ -7249,7 +7289,6 @@ func TestRequeueAndUpdate(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			scheme := runtime.NewScheme()
 
 			updates := 0
 			objs := []client.Object{w1, q1, utiltesting.MakeNamespace("ns1")}
@@ -7259,8 +7298,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 					return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 				},
 			}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
-			broadcaster := record.NewBroadcaster()
-			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+			recorder := &utiltesting.EventRecorder{}
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))

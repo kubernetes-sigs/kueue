@@ -272,9 +272,12 @@ administrator configures DeviceClasses with `extendedResourceName`.
   time on a best-effort basis. Workloads with CEL selectors that match fewer devices than requested are rejected
   to prevent quota leaks. This validation uses the upstream DRA CEL compiler from [`k8s.io/dynamic-resource-allocation/cel`](https://github.com/kubernetes/dynamic-resource-allocation/tree/master/cel).
   On the other hand, devices can be allocated between Kueue's check and scheduling, and new ResourceSlices published after
-  validation can make previously-unsatisfiable workloads satisfiable without triggering re-evaluation until the
-  next periodic `queueInadmissibleWorkloads` cycle. `WaitForPodsReady` serves as the safety net for cases where
+  validation can make previously-unsatisfiable workloads. `WaitForPodsReady` serves as the safety net for cases where
   the validation state diverges from actual device availability at scheduling time.
+
+- **Kueue does not have any informers on ResourceSlice changes.** CEL expression evalulation
+requires that the ResourceSlices are fetched from the apiserver. If a driver publishes new capacity and the workload was rejected, there is no
+resubmission of the workload once ResourceSlices changes. Evaluating this for beta is important.
 
 ### Risks and Mitigations
 
@@ -1016,6 +1019,7 @@ Use existing dra-example-driver or Kubernetes test driver for e2e testing.
 - re-evaluate event-driven DeviceClass tracking for late DeviceClass creation
 - re-evaluate post-scheduling quota reconciliation for DeviceClass drift
 - re-evaluate the need for indexing of resourceSlices for CEL performance lookups
+- re-evaluate event-driven ResourceSlice tracking for late ResourceSlice creation
 
 #### GA
 

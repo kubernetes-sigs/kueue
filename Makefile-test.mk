@@ -131,20 +131,16 @@ test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkg
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
-## Label Taxonomy:
-##   Features: appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1,ha
-##
-## Examples:
-##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e
-##   Run only certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e
-##   Run only jobset and trainjob tests: GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
-test-e2e: E2E_NPROCS := 4
 .PHONY: test-e2e
-test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e: test-e2e-baseline test-e2e-extended
 
-.PHONY: test-e2e-helm
-test-e2e-helm: E2E_USE_HELM=true
-test-e2e-helm: test-e2e
+.PHONY: test-e2e-baseline-helm
+test-e2e-baseline-helm: E2E_USE_HELM=true
+test-e2e-baseline-helm: test-e2e-baseline
+
+.PHONY: test-e2e-extended-helm
+test-e2e-extended-helm: E2E_USE_HELM=true
+test-e2e-extended-helm: test-e2e-extended
 
 .PHONY: test-multikueue-e2e-parallel-builds
 test-multikueue-e2e-parallel-builds:
@@ -160,6 +156,24 @@ test-multikueue-e2e-sequential: setup-e2e-env test-multikueue-e2e-parallel-build
 .PHONY: test-multikueue-e2e-helm
 test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
+
+## Label Taxonomy:
+##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,tas,trainjob
+##
+## Examples:
+##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
+.PHONY: test-e2e-extended
+test-e2e-extended: E2E_NPROCS := 4
+test-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+## Label Taxonomy:
+##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,e2e_v1beta1,ha
+##
+## Examples:
+##   Run only job tests: GINKGO_ARGS="--label-filter=feature:job" make test-e2e-baseline
+.PHONY: test-e2e-baseline
+test-e2e-baseline: E2E_NPROCS := 4
+test-e2e-baseline: setup-e2e-env kueuectl run-test-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-baseline
 test-tas-e2e-baseline: setup-e2e-env run-test-tas-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -213,9 +227,24 @@ test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=
 .PHONY: test-e2e-multikueue-dra
 test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
-run-test-e2e-singlecluster-%: K8S_VERSION = $(@:run-test-e2e-singlecluster-%=%)
-run-test-e2e-singlecluster-%:
-	@echo Running e2e for k8s ${K8S_VERSION}
+run-test-e2e-baseline-%: K8S_VERSION = $(@:run-test-e2e-baseline-%=%)
+run-test-e2e-baseline-%:
+	@echo Running baseline e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/baseline" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-test.sh
+
+run-test-e2e-extended-%: K8S_VERSION = $(@:run-test-e2e-extended-%=%)
+run-test-e2e-extended-%:
+	@echo Running extended e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
 		E2E_MODE=$(E2E_MODE) \
@@ -227,8 +256,7 @@ run-test-e2e-singlecluster-%:
 		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
 		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
-		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \

@@ -153,7 +153,7 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 				queues,
 				cCache,
 				mgr.GetClient(),
-				mgr.GetEventRecorderFor(constants.AdmissionName),
+				mgr.GetEventRecorder(constants.AdmissionName),
 				scheduler.WithPreemptionExpectations(preemptionExpectations),
 				scheduler.WithCustomLabels(customLabels),
 			)

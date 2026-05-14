@@ -31,6 +31,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -239,10 +240,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				kueue.CheckStateReady,
 				`The workload got reservation on "worker1"`,
 			)
-			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-				Reason:  "MultiKueue",
-				Type:    corev1.EventTypeNormal,
-				Message: `The workload got reservation on "worker1"`,
+			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+				Reason: "MultiKueue",
+				Type:   corev1.EventTypeNormal,
+				Note:   `The workload got reservation on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -336,10 +337,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				kueue.CheckStateReady,
 				`The workload got reservation on "worker1"`,
 			)
-			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-				Reason:  "MultiKueue",
-				Type:    corev1.EventTypeNormal,
-				Message: `The workload got reservation on "worker1"`,
+			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+				Reason: "MultiKueue",
+				Type:   corev1.EventTypeNormal,
+				Note:   `The workload got reservation on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1023,10 +1024,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				`The workload got reservation on "worker1"`,
 			)
 
-			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-				Reason:  "MultiKueue",
-				Type:    corev1.EventTypeNormal,
-				Message: `The workload got reservation on "worker1"`,
+			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+				Reason: "MultiKueue",
+				Type:   corev1.EventTypeNormal,
+				Note:   `The workload got reservation on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1136,10 +1137,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				`The workload got reservation on "worker1"`,
 			)
 
-			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-				Reason:  "MultiKueue",
-				Type:    corev1.EventTypeNormal,
-				Message: `The workload got reservation on "worker1"`,
+			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+				Reason: "MultiKueue",
+				Type:   corev1.EventTypeNormal,
+				Note:   `The workload got reservation on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1329,10 +1330,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
 				g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-				Reason:  "MultiKueue",
-				Type:    corev1.EventTypeNormal,
-				Message: `The workload got reservation on "worker1"`,
+			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+				Reason: "MultiKueue",
+				Type:   corev1.EventTypeNormal,
+				Note:   `The workload got reservation on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1741,10 +1742,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			kueue.CheckStateReady,
 			`The workload got reservation on "worker1"`,
 		)
-		util.ExpectEventAppeared(manager.ctx, manager.client, corev1.Event{
-			Reason:  "MultiKueue",
-			Type:    corev1.EventTypeNormal,
-			Message: `The workload got reservation on "worker1"`,
+		util.ExpectEventAppeared(manager.ctx, manager.client, eventsv1.Event{
+			Reason: "MultiKueue",
+			Type:   corev1.EventTypeNormal,
+			Note:   `The workload got reservation on "worker1"`,
 		})
 
 		ginkgo.By("observe: job is synced to the worker1 cluster and is active", func() {
@@ -1859,10 +1860,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			kueue.CheckStateReady,
 			`The workload got reservation on "worker1"`,
 		)
-		util.ExpectEventAppeared(manager.ctx, manager.client, corev1.Event{
-			Reason:  "MultiKueue",
-			Type:    corev1.EventTypeNormal,
-			Message: `The workload got reservation on "worker1"`,
+		util.ExpectEventAppeared(manager.ctx, manager.client, eventsv1.Event{
+			Reason: "MultiKueue",
+			Type:   corev1.EventTypeNormal,
+			Note:   `The workload got reservation on "worker1"`,
 		})
 
 		ginkgo.By("observe: job changes are synced to the worker1 cluster", func() {
@@ -2000,10 +2001,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				kueue.CheckStateReady,
 				`The workload got reservation on "worker1"`,
 			)
-			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-				Reason:  "MultiKueue",
-				Type:    corev1.EventTypeNormal,
-				Message: `The workload got reservation on "worker1"`,
+			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+				Reason: "MultiKueue",
+				Type:   corev1.EventTypeNormal,
+				Note:   `The workload got reservation on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2271,10 +2272,10 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 			kueue.CheckStateReady,
 			`The workload got reservation on "worker2"`,
 		)
-		util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
-			Reason:  "MultiKueue",
-			Type:    corev1.EventTypeNormal,
-			Message: `The workload got reservation on "worker2"`,
+		util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+			Reason: "MultiKueue",
+			Type:   corev1.EventTypeNormal,
+			Note:   `The workload got reservation on "worker2"`,
 		})
 
 		gomega.Eventually(func(g gomega.Gomega) {

@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -538,7 +538,7 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 			}
 
 			k8sclient := builder.Build()
-			recorder := record.NewFakeRecorder(10)
+			recorder := events.NewFakeRecorder(10)
 
 			var opts []KueuePopulatorReconcilerOption
 			if tc.globalNsSelectorStr != "" {

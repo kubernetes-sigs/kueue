@@ -27,6 +27,7 @@ import (
 	"github.com/onsi/gomega/types"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -4649,15 +4650,17 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("observe three SecondPassFailed events while the node is NotReady (≈1s, 2s, 4s backoffs)", func() {
-					var evList corev1.EventList
+					var evList eventsv1.EventList
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.List(ctx, &evList, &client.ListOptions{Namespace: ns.Name})).To(gomega.Succeed())
 						var count int32
 						for i := range evList.Items {
 							ev := evList.Items[i]
-							if ev.Reason == "SecondPassFailed" && ev.InvolvedObject.Name == wl1.Name {
-								if ev.Count > count {
-									count = ev.Count
+							if ev.Reason == "SecondPassFailed" && ev.Regarding.Name == wl1.Name {
+								if ev.Series != nil {
+									count += ev.Series.Count + 1
+								} else {
+									count++
 								}
 							}
 						}

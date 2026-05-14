@@ -32,7 +32,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -1646,7 +1646,7 @@ func EvictWithRetryOnConflictForPatch() EvictOption {
 func Evict(
 	ctx context.Context,
 	c client.Client,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 	wl *kueue.Workload,
 	reason, msg string,
 	underlyingCause kueue.EvictionUnderlyingCause,
@@ -1784,7 +1784,7 @@ func closeAllPreemptionGates(w *kueue.Workload, now time.Time) {
 	}
 }
 
-func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference,
+func reportEvictedWorkload(recorder events.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference,
 	reason, message string, underlyingCause kueue.EvictionUnderlyingCause, exposeLqMetrics bool,
 	tracker *roletracker.RoleTracker, cl *metrics.CustomLabels,
 ) {
@@ -1809,7 +1809,7 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
 		eventReason = ReasonWithCause(eventReason, string(underlyingCause))
 	}
-	recorder.Event(wl, corev1.EventTypeNormal, eventReason, message)
+	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, eventReason, message)
 }
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {

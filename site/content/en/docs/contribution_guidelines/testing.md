@@ -56,9 +56,10 @@ For running a subset of tests, see [Running subset of tests](#running-subset-of-
 ## Running e2e tests using custom build
 ```shell
 make kind-image-build
-make test-e2e
 make test-tas-e2e-baseline
 make test-tas-e2e-extended
+make test-e2e-baseline
+make test-e2e-extended
 make test-e2e-sequential-extended
 make test-e2e-sequential-baseline
 make test-e2e-certmanager
@@ -69,7 +70,7 @@ make test-multikueue-e2e-sequential
 
 You can specify the Kubernetes version used for running the e2e tests by setting the `E2E_K8S_FULL_VERSION` variable:
 ```shell
-E2E_K8S_FULL_VERSION=1.35.0 make test-e2e
+E2E_K8S_FULL_VERSION=1.35.0 make test-e2e-baseline
 ```
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
@@ -128,37 +129,38 @@ Use `E2E_MODE=dev` to create-or-reuse a kind cluster, rebuild/redeploy Kueue, ru
 
 ```shell
 # Create if missing, otherwise reuse cluster. Rebuild image, run tests, keep the cluster.
-E2E_MODE=dev make kind-image-build test-e2e
+E2E_MODE=dev make kind-image-build test-e2e-baseline
 
 # MultiKueue dev mode
 E2E_MODE=dev make kind-image-build test-multikueue-e2e-main
 
 # Loop a suite (until it fails) while keeping the cluster
-E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e
+E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build  test-e2e-baseline
+
 
 # Skip reinstallation of kueue (works only in dev mode)
-E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-e2e
+E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-e2e-baseline
 E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e-main
 
 # Skip re-pulling dependency images and re-importing them into kind when already present (dev mode only)
-E2E_MODE=dev E2E_SKIP_IMAGE_RELOAD=true make kind-image-build test-e2e
+E2E_MODE=dev E2E_SKIP_IMAGE_RELOAD=true make kind-image-build test-e2e-baseline
 ```
 
 To use a **released** or **staging** Kueue image instead of building from source (no `kind-image-build` needed), pass `IMAGE_TAG` with the desired image:
 
 ```shell
 # Released version
-E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e-baseline
 E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e-main
 
 # Staging image (e.g. from a PR or nightly)
-E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-e2e
+E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-e2e-baseline
 ```
 
 **Using a released version with matching manifests:** The e2e framework deploys CRDs and other resources from the repo's config and overrides only the controller image via `IMAGE_TAG`. To run e2e against a specific release with manifests that match that image:
 
 1. Check out that version's tag (e.g. `git checkout v0.16.0`). The CRD and deployment config in the repo are committed at each release, so no `make manifests` step is needed.
-2. Run the command above with the same image tag, e.g. `E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e`.
+2. Run the command above with the same image tag, e.g. `E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e-baseline`.
 
 This is useful to reproduce issues on a specific released version (e.g. for on-call debugging). For installing a released version into a real cluster (not e2e), see [Install a released version](/docs/installation/#install-a-released-version).
 
@@ -199,7 +201,7 @@ or from VSCode.
 To provision a Kind cluster with Prometheus pre-configured for metrics debugging:
 
 ```shell
-E2E_MODE=dev GINKGO_ARGS="--label-filter=feature:prometheus" make kind-image-build test-e2e
+E2E_MODE=dev GINKGO_ARGS="--label-filter=feature:prometheus" make kind-image-build test-e2e-baseline
 ```
 
 For more details, see [Setup Dev Monitoring](/docs/tasks/dev/setup_dev_monitoring).
@@ -248,13 +250,14 @@ SingleCluster tests are labeled by feature and area. You can use `GINKGO_ARGS` w
 **Examples:**
 ```shell
 # Run only appwrapper tests
-GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e
+GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
+
 
 # Run only deployment tests with helm
-GINKGO_ARGS="--label-filter=feature:deployment" make test-e2e-helm
+GINKGO_ARGS="--label-filter=feature:deployment" make test-e2e-baseline-helm
 
 # Run only jobset and trainjob tests with helm
-GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e
+GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e-extended
 ```
 
 ### Use label filters for e2e sequential tests
@@ -278,7 +281,7 @@ GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 ### Use Ginkgo --focus arg
 ```shell
 GINKGO_ARGS="--focus=Scheduler" make test-integration
-GINKGO_ARGS="--focus='Creating a Pod requesting TAS'" make test-e2e
+GINKGO_ARGS="--focus='Creating a Pod requesting TAS'" make test-e2e-baseline
 ```
 ### Use ginkgo.FIt
 If you want to focus on specific tests, you can change
@@ -310,7 +313,7 @@ INTEGRATION_TARGET='test/integration/singlecluster/scheduler' make test-integrat
 You can use --until-it-fails or --repeat=N arguments to Ginkgo to run tests repeatedly, such as:
 ```shell
 GINKGO_ARGS="--until-it-fails" make test-integration
-GINKGO_ARGS="--repeat=10" make test-e2e
+GINKGO_ARGS="--repeat=10" make test-e2e-baseline
 ```
 See more [here](https://onsi.github.io/ginkgo/#repeating-spec-runs-and-managing-flaky-specs)
 

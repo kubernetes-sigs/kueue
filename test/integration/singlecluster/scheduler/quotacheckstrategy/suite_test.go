@@ -92,7 +92,7 @@ func managerAndSchedulerSetup(quotaCheckStrategy config.QuotaCheckStrategy, admi
 		err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName),
+		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 			scheduler.WithQuotaCheckStrategy(quotaCheckStrategy),
 			scheduler.WithAdmissionFairSharing(admissionFairSharing),
