@@ -627,15 +627,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			r.recordAdmissionCheckUpdate(wl, job)
 		}
 
-		// Update queue-name if changed.
-		if queueName := QueueName(job); wl.Spec.QueueName != queueName {
-			qLog := log.WithValues("oldQueueName", wl.Spec.QueueName, "newQueueName", queueName)
-			qLog.V(2).Info("Job changed queue-name, updating workload")
-			wl.Spec.QueueName = queueName
-			err := r.client.Update(ctx, wl)
-			if err != nil {
-				qLog.Error(err, "Updating workload queue-name")
-			}
+		if err := r.handleQueueNameChange(ctx, job, wl); err != nil {
 			return ctrl.Result{}, err
 		}
 
@@ -663,6 +655,26 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// For elastic jobs, pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+func (r *JobReconciler) handleQueueNameChange(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
+	if jobWithCustomQueueNameChange, ok := job.(JobWithCustomQueueNameChange); ok {
+		return jobWithCustomQueueNameChange.CustomQueueNameChange(ctx, r.client, wl)
+	}
+	return QueueNameChange(ctx, r.client, job, wl)
+}
+
+func QueueNameChange(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) error {
+	if queueName := QueueName(job); wl.Spec.QueueName != queueName {
+		log := ctrl.LoggerFrom(ctx).WithValues("oldQueueName", wl.Spec.QueueName, "newQueueName", queueName)
+		log.V(2).Info("Job changed queue-name, updating workload")
+		wl.Spec.QueueName = queueName
+		if err := c.Update(ctx, wl); err != nil {
+			log.Error(err, "Updating workload queue-name")
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob GenericJob, ancestorJob client.Object) (bool, error) {

@@ -192,6 +192,10 @@ type TopLevelJob interface {
 	IsTopLevel() bool
 }
 
+type JobWithCustomQueueNameChange interface {
+	CustomQueueNameChange(ctx context.Context, c client.Client, wl *kueue.Workload) error
+}
+
 func QueueName(job GenericJob) kueue.LocalQueueName {
 	return QueueNameForObject(job.Object())
 }

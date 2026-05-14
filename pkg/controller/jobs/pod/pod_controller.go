@@ -167,6 +167,7 @@ var (
 	_ jobframework.ComposableJob                   = (*Pod)(nil)
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
 	_ jobframework.TopLevelJob                     = (*Pod)(nil)
+	_ jobframework.JobWithCustomQueueNameChange    = (*Pod)(nil)
 )
 
 // PodOption is a function type that modifies a Pod. It allows customization of a Pod's
@@ -324,6 +325,14 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 
 func (p *Pod) IsTopLevel() bool {
 	return true
+}
+
+func (p *Pod) CustomQueueNameChange(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	// Skipping queueName updates for serving workload
+	if p.isServing() {
+		return nil
+	}
+	return jobframework.QueueNameChange(ctx, c, p, wl)
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
