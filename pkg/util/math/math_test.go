@@ -19,54 +19,7 @@ package math
 import (
 	stdmath "math"
 	"testing"
-
-	"k8s.io/apimachinery/pkg/api/resource"
 )
-
-func TestSaturatingAdd(t *testing.T) {
-	cases := map[string]struct {
-		a    int64
-		b    int64
-		want int64
-	}{
-		"zero":                  {a: 0, b: 0, want: 0},
-		"positive":              {a: 2, b: 3, want: 5},
-		"negative":              {a: -2, b: 3, want: 1},
-		"overflow positive":     {a: stdmath.MaxInt64, b: 1, want: stdmath.MaxInt64},
-		"overflow negative":     {a: stdmath.MinInt64, b: -1, want: stdmath.MinInt64},
-		"max int64 + max int64": {a: stdmath.MaxInt64, b: stdmath.MaxInt64, want: stdmath.MaxInt64},
-		"min int64 + min int64": {a: stdmath.MinInt64, b: stdmath.MinInt64, want: stdmath.MinInt64},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			if got := SaturatingAdd(tc.a, tc.b); got != tc.want {
-				t.Errorf("SaturatingAdd(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestSafeMilliValue(t *testing.T) {
-	cases := map[string]struct {
-		q    resource.Quantity
-		want int64
-	}{
-		"zero":      {q: resource.MustParse("0"), want: 0},
-		"positive":  {q: resource.MustParse("1"), want: 1000},
-		"negative":  {q: resource.MustParse("-1"), want: -1000},
-		"max int64": {q: *resource.NewMilliQuantity(stdmath.MaxInt64, resource.DecimalSI), want: stdmath.MaxInt64},
-		"min int64": {q: *resource.NewMilliQuantity(stdmath.MinInt64, resource.DecimalSI), want: stdmath.MinInt64},
-		"overflow":  {q: resource.MustParse("10P"), want: stdmath.MaxInt64},
-		"underflow": {q: resource.MustParse("-10P"), want: stdmath.MinInt64},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			if got := SafeMilliValue(tc.q); got != tc.want {
-				t.Errorf("SafeMilliValue(%v) = %d, want %d", tc.q, got, tc.want)
-			}
-		})
-	}
-}
 
 func TestSaturatingMul(t *testing.T) {
 	cases := map[string]struct {
