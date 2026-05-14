@@ -20,7 +20,21 @@ GO_TEST_FLAGS ?= -race
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION ?= 1.35
-KUBEBUILDER_ASSETS = $(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
+
+# setup-envtest occasionally fails to download binaries due to network errors in CI.
+# Retry up to ENVTEST_RETRY_ATTEMPTS times with an ENVTEST_RETRY_DELAY second delay before giving up.
+ENVTEST_RETRY_ATTEMPTS ?= 4
+ENVTEST_RETRY_DELAY ?= 5
+define _envtest_with_retry
+attempts=$(ENVTEST_RETRY_ATTEMPTS); delay=$(ENVTEST_RETRY_DELAY);
+for i in $$(seq 1 $$attempts); do
+	echo "setup-envtest attempt $$i/$$attempts" 1>&2;
+	$(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path && exit 0;
+	echo "setup-envtest attempt $$i/$$attempts failed" 1>&2;
+	[ "$$i" -lt "$$attempts" ] && sleep "$$delay";
+done
+endef
+KUBEBUILDER_ASSETS = $(or $(shell $(_envtest_with_retry)),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 
 TEST_LOG_LEVEL ?= -3
 
