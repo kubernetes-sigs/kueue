@@ -6558,6 +6558,271 @@ func TestFindTopologyAssignments(t *testing.T) {
 					TopologyAssignment,
 			}},
 		},
+		"flat topology, preferred mode, size 5 pods x 1": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-1-pref-2").
+					Label("kubernetes.io/hostname", "node-1-pref-2").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-2-pref-1").
+					Label("kubernetes.io/hostname", "node-2-pref-1").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-3-nonpref-2").
+					Label("kubernetes.io/hostname", "node-3-nonpref-2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-4-nonpref-1").
+					Label("kubernetes.io/hostname", "node-4-nonpref-1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("kubernetes.io/hostname"),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 5,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-2-pref-1"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-3-nonpref-2"}}).
+					TopologyAssignment,
+			}},
+		},
+		"flat topology, unconstrained mode, size 5 pods x 1": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRespectNodeAffinityPreferred: true,
+				features.TASProfileMixed:                 true,
+			},
+			levels: []string{"kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-1-pref-2").
+					Label("kubernetes.io/hostname", "node-1-pref-2").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-2-pref-1").
+					Label("kubernetes.io/hostname", "node-2-pref-1").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-3-nonpref-2").
+					Label("kubernetes.io/hostname", "node-3-nonpref-2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-4-nonpref-1a").
+					Label("kubernetes.io/hostname", "node-4-nonpref-1a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-5-nonpref-1b").
+					Label("kubernetes.io/hostname", "node-5-nonpref-1b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 5,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-2-pref-1"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-4-nonpref-1a"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-5-nonpref-1b"}}).
+					TopologyAssignment,
+			}},
+		},
+		"flat topology, preferred mode, size 2 pods x 2": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-1-pref-2").
+					Label("kubernetes.io/hostname", "node-1-pref-2").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-2-pref-1").
+					Label("kubernetes.io/hostname", "node-2-pref-1").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-3-nonpref-2a").
+					Label("kubernetes.io/hostname", "node-3-nonpref-2a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-4-nonpref-2b").
+					Label("kubernetes.io/hostname", "node-4-nonpref-2b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-5-nonpref-1").
+					Label("kubernetes.io/hostname", "node-5-nonpref-1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   new("kubernetes.io/hostname"),
+					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+					PodSetSliceSize:             new(int32(2)),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 4,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-3-nonpref-2a"}}).
+					TopologyAssignment,
+			}},
+		},
+		"flat topology, unconstrained mode, size 2 pods x 2": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRespectNodeAffinityPreferred: true,
+				features.TASProfileMixed:                 true,
+			},
+			levels: []string{"kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-1-pref-2").
+					Label("kubernetes.io/hostname", "node-1-pref-2").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-2-pref-1").
+					Label("kubernetes.io/hostname", "node-2-pref-1").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-3-nonpref-2a").
+					Label("kubernetes.io/hostname", "node-3-nonpref-2a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-4-nonpref-2b").
+					Label("kubernetes.io/hostname", "node-4-nonpref-2b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-5-nonpref-1").
+					Label("kubernetes.io/hostname", "node-5-nonpref-1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained:               new(true),
+					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+					PodSetSliceSize:             new(int32(2)),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 4,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-3-nonpref-2a"}}).
+					TopologyAssignment,
+			}},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
