@@ -155,7 +155,6 @@ E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
 
 适用于在特定已发布版本上复现问题（例如值班排查）。若要在真实集群（非 e2e）中安装已发布版本，请参阅[安装已发布版本](/zh-CN/docs/installation/#install-a-released-version)。
 
-{{% alert title="Note" color="primary" %}}
 当在 `E2E_MODE=dev` 下复用保留的集群时，外部算子（MPI、KubeRay 等）只会安装一次。
 如需在每次运行时强制重新安装它们，请设置 `E2E_ENFORCE_OPERATOR_UPDATE=true`。
 
