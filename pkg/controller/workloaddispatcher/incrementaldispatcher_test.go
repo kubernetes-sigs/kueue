@@ -67,17 +67,17 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			workload: baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
 		},
 		"admission check nil": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: baseWorkload.DeepCopy(),
 		},
 		"admission check is rejected": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: baseWorkload.DeepCopy(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateRejected,
 			},
 		},
 		"admission check is ready": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: baseWorkload.DeepCopy(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateReady,
@@ -105,7 +105,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		"workload has quota reserved": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: baseWorkload.DeepCopy(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStatePending,
