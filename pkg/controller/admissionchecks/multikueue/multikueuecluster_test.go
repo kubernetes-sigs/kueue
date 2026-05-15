@@ -41,6 +41,8 @@ import (
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -922,6 +924,124 @@ func TestValidateKubeconfig(t *testing.T) {
 			err := validateKubeconfig(raw)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("wantErr=%v, got err: %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestClustersReconcilerEventFilters(t *testing.T) {
+	baseCluster := utiltestingapi.MakeMultiKueueCluster("worker1").
+		KubeConfig(kueue.SecretLocationType, "secret1").Generation(1).Obj()
+	baseClusterWithPath := utiltestingapi.MakeMultiKueueCluster("worker1").
+		KubeConfig(kueue.PathLocationType, "/tmp/worker1.kubeconfig").Generation(1).Obj()
+
+	deletingCluster := baseCluster.DeepCopy()
+	now := metav1.Now()
+	deletingCluster.DeletionTimestamp = &now
+
+	cases := map[string]struct {
+		invoke        func(p predicate.Predicate) bool
+		wantReconcile bool
+	}{
+		"create cluster with secret location triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Create(event.CreateEvent{Object: baseCluster})
+			},
+			wantReconcile: true,
+		},
+		"create cluster with path location triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Create(event.CreateEvent{Object: baseClusterWithPath})
+			},
+			wantReconcile: true,
+		},
+		"update cluster spec change triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: baseCluster,
+					ObjectNew: utiltestingapi.MakeMultiKueueCluster("worker1").
+						KubeConfig(kueue.SecretLocationType, "secret2").Generation(2).Obj(),
+				})
+			},
+			wantReconcile: true,
+		},
+		"update cluster status only change does not skip reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: baseCluster,
+					ObjectNew: utiltestingapi.MakeMultiKueueCluster("worker1").
+						KubeConfig(kueue.SecretLocationType, "secret1").Generation(1).
+						Active(metav1.ConditionTrue, "Active", "Connected", 1).
+						Obj(),
+				})
+			},
+			wantReconcile: true,
+		},
+		"update cluster deletion timestamp triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: baseCluster,
+					ObjectNew: deletingCluster,
+				})
+			},
+			wantReconcile: true,
+		},
+		"update cluster no change does not skip reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: baseCluster,
+					ObjectNew: baseCluster.DeepCopy(),
+				})
+			},
+			wantReconcile: true,
+		},
+		"update cluster path location changed to secret triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: baseClusterWithPath,
+					ObjectNew: baseCluster,
+				})
+			},
+			wantReconcile: true,
+		},
+		"update non-cluster objects triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: &corev1.Secret{},
+					ObjectNew: &corev1.Secret{},
+				})
+			},
+			wantReconcile: true,
+		},
+		"delete cluster with secret location triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Delete(event.DeleteEvent{Object: baseCluster})
+			},
+			wantReconcile: true,
+		},
+		"delete cluster with path location triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Delete(event.DeleteEvent{Object: baseClusterWithPath})
+			},
+			wantReconcile: true,
+		},
+		"generic event does not trigger reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Generic(event.GenericEvent{Object: baseCluster})
+			},
+			wantReconcile: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			c := getClientBuilder(ctx).Build()
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileCreds{}, nil)
+			reconciler.rootContext = ctx
+
+			if got := tc.invoke(reconciler); got != tc.wantReconcile {
+				t.Errorf("unexpected reconcile decision: want %v, got %v", tc.wantReconcile, got)
 			}
 		})
 	}
