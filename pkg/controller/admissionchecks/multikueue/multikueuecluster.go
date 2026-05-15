@@ -72,6 +72,15 @@ const (
 	// this set will provide waiting time between 0 to 5m20s
 	retryIncrement = 5 * time.Second
 	retryMaxSteps  = 7
+
+	// Bounds how long startWatcher waits for client.Watch() to return,
+	// so a hung remote cannot head-of-line block the reconciler. See #11206.
+	defaultWatchEstablishTimeout = 60 * time.Second
+)
+
+var (
+	watchEstablishTimeout    = defaultWatchEstablishTimeout
+	errWatchEstablishTimeout = errors.New("watch establishment timed out")
 )
 
 // retryAfter returns an exponentially increasing interval between
@@ -226,12 +235,56 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 	return nil, nil
 }
 
+// cancelOnStopWatcher carries the establishment context's cancel func so it
+// runs when Stop is called, satisfying govet's lostcancel check without
+// shortening the watch's stream lifetime on the success path.
+type cancelOnStopWatcher struct {
+	watch.Interface
+	cancel context.CancelFunc
+}
+
+func (cw *cancelOnStopWatcher) Stop() {
+	cw.Interface.Stop()
+	cw.cancel()
+}
+
+// establishWatch opens a MultiKueue remote watch, bounded by
+// watchEstablishTimeout. On timeout the in-flight Watch is canceled and
+// errWatchEstablishTimeout is returned so the caller falls back to the
+// standard failedConnAttempts / retryAfter backoff in setConfig.
+func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string) (watch.Interface, error) {
+	type result struct {
+		w   watch.Interface
+		err error
+	}
+	resultCh := make(chan result, 1)
+	establishCtx, cancel := context.WithCancel(ctx)
+
+	go func() {
+		w, err := c.Watch(establishCtx, obj,
+			client.MatchingLabels{kueue.MultiKueueOriginLabel: origin},
+			&client.ListOptions{Raw: &metav1.ListOptions{AllowWatchBookmarks: true}},
+		)
+		resultCh <- result{w: w, err: err}
+	}()
+
+	select {
+	case r := <-resultCh:
+		if r.err != nil {
+			cancel()
+			return nil, r.err
+		}
+		return &cancelOnStopWatcher{Interface: r.w, cancel: cancel}, nil
+	case <-time.After(watchEstablishTimeout):
+		cancel()
+		<-resultCh
+		return nil, errWatchEstablishTimeout
+	}
+}
+
 func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	newWatcher, err := rc.client.Watch(ctx, w.GetEmptyList(),
-		client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin},
-		&client.ListOptions{Raw: &metav1.ListOptions{AllowWatchBookmarks: true}},
-	)
+	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin)
 	if err != nil {
 		return err
 	}
