@@ -1160,3 +1160,68 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 		})
 	}
 }
+
+func TestEstablishWatch(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	prev := watchEstablishTimeout
+	watchEstablishTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { watchEstablishTimeout = prev })
+
+	t.Run("hung Watch times out", func(t *testing.T) {
+		hung := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(ctx context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			},
+		}).Build()
+
+		start := time.Now()
+		w, err := establishWatch(ctx, hung, &kueue.WorkloadList{}, "test-origin")
+		elapsed := time.Since(start)
+
+		if !errors.Is(err, errWatchEstablishTimeout) {
+			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
+		}
+		if w != nil {
+			t.Fatalf("want nil watcher, got: %v", w)
+		}
+		if elapsed > 10*watchEstablishTimeout {
+			t.Fatalf("took %v, expected < 10x %v", elapsed, watchEstablishTimeout)
+		}
+	})
+
+	t.Run("Watch error propagates", func(t *testing.T) {
+		wantErr := errors.New("boom")
+		failing := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+				return nil, wantErr
+			},
+		}).Build()
+
+		w, err := establishWatch(ctx, failing, &kueue.WorkloadList{}, "test-origin")
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("want %v, got: %v", wantErr, err)
+		}
+		if w != nil {
+			t.Fatalf("want nil watcher, got: %v", w)
+		}
+	})
+
+	t.Run("success returns without waiting", func(t *testing.T) {
+		ok := getClientBuilder(ctx).Build()
+		start := time.Now()
+		w, err := establishWatch(ctx, ok, &kueue.WorkloadList{}, "test-origin")
+		elapsed := time.Since(start)
+		if err != nil {
+			t.Fatalf("want nil error, got: %v", err)
+		}
+		if w == nil {
+			t.Fatal("want non-nil watcher")
+		}
+		w.Stop()
+		if elapsed >= watchEstablishTimeout {
+			t.Fatalf("took %v, expected < %v", elapsed, watchEstablishTimeout)
+		}
+	})
+}
