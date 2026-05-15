@@ -6,7 +6,7 @@ configurations:
 - kustomizeconfig.yaml
 
 patches:
- - patch: |-
+- patch: |-
     apiVersion: admissionregistration.k8s.io/v1
     kind: ValidatingWebhookConfiguration
     metadata:
