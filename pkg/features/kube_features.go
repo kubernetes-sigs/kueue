@@ -958,6 +958,12 @@ const (
 	// worker ClusterQueues of a manager ClusterQueue and reports them in
 	// CapacityProvider.status for Dynamic Quota Orchestration.
 	DQOMultiKueueCapacityProvider featuregate.Feature = "DQOMultiKueueCapacityProvider"
+
+	// owner: @gyliu513
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/11171
+	// Enable gathering of per-workload metrics such as kueue_workload_preemptions_total.
+	WorkloadMetrics featuregate.Feature = "WorkloadMetrics"
 )
 
 func init() {
@@ -1493,6 +1499,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	DQOMultiKueueCapacityProvider: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	WorkloadMetrics: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
