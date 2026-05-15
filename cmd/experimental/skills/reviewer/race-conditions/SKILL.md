@@ -1,6 +1,9 @@
 ---
 name: race-conditions
 description: Review concurrent Go code for races, preferring fixes at the mutation site over adding snapshot fields.
+license: Apache-2.0
+metadata:
+  copyright: The Kubernetes Authors
 ---
 
 # Skill: Race Condition Review — Fix the Mutation Site, Not the Read Site
@@ -46,19 +49,3 @@ for i, ps := range a.wl.TotalRequests {
 
 In those cases, wrap the paired fields in a named struct so the invariant is enforced by
 the type system, not convention.
-
-<!--
-Copyright The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
--->

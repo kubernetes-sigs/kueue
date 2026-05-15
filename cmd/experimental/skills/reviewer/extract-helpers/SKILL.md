@@ -1,6 +1,9 @@
 ---
 name: extract-helpers
 description: Review that local variables with unnecessarily wide scope are extracted into helper functions.
+license: Apache-2.0
+metadata:
+  copyright: The Kubernetes Authors
 ---
 
 # Skill: Extract Helpers to Limit Variable Scope
@@ -9,18 +12,36 @@ description: Review that local variables with unnecessarily wide scope are extra
 
 **Ask:** Extract that block into a helper function. This limits the variable's lifetime to the helper, shortens the enclosing function, and makes the intent clearer.
 
-<!--
-Copyright The Kubernetes Authors.
+## Example
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+```go
+func Greeting(user User) string {
+    name := strings.TrimSpace(user.FirstName)
+    if name == "" {
+        name = "friend"
+    }
+    name = strings.Title(name)
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    return fmt.Sprintf("Hello, %s! You have %d new messages.", name, user.Unread)
+}
+```
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
--->
+`name` is built up over three lines, then used once. Its scope spans the whole function for no reason. Real code tends to have more extreme versions of this.
+
+vs.
+
+```go
+func displayName(user User) string {
+    name := strings.TrimSpace(user.FirstName)
+    if name == "" {
+        return "friend"
+    }
+    return strings.Title(name)
+}
+
+func Greeting(user User) string {
+    return fmt.Sprintf("Hello, %s! You have %d new messages.", displayName(user), user.Unread)
+}
+```
+
+`name` now lives only inside `displayName`, and `Greeting` is a single expressive line.
