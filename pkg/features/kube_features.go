@@ -175,7 +175,10 @@ const (
 	// owner: @alaypatel07
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
 	//
-	// Enable quota accounting for Dynamic Resource Allocation (DRA) devices in workloads
+	// Enable quota accounting for Dynamic Resource Allocation (DRA) devices in workloads.
+	KueueDRAIntegration featuregate.Feature = "KueueDRAIntegration"
+
+	// Deprecated: planned to be removed in 0.19. Use KueueDRAIntegration instead.
 	DynamicResourceAllocation featuregate.Feature = "DynamicResourceAllocation"
 
 	// owner: @sohankunkerkar
@@ -183,6 +186,9 @@ const (
 	//
 	// Enable extended resources support for DRA. Allows workloads to request DRA devices
 	// via standard resources.requests using DeviceClass extendedResourceName.
+	KueueDRAIntegrationExtendedResource featuregate.Feature = "KueueDRAIntegrationExtendedResource"
+
+	// Deprecated: planned to be removed in 0.19. Use KueueDRAIntegrationExtendedResource instead.
 	DRAExtendedResources featuregate.Feature = "DRAExtendedResources"
 
 	// owner: @MaysaMacedo
@@ -484,11 +490,19 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASBalancedPlacement: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
+	KueueDRAIntegration: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
 	DynamicResourceAllocation: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.19
+	},
+	KueueDRAIntegrationExtendedResource: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	DRAExtendedResources: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.19
 	},
 	MultiKueueAdaptersForCustomJobs: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},

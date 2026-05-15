@@ -851,7 +851,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		const extendedResourceName = "example.com/gpu"
 
 		ginkgo.BeforeAll(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DRAExtendedResources, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 			fwk.StopManager(ctx)
 			fwk.StartManager(ctx, cfg, managerSetup(nil))
 		})
@@ -957,8 +957,8 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		)
 
 		ginkgo.BeforeAll(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DRAExtendedResources, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 
 			deviceClass = &resourcev1.DeviceClass{
 				ObjectMeta: metav1.ObjectMeta{Name: "gpu.example.com"},
@@ -1043,7 +1043,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 	})
 
-	ginkgo.When("DRAExtendedResources feature gate disabled", func() {
+	ginkgo.When("KueueDRAIntegrationExtendedResource feature gate disabled", func() {
 		var (
 			ns             *corev1.Namespace
 			resourceFlavor *kueue.ResourceFlavor
@@ -1054,8 +1054,8 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		const extendedResourceName = "example.com/gpu"
 
 		ginkgo.BeforeAll(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DRAExtendedResources, false)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, false)
 			fwk.StopManager(ctx)
 			fwk.StartManager(ctx, cfg, managerSetup(nil))
 		})
