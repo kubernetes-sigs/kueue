@@ -1168,60 +1168,56 @@ func TestEstablishWatch(t *testing.T) {
 	watchEstablishTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { watchEstablishTimeout = prev })
 
-	t.Run("hung Watch times out", func(t *testing.T) {
-		hung := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
-			Watch: func(ctx context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
-				<-ctx.Done()
-				return nil, ctx.Err()
+	errBoom := errors.New("boom")
+
+	cases := map[string]struct {
+		interceptor interceptor.Funcs
+		wantErr     error
+		maxElapsed  time.Duration
+	}{
+		"hung Watch times out": {
+			interceptor: interceptor.Funcs{
+				Watch: func(ctx context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+					<-ctx.Done()
+					return nil, ctx.Err()
+				},
 			},
-		}).Build()
-
-		start := time.Now()
-		w, err := establishWatch(ctx, hung, &kueue.WorkloadList{}, "test-origin")
-		elapsed := time.Since(start)
-
-		if !errors.Is(err, errWatchEstablishTimeout) {
-			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
-		}
-		if w != nil {
-			t.Fatalf("want nil watcher, got: %v", w)
-		}
-		if elapsed > 10*watchEstablishTimeout {
-			t.Fatalf("took %v, expected < 10x %v", elapsed, watchEstablishTimeout)
-		}
-	})
-
-	t.Run("Watch error propagates", func(t *testing.T) {
-		wantErr := errors.New("boom")
-		failing := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
-			Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
-				return nil, wantErr
+			wantErr:    errWatchEstablishTimeout,
+			maxElapsed: 10 * watchEstablishTimeout,
+		},
+		"Watch error propagates": {
+			interceptor: interceptor.Funcs{
+				Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+					return nil, errBoom
+				},
 			},
-		}).Build()
+			wantErr: errBoom,
+		},
+		"success returns without waiting": {
+			maxElapsed: watchEstablishTimeout,
+		},
+	}
 
-		w, err := establishWatch(ctx, failing, &kueue.WorkloadList{}, "test-origin")
-		if !errors.Is(err, wantErr) {
-			t.Fatalf("want %v, got: %v", wantErr, err)
-		}
-		if w != nil {
-			t.Fatalf("want nil watcher, got: %v", w)
-		}
-	})
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := getClientBuilder(ctx).WithInterceptorFuncs(tc.interceptor).Build()
 
-	t.Run("success returns without waiting", func(t *testing.T) {
-		ok := getClientBuilder(ctx).Build()
-		start := time.Now()
-		w, err := establishWatch(ctx, ok, &kueue.WorkloadList{}, "test-origin")
-		elapsed := time.Since(start)
-		if err != nil {
-			t.Fatalf("want nil error, got: %v", err)
-		}
-		if w == nil {
-			t.Fatal("want non-nil watcher")
-		}
-		w.Stop()
-		if elapsed >= watchEstablishTimeout {
-			t.Fatalf("took %v, expected < %v", elapsed, watchEstablishTimeout)
-		}
-	})
+			start := time.Now()
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin")
+			elapsed := time.Since(start)
+
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("want err %v, got: %v", tc.wantErr, err)
+			}
+			if (err == nil) != (w != nil) {
+				t.Fatalf("watcher/err mismatch: err=%v, w=%v", err, w)
+			}
+			if w != nil {
+				w.Stop()
+			}
+			if tc.maxElapsed > 0 && elapsed >= tc.maxElapsed {
+				t.Fatalf("took %v, expected < %v", elapsed, tc.maxElapsed)
+			}
+		})
+	}
 }
