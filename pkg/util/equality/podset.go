@@ -25,8 +25,7 @@ import (
 )
 
 type ComparePodSetsOptions struct {
-	ignoreTolerations  bool
-	ignoreNodeSelector bool
+	ignoreTolerations bool
 }
 
 type ComparePodSetsOption func(*ComparePodSetsOptions)
@@ -34,12 +33,6 @@ type ComparePodSetsOption func(*ComparePodSetsOptions)
 func WithIgnoreTolerations() ComparePodSetsOption {
 	return func(options *ComparePodSetsOptions) {
 		options.ignoreTolerations = true
-	}
-}
-
-func WithIgnoreNodeSelector() ComparePodSetsOption {
-	return func(options *ComparePodSetsOptions) {
-		options.ignoreNodeSelector = true
 	}
 }
 
@@ -51,9 +44,6 @@ func comparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) b
 		opt(opts)
 	}
 	if !opts.ignoreTolerations && !equality.Semantic.DeepEqual(a.Tolerations, b.Tolerations) {
-		return false
-	}
-	if !opts.ignoreNodeSelector && !equality.Semantic.DeepEqual(a.NodeSelector, b.NodeSelector) {
 		return false
 	}
 	if !equality.Semantic.DeepEqual(a.InitContainers, b.InitContainers) {

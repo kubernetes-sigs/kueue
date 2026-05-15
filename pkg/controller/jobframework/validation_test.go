@@ -149,10 +149,16 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 				},
 			},
 		},
-		"change nodeSelector": {
+		"change nodeTemplate": {
 			oldPodSpec: &corev1.PodSpec{},
 			newPodSpec: &corev1.PodSpec{
 				NodeSelector: map[string]string{"key": "value"},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: testPath.Child("nodeSelector").String(),
+				},
 			},
 		},
 		"add toleration": {
