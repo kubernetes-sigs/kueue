@@ -57,7 +57,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -427,14 +426,6 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
 	log.V(3).Info("Update LeaderWorkerSet Workload")
 
-	podSets, err := podSets(lws)
-	if err != nil {
-		log.Error(err, "Failed to get pod sets")
-		return err
-	}
-	if !equality.ComparePodSetSlices(podSets, wl.Spec.PodSets) {
-		return r.deleteWorkload(ctx, wl)
-	}
 	if queueName := jobframework.QueueNameForObject(lws); wl.Spec.QueueName != queueName {
 		log.V(2).Info("LeaderWorkerSet changed queue, updating workload")
 		wl.Spec.QueueName = queueName
@@ -450,7 +441,7 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 		}
 	}
 
-	err = jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, wl, nil)
+	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, wl, nil)
 	if err != nil {
 		log.Error(err, "Failed to update workload priority")
 		return err

@@ -28,11 +28,10 @@ import (
 
 func TestComparePodSetSlices(t *testing.T) {
 	cases := map[string]struct {
-		a                  []kueue.PodSet
-		b                  []kueue.PodSet
-		ignoreTolerations  bool
-		ignoreNodeSelector bool
-		wantEquivalent     bool
+		a                 []kueue.PodSet
+		b                 []kueue.PodSet
+		ignoreTolerations bool
+		wantEquivalent    bool
 	}{
 		"different name": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
@@ -47,13 +46,7 @@ func TestComparePodSetSlices(t *testing.T) {
 		"different node selector": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
 			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).NodeSelector(map[string]string{"key": "val"}).Obj()},
-			wantEquivalent: false,
-		},
-		"different node selector with ignoreNodeSelector": {
-			a:                  []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
-			b:                  []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).NodeSelector(map[string]string{"key": "val"}).Obj()},
-			ignoreNodeSelector: true,
-			wantEquivalent:     true,
+			wantEquivalent: true,
 		},
 		"different requests": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Request("res", "1").Obj()},
@@ -141,23 +134,7 @@ func TestComparePodSetSlices(t *testing.T) {
 					NodeSelector(map[string]string{"key": "val2"}).
 					Obj(),
 			},
-			wantEquivalent: false,
-		},
-		"different requests in node selector with ignoreNodeSelector": {
-			a: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("ps", 10).
-					SetMinimumCount(5).
-					NodeSelector(map[string]string{"key": "val"}).
-					Obj(),
-			},
-			b: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("ps", 10).
-					SetMinimumCount(5).
-					NodeSelector(map[string]string{"key": "val2"}).
-					Obj(),
-			},
-			ignoreNodeSelector: true,
-			wantEquivalent:     true,
+			wantEquivalent: true,
 		},
 	}
 	for name, tc := range cases {
@@ -165,9 +142,6 @@ func TestComparePodSetSlices(t *testing.T) {
 			options := make([]ComparePodSetsOption, 0, 1)
 			if tc.ignoreTolerations {
 				options = append(options, WithIgnoreTolerations())
-			}
-			if tc.ignoreNodeSelector {
-				options = append(options, WithIgnoreNodeSelector())
 			}
 			got := ComparePodSetSlices(tc.a, tc.b, options...)
 			if got != tc.wantEquivalent {
