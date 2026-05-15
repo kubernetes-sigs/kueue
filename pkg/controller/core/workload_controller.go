@@ -649,6 +649,8 @@ func (r *WorkloadReconciler) reconcileFinished(ctx context.Context, wl *kueue.Wo
 		return false, ctrl.Result{}, nil
 	}
 
+	metrics.ClearWorkloadPreemptionMetrics(wl.Namespace, wl.Name)
+
 	if r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
 		return true, ctrl.Result{}, nil
 	}
@@ -1474,8 +1476,10 @@ func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDele
 		// otherwise it stays charged until restart.
 		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.Object), queueafs.WorkloadReference(wlKey))
 	}
+	metrics.ClearWorkloadPreemptionMetrics(e.Object.Namespace, e.Object.Name)
 	// e.Object names the queue the Workload moved to after the scheduler assumed it.
 	r.notifyWatchers(deleted, e.Object)
+
 	return true
 }
 
