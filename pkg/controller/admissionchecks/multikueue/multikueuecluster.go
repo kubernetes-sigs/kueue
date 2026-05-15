@@ -277,7 +277,9 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 		return &cancelOnStopWatcher{Interface: r.w, cancel: cancel}, nil
 	case <-time.After(watchEstablishTimeout):
 		cancel()
-		<-resultCh
+		if r := <-resultCh; r.w != nil {
+			r.w.Stop()
+		}
 		return nil, errWatchEstablishTimeout
 	}
 }
