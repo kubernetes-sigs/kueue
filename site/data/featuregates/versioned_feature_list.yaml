@@ -483,10 +483,6 @@
     version: "0.18"
 - name: MultiKueueIncrementalDispatcherConfig
   versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.19"
   - default: true
     lockToDefault: false
     preRelease: Beta
