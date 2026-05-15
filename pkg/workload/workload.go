@@ -1861,8 +1861,15 @@ func reportEvictedWorkload(recorder events.EventRecorder, wl *kueue.Workload, cq
 	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, eventReason, message)
 }
 
-func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {
-	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName, cl.CQGet(preemptingCqName), tracker)
+func ReportPreemption(
+	preemptingCqName kueue.ClusterQueueReference,
+	preemptingReason string,
+	targetCqName kueue.ClusterQueueReference,
+	targetNamespace, targetWorkloadName string,
+	tracker *roletracker.RoleTracker,
+	cl *metrics.CustomLabels,
+) {
+	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName, targetNamespace, targetWorkloadName, cl.CQGet(preemptingCqName), tracker)
 }
 
 func References(wls []*Info) []klog.ObjectRef {

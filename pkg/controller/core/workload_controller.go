@@ -256,6 +256,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
 	if finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
+		metrics.ClearWorkloadPreemptionMetrics(wl.Namespace, wl.Name)
 		if r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
 			return ctrl.Result{}, nil
 		}
@@ -1224,6 +1225,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
 	r.queues.DeleteAndForgetWorkload(log, wlKey)
+	metrics.ClearWorkloadPreemptionMetrics(e.Object.Namespace, e.Object.Name)
 	return true
 }
 

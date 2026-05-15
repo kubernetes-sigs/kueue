@@ -188,6 +188,10 @@ var (
 	// +metricsdoc:labels=preempting_cluster_queue="the ClusterQueue executing preemption",reason="eviction or preemption reason",replica_role="one of `leader`, `follower`, or `standalone`"
 	PreemptedWorkloadsTotal *prometheus.CounterVec
 
+	// +metricsdoc:group=workload
+	// +metricsdoc:labels=namespace="the namespace of the preempted workload",workload="the name of the preempted workload",cluster_queue="the ClusterQueue of the preempted workload",reason="eviction or preemption reason"
+	WorkloadPreemptionsCount *prometheus.GaugeVec
+
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the evicted workload's ClusterQueue from status.admission on the workload before quota was released (only present when the metric records a sample)",reason="eviction or preemption reason (same values as evicted_workloads_total)",replica_role="one of `leader`, `follower`, or `standalone`"
 	WorkloadEvictionLatencySeconds *prometheus.HistogramVec
@@ -659,6 +663,21 @@ The label 'reason' can have the following values:
 		}, append([]string{"preempting_cluster_queue", "reason", "replica_role"}, extraLabels...),
 	)
 
+	WorkloadPreemptionsCount = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "workload_preemptions",
+			Help: `The cumulative number of times each workload has been preempted.
+The label 'reason' can have the following values:
+- "InClusterQueue" means that the workload was preempted by a workload in the same ClusterQueue.
+- "InCohortReclamation" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota.
+- "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort Fair Sharing.
+- "InCohortReclaimWhileBorrowing" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota while borrowing.
+Uses a Gauge (rather than a Counter) so that the time series can be deleted when the workload finishes or is removed, keeping cardinality bounded.
+This gauge is deleted when the workload is completed or deleted.`,
+		}, []string{"namespace", "workload", "cluster_queue", "reason"},
+	)
+
 	WorkloadEvictionLatencySeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -1032,9 +1051,21 @@ func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, unde
 	EvictedWorkloadsOnceTotal.WithLabelValues(labels...).Inc()
 }
 
-func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, customLabelValues []string, tracker *roletracker.RoleTracker) {
+func ReportPreemption(
+	preemptingCqName kueue.ClusterQueueReference,
+	preemptingReason string,
+	targetCqName kueue.ClusterQueueReference,
+	targetNamespace, targetWorkloadName string,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
 	labels := append([]string{string(preemptingCqName), preemptingReason, roletracker.GetRole(tracker)}, customLabelValues...)
 	PreemptedWorkloadsTotal.WithLabelValues(labels...).Inc()
+	WorkloadPreemptionsCount.WithLabelValues(targetNamespace, targetWorkloadName, string(targetCqName), preemptingReason).Inc()
+}
+
+func ClearWorkloadPreemptionMetrics(namespace, workloadName string) {
+	WorkloadPreemptionsCount.DeletePartialMatch(prometheus.Labels{"namespace": namespace, "workload": workloadName})
 }
 
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
@@ -1367,6 +1398,7 @@ func Register() {
 		EvictedWorkloadsTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
+		WorkloadPreemptionsCount,
 		WorkloadEvictionLatencySeconds,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,

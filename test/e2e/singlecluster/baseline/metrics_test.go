@@ -537,6 +537,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				{"kueue_evicted_workloads_total"},
 				{"kueue_evicted_workloads_once_total"},
 				{"kueue_preempted_workloads_total"},
+				{"kueue_workload_preemptions", ns.Name},
 
 				{"kueue_local_queue_evicted_workloads_total", ns.Name, localQueue2.Name},
 				{"kueue_local_queue_resource_reservation", ns.Name, localQueue1.Name},

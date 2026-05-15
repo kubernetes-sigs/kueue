@@ -81,6 +81,16 @@ The following metrics are available only if `LocalQueueMetrics` feature gate is 
 | `kueue_local_queue_status` | Gauge | Reports 'localQueue' with its 'active' status (with possible values 'True', 'False', or 'Unknown').<br>For a LocalQueue, the metric only reports a value of 1 for one of the statuses. | `name`: the name of the LocalQueue<br> `namespace`: the namespace of the LocalQueue<br> `active`: one of `True`, `False`, or `Unknown`<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 <!-- END GENERATED TABLE: localqueue -->
 
+## Workload Status
+
+Use the following metrics to monitor individual workload preemption activity:
+
+<!-- BEGIN GENERATED TABLE: workload -->
+| Metric name | Type | Description | Labels |
+| --- | --- | --- | --- |
+| `kueue_workload_preemptions` | Gauge | The cumulative number of times each workload has been preempted.<br>The label 'reason' can have the following values:<br>- "InClusterQueue" means that the workload was preempted by a workload in the same ClusterQueue.<br>- "InCohortReclamation" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota.<br>- "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort Fair Sharing.<br>- "InCohortReclaimWhileBorrowing" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota while borrowing.<br>Uses a Gauge (rather than a Counter) so that the time series can be deleted when the workload finishes or is removed, keeping cardinality bounded.<br>This gauge is deleted when the workload is completed or deleted. | `namespace`: the namespace of the preempted workload<br> `workload`: the name of the preempted workload<br> `cluster_queue`: the ClusterQueue of the preempted workload<br> `reason`: eviction or preemption reason |
+<!-- END GENERATED TABLE: workload -->
+
 ## Cohort Status
 
 <!-- BEGIN GENERATED TABLE: cohort -->
