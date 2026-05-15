@@ -1,3 +1,42 @@
+## v0.17.3
+
+Changes since `v0.17.2`:
+
+## Actions Required Before Upgrading
+
+### (No, really, you MUST read this before you upgrade)
+
+- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: [`v0.16.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.16.0), [`v0.17.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.0).
+- **Patch releases:** Review the patch release notes leading up to this version, but *only* within this minor release line; see: [`v0.17.1`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.1), [`v0.17.2`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.2).
+
+## Changes by Kind
+
+### Feature
+
+- Observability: Improved FairSharing strategy-evaluation logs by including DRS share values and emitting them at verbosity level V(4). (#11187, @PBundyra)
+
+### Bug or Regression
+
+- ElasticJobsViaWorkloadSlices: Fixed a bug where workload slices with identical creation timestamps could be incorrectly sorted, potentially leading to quota leaks during scale-up. (#11201, @KumarADITHYA123)
+- Fixed a regression where Kueue could mark newly created Workloads as finished, potentially blocking queues. The FinishOrphanedWorkloads feature gate has been downgraded to Alpha. (#11018, @mbobrovskyi)
+- Fixed multi-arch image builds for importer, kueue-populator, and kueueviz backend images so runtime images
+  and binaries are built for the target platform, preventing wrong-architecture containers and exec format error
+  for non-amd64 target platforms, such as arm64, ppc64le, and s390x. (#10916, @carterpewpew)
+- Fixed vulnerability where two podsets with total requests exceeding max int64 would lead to integer overflow and break quota limits. (#11140, @pajakd)
+- Helm: Fixed manager probe templates so periodSeconds correctly uses the configured periodSeconds value,
+  rather than initialDelaySeconds. (#10980, @cixuuz)
+- Helm: Fixed the FlowSchema priorityLevelConfiguration reference to use the Helm fullname template, preventing APF configuration from breaking when fullnameOverride or nameOverride is set. (#10983, @cixuuz)
+- KueueViz: Fixed RBAC permissions for WorkloadPriorityClass objects by using the correct plural workloadpriorityclasses resource name. (#10984, @cixuuz)
+- KueueViz: Fixed the LocalQueue details page to show only workloads from the selected queue. (#11212, @ManthanNimodiya)
+- LeaderWorkerSet & StatefulSet: Fixed a race condition bug that could occasionally result in reverting, at the level of the Workload object, manual changes to the queue-name label for LeaderWorkerSet and StatefulSet. (#11193, @mbobrovskyi)
+- Scheduling: Fixed a bug where in-flight workloads that were concurrently marked as finished (`Finished=True`) or deactivated could be requeued by Kueue's scheduler, causing re-scheduling attempts which were interfering with the scheduling of other workloads. (#11020, @mbobrovskyi)
+- TAS: Fixed NodeHotSwap with TASReplaceNodeOnNodeTaints enabled to evaluate node taints using effective Workload tolerations, including tolerations from AdmissionCheck PodSetUpdates. (#11228, @Ladicle)
+- TAS: Fixed a bug where multi-resource workloads, such as workloads requesting both CPU and memory,
+  could fail admission during second-pass scheduling for ProvisioningRequests or NodeHotSwap because one
+  resource's usage was double-counted against quota. (#11039, @cvgenesis)
+- TAS: Fixed cache cleanup for non-TAS Pods that reach a terminal phase without Kueue observing the expected status update, preventing stale Pod usage from remaining in the TAS cache. (#11146, @amy)
+- TAS: optimize performance of building the snapshot by pre-aggregating the node usage coming from non-TAS Pods. (#11041, @jzhaojieh)
+
 ## v0.17.2
 
 Changes since `v0.17.1`:
