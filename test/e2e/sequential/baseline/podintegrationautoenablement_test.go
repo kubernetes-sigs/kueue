@@ -122,6 +122,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 	ginkgo.It("should not manage pods without queue names regardless of auto-enablement", func() {
 		testPod := testingpod.MakePod("plain-pod", ns.Name).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			Obj()
 		util.MustCreate(ctx, k8sClient, testPod)
