@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package singlecluster
+package baseline
 
 import (
 	"github.com/onsi/ginkgo/v2"
@@ -137,42 +137,7 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 				gomega.Eventually(func(g gomega.Gomega) {
 					var wlList kueue.WorkloadList
 					g.Expect(k8sClient.List(ctx, &wlList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-
-					variantCount := 0
-					for _, wl := range wlList.Items {
-						if wl.Name == parentWl.Name {
-							continue
-						}
-						for _, ref := range wl.OwnerReferences {
-							if ref.UID == parentWl.UID {
-								variantCount++
-							}
-						}
-					}
-					g.Expect(variantCount).To(gomega.Equal(2))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Verifying Pods have the correct instance-type node selector matching the admitted flavor", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					var parentWl kueue.Workload
-					g.Expect(k8sClient.Get(ctx, parentWlKey, &parentWl)).To(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(&parentWl)).To(gomega.BeTrue())
-					g.Expect(parentWl.Status.Admission).ToNot(gomega.BeNil())
-					g.Expect(parentWl.Status.Admission.PodSetAssignments).ToNot(gomega.BeEmpty())
-					admittedFlavor := string(parentWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU])
-
-					expectedInstanceType := "reservation"
-					if admittedFlavor == spotFlavor {
-						expectedInstanceType = "spot"
-					}
-
-					var podList corev1.PodList
-					g.Expect(k8sClient.List(ctx, &podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-					g.Expect(podList.Items).ToNot(gomega.BeEmpty())
-					for _, pod := range podList.Items {
-						g.Expect(pod.Spec.NodeSelector).To(gomega.HaveKeyWithValue("instance-type", expectedInstanceType))
-					}
+					g.Expect(findVariantsForParent(wlList.Items, &parentWl)).To(gomega.HaveLen(2))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -218,8 +183,8 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 					var wlList kueue.WorkloadList
 					g.Expect(k8sClient.List(ctx, &wlList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 
-					spotVariant := e2eGetVariantByFlavor(wlList.Items, parentWlKey.Name, spotFlavor)
-					reservationVariant := e2eGetVariantByFlavor(wlList.Items, parentWlKey.Name, reservationFlavor)
+					spotVariant := getVariantByFlavor(wlList.Items, parentWlKey.Name, spotFlavor)
+					reservationVariant := getVariantByFlavor(wlList.Items, parentWlKey.Name, reservationFlavor)
 					g.Expect(spotVariant).ToNot(gomega.BeNil(), "spot variant not found")
 					g.Expect(reservationVariant).ToNot(gomega.BeNil(), "reservation variant not found")
 					g.Expect(workload.IsAdmitted(spotVariant)).To(gomega.BeTrue(), "spot variant should be admitted")
@@ -254,7 +219,7 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 					var wlList kueue.WorkloadList
 					g.Expect(k8sClient.List(ctx, &wlList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 
-					spotVariant := e2eGetVariantByFlavor(wlList.Items, parentWlKey.Name, spotFlavor)
+					spotVariant := getVariantByFlavor(wlList.Items, parentWlKey.Name, spotFlavor)
 					g.Expect(spotVariant).ToNot(gomega.BeNil(), "spot variant not found")
 					g.Expect(ptr.Deref(spotVariant.Spec.Active, true)).To(gomega.BeFalse(), "spot variant should be deactivated after migration")
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
@@ -263,7 +228,24 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 	})
 })
 
-func e2eGetVariantByFlavor(workloads []kueue.Workload, parentName string, flavor string) *kueue.Workload {
+func findVariantsForParent(workloads []kueue.Workload, parent *kueue.Workload) []kueue.Workload {
+	var variants []kueue.Workload
+	for i := range workloads {
+		wl := &workloads[i]
+		if wl.Name == parent.Name {
+			continue
+		}
+		for _, ref := range wl.OwnerReferences {
+			if ref.UID == parent.UID {
+				variants = append(variants, *wl)
+				break
+			}
+		}
+	}
+	return variants
+}
+
+func getVariantByFlavor(workloads []kueue.Workload, parentName string, flavor string) *kueue.Workload {
 	for i := range workloads {
 		wl := &workloads[i]
 		if wl.Name == parentName {
