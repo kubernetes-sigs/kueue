@@ -1219,4 +1219,27 @@ func TestEstablishWatch(t *testing.T) {
 			}
 		})
 	}
+
+	// Watch races with the timeout: returns a non-nil watcher just after
+	// time.After fires. Must Stop() it to avoid leaking the stream.
+	t.Run("racing watcher is stopped on timeout", func(t *testing.T) {
+		fw := watch.NewFake()
+		c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+				time.Sleep(2 * watchEstablishTimeout)
+				return fw, nil
+			},
+		}).Build()
+
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin")
+		if !errors.Is(err, errWatchEstablishTimeout) {
+			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
+		}
+		if w != nil {
+			t.Fatalf("want nil watcher, got: %v", w)
+		}
+		if !fw.IsStopped() {
+			t.Fatal("racing watcher was not Stop()ed; would leak")
+		}
+	})
 }
