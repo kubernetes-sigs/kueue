@@ -53,8 +53,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	podsetinfo "sigs.k8s.io/kueue/pkg/podset"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -237,6 +239,7 @@ func (r *nodeReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) bool {
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods/status,verbs=patch
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;patch
 
 func newNodeReconciler(
@@ -384,8 +387,14 @@ func (r *nodeReconciler) getWorkloadStatus(
 		return r.checkPodsOnNode(ctx, nodeName, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
 	case !features.Enabled(features.TASReplaceNodeOnNodeTaints):
 		return workloadHealthCheck{status: workloadHealthy}, nil
+	case !hasSchedulingTaints(node.Spec.Taints):
+		return workloadHealthCheck{status: workloadHealthy}, nil
 	default:
-		untolerated, temporarilyTolerated := classifyTaints(ctx, node.Spec.Taints, workload.PodSetsOnNode(wl, nodeName))
+		podSets, err := r.podSetsWithEffectiveTolerationsOnNode(ctx, wl, nodeName)
+		if err != nil {
+			return workloadHealthCheck{status: workloadHealthUnknown}, err
+		}
+		untolerated, temporarilyTolerated := classifyTaints(ctx, node.Spec.Taints, podSets)
 
 		if len(untolerated) > 0 {
 			if !features.Enabled(features.TASReplaceNodeOnPodTermination) {
@@ -398,6 +407,53 @@ func (r *nodeReconciler) getWorkloadStatus(
 		}
 		return workloadHealthCheck{status: workloadHealthy}, nil
 	}
+}
+
+func hasSchedulingTaints(taints []corev1.Taint) bool {
+	return slices.ContainsFunc(taints, func(taint corev1.Taint) bool {
+		return taint.Effect == corev1.TaintEffectNoExecute || taint.Effect == corev1.TaintEffectNoSchedule
+	})
+}
+
+func (r *nodeReconciler) podSetsWithEffectiveTolerationsOnNode(ctx context.Context, wl *kueue.Workload, nodeName string) ([]kueue.PodSet, error) {
+	if wl.Status.Admission == nil {
+		return nil, nil
+	}
+
+	var result []kueue.PodSet
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		if !utiltas.HasNodeInPodSetAssignment(psa, nodeName) {
+			continue
+		}
+
+		ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psa.Name)
+		if ps == nil {
+			continue
+		}
+
+		effective := ps.DeepCopy()
+		info, err := podsetinfo.FromAssignment(ctx, r.client, psa, ps)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, admissionCheck := range wl.Status.AdmissionChecks {
+			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
+				if podSetUpdate.Name == psa.Name {
+					if err := info.Merge(podsetinfo.FromUpdate(&podSetUpdate)); err != nil {
+						return nil, fmt.Errorf("in admission check %q: %w", admissionCheck.Name, err)
+					}
+					break
+				}
+			}
+		}
+		if err := podsetinfo.Merge(&effective.Template.ObjectMeta, &effective.Template.Spec, info); err != nil {
+			return nil, err
+		}
+		result = append(result, *effective)
+	}
+	return result, nil
 }
 
 func (r *nodeReconciler) checkPodsOnNode(
