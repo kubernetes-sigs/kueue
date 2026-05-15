@@ -470,6 +470,15 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 			unconstrained: false,
 			wantOrder:     []string{"has-leader", "no-leader"},
 		},
+		"leader capability prioritized over preferred affinity": {
+			enableTASPreferredSchedulingAffinity: true,
+			domains: []*domain{
+				{id: "preferred-no-leader", affinityScore: 100, leaderState: 0, sliceStateWithLeader: 0, stateWithLeader: 0, levelValues: []string{"a"}},
+				{id: "non-preferred-has-leader", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"non-preferred-has-leader", "preferred-no-leader"},
+		},
 		"BestFit: sliceStateWithLeader descending": {
 			domains: []*domain{
 				{id: "a", leaderState: 1, sliceStateWithLeader: 3, stateWithLeader: 1, levelValues: []string{"a"}},

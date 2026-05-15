@@ -6823,6 +6823,152 @@ func TestFindTopologyAssignments(t *testing.T) {
 					TopologyAssignment,
 			}},
 		},
+		"LWS with leader and workers; preferred affinity on workers; leader cannot fit on preferred zone": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRespectNodeAffinityPreferred: true,
+			},
+			levels: []string{"cloud.com/topology-zone", corev1.LabelHostname},
+			nodes: []corev1.Node{
+				// us-west nodes (preferred by workers, but cannot fit leader CPU=16, Mem=64Gi)
+				*testingnode.MakeNode("us-west-1").
+					Label("cloud.com/topology-zone", "us-west").
+					Label(corev1.LabelHostname, "us-west-1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("8"),
+						corev1.ResourceMemory: resource.MustParse("32Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"nvidia.com/gpu":      resource.MustParse("8"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("us-west-2").
+					Label("cloud.com/topology-zone", "us-west").
+					Label(corev1.LabelHostname, "us-west-2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("8"),
+						corev1.ResourceMemory: resource.MustParse("32Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"nvidia.com/gpu":      resource.MustParse("8"),
+					}).
+					Ready().
+					Obj(),
+				// us-east node (CPU-only master node, can fit leader but cannot fit GPU workers)
+				*testingnode.MakeNode("us-east-1").
+					Label("cloud.com/topology-zone", "us-east").
+					Label(corev1.LabelHostname, "us-east-1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("32"),
+						corev1.ResourceMemory: resource.MustParse("128Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new("cloud.com/topology-zone"),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+						PodSetSliceSize:             new(int32(1)),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU:    16 * 1000,
+						corev1.ResourceMemory: 64 * 1024 * 1024 * 1024,
+					},
+					podSetGroupName: new("llm-group"),
+					count:           1,
+					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"us-east-1"}}).
+						TopologyAssignment,
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new("cloud.com/topology-zone"),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+						PodSetSliceSize:             new(int32(1)),
+					},
+					nodeAffinity: &corev1.NodeAffinity{
+						PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "cloud.com/topology-zone", corev1.NodeSelectorOpIn, "us-west").Obj(),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU:    4 * 1000,
+						corev1.ResourceMemory: 32 * 1024 * 1024 * 1024,
+						"nvidia.com/gpu":      8,
+					},
+					podSetGroupName: new("llm-group"),
+					count:           2,
+					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"us-west-1"}}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"us-west-2"}}).
+						TopologyAssignment,
+				},
+			},
+		},
+		"optimize the last domain for LWS using BestFit": {
+			levels: []string{"cloud.com/topology-zone", "cloud.com/topology-rack", corev1.LabelHostname},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("dom1-node").
+					Label("cloud.com/topology-zone", "dom1").
+					Label("cloud.com/topology-rack", "rack1").
+					Label(corev1.LabelHostname, "dom1-node").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("10"),
+						corev1.ResourceMemory: resource.MustParse("10Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("dom2-node").
+					Label("cloud.com/topology-zone", "dom2").
+					Label("cloud.com/topology-rack", "rack2").
+					Label(corev1.LabelHostname, "dom2-node").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("6"),
+						corev1.ResourceMemory: resource.MustParse("10Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    new("cloud.com/topology-zone"),
+						PodSetSliceRequiredTopology: new("cloud.com/topology-rack"),
+						PodSetSliceSize:             new(int32(1)),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU:    1000,
+						corev1.ResourceMemory: 1024 * 1024 * 1024,
+					},
+					podSetGroupName: new("lws"),
+					count:           1,
+					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"dom2-node"}}).
+						TopologyAssignment,
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    new("cloud.com/topology-zone"),
+						PodSetSliceRequiredTopology: new("cloud.com/topology-rack"),
+						PodSetSliceSize:             new(int32(1)),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU:    1000,
+						corev1.ResourceMemory: 1024 * 1024 * 1024,
+					},
+					podSetGroupName: new("lws"),
+					count:           5,
+					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(tas.TopologyDomainAssignment{Count: 5, Values: []string{"dom2-node"}}).
+						TopologyAssignment,
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

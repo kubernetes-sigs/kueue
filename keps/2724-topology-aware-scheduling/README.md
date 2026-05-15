@@ -65,7 +65,6 @@
   - [Balanced placement](#balanced-placement)
     - [Example](#example-3)
   - [Support for Preferred Node Affinity](#support-for-preferred-node-affinity)
-    - [Behavioral impact on LeaderWorkerSet / Leader placement](#behavioral-impact-on-leaderworkerset--leader-placement)
     - [Future Vision](#future-vision)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
     - [Determining the need for second pass](#determining-the-need-for-second-pass)
@@ -1771,18 +1770,6 @@ When the feature gate is enabled, we compute the "domain affinity scores" at all
 aggregating (summing) the scores from child topology domains.
 Then, the "domain affinity scores" takes precedence over standard placement ordering of domains (based on BestFit or LeastFreeCapacity policies).
 This feature only works when the lowest topology level specified in the Topology CRD is `kubernetes.io/hostname`.
-
-#### Behavioral impact on LeaderWorkerSet / Leader placement
-
-Introducing node affinity precedence adjusts the placement behavior for leader
-pods in configurations like LeaderWorkerSet. When
-`TASRespectNodeAffinityPreferred` is active, candidate topology domains for the
-leader are prioritized primarily by their domain affinity scores. While this
-may shift the leader pod's final placement to a different domain to satisfy
-soft affinity preferences, it acts strictly as an ordering optimization rather
-than a hard filter. If a capable domain exists in the cluster, the scheduler
-will still find it; the feature will never convert a previously schedulable
-workload into an unschedulable one (`noFit`).
 
 #### Future Vision
 
