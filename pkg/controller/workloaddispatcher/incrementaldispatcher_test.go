@@ -190,10 +190,10 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		advanceRoundTime           bool
 		wantNominatedClusters      []string
 	}{
-		// ── original cases (unchanged) ────────────────────────────────────────
+
 		"one remote": {
 			remoteClusters:             sets.New("A"),
-			workload:                   baseWl.Clone().Obj(),
+			workload:                   baseWl.DeepCopy(),
 			wantNominatedClustersCount: 1,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -201,7 +201,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"two remotes": {
 			remoteClusters:             sets.New("A", "B"),
-			workload:                   baseWl.Clone().Obj(),
+			workload:                   baseWl.DeepCopy(),
 			wantNominatedClustersCount: 2,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -209,7 +209,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"three remotes": {
 			remoteClusters:             sets.New("A", "B", "C"),
-			workload:                   baseWl.Clone().Obj(),
+			workload:                   baseWl.DeepCopy(),
 			wantNominatedClustersCount: 3,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -217,7 +217,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"fifteen remotes": {
 			remoteClusters:             sets.New("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"),
-			workload:                   baseWl.Clone().Obj(),
+			workload:                   baseWl.DeepCopy(),
 			wantNominatedClustersCount: 3,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -265,19 +265,16 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"no remotes": {
 			remoteClusters:             make(sets.Set[string]),
-			workload:                   baseWl.Clone().Obj(),
+			workload:                   baseWl.DeepCopy(),
 			wantNominatedClustersCount: 0,
 			wantErr:                    ErrNoMoreWorkers,
 			advanceRoundTime:           false,
 			wantNominatedClusters:      []string{},
 		},
 
-		// ── new cases for stepSize / feature gate ─────────────────────────────
-
-		// stepSize=2: first call with 5 clusters should return exactly 2.
 		"stepSize=2, five remotes — first batch is exactly 2": {
 			remoteClusters: sets.New("A", "B", "C", "D", "E"),
-			workload:       baseWl.Clone().Obj(),
+			workload:       baseWl.DeepCopy(),
 			cfg: &kueueconfig.Configuration{
 				MultiKueue: &kueueconfig.MultiKueue{
 					IncrementalDispatcherConfig: &kueueconfig.IncrementalDispatcherConfig{
@@ -291,7 +288,6 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			wantNominatedClusters:      []string{"A", "B"},
 		},
 
-		// stepSize=2: after round expires the next 2 are appended.
 		"stepSize=2, round expired — second batch is next 2": {
 			remoteClusters: sets.New("A", "B", "C", "D", "E"),
 			workload:       baseWl.Clone().NominatedClusterNames("A", "B").Obj(),
@@ -308,11 +304,9 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			wantNominatedClusters:      []string{"A", "B", "C", "D"},
 		},
 
-		// Feature gate disabled: even with StepSize=10 set in config the
-		// dispatcher must fall back to the default of 3.
 		"feature gate disabled — ignores stepSize=10, uses default 3": {
 			remoteClusters: sets.New("A", "B", "C", "D", "E", "F", "G"),
-			workload:       baseWl.Clone().Obj(),
+			workload:       baseWl.DeepCopy(),
 			cfg: &kueueconfig.Configuration{
 				MultiKueue: &kueueconfig.MultiKueue{
 					IncrementalDispatcherConfig: &kueueconfig.IncrementalDispatcherConfig{
@@ -330,7 +324,6 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			// Control feature gate per test case.
 			if tc.featureGateDisabled {
 				features.SetFeatureGateDuringTest(t, features.MultiKueueIncrementalDispatcherConfig, false)
 			} else {

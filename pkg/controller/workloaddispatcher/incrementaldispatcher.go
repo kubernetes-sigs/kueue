@@ -164,8 +164,6 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	return reconcile.Result{}, nil
 }
 
-// getNextNominatedWorkers returns the next set of nominated workers for incremental dispatching.
-// It nominates up to 3 remotes that have not yet been nominated, in sorted order.
 func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters sets.Set[string], batchSize int) ([]string, error) {
 	alreadyNominated := sets.New(wl.Status.NominatedClusterNames...)
 
@@ -188,8 +186,6 @@ func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters
 	return workers[:batchSize], nil
 }
 
-// stepSize returns the configured batch size for the incremental dispatcher.
-// Falls back to the default of 3 if the feature gate is disabled or config is absent.
 func (r *IncrementalDispatcherReconciler) stepSize() int {
 	const defaultStepSize = 3
 	if !utilfeature.DefaultFeatureGate.Enabled(features.MultiKueueIncrementalDispatcherConfig) {
