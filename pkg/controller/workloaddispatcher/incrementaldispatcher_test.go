@@ -278,7 +278,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			cfg: &kueueconfig.Configuration{
 				MultiKueue: &kueueconfig.MultiKueue{
 					IncrementalDispatcherConfig: &kueueconfig.IncrementalDispatcherConfig{
-						StepSize: ptr.To(int32(2)),
+						StepSize: ptr.To[int32](2),
 					},
 				},
 			},
@@ -310,7 +310,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			cfg: &kueueconfig.Configuration{
 				MultiKueue: &kueueconfig.MultiKueue{
 					IncrementalDispatcherConfig: &kueueconfig.IncrementalDispatcherConfig{
-						StepSize: ptr.To(int32(10)),
+						StepSize: ptr.To[int32](10),
 					},
 				},
 			},
