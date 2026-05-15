@@ -48,6 +48,7 @@ function startup {
 }
 
 trap cleanup EXIT
+build_kind_node_image
 startup &
 prepare_docker_images
 wait
