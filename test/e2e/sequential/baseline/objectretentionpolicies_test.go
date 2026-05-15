@@ -86,6 +86,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			Obj()
 		ginkgo.By("Creating a Job", func() {
@@ -177,6 +178,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 		ginkgo.It("should delete the Workload", func() {
 			job := testingjob.MakeJob("job", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
@@ -219,6 +221,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 		ginkgo.It("shouldn't delete the Job or the Workload", func() {
 			job := testingjob.MakeJob("job", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
@@ -318,6 +321,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			Obj()
 		ginkgo.By("Creating a Job", func() {
