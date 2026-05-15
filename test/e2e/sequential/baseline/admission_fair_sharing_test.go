@@ -108,12 +108,14 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Ordered, ginkgo.Continu
 				job1 = jobtesting.MakeJob("job-a-1", ns.Name).
 					Queue(kueue.LocalQueueName(lqA.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "4").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					Obj()
 				job2 = jobtesting.MakeJob("job-a-2", ns.Name).
 					Queue(kueue.LocalQueueName(lqA.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "4").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					Obj()
@@ -141,6 +143,7 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Ordered, ginkgo.Continu
 				job3 = jobtesting.MakeJob("job-a-3", ns.Name).
 					Queue(kueue.LocalQueueName(lqA.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "4").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					Obj()
@@ -148,6 +151,7 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Ordered, ginkgo.Continu
 				jobB = jobtesting.MakeJob("job-b-1", ns.Name).
 					Queue(kueue.LocalQueueName(lqB.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "4").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					Obj()
@@ -228,12 +232,14 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Ordered, ginkgo.Continu
 				job1A = jobtesting.MakeJob("job1-a-1", ns.Name).
 					Queue(kueue.LocalQueueName(lq1A.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "3").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					Obj()
 				job2A = jobtesting.MakeJob("job1-a-2", ns.Name).
 					Queue(kueue.LocalQueueName(lq1A.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "3").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					Obj()
@@ -261,6 +267,7 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Ordered, ginkgo.Continu
 				job2 = jobtesting.MakeJob("job2-a-1", ns.Name).
 					Queue(kueue.LocalQueueName(lq2A.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "3").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					Obj()
