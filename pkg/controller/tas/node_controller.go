@@ -423,17 +423,7 @@ func (r *nodeReconciler) podSetsWithEffectiveTolerationsOnNode(ctx context.Conte
 	var result []kueue.PodSet
 	for i := range wl.Status.Admission.PodSetAssignments {
 		psa := &wl.Status.Admission.PodSetAssignments[i]
-		if psa.TopologyAssignment == nil || !utiltas.IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
-			continue
-		}
-		assigned := false
-		for val := range utiltas.LowestLevelValues(psa.TopologyAssignment) {
-			if val == nodeName {
-				assigned = true
-				break
-			}
-		}
-		if !assigned {
+		if !utiltas.HasNodeInPodSetAssignment(psa, nodeName) {
 			continue
 		}
 
@@ -447,15 +437,19 @@ func (r *nodeReconciler) podSetsWithEffectiveTolerationsOnNode(ctx context.Conte
 		if err != nil {
 			return nil, err
 		}
-		effective.Template.Spec.Tolerations = append(effective.Template.Spec.Tolerations, info.Tolerations...)
 
 		for _, admissionCheck := range wl.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
 				if podSetUpdate.Name == psa.Name {
-					effective.Template.Spec.Tolerations = append(effective.Template.Spec.Tolerations, podSetUpdate.Tolerations...)
+					if err := info.Merge(podsetinfo.FromUpdate(&podSetUpdate)); err != nil {
+						return nil, fmt.Errorf("in admission check %q: %w", admissionCheck.Name, err)
+					}
 					break
 				}
 			}
+		}
+		if err := podsetinfo.Merge(&effective.Template.ObjectMeta, &effective.Template.Spec, info); err != nil {
+			return nil, err
 		}
 		result = append(result, *effective)
 	}
