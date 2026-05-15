@@ -338,6 +338,23 @@ type MultiKueue struct {
 	// GroupVersionKind (GVK) for MultiKueue operations.
 	// +optional
 	ExternalFrameworks []MultiKueueExternalFramework `json:"externalFrameworks,omitempty"`
+
+	// IncrementalDispatcherConfig contains the configuration for the incremental dispatcher.
+	// This field is only valid when DispatcherName is set to the incremental dispatcher.
+	// Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.
+	// +optional
+	IncrementalDispatcherConfig *IncrementalDispatcherConfig `json:"incrementalDispatcherConfig,omitempty"`
+}
+
+// IncrementalDispatcherConfig holds configuration for the MultiKueue Incremental Dispatcher.
+type IncrementalDispatcherConfig struct {
+	// StepSize defines the number of worker clusters the Incremental Dispatcher
+	// will query simultaneously.
+	// Minimum value is 1. If not set, defaults to 3.
+	// +optional
+	// +kubebuilder:default=3
+	// +kubebuilder:validation:Minimum=1
+	StepSize *int32 `json:"stepSize,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.

@@ -30,12 +30,15 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -64,17 +67,17 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			workload: baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
 		},
 		"admission check nil": {
-			workload: baseWorkload.DeepCopy(),
+			workload: baseWorkload.Clone().Obj(),
 		},
 		"admission check is rejected": {
-			workload: baseWorkload.DeepCopy(),
+			workload: baseWorkload.Clone().Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateRejected,
 			},
 		},
 		"admission check is ready": {
-			workload: baseWorkload.DeepCopy(),
+			workload: baseWorkload.Clone().Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateReady,
@@ -102,7 +105,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		"workload has quota reserved": {
-			workload: baseWorkload.DeepCopy(),
+			workload: baseWorkload.Clone().Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStatePending,
@@ -180,14 +183,17 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 	testCases := map[string]struct {
 		remoteClusters             sets.Set[string]
 		workload                   *kueue.Workload
+		cfg                        *kueueconfig.Configuration
+		featureGateDisabled        bool
 		wantNominatedClustersCount int
 		wantErr                    error
 		advanceRoundTime           bool
 		wantNominatedClusters      []string
 	}{
+		// ── original cases (unchanged) ────────────────────────────────────────
 		"one remote": {
 			remoteClusters:             sets.New("A"),
-			workload:                   baseWl.DeepCopy(),
+			workload:                   baseWl.Clone().Obj(),
 			wantNominatedClustersCount: 1,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -195,7 +201,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"two remotes": {
 			remoteClusters:             sets.New("A", "B"),
-			workload:                   baseWl.DeepCopy(),
+			workload:                   baseWl.Clone().Obj(),
 			wantNominatedClustersCount: 2,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -203,7 +209,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"three remotes": {
 			remoteClusters:             sets.New("A", "B", "C"),
-			workload:                   baseWl.DeepCopy(),
+			workload:                   baseWl.Clone().Obj(),
 			wantNominatedClustersCount: 3,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -211,7 +217,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"fifteen remotes": {
 			remoteClusters:             sets.New("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"),
-			workload:                   baseWl.DeepCopy(),
+			workload:                   baseWl.Clone().Obj(),
 			wantNominatedClustersCount: 3,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -259,16 +265,78 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"no remotes": {
 			remoteClusters:             make(sets.Set[string]),
-			workload:                   baseWl.DeepCopy(),
+			workload:                   baseWl.Clone().Obj(),
 			wantNominatedClustersCount: 0,
 			wantErr:                    ErrNoMoreWorkers,
 			advanceRoundTime:           false,
 			wantNominatedClusters:      []string{},
 		},
+
+		// ── new cases for stepSize / feature gate ─────────────────────────────
+
+		// stepSize=2: first call with 5 clusters should return exactly 2.
+		"stepSize=2, five remotes — first batch is exactly 2": {
+			remoteClusters: sets.New("A", "B", "C", "D", "E"),
+			workload:       baseWl.Clone().Obj(),
+			cfg: &kueueconfig.Configuration{
+				MultiKueue: &kueueconfig.MultiKueue{
+					IncrementalDispatcherConfig: &kueueconfig.IncrementalDispatcherConfig{
+						StepSize: ptr.To(int32(2)),
+					},
+				},
+			},
+			wantNominatedClustersCount: 2,
+			wantErr:                    nil,
+			advanceRoundTime:           false,
+			wantNominatedClusters:      []string{"A", "B"},
+		},
+
+		// stepSize=2: after round expires the next 2 are appended.
+		"stepSize=2, round expired — second batch is next 2": {
+			remoteClusters: sets.New("A", "B", "C", "D", "E"),
+			workload:       baseWl.Clone().NominatedClusterNames("A", "B").Obj(),
+			cfg: &kueueconfig.Configuration{
+				MultiKueue: &kueueconfig.MultiKueue{
+					IncrementalDispatcherConfig: &kueueconfig.IncrementalDispatcherConfig{
+						StepSize: ptr.To(int32(2)),
+					},
+				},
+			},
+			wantNominatedClustersCount: 4,
+			wantErr:                    nil,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"A", "B", "C", "D"},
+		},
+
+		// Feature gate disabled: even with StepSize=10 set in config the
+		// dispatcher must fall back to the default of 3.
+		"feature gate disabled — ignores stepSize=10, uses default 3": {
+			remoteClusters: sets.New("A", "B", "C", "D", "E", "F", "G"),
+			workload:       baseWl.Clone().Obj(),
+			cfg: &kueueconfig.Configuration{
+				MultiKueue: &kueueconfig.MultiKueue{
+					IncrementalDispatcherConfig: &kueueconfig.IncrementalDispatcherConfig{
+						StepSize: ptr.To(int32(10)),
+					},
+				},
+			},
+			featureGateDisabled:        true,
+			wantNominatedClustersCount: 3,
+			wantErr:                    nil,
+			advanceRoundTime:           false,
+			wantNominatedClusters:      []string{"A", "B", "C"},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			// Control feature gate per test case.
+			if tc.featureGateDisabled {
+				features.SetFeatureGateDuringTest(t, features.MultiKueueIncrementalDispatcherConfig, false)
+			} else {
+				features.SetFeatureGateDuringTest(t, features.MultiKueueIncrementalDispatcherConfig, true)
+			}
+
 			scheme := runtime.NewScheme()
 			if err := kueue.AddToScheme(scheme); err != nil {
 				t.Fatalf("Fail to add to scheme %s", err)
@@ -287,6 +355,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 				client:          client,
 				clock:           fakeClock,
 				roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
+				cfg:             tc.cfg,
 			}
 
 			key := types.NamespacedName{Namespace: tc.workload.Namespace, Name: tc.workload.Name}

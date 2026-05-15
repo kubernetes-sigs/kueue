@@ -120,9 +120,11 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	cfg.MultiKueue = cmp.Or(cfg.MultiKueue, &MultiKueue{})
 	cfg.MultiKueue.GCInterval = cmp.Or(cfg.MultiKueue.GCInterval, &metav1.Duration{Duration: DefaultMultiKueueGCInterval})
-	cfg.MultiKueue.Origin = new(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
+	cfg.MultiKueue.Origin = ptr.To(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
 	cfg.MultiKueue.WorkerLostTimeout = cmp.Or(cfg.MultiKueue.WorkerLostTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout})
-	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, new(MultiKueueDispatcherModeAllAtOnce))
+	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, ptr.To(MultiKueueDispatcherModeAllAtOnce))
+	cfg.MultiKueue.IncrementalDispatcherConfig = cmp.Or(cfg.MultiKueue.IncrementalDispatcherConfig, &IncrementalDispatcherConfig{})
+	cfg.MultiKueue.IncrementalDispatcherConfig.StepSize = cmp.Or(cfg.MultiKueue.IncrementalDispatcherConfig.StepSize, ptr.To(int32(3)))
 
 	if afs := cfg.AdmissionFairSharing; afs != nil {
 		afs.UsageSamplingInterval.Duration = cmp.Or(afs.UsageSamplingInterval.Duration, 5*time.Minute)

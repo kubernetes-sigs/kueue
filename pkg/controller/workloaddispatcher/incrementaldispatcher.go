@@ -26,10 +26,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/kueue/pkg/features"
 
 	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -52,6 +54,7 @@ type IncrementalDispatcherReconciler struct {
 	clock           clock.Clock
 	roundStartTimes *utilmaps.SyncMap[types.NamespacedName, time.Time]
 	roleTracker     *roletracker.RoleTracker
+	cfg             *kueueconfig.Configuration
 }
 
 var realClock = clock.RealClock{}
@@ -67,15 +70,17 @@ func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
-func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, roleTracker *roletracker.RoleTracker) *IncrementalDispatcherReconciler {
+func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, roleTracker *roletracker.RoleTracker, cfg *kueueconfig.Configuration) *IncrementalDispatcherReconciler {
 	return &IncrementalDispatcherReconciler{
 		client:          c,
 		helper:          helper,
 		clock:           realClock,
 		roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
 		roleTracker:     roleTracker,
+		cfg:             cfg,
 	}
 }
+
 func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	wl := &kueue.Workload{}
@@ -138,7 +143,7 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 		return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
 	}
 
-	nextNominatedWorkers, err := getNextNominatedWorkers(log, wl, remoteClusters)
+	nextNominatedWorkers, err := getNextNominatedWorkers(log, wl, remoteClusters, r.stepSize())
 	log.V(5).Info("revoke outdated nomination and nominate new worker clusters", "revokedWorkerClusters", wl.Status.NominatedClusterNames, "nominatedWorkerClusters", nextNominatedWorkers)
 	if err != nil {
 		log.Error(err, "Failed to nominate next worker clusters")
@@ -161,7 +166,7 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 
 // getNextNominatedWorkers returns the next set of nominated workers for incremental dispatching.
 // It nominates up to 3 remotes that have not yet been nominated, in sorted order.
-func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters sets.Set[string]) ([]string, error) {
+func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters sets.Set[string], batchSize int) ([]string, error) {
 	alreadyNominated := sets.New(wl.Status.NominatedClusterNames...)
 
 	workers := make([]string, 0, len(remoteClusters))
@@ -177,11 +182,26 @@ func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters
 	if len(workers) == 0 {
 		return nil, ErrNoMoreWorkers
 	}
-	batchSize := 3
 	if len(workers) < batchSize {
 		return workers, nil
 	}
 	return workers[:batchSize], nil
+}
+
+// stepSize returns the configured batch size for the incremental dispatcher.
+// Falls back to the default of 3 if the feature gate is disabled or config is absent.
+func (r *IncrementalDispatcherReconciler) stepSize() int {
+	const defaultStepSize = 3
+	if !utilfeature.DefaultFeatureGate.Enabled(features.MultiKueueIncrementalDispatcherConfig) {
+		return defaultStepSize
+	}
+	if r.cfg != nil &&
+		r.cfg.MultiKueue != nil &&
+		r.cfg.MultiKueue.IncrementalDispatcherConfig != nil &&
+		r.cfg.MultiKueue.IncrementalDispatcherConfig.StepSize != nil {
+		return int(*r.cfg.MultiKueue.IncrementalDispatcherConfig.StepSize)
+	}
+	return defaultStepSize
 }
 
 func (r *IncrementalDispatcherReconciler) setRoundStartTime(key types.NamespacedName, t time.Time) {
