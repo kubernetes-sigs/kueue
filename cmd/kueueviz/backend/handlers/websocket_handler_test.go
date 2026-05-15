@@ -40,6 +40,25 @@ type mockResourceEventHandlerRegistration struct{}
 
 func (m *mockResourceEventHandlerRegistration) HasSynced() bool { return true }
 
+func (m *mockResourceEventHandlerRegistration) HasSyncedChecker() toolscache.DoneChecker {
+	return newMockDoneChecker("mock-resource-event-handler-registration")
+}
+
+type mockDoneChecker struct {
+	name string
+	done <-chan struct{}
+}
+
+func newMockDoneChecker(name string) toolscache.DoneChecker {
+	done := make(chan struct{})
+	close(done)
+	return mockDoneChecker{name: name, done: done}
+}
+
+func (m mockDoneChecker) Name() string { return m.name }
+
+func (m mockDoneChecker) Done() <-chan struct{} { return m.done }
+
 type mockInformer struct {
 	mu sync.Mutex
 
@@ -92,6 +111,10 @@ func (m *mockInformer) RemoveEventHandler(handle toolscache.ResourceEventHandler
 func (m *mockInformer) AddIndexers(_ toolscache.Indexers) error { return nil }
 
 func (m *mockInformer) HasSynced() bool { return true }
+
+func (m *mockInformer) HasSyncedChecker() toolscache.DoneChecker {
+	return newMockDoneChecker("mock-informer")
+}
 
 func (m *mockInformer) IsStopped() bool { return false }
 
