@@ -34,19 +34,43 @@ kubectl label namespace my-namespace managed-by-kueue=true
 
 ### Step 2: Configure the Selector
 
-Configure the `managedJobsNamespaceSelector` in your Kueue Configuration to match the labeled namespaces. Use `matchLabels` to select namespaces that you have explicitly labeled:
+Configure the `managedJobsNamespaceSelector` in your Kueue Configuration with `matchLabels` or `matchExpressions`.
 
-```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta2
-kind: Configuration
-metadata:
-  name: config
-  namespace: kueue-system
-manageJobsWithoutQueueName: true
-managedJobsNamespaceSelector:
-  matchLabels:
-    managed-by-kueue: "true"
-```
+1. Use `matchLabels` to select labeled namespaces:
+
+   ```yaml
+   apiVersion: config.kueue.x-k8s.io/v1beta2
+   kind: Configuration
+   metadata:
+     name: config
+     namespace: kueue-system
+   manageJobsWithoutQueueName: true
+   managedJobsNamespaceSelector:
+     matchLabels:
+       managed-by-kueue: "true"
+   ```
+
+2. Use `matchExpressions` to explicitly select the namespaces you want kueue to manage:
+
+   ```yaml
+   managedJobsNamespaceSelector:
+     matchExpressions:
+     - key: kubernetes.io/metadata.name
+       operator: In
+       values: [ production, training, inference ]
+   ```
+
+3. Use `matchExpressions` with the `NotIn` operator for the inverse selection, i.e. select all namespaces you do not want kueue to manage:
+
+   ```yaml
+   managedJobsNamespaceSelector:
+     matchExpressions:
+     - key: kubernetes.io/metadata.name
+       operator: NotIn
+       values: [ kube-system, kueue-system ]
+   ```
+
+   Exclusion of `kube-system` and `kueue-system` is the default behaviour of kueue. For production environments consider explicitly selecting the namespaces you want kueue to manage, otherwise you have to exclude all system components your cluster (CNI, CSI, monitoring, gitops, etc).
 
 ### Step 3: Enable the Feature Gate
 

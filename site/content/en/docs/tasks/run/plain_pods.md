@@ -22,32 +22,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
    and enable the `pod` integration.
 
    To allow Kubernetes system pods to be successfully scheduled, you must limit the scope of the `pod` integration.
-   The recomended mechanism for doing this is using the `managedJobsNamespaceSelector`.
-
-   One approach is to only enable management only for specific namespaces:
-   ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta2
-   kind: Configuration
-   managedJobsNamespaceSelector:
-     matchLabels:
-      kueue-managed: "true"
-   integrations:
-     frameworks:
-      - "pod"
-   ```
-   An alternate approach is to exempt system namespaces from management:
-   ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta2
-   kind: Configuration
-   managedJobsNamespaceSelector:
-      matchExpressions:
-      - key: kubernetes.io/metadata.name
-        operator: NotIn
-        values: [ kube-system, kueue-system ]
-   integrations:
-     frameworks:
-      - "pod"
-   ```
+   On production environments it is recommended [to use the `managedJobsNamespaceSelector`](/docs/tasks/manage/enforce_job_management/opt_in_namespace_management).
 
 {{% alert title="Note" color="primary" %}}
   Prior to Kueue v0.10, the Configuration fields `integrations.podOptions.namespaceSelector`
