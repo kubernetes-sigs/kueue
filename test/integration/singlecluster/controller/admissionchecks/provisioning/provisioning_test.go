@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -147,7 +148,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
 			}
 
-			admission = utiltestingapi.MakeAdmission(cq.Name).
+			admission = utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 				PodSets(
 					utiltestingapi.MakePodSetAssignment("ps1").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
@@ -341,10 +342,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					kueue.CheckStatePending,
 					"Reset to Pending after eviction. Previously: Rejected",
 				)
-				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
-					Reason:  "AdmissionCheckRejected",
-					Type:    corev1.EventTypeWarning,
-					Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
+				util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+					Reason: "AdmissionCheckRejected",
+					Type:   corev1.EventTypeWarning,
+					Note:   fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -401,10 +402,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 						kueue.CheckStatePending,
 						"Reset to Pending after eviction. Previously: Rejected",
 					)
-					util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
-						Reason:  "AdmissionCheckRejected",
-						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
+					util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+						Reason: "AdmissionCheckRejected",
+						Type:   corev1.EventTypeWarning,
+						Note:   fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 					})
 
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -449,10 +450,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 						kueue.CheckStatePending,
 						"Reset to Pending after eviction. Previously: Rejected",
 					)
-					util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
-						Reason:  "AdmissionCheckRejected",
-						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
+					util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+						Reason: "AdmissionCheckRejected",
+						Type:   corev1.EventTypeWarning,
+						Note:   fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 					})
 
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -795,7 +796,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
-			admission = utiltestingapi.MakeAdmission(cq.Name).
+			admission = utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 				PodSets(
 					utiltestingapi.MakePodSetAssignment("ps1").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
@@ -1070,10 +1071,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates", "RequeueAfterSeconds"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectEventAppeared(ctx, k8sClient, corev1.Event{
-					Reason:  "AdmissionCheckRejected",
-					Type:    corev1.EventTypeWarning,
-					Message: fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
+				util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+					Reason: "AdmissionCheckRejected",
+					Type:   corev1.EventTypeWarning,
+					Note:   fmt.Sprintf(`Deactivated due to AdmissionCheck in Rejected state: %q`, ac.Name),
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -1242,7 +1243,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
-			admission = utiltestingapi.MakeAdmission(cq.Name).
+			admission = utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment("ps1").
 					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
 					Count(3).
@@ -1437,7 +1438,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
 			}
 
-			admission = utiltestingapi.MakeAdmission(cq.Name).
+			admission = utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 				PodSets(
 					utiltestingapi.MakePodSetAssignment("master").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").

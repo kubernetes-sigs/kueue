@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -47,10 +47,11 @@ import (
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -66,11 +67,12 @@ var (
 
 type Reconciler struct {
 	client                       client.Client
-	record                       record.EventRecorder
+	record                       events.EventRecorder
 	logName                      string
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	roleTracker                  *roletracker.RoleTracker
+	customLabels                 *metrics.CustomLabels
 }
 
 const controllerName = "statefulset"
@@ -122,7 +124,7 @@ func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, 
 func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, pod *corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
 	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-		if ungateAndFinalize(sts, pod) {
+		if utilstatefulset.UngateAndFinalizePod(sts, pod, false) {
 			log.V(3).Info(
 				"Finalizing pod in group",
 				"pod", klog.KObj(pod),
@@ -132,31 +134,6 @@ func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, p
 		}
 		return false, nil
 	}))
-}
-
-func ungateAndFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	var updated bool
-
-	if shouldUngate(sts, pod) && utilpod.Ungate(pod, podconstants.SchedulingGateName) {
-		updated = true
-	}
-
-	// TODO (#8571): As discussed in https://github.com/kubernetes-sigs/kueue/issues/8571,
-	// this check should be removed in v0.20.
-	if shouldFinalize(sts, pod) && controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer) {
-		updated = true
-	}
-
-	return updated
-}
-
-func shouldUngate(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return sts == nil || sts.Status.CurrentRevision != sts.Status.UpdateRevision &&
-		sts.Status.CurrentRevision == pod.Labels[appsv1.ControllerRevisionHashLabelKey]
-}
-
-func shouldFinalize(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return shouldUngate(sts, pod) || utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil
 }
 
 func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
@@ -283,9 +260,13 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, sts *appsv1.Sta
 		return client.IgnoreAlreadyExists(err)
 	}
 	r.record.Eventf(
-		sts, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload,
+		sts, nil, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload,
+		"CreatedWorkload",
 		"Created Workload: %v", workload.Key(createdWorkload),
 	)
+
+	jobframework.RecordWorkloadCreationLatency(ctx, sts, sts.GroupVersionKind().Kind, createdWorkload, r.customLabels, r.roleTracker)
+
 	return nil
 }
 
@@ -345,7 +326,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
@@ -355,6 +336,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		roleTracker:                  options.RoleTracker,
+		customLabels:                 options.CustomLabels,
 	}, nil
 }
 

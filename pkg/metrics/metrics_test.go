@@ -50,6 +50,26 @@ func TestGenerateExponentialBuckets(t *testing.T) {
 	}
 }
 
+func TestReportAndCleanupClusterQueuePendingResources(t *testing.T) {
+	const cqName = "cq-pending"
+
+	ReportClusterQueueResourcePending(cqName, "cpu", 4, nil, nil)
+	ReportClusterQueueResourcePending(cqName, "memory", 8589934592, nil, nil)
+
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 2, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName, "resource", "cpu")
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName, "resource", "memory")
+
+	ClearClusterQueueResourcePendingMetrics(cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 0, "cluster_queue", cqName)
+
+	// Verify ClearClusterQueueMetrics (gaugeCleanupScopeClusterQueue) also clears it.
+	ReportClusterQueueResourcePending(cqName, "cpu", 2, nil, nil)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName)
+	ClearClusterQueueMetrics(cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 0, "cluster_queue", cqName)
+}
+
 func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
 	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3, nil, nil)
 	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1, nil, nil)
@@ -210,6 +230,11 @@ func TestGitVersionMetric(t *testing.T) {
 	expectFilteredMetricsCount(t, buildInfo, 1, "platform", versionInfo.Platform)
 }
 
+func TestRecordWorkloadCreationLatency(t *testing.T) {
+	RecordWorkloadCreationLatency("Job", 5*time.Second, nil, nil)
+	expectFilteredMetricsCount(t, WorkloadCreationLatency, 1, "job_kind", "Job")
+}
+
 func TestReportLocalQueueAdmissionChecksWaitTimeHasPriorityLabel(t *testing.T) {
 	lq := LocalQueueReference{Name: "lq3", Namespace: "ns3"}
 	ReportLocalQueueAdmissionChecksWaitTime(lq, "p2", 0, nil, nil)
@@ -347,6 +372,7 @@ func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testi
 	ReportClusterQueueQuotas("cohort", cqName, "flavor", "cpu", 10, 5, 3, nil, nil)
 	ReportClusterQueueResourceReservations("cohort", cqName, "flavor", "cpu", 7, nil, nil)
 	ReportClusterQueueResourceUsage("cohort", cqName, "flavor", "cpu", 6, nil, nil)
+	ReportClusterQueueResourcePending(cqName, "cpu", 4, nil, nil)
 	ReportClusterQueueStatus(cqName, CQStatusActive, nil, nil)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
@@ -354,6 +380,7 @@ func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testi
 	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
 
 	ClearClusterQueueResourceMetrics(cqName)
@@ -363,6 +390,7 @@ func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testi
 	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
 
 	ClearCacheMetrics(cqName)

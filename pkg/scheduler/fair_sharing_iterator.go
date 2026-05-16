@@ -258,7 +258,7 @@ type drsLogEntry struct {
 }
 
 func (e *entryComparer) logDrsValuesWhenVerbose(log logr.Logger) {
-	if logV := log.V(5); logV.Enabled() {
+	if logV := log.V(4); logV.Enabled() {
 		entries := make([]drsLogEntry, 0, len(e.drsValues))
 		for k, v := range e.drsValues {
 			entries = append(entries, drsLogEntry{

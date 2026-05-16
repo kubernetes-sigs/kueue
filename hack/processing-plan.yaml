@@ -149,6 +149,9 @@ files:
         value: '"{{ .Release.Namespace }}"'
         onFileCondition: '.metadata.namespace != "kube-system"'
       - type: APPEND
+        key: .spec.priorityLevelConfiguration.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
         key: .spec.service.name
         value: '"{{ include \"kueue.fullname\" . }}-"'
       - type: UPDATE

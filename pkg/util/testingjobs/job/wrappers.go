@@ -30,6 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // JobWrapper wraps a Job.
@@ -52,7 +53,7 @@ func MakeJob(name, ns string) *JobWrapper {
 					Containers: []corev1.Container{
 						{
 							Name:      "c",
-							Image:     "pause",
+							Image:     utiltestingjobs.TestDefaultContainerImage,
 							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}},
 						},
 					},
@@ -232,6 +233,12 @@ func (j *JobWrapper) Limit(r corev1.ResourceName, v string) *JobWrapper {
 // RequestAndLimit adds a resource request and limit to the default container.
 func (j *JobWrapper) RequestAndLimit(r corev1.ResourceName, v string) *JobWrapper {
 	return j.Request(r, v).Limit(r, v)
+}
+
+// SuccessPolicy sets the successPolicy
+func (j *JobWrapper) SuccessPolicy(policy *batchv1.SuccessPolicy) *JobWrapper {
+	j.Spec.SuccessPolicy = policy
+	return j
 }
 
 func (j *JobWrapper) Image(image string, args []string) *JobWrapper {

@@ -46,17 +46,19 @@ IMAGE_TAG_KUEUEVIZ_BACKEND := $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(GIT_TAG)
 IMAGE_TAG_KUEUEVIZ_FRONTEND := $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(GIT_TAG)
 IMAGE_TAG_KUEUE_POPULATOR := $(IMAGE_REPO_KUEUE_POPULATOR):$(GIT_TAG)
 
-RAY_VERSION := 2.53.0
-RAYMINI_VERSION ?= 0.0.2
-
 CLUSTERPROFILE_PLUGIN_IMAGE_VERSION ?= 0.0.1
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(PROJECT_DIR)/artifacts
 RELEASE_ARTIFACTS ?= $(PROJECT_DIR)/release-artifacts
-TOOLS_DIR := $(PROJECT_DIR)/hack/tools
+HACK_DIR := $(PROJECT_DIR)/hack
+TOOLS_DIR := $(HACK_DIR)/tools
+TESTING_DIR := $(HACK_DIR)/testing
 MOCKS_DIR := internal/mocks
+
+RAY_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/ray/Dockerfile" | cut -d: -f2)
+RAYMINI_VERSION ?= 0.0.2
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
@@ -91,7 +93,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.17.2
+RELEASE_VERSION=v0.17.3
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -164,6 +166,11 @@ generate-mocks: mockgen ## Generate mockgen mocks
 		-copyright_file hack/boilerplate.txt \
 		-package mocks \
 		sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation,JobWithCustomAnnotations
+	$(MOCKGEN) \
+		-destination=$(MOCKS_DIR)/controller/core/resourceflavor_controller.go \
+		-copyright_file hack/boilerplate.txt \
+		-package mocks \
+		sigs.k8s.io/kueue/pkg/controller/core ResourceFlavorUpdateWatcher
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -466,7 +473,7 @@ kueuectl:
 	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/kubectl-kueue cmd/kueuectl/main.go
 
 .PHONY: generate-apiref
-generate-apiref: genref
+generate-apiref: genref generate-code
 	cd $(PROJECT_DIR)/hack/genref/ && $(GENREF) -o $(PROJECT_DIR)/site/content/en/docs/reference
 
 ##@ Documentation
@@ -500,7 +507,7 @@ ray-project-mini-image-build:
 		--build-arg RAY_VERSION=$(RAY_VERSION) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
-		-f ./hack/testing/ray/Dockerfile ./ \
+		-f ./hack/testing/ray-mini/Dockerfile ./ \
 
 # The step is required for local e2e test run
 .PHONY: kind-ray-project-mini-image-build

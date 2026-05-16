@@ -64,17 +64,17 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			workload: baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
 		},
 		"admission check nil": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: baseWorkload.DeepCopy(),
 		},
 		"admission check is rejected": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: baseWorkload.DeepCopy(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateRejected,
 			},
 		},
 		"admission check is ready": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: baseWorkload.DeepCopy(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateReady,
@@ -102,7 +102,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		"workload has quota reserved": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: baseWorkload.DeepCopy(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStatePending,
@@ -187,7 +187,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 	}{
 		"one remote": {
 			remoteClusters:             sets.New("A"),
-			workload:                   baseWl.Clone().Obj(),
+			workload:                   baseWl.DeepCopy(),
 			wantNominatedClustersCount: 1,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -195,7 +195,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"two remotes": {
 			remoteClusters:             sets.New("A", "B"),
-			workload:                   baseWl.Clone().Obj(),
+			workload:                   baseWl.DeepCopy(),
 			wantNominatedClustersCount: 2,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -203,7 +203,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"three remotes": {
 			remoteClusters:             sets.New("A", "B", "C"),
-			workload:                   baseWl.Clone().Obj(),
+			workload:                   baseWl.DeepCopy(),
 			wantNominatedClustersCount: 3,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -211,7 +211,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"fifteen remotes": {
 			remoteClusters:             sets.New("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"),
-			workload:                   baseWl.Clone().Obj(),
+			workload:                   baseWl.DeepCopy(),
 			wantNominatedClustersCount: 3,
 			wantErr:                    nil,
 			advanceRoundTime:           false,
@@ -259,7 +259,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		},
 		"no remotes": {
 			remoteClusters:             make(sets.Set[string]),
-			workload:                   baseWl.Clone().Obj(),
+			workload:                   baseWl.DeepCopy(),
 			wantNominatedClustersCount: 0,
 			wantErr:                    ErrNoMoreWorkers,
 			advanceRoundTime:           false,

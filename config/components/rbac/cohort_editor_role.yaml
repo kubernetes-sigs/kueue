@@ -4,6 +4,7 @@ kind: ClusterRole
 metadata:
   name: cohort-editor-role
   labels:
+    rbac.kueue.x-k8s.io/role: "cohort-editor"
     rbac.kueue.x-k8s.io/batch-admin: "true"
 rules:
 - apiGroups:

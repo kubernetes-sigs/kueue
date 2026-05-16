@@ -42,7 +42,6 @@ func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:                    SetupIndexes,
 		NewReconciler:                   NewReconciler,
-		NewAdditionalReconcilers:        []jobframework.ReconcilerFactory{NewPodReconciler},
 		SetupWebhook:                    SetupWebhook,
 		JobType:                         &leaderworkersetv1.LeaderWorkerSet{},
 		AddToScheme:                     leaderworkersetv1.AddToScheme,

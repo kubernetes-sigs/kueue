@@ -4,6 +4,7 @@ kind: ClusterRole
 metadata:
   name: pytorchjob-viewer-role
   labels:
+    rbac.kueue.x-k8s.io/role: "pytorchjob-viewer"
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.kueue.x-k8s.io/batch-user: "true"
     rbac.authorization.k8s.io/aggregate-to-view: "true"

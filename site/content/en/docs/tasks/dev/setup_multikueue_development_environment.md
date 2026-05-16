@@ -17,13 +17,13 @@ against it without recreating and tearing it down each time.
 
 For example:
 ```sh
-E2E_MODE=dev make kind-image-build test-multikueue-e2e
+E2E_MODE=dev make kind-image-build test-multikueue-e2e-main
 ```
 
 To use a staging Kueue image without building (no `kind-image-build` needed), pass `IMAGE_TAG` with the `main` tag:
 
 ```sh
-E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-multikueue-e2e
+E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-multikueue-e2e-main
 ```
 
 For using a released version (with matching manifests) and for more information about the DEV mode, refer to the [testing documentation](/docs/contribution_guidelines/testing/#dev-mode-recommended).

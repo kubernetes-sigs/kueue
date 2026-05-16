@@ -132,7 +132,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			queues,
 			cCache,
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor("kueue-admission"),
+			mgr.GetEventRecorder("kueue-admission"),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)
 		err = mgr.Add(sched)

@@ -28,8 +28,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -39,7 +37,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -4128,12 +4125,7 @@ func TestPreemption(t *testing.T) {
 					}
 				}
 
-				broadcaster := record.NewBroadcaster()
-				scheme := runtime.NewScheme()
-				if err := kueue.AddToScheme(scheme); err != nil {
-					t.Fatalf("Failed adding kueue scheme: %v", err)
-				}
-				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+				recorder := &utiltesting.EventRecorder{}
 				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
@@ -4350,12 +4342,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 				}
 
-				broadcaster := record.NewBroadcaster()
-				scheme := runtime.NewScheme()
-				if err := kueue.AddToScheme(scheme); err != nil {
-					t.Fatalf("Failed adding kueue scheme: %v", err)
-				}
-				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+				recorder := &utiltesting.EventRecorder{}
 				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
@@ -4475,12 +4462,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 				}
 
-				broadcaster := record.NewBroadcaster()
-				scheme := runtime.NewScheme()
-				if err := kueue.AddToScheme(scheme); err != nil {
-					t.Fatalf("Failed adding kueue scheme: %v", err)
-				}
-				recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+				recorder := &utiltesting.EventRecorder{}
 				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
 
 				snapshot, err := cqCache.Snapshot(ctx)
@@ -4531,14 +4513,14 @@ func TestCandidatesOrdering(t *testing.T) {
 
 	wlLowUsageLq := workload.NewInfo(utiltestingapi.MakeWorkload("low_lq_usage", "").
 		Queue("low_usage_lq").
-		ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 		Priority(1).
 		Obj())
 	wlLowUsageLq.LocalQueueFSUsage = new(0.1)
 
 	wlMidUsageLq := workload.NewInfo(utiltestingapi.MakeWorkload("mid_lq_usage", "").
 		Queue("mid_usage_lq").
-		ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 		Priority(10).
 		Obj())
 	wlMidUsageLq.LocalQueueFSUsage = new(0.5)
@@ -4558,11 +4540,11 @@ func TestCandidatesOrdering(t *testing.T) {
 		"workloads sorted by priority": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("high", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("low", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(-10).
 					Obj()),
 			},
@@ -4571,12 +4553,12 @@ func TestCandidatesOrdering(t *testing.T) {
 		"workloads sorted by effective priority with boost": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("high-boost", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("low-boost", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
 					Obj()),
@@ -4587,11 +4569,11 @@ func TestCandidatesOrdering(t *testing.T) {
 		"workload missing priority boost defaults to zero": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("missing-boost", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("has-boost", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
 					Obj()),
@@ -4602,12 +4584,12 @@ func TestCandidatesOrdering(t *testing.T) {
 		"invalid priority boost defaults to zero": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("invalid-boost", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("valid-boost", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
 					Obj()),
@@ -4618,7 +4600,7 @@ func TestCandidatesOrdering(t *testing.T) {
 		"evicted workload first": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("other", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("evicted", "").
@@ -4634,7 +4616,7 @@ func TestCandidatesOrdering(t *testing.T) {
 		"workload from different CQ first": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("preemptorCq", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("other", "").
@@ -4647,13 +4629,13 @@ func TestCandidatesOrdering(t *testing.T) {
 		"old workloads last": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("older", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now.Add(-time.Second)).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now.Add(-time.Second)).
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("younger", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now.Add(time.Second)).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now.Add(time.Second)).
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("current", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Obj()),
 			},
 			wantCandidates: []workload.Reference{"younger", "current", "older"},

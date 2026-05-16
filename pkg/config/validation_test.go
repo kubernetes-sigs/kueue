@@ -60,8 +60,9 @@ func TestValidate(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		cfg     *configapi.Configuration
-		wantErr field.ErrorList
+		cfg          *configapi.Configuration
+		featureGates map[featuregate.Feature]bool
+		wantErr      field.ErrorList
 	}{
 		"empty": {
 			cfg: &configapi.Configuration{},
@@ -1005,11 +1006,76 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"quotaCheckStrategy with value ignoreUndeclared not allowed with excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+					ExcludeResourcePrefixes: []string{"foo.com/device"},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.quotaCheckStrategy",
+					Detail: "excludeResourcePrefixes is not allowed when quotaCheckStrategy is IgnoreUndeclared",
+				},
+			},
+		},
+		"quotaCheckStrategy with value ignoreundeclared allowed without excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+		},
+		"quotaCheckStrategy with value blockundeclared allowed with excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckBlockUndeclared),
+					ExcludeResourcePrefixes: []string{"foo.com/device"},
+				},
+			},
+		},
+		"quotaCheckStrategy with unsupported value": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "resources.quotaCheckStrategy",
+				},
+			},
+		},
+		"quotaCheckStrategy validation skipped when feature gate disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(tc.wantErr, validate(tc.cfg, testScheme), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
 			}
 		})

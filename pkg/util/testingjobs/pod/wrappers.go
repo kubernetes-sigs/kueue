@@ -32,6 +32,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // PodWrapper wraps a Pod.
@@ -52,7 +53,7 @@ func MakePod(name, ns string) *PodWrapper {
 			Containers: []corev1.Container{
 				{
 					Name:      "c",
-					Image:     "pause",
+					Image:     utiltestingjobs.TestDefaultContainerImage,
 					Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}},
 				},
 			},

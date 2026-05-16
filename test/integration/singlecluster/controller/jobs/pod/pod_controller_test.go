@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -182,7 +183,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
 					).Obj()
-				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, "default", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
@@ -242,7 +243,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
 					).Obj()
-				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, "default", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
@@ -290,7 +291,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
 					).Obj()
-				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, "default", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
@@ -373,7 +374,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						ResourceGroup(
 							*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
 						).Obj()
-					admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").
 							Count(createdWorkload.Spec.PodSets[0].Count).
@@ -547,7 +548,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					})
 
 					ginkgo.By("admit the workload", func() {
-						admission := utiltestingapi.MakeAdmission(clusterQueueAc.Name).
+						admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueAc.Name)).
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "test-flavor", "1").
 								Count(createdWorkload.Spec.PodSets[0].Count).
@@ -601,7 +602,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("Admit workload", func() {
-					admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").
 							Count(wl.Spec.PodSets[0].Count).
@@ -683,7 +684,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName("test-queue")), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 						kueue.PodSetAssignment{
 							Name: "4b0469f7",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -757,7 +758,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName("test-queue")), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 						kueue.PodSetAssignment{
 							Name: "bf90803c",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -833,7 +834,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName("test-queue")), "The Workload should have .spec.queueName set")
 				originalWorkloadUID := createdWorkload.UID
 
-				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment("bf90803c").
 						Assignment(corev1.ResourceCPU, "default", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
@@ -987,7 +988,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName("test-queue")), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that pod is unsuspended when workload is admitted")
-				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment("bf90803c").
 						Assignment(corev1.ResourceCPU, "default", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
@@ -1140,7 +1141,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 
 				createdPod := &corev1.Pod{}
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 						kueue.PodSetAssignment{
 							Name: "4b0469f7",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1258,7 +1259,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName("test-queue")), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that excess pod is deleted before admission", func() {
-					excessPod := excessBasePod.Clone().Obj()
+					excessPod := excessBasePod.DeepCopy()
 					util.WaitForNextSecondAfterCreation(pod2)
 					util.MustCreate(ctx, k8sClient, excessPod)
 
@@ -1266,7 +1267,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 						kueue.PodSetAssignment{
 							Name: "4b0469f7",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1299,7 +1300,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("checking that excess pod is deleted after admission", func() {
-					excessPod := excessBasePod.Clone().Obj()
+					excessPod := excessBasePod.DeepCopy()
 					util.MustCreate(ctx, k8sClient, excessPod)
 
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, excessPod, false)
@@ -1332,7 +1333,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("Admitting workload", func() {
-					admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 						kueue.PodSetAssignment{
 							Name: "4b0469f7",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1444,7 +1445,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				admission := utiltestingapi.MakeAdmission(cq.Name).
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1").
 						Count(wl.Spec.PodSets[0].Count).
@@ -1569,7 +1570,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 						kueue.PodSetAssignment{
 							Name: "4b0469f7",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1684,7 +1685,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("Admit workload", func() {
-					admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 						kueue.PodSetAssignment{
 							Name: "leader",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -2091,7 +2092,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			admission := utiltestingapi.MakeAdmission(cq.Name).
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
 					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1").
 					Count(wl.Spec.PodSets[0].Count).
@@ -2729,7 +2730,9 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
 	})
 
-	ginkgo.It("should not requeue stale workloads after pod is deleted and replaced", framework.SlowSpec, func() {
+	ginkgo.It("should not requeue stale workloads after pod is deleted and replaced with FinishOrphanedWorkloads feature enabled", framework.SlowSpec, func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FinishOrphanedWorkloads, true)
+
 		ginkgo.By("creating pod-1")
 		pod1 := testingpod.MakePod("pod-1", ns.Name).
 			Queue(lq.Name).

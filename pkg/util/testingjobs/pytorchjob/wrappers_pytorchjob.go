@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // PyTorchJobWrapper wraps a Job.
@@ -84,7 +85,7 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsOnlyMasterDefault() *PyTorchJobWr
 				Containers: []corev1.Container{
 					{
 						Name:    "pytorch",
-						Image:   "pause",
+						Image:   utiltestingjobs.TestDefaultContainerImage,
 						Command: []string{},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{},
@@ -112,7 +113,7 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsDefault() *PyTorchJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:    "pytorch",
-						Image:   "pause",
+						Image:   utiltestingjobs.TestDefaultContainerImage,
 						Command: []string{},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{},

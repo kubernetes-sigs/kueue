@@ -216,6 +216,21 @@ func TestCountInWithLimitingResource(t *testing.T) {
 			wantCount:            0,
 			wantLimitingResource: "nvidia.com/gpu",
 		},
+		"negative capacity (over-subscribed) is clamped to 0, not negative": {
+			// Capacity can go negative when callers Sub() speculative usage
+			// (e.g. assumedUsage during preemption) that exceeds free capacity.
+			// CountInWithLimitingResource must report this as "fits 0 times",
+			// not a negative count, so downstream consumers don't propagate
+			// invalid values into apiserver-validated structures.
+			requests: Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			capacity: Requests{
+				corev1.ResourceCPU: -3000,
+			},
+			wantCount:            0,
+			wantLimitingResource: corev1.ResourceCPU,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -91,7 +91,7 @@ func shouldReconcileSparkApplication(ctx context.Context, k8sClient client.Clien
 			*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 		).Obj()
-	admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+	admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 		PodSets(
 			kueue.PodSetAssignment{
 				Name: kueue.NewPodSetReference("driver"),

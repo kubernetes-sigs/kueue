@@ -22,6 +22,7 @@ metadata:
   name: '{{ include "kueue.fullname" . }}-raycluster-viewer-role'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
+    rbac.kueue.x-k8s.io/role: "raycluster-viewer"
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.authorization.k8s.io/aggregate-to-view: "true"
     rbac.authorization.k8s.io/aggregate-to-admin: "true"

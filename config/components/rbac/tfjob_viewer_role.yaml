@@ -4,6 +4,7 @@ kind: ClusterRole
 metadata:
   name: tfjob-viewer-role
   labels:
+    rbac.kueue.x-k8s.io/role: "tfjob-viewer"
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.kueue.x-k8s.io/batch-user: "true"
     rbac.authorization.k8s.io/aggregate-to-view: "true"

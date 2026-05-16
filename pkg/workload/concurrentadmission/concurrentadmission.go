@@ -18,13 +18,13 @@ package concurrentadmission
 
 import (
 	"slices"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/csv"
 )
 
 // SetParentVariantLabel sets the label indicating the workload is a parent variant.
@@ -50,7 +50,7 @@ func IsVariant(wl *kueue.Workload) bool {
 
 // GetVariantFlavor returns the allowed flavor for a variant from annotations.
 func GetVariantFlavor(wl *kueue.Workload) kueue.ResourceFlavorReference {
-	flavors := parseAllowedFlavorsString(wl.GetAnnotations()[controllerconstants.WorkloadAllowedResourceFlavorAnnotation])
+	flavors := csv.Parse(wl.GetAnnotations()[controllerconstants.WorkloadAllowedResourceFlavorAnnotation])
 	if len(flavors) == 0 {
 		return ""
 	}
@@ -91,23 +91,6 @@ func IsFlavorAllowedForVariant(wl *kueue.Workload, flavor kueue.ResourceFlavorRe
 	if !ok {
 		return true
 	}
-	allowedFlavors := parseAllowedFlavorsString(val)
+	allowedFlavors := csv.Parse(val)
 	return slices.Contains(allowedFlavors, string(flavor))
-}
-
-// parseAllowedFlavorsString parses a comma-separated string of flavor names
-// and returns a slice of flavor names with leading and trailing spaces removed.
-func parseAllowedFlavorsString(s string) []string {
-	if strings.TrimSpace(s) == "" {
-		return []string{}
-	}
-	parts := strings.Split(s, ",")
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-	}
-	return parts
-}
-
-func SerializeAllowedFlavors(flavors []string) string {
-	return strings.Join(flavors, ",")
 }

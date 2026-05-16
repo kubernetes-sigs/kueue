@@ -979,6 +979,21 @@ A nil value disables automatic deletion of Workloads.</p>
 
 
 
+## `QuotaCheckStrategy`     {#config-kueue-x-k8s-io-v1beta2-QuotaCheckStrategy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [Resources](#config-kueue-x-k8s-io-v1beta2-Resources)
+
+
+<p>QuotaCheckStrategy determines how Kueue checks resources against quota
+during admission.</p>
+
+
+
+
 ## `RequeuingStrategy`     {#config-kueue-x-k8s-io-v1beta2-RequeuingStrategy}
     
 
@@ -1132,6 +1147,13 @@ An empty Outputs combined with a <code>Replace</code> Strategy causes the Input 
 <tbody>
     
   
+<tr><td><code>quotaCheckStrategy</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-QuotaCheckStrategy"><code>QuotaCheckStrategy</code></a>
+</td>
+<td>
+   <p>QuotaCheckStrategy determines which resources are considered during quota admission.</p>
+</td>
+</tr>
 <tr><td><code>excludeResourcePrefixes</code> <B>[Required]</B><br/>
 <code>[]string</code>
 </td>

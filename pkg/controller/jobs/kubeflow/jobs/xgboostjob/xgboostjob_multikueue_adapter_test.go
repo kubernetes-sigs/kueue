@@ -63,14 +63,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}{
 		"sync creates missing remote xgboostjob": {
 			managersXGBoostJobs: []kftraining.XGBoostJob{
-				*xgboostJobBuilder.Clone().Obj(),
+				*xgboostJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
 			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
-				*xgboostJobBuilder.Clone().Obj(),
+				*xgboostJobBuilder.DeepCopy(),
 			},
 			wantWorkerXGBoostJobs: []kftraining.XGBoostJob{
 				*xgboostJobBuilder.Clone().
@@ -81,7 +81,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"sync status from remote XgBoostJob": {
 			managersXGBoostJobs: []kftraining.XGBoostJob{
-				*xgboostJobBuilder.Clone().Obj(),
+				*xgboostJobBuilder.DeepCopy(),
 			},
 			workerXGBoostJobs: []kftraining.XGBoostJob{
 				*xgboostJobBuilder.Clone().

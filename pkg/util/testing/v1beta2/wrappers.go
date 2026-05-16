@@ -33,10 +33,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/csv"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 // MakeDefaultOneLevelTopology creates a default topology with hostname level.
@@ -149,7 +149,7 @@ func (w *WorkloadWrapper) Active(a bool) *WorkloadWrapper {
 
 // SimpleReserveQuota reserves the quota for all the requested resources in one flavor.
 // It assumes one podset with one container.
-func (w *WorkloadWrapper) SimpleReserveQuota(cq, flavor string, now time.Time) *WorkloadWrapper {
+func (w *WorkloadWrapper) SimpleReserveQuota(cq kueue.ClusterQueueReference, flavor string, now time.Time) *WorkloadWrapper {
 	admission := MakeAdmission(cq, w.Spec.PodSets[0].Name)
 	resReq := make(corev1.ResourceList)
 	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
@@ -426,7 +426,7 @@ func (w *WorkloadWrapper) AllowedFlavors(flavors ...kueue.ResourceFlavorReferenc
 	if w.ObjectMeta.Annotations == nil {
 		w.ObjectMeta.Annotations = make(map[string]string, 1)
 	}
-	allowedFlavors := concurrentadmission.SerializeAllowedFlavors(utilslices.Map(flavors, func(f *kueue.ResourceFlavorReference) string { return string(*f) }))
+	allowedFlavors := csv.Serialize(utilslices.Map(flavors, func(f *kueue.ResourceFlavorReference) string { return string(*f) }))
 	w.ObjectMeta.Annotations[constants.WorkloadAllowedResourceFlavorAnnotation] = allowedFlavors
 	return w
 }
@@ -690,9 +690,9 @@ func (p *PodSetWrapper) ResourceClaim(claimName, resourceClaimName string) *PodS
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
-func MakeAdmission(cq string, podSetNames ...kueue.PodSetReference) *AdmissionWrapper {
+func MakeAdmission(cq kueue.ClusterQueueReference, podSetNames ...kueue.PodSetReference) *AdmissionWrapper {
 	wrap := &AdmissionWrapper{kueue.Admission{
-		ClusterQueue: kueue.ClusterQueueReference(cq),
+		ClusterQueue: cq,
 	}}
 
 	if len(podSetNames) == 0 {
@@ -1249,6 +1249,18 @@ func (rf *ResourceFlavorWrapper) Toleration(t corev1.Toleration) *ResourceFlavor
 // Creation sets the creation timestamp of the LocalQueue.
 func (rf *ResourceFlavorWrapper) Creation(t time.Time) *ResourceFlavorWrapper {
 	rf.CreationTimestamp = metav1.NewTime(t)
+	return rf
+}
+
+// DeletionTimestamp sets a deletion timestamp for the ResourceFlavor.
+func (rf *ResourceFlavorWrapper) DeletionTimestamp(t time.Time) *ResourceFlavorWrapper {
+	rf.ResourceFlavor.DeletionTimestamp = &metav1.Time{Time: t}
+	return rf
+}
+
+// Finalizers sets the finalizers on the ResourceFlavor.
+func (rf *ResourceFlavorWrapper) Finalizers(fin ...string) *ResourceFlavorWrapper {
+	rf.ObjectMeta.Finalizers = fin
 	return rf
 }
 

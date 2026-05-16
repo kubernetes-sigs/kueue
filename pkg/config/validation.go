@@ -70,9 +70,11 @@ var (
 	visibilityServerBindAddressPath              = field.NewPath("visibilityServer", "bindAddress")
 	visibilityServerBindPortPath                 = field.NewPath("visibilityServer", "bindPort")
 	customLabelsPath                             = field.NewPath("metrics", "customLabels")
+	resourceQuotaCheckStrategyPath               = field.NewPath("resources", "quotaCheckStrategy")
 )
 
-func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
+// Validate checks the configuration for invalid values.
+func Validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
 	allErrs = append(allErrs, validateIntegrations(c, scheme)...)
@@ -87,6 +89,35 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateTLS(c)...)
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
+	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
+	return allErrs
+}
+
+func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if !features.Enabled(features.QuotaCheckStrategy) {
+		return allErrs
+	}
+	if c.Resources != nil && c.Resources.QuotaCheckStrategy != nil {
+		strategy := *c.Resources.QuotaCheckStrategy
+		if len(c.Resources.ExcludeResourcePrefixes) > 0 && strategy == configapi.QuotaCheckIgnoreUndeclared {
+			allErrs = append(allErrs, field.Invalid(
+				resourceQuotaCheckStrategyPath,
+				strategy,
+				"excludeResourcePrefixes is not allowed when quotaCheckStrategy is IgnoreUndeclared",
+			))
+		}
+		if strategy != configapi.QuotaCheckIgnoreUndeclared && strategy != configapi.QuotaCheckBlockUndeclared {
+			allErrs = append(allErrs, field.NotSupported(
+				resourceQuotaCheckStrategyPath,
+				strategy,
+				[]configapi.QuotaCheckStrategy{
+					configapi.QuotaCheckIgnoreUndeclared,
+					configapi.QuotaCheckBlockUndeclared,
+				},
+			))
+		}
+	}
 	return allErrs
 }
 

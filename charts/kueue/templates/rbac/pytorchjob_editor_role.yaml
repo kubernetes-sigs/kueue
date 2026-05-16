@@ -22,6 +22,7 @@ metadata:
   name: '{{ include "kueue.fullname" . }}-pytorchjob-editor-role'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
+    rbac.kueue.x-k8s.io/role: "pytorchjob-editor"
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.kueue.x-k8s.io/batch-user: "true"
 rules:

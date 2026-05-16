@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/util/admissiongates"
+	"sigs.k8s.io/kueue/pkg/util/csv"
 )
 
 // Same as the constraint of the spec.ManagedBy field for Jobs
@@ -70,9 +70,9 @@ func ValidateAdmissionGatedByAnnotationOnUpdate(oldObj, newObj client.Object) fi
 
 	// Can only remove gates or remove entire annotation
 	if oldVal != "" && newVal != "" {
-		oldGates := admissiongates.Parse(oldVal)
+		oldGates := csv.Parse(oldVal)
 
-		for _, newGate := range admissiongates.Parse(newVal) {
+		for _, newGate := range csv.Parse(newVal) {
 			if !slices.Contains(oldGates, newGate) {
 				allErrs = append(allErrs, field.Forbidden(admissionGatedByAnnotationsPath,
 					"can only remove gates, not add new ones"))
@@ -97,7 +97,7 @@ func validateAdmissionGatedByAnnotationFormat(value string) field.ErrorList {
 		return allErrs
 	}
 
-	gates := admissiongates.Parse(value)
+	gates := csv.Parse(value)
 	seen := make(map[string]bool)
 
 	for _, gate := range gates {
