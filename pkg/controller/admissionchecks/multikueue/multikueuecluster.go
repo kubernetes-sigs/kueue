@@ -110,8 +110,8 @@ type remoteClient struct {
 	localClient  client.Client
 	client       client.WithWatch
 	wlUpdateCh   chan<- event.GenericEvent
-	cqUpdateCh   chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
 	watchEndedCh chan<- event.GenericEvent
+	cqUpdateCh   chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
 	watchCancel  func()
 	config       *clientConfig
 	origin       string
@@ -133,12 +133,12 @@ type remoteClient struct {
 	builderOverride clientWithWatchBuilder
 }
 
-func newRemoteClient(localClient client.Client, wlUpdateCh chan<- event.GenericEvent, cqUpdateCh chan<- event.TypedGenericEvent[kueue.ClusterQueueReference], watchEndedCh chan<- event.GenericEvent, origin, clusterName string, adapters map[string]jobframework.MultiKueueAdapter) *remoteClient {
+func newRemoteClient(localClient client.Client, wlUpdateCh, watchEndedCh chan<- event.GenericEvent, cqUpdateCh chan<- event.TypedGenericEvent[kueue.ClusterQueueReference], origin, clusterName string, adapters map[string]jobframework.MultiKueueAdapter) *remoteClient {
 	rc := &remoteClient{
 		clusterName:  clusterName,
 		wlUpdateCh:   wlUpdateCh,
-		cqUpdateCh:   cqUpdateCh,
 		watchEndedCh: watchEndedCh,
+		cqUpdateCh:   cqUpdateCh,
 		localClient:  localClient,
 		origin:       origin,
 		adapters:     adapters,
@@ -222,11 +222,6 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 	rc.client = remoteClient
 
 	watchCtx, rc.watchCancel = context.WithCancel(watchCtx)
-	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
-	if err != nil {
-		return rc.increaseFailedConnAttempt(), err
-	}
-
 	err = rc.startGenericWorkloadWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
 		return rc.increaseFailedConnAttempt(), err
@@ -500,7 +495,10 @@ type clustersReconciler struct {
 	// The list of remote remoteClients, indexed by the cluster name.
 	remoteClients map[string]*remoteClient
 	wlUpdateCh    chan event.GenericEvent
-	cqUpdateCh    chan event.TypedGenericEvent[kueue.ClusterQueueReference]
+	// watchEndedCh - an event chan used to request the reconciliation of the clusters for which the watch loop
+	// has ended (connection lost).
+	watchEndedCh chan event.GenericEvent
+	cqUpdateCh   chan event.TypedGenericEvent[kueue.ClusterQueueReference]
 
 	// gcInterval - time waiting between two GC runs.
 	gcInterval time.Duration
@@ -517,10 +515,6 @@ type clustersReconciler struct {
 	// and creating valid kubeconfig content is not trivial.
 	// The full client creation and usage is validated in the integration and e2e tests.
 	builderOverride clientWithWatchBuilder
-
-	// watchEndedCh - an event chan used to request the reconciliation of the clusters for which the watch loop
-	// has ended (connection lost).
-	watchEndedCh chan event.GenericEvent
 
 	fsWatcher *KubeConfigFSWatcher
 
@@ -572,7 +566,7 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 
 	client, found := c.remoteClients[clusterName]
 	if !found {
-		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.cqUpdateCh, c.watchEndedCh, origin, clusterName, c.adapters)
+		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, c.adapters)
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
@@ -886,10 +880,10 @@ func newClustersReconciler(
 		configNamespace:     namespace,
 		remoteClients:       make(map[string]*remoteClient),
 		wlUpdateCh:          make(chan event.GenericEvent, eventChBufferSize),
+		watchEndedCh:        make(chan event.GenericEvent, eventChBufferSize),
 		cqUpdateCh:          make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
 		gcInterval:          gcInterval,
 		origin:              origin,
-		watchEndedCh:        make(chan event.GenericEvent, eventChBufferSize),
 		fsWatcher:           fsWatcher,
 		adapters:            adapters,
 		clusterProfileCreds: cpCreds,

@@ -1878,7 +1878,7 @@ func Convert_v1beta1_MultiKueueConfigSpec_To_v1beta2_MultiKueueConfigSpec(in *Mu
 
 func autoConvert_v1beta2_MultiKueueConfigSpec_To_v1beta1_MultiKueueConfigSpec(in *v1beta2.MultiKueueConfigSpec, out *MultiKueueConfigSpec, s conversion.Scope) error {
 	out.Clusters = *(*[]string)(unsafe.Pointer(&in.Clusters))
-	// WARNING: in.QuotaAutomation requires manual conversion: does not exist in peer-type
+	// WARNING: in.QuotaManagement requires manual conversion: does not exist in peer-type
 	return nil
 }
 

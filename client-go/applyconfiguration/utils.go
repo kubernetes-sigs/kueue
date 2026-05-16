@@ -284,8 +284,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.ProvisioningRequestPodSetUpdatesNodeSelectorApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ProvisioningRequestRetryStrategy"):
 		return &kueuev1beta2.ProvisioningRequestRetryStrategyApplyConfiguration{}
-	case v1beta2.SchemeGroupVersion.WithKind("QuotaAutomation"):
-		return &kueuev1beta2.QuotaAutomationApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ReclaimablePod"):
 		return &kueuev1beta2.ReclaimablePodApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("RequeueState"):

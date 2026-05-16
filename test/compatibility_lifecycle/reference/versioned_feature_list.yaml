@@ -229,6 +229,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: MultiKueueManagerQuotaAutomation
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: MultiKueueOrchestratedPreemption
   versionedSpecs:
   - default: false

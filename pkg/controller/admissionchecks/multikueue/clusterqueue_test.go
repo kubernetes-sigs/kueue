@@ -73,7 +73,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
 			},
 			workers: map[string]workerState{
 				"worker1": {
@@ -117,7 +117,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
 			},
 			workers: map[string]workerState{
 				"worker1": {
@@ -165,7 +165,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
 			},
 			workers: map[string]workerState{
 				"worker1": {
@@ -217,7 +217,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
 			},
 			workers: map[string]workerState{
 				"worker1": {
@@ -269,7 +269,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
 			},
 			workers: map[string]workerState{
 				"worker1": {
@@ -314,11 +314,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				func() *kueue.MultiKueueConfig {
-					cfg := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj()
-					cfg.Spec.QuotaAutomation = &kueue.QuotaAutomation{Mode: kueue.QuotaAutomationManual}
-					return cfg
-				}(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementManual).Obj(),
 			},
 			workers: map[string]workerState{
 				"worker1": {
@@ -348,7 +344,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
 			},
 			wantQuotaAutomated:      false,
 			wantAutomationCondition: true,
@@ -370,7 +366,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
 			},
 			workers: map[string]workerState{
 				"worker1": {

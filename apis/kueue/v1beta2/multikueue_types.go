@@ -156,30 +156,26 @@ type MultiKueueConfigSpec struct {
 	// +required
 	Clusters []string `json:"clusters,omitempty,omitzero"`
 
-	// quotaAutomation specifies the automation behavior of ClusterQueue quotas 
-	// in the manager cluster. 
-	// If unspecified, the default mode depends on the MultiKueueManagerQuotaAutomation feature gate.
-	// +optional
-	QuotaAutomation *QuotaAutomation `json:"quotaAutomation,omitempty"`
-}
-
-// QuotaAutomation defines the quota automation options for MultiKueue manager cluster ClusterQueues.
-type QuotaAutomation struct {
-	// mode specifies the automation mode.
+	// quotaManagement specifies the management of ClusterQueue quotas
+	// in the manager cluster.
 	// Supported modes:
 	// - `Manual`: Quota automation is manual.
 	// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
-	//
-	// +kubebuilder:validation:Enum=Manual;Automated
-	// +kubebuilder:default=Automated
-	Mode QuotaAutomationMode `json:"mode"`
+	// If unspecified, defaults to `Manual`.
+	// +optional
+	QuotaManagement *MultiKueueConfigQuotaManagementMode `json:"quotaManagement,omitempty"`
 }
 
-type QuotaAutomationMode string
+// MultiKueueConfigQuotaManagementMode specifies the automation mode.
+// Supported modes:
+// - `Manual`: Quota automation is manual.
+// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+// +kubebuilder:validation:Enum=Manual;Automated
+type MultiKueueConfigQuotaManagementMode string
 
 const (
-	QuotaAutomationManual    QuotaAutomationMode = "Manual"
-	QuotaAutomationAutomated QuotaAutomationMode = "Automated"
+	QuotaManagementManual    MultiKueueConfigQuotaManagementMode = "Manual"
+	QuotaManagementAutomated MultiKueueConfigQuotaManagementMode = "Automated"
 )
 
 // +genclient

@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -98,7 +99,7 @@ func (r *CQReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, err
 	}
 
-	if cfg.Spec.QuotaAutomation != nil && cfg.Spec.QuotaAutomation.Mode == kueue.QuotaAutomationManual {
+	if ptr.Deref(cfg.Spec.QuotaManagement, kueue.QuotaManagementManual) == kueue.QuotaManagementManual {
 		err = r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, "NotRequested", "MultiKueue manager quota automation has not been requested.")
 		return reconcile.Result{}, err
 	}
@@ -187,7 +188,7 @@ func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 		}
 		remoteLQs, err := getOrList(ctx, rc.client, lqKeys, lqItemsGetter{})
 		if err != nil {
-			return client.IgnoreNotFound(err)
+			return err
 		}
 
 		remoteCQKeys := sets.New[types.NamespacedName]()
@@ -197,7 +198,7 @@ func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 
 		remoteCQs, err := getOrList(ctx, rc.client, remoteCQKeys, cqItemsGetter{})
 		if err != nil {
-			return client.IgnoreNotFound(err)
+			return err
 		}
 
 		workerTotal := make(map[corev1.ResourceName]resource.Quantity)
@@ -230,67 +231,6 @@ func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 	}
 
 	return total, nil
-}
-
-type listItemsGetter[T any, PL client.ObjectList] interface {
-	items(PL) []T
-}
-
-type lqItemsGetter struct{}
-
-func (lqItemsGetter) items(l *kueue.LocalQueueList) []kueue.LocalQueue {
-	return l.Items
-}
-
-type cqItemsGetter struct{}
-
-func (cqItemsGetter) items(l *kueue.ClusterQueueList) []kueue.ClusterQueue {
-	return l.Items
-}
-
-// getOrList fetches objects of the given keys from the given client.
-// If there's only one key, it uses API Get.
-// Otherwise, it uses List and filters the result.
-// (This is useful for remote clients, where Get reduces network traffic).
-func getOrList[T any, PT interface {
-	*T
-	client.Object
-}, L any, PL interface {
-	*L
-	client.ObjectList
-}](
-	ctx context.Context,
-	cli client.Client,
-	keys sets.Set[types.NamespacedName],
-	getter listItemsGetter[T, PL],
-) ([]T, error) {
-	if keys.Len() == 0 {
-		return nil, nil
-	}
-
-	if keys.Len() == 1 {
-		key := keys.UnsortedList()[0]
-		var obj T
-		if err := cli.Get(ctx, key, PT(&obj)); err != nil {
-			return nil, err
-		}
-		return []T{obj}, nil
-	}
-
-	var list L
-	if err := cli.List(ctx, PL(&list)); err != nil {
-		return nil, err
-	}
-
-	var filtered []T
-	for _, item := range getter.items(PL(&list)) {
-		objPtr := PT(&item)
-		key := types.NamespacedName{Namespace: objPtr.GetNamespace(), Name: objPtr.GetName()}
-		if keys.Has(key) {
-			filtered = append(filtered, item)
-		}
-	}
-	return filtered, nil
 }
 
 func (r *CQReconciler) removeQuotaAutomationCondition(ctx context.Context, cq *kueue.ClusterQueue) error {
@@ -346,6 +286,17 @@ func (r *CQReconciler) queueEventsForMKConfig(ctx context.Context, configName st
 	}
 }
 
+func (r *CQReconciler) queueEventsForMKCluster(ctx context.Context, clusterName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	configList := &kueue.MultiKueueConfigList{}
+	if err := r.client.List(ctx, configList, client.MatchingFields{UsingMultiKueueClusters: clusterName}); err != nil {
+		return
+	}
+
+	for _, cfg := range configList.Items {
+		r.queueEventsForMKConfig(ctx, cfg.Name, q)
+	}
+}
+
 func (r *CQReconciler) setupWithManager(mgr ctrl.Manager) error {
 	cqEventFilter := predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
@@ -375,6 +326,7 @@ func (r *CQReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&kueue.LocalQueue{}, &lqHandler{client: r.client}).
 		Watches(&kueue.AdmissionCheck{}, &acHandler{reconciler: r}).
 		Watches(&kueue.MultiKueueConfig{}, &cqConfigHandler{reconciler: r}).
+		Watches(&kueue.MultiKueueCluster{}, &cqClusterHandler{reconciler: r}).
 		WatchesRawSource(source.Channel(r.clusters.cqUpdateCh, remoteHandler)).
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "multikueue-clusterqueue"),
@@ -405,9 +357,6 @@ func (l *lqHandler) Delete(ctx context.Context, event event.DeleteEvent, q workq
 }
 
 func (l *lqHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if lq, ok := event.Object.(*kueue.LocalQueue); ok {
-		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(lq.Spec.ClusterQueue)}})
-	}
 }
 
 type acHandler struct {
@@ -440,7 +389,6 @@ func (a *acHandler) Delete(ctx context.Context, event event.DeleteEvent, q workq
 }
 
 func (a *acHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	a.reconciler.queueEventsForAC(ctx, event.Object.GetName(), q)
 }
 
 type cqConfigHandler struct {
@@ -461,7 +409,7 @@ func (c *cqConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q
 	}
 
 	if equality.Semantic.DeepEqual(oldConfig.Spec.Clusters, newConfig.Spec.Clusters) &&
-		equality.Semantic.DeepEqual(oldConfig.Spec.QuotaAutomation, newConfig.Spec.QuotaAutomation) {
+		equality.Semantic.DeepEqual(oldConfig.Spec.QuotaManagement, newConfig.Spec.QuotaManagement) {
 		return
 	}
 
@@ -473,5 +421,35 @@ func (c *cqConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q
 }
 
 func (c *cqConfigHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	c.reconciler.queueEventsForMKConfig(ctx, event.Object.GetName(), q)
+}
+
+type cqClusterHandler struct {
+	reconciler *CQReconciler
+}
+
+var _ handler.EventHandler = (*cqClusterHandler)(nil)
+
+func (c *cqClusterHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	c.reconciler.queueEventsForMKCluster(ctx, event.Object.GetName(), q)
+}
+
+func (c *cqClusterHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	oldMKC, isOldMKC := event.ObjectOld.(*kueue.MultiKueueCluster)
+	newMKC, isNewMKC := event.ObjectNew.(*kueue.MultiKueueCluster)
+	if !isOldMKC || !isNewMKC {
+		return
+	}
+
+	oldActive := apimeta.FindStatusCondition(oldMKC.Status.Conditions, kueue.MultiKueueClusterActive)
+	newActive := apimeta.FindStatusCondition(newMKC.Status.Conditions, kueue.MultiKueueClusterActive)
+	if !cmpConditionState(oldActive, newActive) {
+		c.reconciler.queueEventsForMKCluster(ctx, newMKC.Name, q)
+	}
+}
+
+func (c *cqClusterHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	c.reconciler.queueEventsForMKCluster(ctx, event.Object.GetName(), q)
+}
+
+func (c *cqClusterHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
