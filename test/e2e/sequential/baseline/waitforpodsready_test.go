@@ -137,6 +137,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 			job = testingjob.MakeJob("job-timeout", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Request(corev1.ResourceCPU, "2").
 				Parallelism(1).
 				Obj()
@@ -294,6 +295,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 		ginkgo.By("creating a job", func() {
 			job = testingjob.MakeJob("job-recovery-timeout", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Request(corev1.ResourceCPU, "2").
 				Parallelism(1).
@@ -438,6 +440,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 		ginkgo.By("creating a job", func() {
 			job = testingjob.MakeJob("job-recovery-timeout", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Request(corev1.ResourceCPU, "2").
 				Parallelism(1).
