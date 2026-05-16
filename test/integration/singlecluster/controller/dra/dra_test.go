@@ -22,7 +22,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	resourceapi "k8s.io/api/resource/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -57,14 +57,24 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			resourceFlavor *kueue.ResourceFlavor
 			clusterQueue   *kueue.ClusterQueue
 			localQueue     *kueue.LocalQueue
+			deviceClass    *resourcev1.DeviceClass
+			resourceSlices []*resourcev1.ResourceSlice
 		)
 		ginkgo.BeforeEach(func() {
+			resourceSlices = nil
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "dra-",
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+			deviceClass = &resourcev1.DeviceClass{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo.example.com",
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 
 			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
 			resourceFlavor.GenerateName = "rf-"
@@ -99,9 +109,13 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.AfterEach(func() {
+			for _, slice := range resourceSlices {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, slice, true)
+			}
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
 		})
 
 		ginkgo.It("Should reject workload with DRA resource claims with inadmissible condition", framework.SlowSpec, func() {
@@ -528,30 +542,102 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should reject workload with CEL selectors", func() {
+		ginkgo.It("Should admit workload with CEL selectors", func() {
+			ginkgo.By("Creating a ResourceSlice with devices matching the CEL selector")
+			slice := &resourcev1.ResourceSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cel-test-slice",
+				},
+				Spec: resourcev1.ResourceSliceSpec{
+					Driver: "test-driver",
+					Pool: resourcev1.ResourcePool{
+						Name:               "test-pool",
+						Generation:         1,
+						ResourceSliceCount: 1,
+					},
+					NodeName: new("fake-node"),
+					Devices: []resourcev1.Device{
+						{Name: "dev-0"},
+						{Name: "dev-1"},
+					},
+				},
+			}
+			util.MustCreate(ctx, k8sClient, slice)
+			resourceSlices = append(resourceSlices, slice)
+
 			ginkgo.By("Creating a ResourceClaimTemplate with CEL selectors")
 			rct := utiltesting.MakeResourceClaimTemplate("cel-selector-template", ns.Name).
 				DeviceRequest("device-request", "foo.example.com", 2).
 				WithCELSelectors("device.driver == \"test-driver\"").
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, rct)
 
 			ginkgo.By("Creating a workload with CEL selectors")
 			wl := utiltestingapi.MakeWorkload("test-wl-cel-selector", ns.Name).
 				Queue("test-lq").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("device-template", "cel-selector-template").
+						Obj(),
+				).
 				Obj()
-			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{
-					Name:                      "device-template",
-					ResourceClaimTemplateName: new("cel-selector-template"),
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying workload is admitted with correct resource usage")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("foo")))
+				g.Expect(assignment.ResourceUsage["foo"]).To(gomega.Equal(resource.MustParse("2")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should reject workload with unsatisfiable CEL selectors", func() {
+			ginkgo.By("Creating a ResourceSlice with devices that won't match the CEL selector")
+			slice := &resourcev1.ResourceSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cel-reject-slice",
+				},
+				Spec: resourcev1.ResourceSliceSpec{
+					Driver: "real-driver",
+					Pool: resourcev1.ResourcePool{
+						Name:               "test-pool",
+						Generation:         1,
+						ResourceSliceCount: 1,
+					},
+					NodeName: new("fake-node"),
+					Devices: []resourcev1.Device{
+						{Name: "dev-0"},
+					},
 				},
 			}
-			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
-				{Name: "device-template"},
-			}
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, slice)
+			resourceSlices = append(resourceSlices, slice)
 
-			ginkgo.By("Verifying workload is marked as inadmissible")
+			ginkgo.By("Creating a ResourceClaimTemplate with CEL selector that matches no devices")
+			rct := utiltesting.MakeResourceClaimTemplate("cel-reject-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				WithCELSelectors("device.driver == \"nonexistent-driver\"").
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating a workload with unsatisfiable CEL selectors")
+			wl := utiltestingapi.MakeWorkload("test-wl-cel-reject", ns.Name).
+				Queue("test-lq").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("device-template", "cel-reject-template").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying workload is marked as inadmissible due to unsatisfiable CEL selectors")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
@@ -561,7 +647,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
-					gomega.HaveField("Message", gomega.ContainSubstring("CEL selectors are not supported")),
+					gomega.HaveField("Message", gomega.ContainSubstring("insufficient matching devices for CEL selector")),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -759,7 +845,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			resourceFlavor *kueue.ResourceFlavor
 			clusterQueue   *kueue.ClusterQueue
 			localQueue     *kueue.LocalQueue
-			deviceClass    *resourceapi.DeviceClass
+			deviceClass    *resourcev1.DeviceClass
 		)
 
 		const extendedResourceName = "example.com/gpu"
@@ -783,11 +869,11 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			deviceClass = &resourceapi.DeviceClass{
+			deviceClass = &resourcev1.DeviceClass{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "gpu-ext-",
 				},
-				Spec: resourceapi.DeviceClassSpec{
+				Spec: resourcev1.DeviceClassSpec{
 					ExtendedResourceName: ptr.To(extendedResourceName),
 				},
 			}
@@ -862,7 +948,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			resourceFlavor *kueue.ResourceFlavor
 			clusterQueue   *kueue.ClusterQueue
 			localQueue     *kueue.LocalQueue
-			deviceClass    *resourceapi.DeviceClass
+			deviceClass    *resourcev1.DeviceClass
 		)
 
 		const (
@@ -874,9 +960,9 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DRAExtendedResources, true)
 
-			deviceClass = &resourceapi.DeviceClass{
+			deviceClass = &resourcev1.DeviceClass{
 				ObjectMeta: metav1.ObjectMeta{Name: "gpu.example.com"},
-				Spec: resourceapi.DeviceClassSpec{
+				Spec: resourcev1.DeviceClassSpec{
 					ExtendedResourceName: ptr.To(extendedResourceName),
 				},
 			}

@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 )
 
@@ -66,9 +67,11 @@ func TestDefault(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("default").
 				WorkloadPriorityClass("high-priority").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "default").
 				LeaderTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "high-priority").
 				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
 				WorkerTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "high-priority").
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
@@ -83,8 +86,10 @@ func TestDefault(t *testing.T) {
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("default").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "default").
 				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
@@ -99,8 +104,10 @@ func TestDefault(t *testing.T) {
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "test-queue").
 				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.QueueLabel, "test-queue").
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
@@ -121,6 +128,40 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				Queue("default").
+				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				Obj(),
+		},
+		"queue-name on templates overridden by top-level queue": {
+			defaultLqExist: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "user-queue").
+				WorkerTemplateSpecLabel(constants.QueueLabel, "user-queue").
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "test-queue").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.QueueLabel, "test-queue").
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
+				Obj(),
+		},
+		"queue-name on worker template overridden when no leader template": {
+			defaultLqExist: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				Queue("test-queue").
+				WorkerTemplateSpecLabel(constants.QueueLabel, "user-queue").
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				Queue("test-queue").
+				WorkerTemplateSpecLabel(constants.QueueLabel, "test-queue").
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
@@ -134,7 +175,9 @@ func TestDefault(t *testing.T) {
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("default").
+				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
 				WorkerTemplateSpecAnnotation(kueue.PodSetGroupName, "test-group").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "default").
 				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
@@ -832,10 +875,21 @@ func TestValidateUpdate(t *testing.T) {
 				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 		},
-		"change queue name": {
+		"change queue name when suspended": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("new-test-queue").
+				Obj(),
+		},
+		"change queue name when replicas ready": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				ReadyReplicas(int32(1)).
 				Obj(),
 			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -979,14 +1033,14 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
 						InitContainers: []corev1.Container{
 							{
 								Name:      "ic",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
@@ -1038,14 +1092,14 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
 						InitContainers: []corev1.Container{
 							{
 								Name:      "ic",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
@@ -1063,14 +1117,14 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
 						InitContainers: []corev1.Container{
 							{
 								Name:      "ic",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
@@ -1126,7 +1180,7 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: "pause",
+								Image: utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceCPU: resource.MustParse("1"),
@@ -1137,7 +1191,7 @@ func TestValidateUpdate(t *testing.T) {
 						InitContainers: []corev1.Container{
 							{
 								Name:      "ic",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
@@ -1165,14 +1219,14 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
 						InitContainers: []corev1.Container{
 							{
 								Name:      "ic",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
@@ -1228,14 +1282,14 @@ func TestValidateUpdate(t *testing.T) {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
 						InitContainers: []corev1.Container{
 							{
 								Name:  "ic",
-								Image: "pause",
+								Image: utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceCPU: resource.MustParse("1"),

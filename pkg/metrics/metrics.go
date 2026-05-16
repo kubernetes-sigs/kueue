@@ -192,6 +192,12 @@ var (
 	// +metricsdoc:labels=cluster_queue="the evicted workload's ClusterQueue from status.admission on the workload before quota was released (only present when the metric records a sample)",reason="eviction or preemption reason (same values as evicted_workloads_total)",replica_role="one of `leader`, `follower`, or `standalone`"
 	WorkloadEvictionLatencySeconds *prometheus.HistogramVec
 
+	// Metrics tied to the job framework
+
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
+	WorkloadCreationLatency *prometheus.HistogramVec
+
 	// Metrics tied to the cache.
 
 	// +metricsdoc:group=clusterqueue
@@ -227,6 +233,10 @@ var (
 	// +metricsdoc:group=optional_clusterqueue_resources
 	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
 	ClusterQueueResourceUsage *prometheus.GaugeVec
+
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	ClusterQueueResourcePending *prometheus.GaugeVec
 
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
@@ -546,6 +556,15 @@ The label 'underlying_cause' can have the following values:
 		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, extraLabels...),
 	)
 
+	WorkloadCreationLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "workload_creation_latency_seconds",
+			Help:      "The time between a job was created until its workload was created, per 'job_kind'. Entries are only recorded for objects with generation 1.",
+			Buckets:   prometheus.ExponentialBuckets(0.01, 2, 11),
+		}, append([]string{"job_kind", "replica_role"}, extraLabels...),
+	)
+
 	EvictedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -717,6 +736,15 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 	)
 	trackGaugeVec(ClusterQueueResourceReservations, gaugeCleanupScopeClusterQueueResource)
 
+	ClusterQueueResourcePending = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cluster_queue_resource_pending",
+			Help:      `Reports the cluster_queue's total pending resource requests. Unlike resource_reservation, pending workloads have not yet been assigned to flavors.`,
+		}, append([]string{"cluster_queue", "resource", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(ClusterQueueResourcePending, gaugeCleanupScopeClusterQueue, gaugeCleanupScopeClusterQueueResource)
+
 	ClusterQueueResourceUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -845,6 +873,11 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration, tracker *r
 	role := roletracker.GetRole(tracker)
 	AdmissionAttemptsTotal.WithLabelValues(string(result), role).Inc()
 	admissionAttemptDuration.WithLabelValues(string(result), role).Observe(duration.Seconds())
+}
+
+func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
+	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
 }
 
 func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1134,6 +1167,15 @@ func ReportClusterQueueResourceReservations(cohort kueue.CohortReference, queue,
 	ClusterQueueResourceReservations.WithLabelValues(labels...).Set(usage)
 }
 
+func ReportClusterQueueResourcePending(queue, resource string, pending float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{queue, resource, roletracker.GetRole(tracker)}, customLabelValues...)
+	ClusterQueueResourcePending.WithLabelValues(labels...).Set(pending)
+}
+
+func ClearClusterQueueResourcePendingMetrics(cqName string) {
+	ClusterQueueResourcePending.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+}
+
 func ReportLocalQueueResourceReservations(lq LocalQueueReference, flavor, resource string, usage float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(lq.Name), lq.Namespace, flavor, resource, roletracker.GetRole(tracker)}, customLabelValues...)
 	LocalQueueResourceReservations.WithLabelValues(labels...).Set(usage)
@@ -1284,6 +1326,7 @@ func Register() {
 		AdmittedActiveWorkloads,
 		ClusterQueueByStatus,
 		ClusterQueueResourceReservations,
+		ClusterQueueResourcePending,
 		ClusterQueueResourceUsage,
 		ClusterQueueResourceNominalQuota,
 		ClusterQueueResourceBorrowingLimit,
@@ -1295,6 +1338,9 @@ func Register() {
 		CohortSubtreeResourceReservations,
 		CohortSubtreeAdmittedActiveWorkloads,
 	)
+	if features.Enabled(features.MetricForWorkloadCreationLatency) {
+		metrics.Registry.MustRegister(WorkloadCreationLatency)
+	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
 	}

@@ -41,6 +41,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -174,6 +175,24 @@ func TestNewInfo(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.ReclaimablePods: false,
+			},
+		},
+		"prevent int overflow in total requests": {
+			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2147483647).
+					Request(corev1.ResourceCPU, "4300000").
+					Obj()).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  kueue.DefaultPodSetName,
+						Count: 2147483647,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 9223372036854775807,
+						},
+					},
+				},
 			},
 		},
 		"admitted": {
@@ -1250,16 +1269,6 @@ func TestAdmissionChecksForWorkload(t *testing.T) {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac3", "ac4", "ac6"),
-		},
-		"All checks returned when workload has an empty assignment": {
-			wl: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuotaAt(
-					utiltestingapi.MakeAdmission("cq").
-						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).
-						Obj(),
-					now,
-				).Obj(),
-			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2", "ac3", "ac4", "ac5", "ac6"),
 		},
 	}
 	for name, tc := range cases {
@@ -3033,6 +3042,25 @@ func TestSchedulingHash(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing: true,
 				features.PriorityBoost:                true,
+			},
+		},
+		"same spec, different allowed flavors annotation, concurrent admission enabled produces different hash": {
+			wl1: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("wl1", "ns").
+					Request(corev1.ResourceCPU, "1").Obj()
+				wl.Annotations = map[string]string{controllerconstants.WorkloadAllowedResourceFlavorAnnotation: "flavor1"}
+				return wl
+			}(),
+			wl2: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("wl2", "ns").
+					Request(corev1.ResourceCPU, "1").Obj()
+				wl.Annotations = map[string]string{controllerconstants.WorkloadAllowedResourceFlavorAnnotation: "flavor2"}
+				return wl
+			}(),
+			wantSame: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.ConcurrentAdmission:          true,
 			},
 		},
 	}

@@ -138,6 +138,11 @@ func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
 	return j.Label(constants.QueueLabel, queue)
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the JobSet.
+func (j *JobSetWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JobSetWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Request adds a resource request to the first container of the target replicatedJob.
 func (j *JobSetWrapper) Request(replicatedJobName string, r corev1.ResourceName, v string) *JobSetWrapper {
 	for i, replicatedJob := range j.Spec.ReplicatedJobs {

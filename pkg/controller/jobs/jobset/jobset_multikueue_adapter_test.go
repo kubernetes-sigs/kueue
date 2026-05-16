@@ -30,7 +30,6 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -62,29 +61,29 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 		"sync creates missing remote jobset": {
 			managersJobSets: []jobsetapi.JobSet{
-				*baseJobSetManagedByKueueBuilder.Clone().Obj(),
+				*baseJobSetManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
 			wantManagersJobSets: []jobsetapi.JobSet{
-				*baseJobSetManagedByKueueBuilder.Clone().Obj(),
+				*baseJobSetManagedByKueueBuilder.DeepCopy(),
 			},
 			wantWorkerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 		},
 		"sync status from remote jobset": {
 			managersJobSets: []jobsetapi.JobSet{
-				*baseJobSetManagedByKueueBuilder.Clone().Obj(),
+				*baseJobSetManagedByKueueBuilder.DeepCopy(),
 			},
 			workerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						jobsetapi.ReplicatedJobStatus{
@@ -122,7 +121,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						jobsetapi.ReplicatedJobStatus{
@@ -147,7 +146,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
@@ -187,7 +186,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
@@ -208,7 +207,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote jobset is deleted": {
 			workerJobSets: []jobsetapi.JobSet{
 				*baseJobSetBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						jobsetapi.ReplicatedJobStatus{
@@ -238,7 +237,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"job with wrong managedBy is not considered managed": {
 			managersJobSets: []jobsetapi.JobSet{
-				*baseJobSetBuilder.Clone().Obj(),
+				*baseJobSetBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace}); isManged {
@@ -247,13 +246,13 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersJobSets: []jobsetapi.JobSet{
-				*baseJobSetBuilder.Clone().Obj(),
+				*baseJobSetBuilder.DeepCopy(),
 			},
 		},
 
 		"job managedBy multikueue": {
 			managersJobSets: []jobsetapi.JobSet{
-				*baseJobSetManagedByKueueBuilder.Clone().Obj(),
+				*baseJobSetManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace}); !isManged {
@@ -262,7 +261,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersJobSets: []jobsetapi.JobSet{
-				*baseJobSetManagedByKueueBuilder.Clone().Obj(),
+				*baseJobSetManagedByKueueBuilder.DeepCopy(),
 			},
 		},
 	}

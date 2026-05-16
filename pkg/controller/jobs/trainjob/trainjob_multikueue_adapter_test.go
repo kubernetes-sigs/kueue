@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
@@ -62,18 +61,18 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 		"sync creates missing remote TrainJob": {
 			managersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobManagedByKueueBuilder.Clone().Obj(),
+				*baseTrainJobManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "trainjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobManagedByKueueBuilder.Clone().Obj(),
+				*baseTrainJobManagedByKueueBuilder.DeepCopy(),
 			},
 			wantWorkerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
@@ -99,18 +98,18 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 		},
 		"sync status from remote trainjob": {
 			managersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobManagedByKueueBuilder.Clone().Obj(),
+				*baseTrainJobManagedByKueueBuilder.DeepCopy(),
 			},
 			workerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						testingtrainjob.MakeJobStatus("replicated-job-1").
@@ -144,7 +143,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						testingtrainjob.MakeJobStatus("replicated-job-1").
@@ -167,7 +166,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
@@ -203,7 +202,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
@@ -222,7 +221,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote trainjob is deleted": {
 			workerTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
 						testingtrainjob.MakeJobStatus("replicated-job-1").
@@ -250,7 +249,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"job with wrong managedBy is not considered managed": {
 			managersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobBuilder.Clone().Obj(),
+				*baseTrainJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "trainbjo1", Namespace: TestNamespace}); isManged {
@@ -259,13 +258,13 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobBuilder.Clone().Obj(),
+				*baseTrainJobBuilder.DeepCopy(),
 			},
 		},
 
 		"job managedBy multikueue": {
 			managersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobManagedByKueueBuilder.Clone().Obj(),
+				*baseTrainJobManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "trainjob1", Namespace: TestNamespace}); !isManged {
@@ -274,7 +273,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
-				*baseTrainJobManagedByKueueBuilder.Clone().Obj(),
+				*baseTrainJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
 	}

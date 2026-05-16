@@ -19,6 +19,7 @@ package scheduler
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -31,7 +32,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -75,12 +77,13 @@ type Scheduler struct {
 	queues                  *qcache.Manager
 	cache                   *schdcache.Cache
 	client                  client.Client
-	recorder                record.EventRecorder
+	recorder                events.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
 	fairSharing             *config.FairSharing
 	admissionFairSharing    *config.AdmissionFairSharing
+	quotaCheckStrategy      config.QuotaCheckStrategy
 	clock                   clock.Clock
 	roleTracker             *roletracker.RoleTracker
 	customLabels            *metrics.CustomLabels
@@ -94,6 +97,7 @@ type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	fairSharing                 *config.FairSharing
 	admissionFairSharing        *config.AdmissionFairSharing
+	quotaCheckStrategy          config.QuotaCheckStrategy
 	clock                       clock.Clock
 	roleTracker                 *roletracker.RoleTracker
 	preemptionExpectations      *expectations.Store
@@ -157,7 +161,13 @@ func WithCustomLabels(cl *metrics.CustomLabels) Option {
 	}
 }
 
-func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
+func WithQuotaCheckStrategy(qcs config.QuotaCheckStrategy) Option {
+	return func(o *options) {
+		o.quotaCheckStrategy = qcs
+	}
+}
+
+func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder events.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -186,6 +196,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		workloadOrdering:        wo,
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
+		quotaCheckStrategy:      options.quotaCheckStrategy,
 		roleTracker:             options.roleTracker,
 		customLabels:            options.customLabels,
 	}
@@ -372,6 +383,14 @@ func (s *Scheduler) processEntry(
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Attempting to schedule workload")
 
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
+		if moreFavorableSibling := s.findAdmittedMoreFavorableSibling(&e.Info, snapshot); moreFavorableSibling != nil {
+			log.V(3).Info("Skipping workload as a more favorable variant is already admitted", "moreFavorableVariant", klog.KObj(moreFavorableSibling.Obj))
+			e.markSkipped("A more favorable variant is already admitted")
+			return
+		}
+	}
+
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
@@ -380,12 +399,14 @@ func (s *Scheduler) processEntry(
 	}
 
 	if mode == flavorassigner.NoFit {
+		e.requeueReason = qcache.RequeueReasonNoFit
 		log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
 		return
 	}
 
 	if mode == flavorassigner.Preempt {
 		if len(e.preemptionTargets) == 0 {
+			e.requeueReason = qcache.RequeueReasonPreemptionNoCandidates
 			s.reserveCapacityForUnreclaimablePreempt(log, e, cq)
 			return
 		}
@@ -434,8 +455,8 @@ func (s *Scheduler) processEntry(
 		}
 	}
 
-	if features.Enabled(features.ConcurrentAdmission) {
-		if lessFavorableSibling := s.getLessFavorableSibling(log, &e.Info, snapshot); lessFavorableSibling != nil {
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
+		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
 			s.issueMigration(ctx, log, e, lessFavorableSibling)
 			return
 		}
@@ -467,9 +488,9 @@ func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *e
 }
 
 // issueMigration evicts victim of migration to a more favorable ResourceFlavor.
-func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entry, migrationVictim *preemption.Target) {
-	log.V(3).Info("Migrating to more favorable resource flavor", "targetWorkload", klog.KObj(migrationVictim.WorkloadInfo.Obj), "evictorWorkload", klog.KObj(e.Obj))
-	wlCopy := migrationVictim.WorkloadInfo.Obj.DeepCopy()
+func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entry, migrationVictim *workload.Info) {
+	log.V(3).Info("Migrating to more favorable resource flavor", "targetWorkload", klog.KObj(migrationVictim.Obj), "evictorWorkload", klog.KObj(e.Obj))
+	wlCopy := migrationVictim.Obj.DeepCopy()
 	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 	message := fmt.Sprintf("Evicted to accommodate a workload (UID: %s) due to migration to more favorable resource flavor", e.Obj.UID)
 	err := workload.Evict(
@@ -684,8 +705,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
-
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice, s.quotaCheckStrategy)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
 	arm := fullAssignment.RepresentativeMode()
@@ -931,7 +951,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	if s.queues.QueueSecondPassIfNeeded(ctx, e.Obj, e.SecondPassIteration) {
 		log.V(2).
 			Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
-		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "SecondPassFailed", api.TruncateEventMessage(e.inadmissibleMsg))
+		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "SecondPassFailed", "SecondPassFailed", api.TruncateEventMessage(e.inadmissibleMsg))
 		return
 	}
 
@@ -952,7 +972,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
-		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
+		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "Pending", "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
 	}
 }
 
@@ -975,7 +995,7 @@ func (s *Scheduler) recordQuotaReservationMetrics(log logr.Logger, newWorkload, 
 		quotaReservedEventMessage += fmt.Sprintf("; Flavors considered: %s", consideredFlavors)
 	}
 
-	s.recorder.Event(newWorkload, corev1.EventTypeNormal, "QuotaReserved", api.TruncateEventMessage(quotaReservedEventMessage))
+	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "QuotaReserved", "QuotaReserved", api.TruncateEventMessage(quotaReservedEventMessage))
 
 	priorityClassName := workload.PriorityClassName(newWorkload)
 	metrics.QuotaReservedWorkload(admission.ClusterQueue, priorityClassName, waitTime, s.customLabels.CQGet(admission.ClusterQueue), s.roleTracker)
@@ -991,7 +1011,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 		return
 	}
 
-	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
+	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 
 	priorityClassName := workload.PriorityClassName(newWorkload)
 	cqCustomLabels := s.customLabels.CQGet(admission.ClusterQueue)
@@ -1037,7 +1057,7 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 	}
 
 	log.V(3).Info("Replaced", "old slice", klog.KObj(oldSlice), "new slice", klog.KObj(newSlice), "reason", reason, "message", message, "old-queue", klog.KRef("", string(oldQueue)))
-	s.recorder.Eventf(oldSlice, corev1.EventTypeNormal, reason, message)
+	s.recorder.Eventf(oldSlice, nil, corev1.EventTypeNormal, reason, "Replaced", message)
 	metrics.ReportReplacedWorkloadSlices(oldQueue, s.customLabels.CQGet(oldQueue), s.roleTracker)
 	return nil
 }
@@ -1051,10 +1071,34 @@ const (
 	subtract
 )
 
+func allCoveredResources(resourceGroups []schdcache.ResourceGroup) sets.Set[corev1.ResourceName] {
+	covered := sets.New[corev1.ResourceName]()
+	for _, rg := range resourceGroups {
+		covered = covered.Union(rg.CoveredResources)
+	}
+	return covered
+}
+
+// filterByNames returns a new ResourceList containing only resources whose names
+// are in the allowed set.
+func filterByNames(requests corev1.ResourceList, allowed sets.Set[corev1.ResourceName]) corev1.ResourceList {
+	filtered := make(corev1.ResourceList, len(requests))
+	for name, qty := range requests {
+		if allowed.Has(name) {
+			filtered[name] = qty
+		}
+	}
+	return filtered
+}
+
 func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	lqKey := utilqueue.NewLocalQueueReference(e.Obj.Namespace, e.Obj.Spec.QueueName)
 	lqObjRef := klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName))
-	penalty := afs.CalculateEntryPenalty(e.SumTotalRequests(), s.admissionFairSharing)
+	totalRequests := e.SumTotalRequests()
+	if flavorassigner.IgnoreUndeclaredResources(s.quotaCheckStrategy) {
+		totalRequests = filterByNames(totalRequests, allCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
+	}
+	penalty := afs.CalculateEntryPenalty(totalRequests, s.admissionFairSharing)
 
 	switch op {
 	case add:
@@ -1066,7 +1110,28 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	}
 }
 
-func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) *preemption.Target {
+// findAdmittedLessFavorableSibling returns an admitted Sibling Workload that has a
+// less favorable Resource Flavor assignment than the provided Workload.
+func (s *Scheduler) findAdmittedLessFavorableSibling(wl *workload.Info, snap *schdcache.Snapshot) *workload.Info {
+	return s.findAdmittedSibling(wl, snap, func(siblingIdx, wlIdx int) bool {
+		return siblingIdx > wlIdx // larger index means less favorable
+	})
+}
+
+// findAdmittedMoreFavorableSibling returns an admitted Sibling Workload that has a
+// more favorable Resource Flavor assignment than the provided Workload.
+func (s *Scheduler) findAdmittedMoreFavorableSibling(wl *workload.Info, snap *schdcache.Snapshot) *workload.Info {
+	return s.findAdmittedSibling(wl, snap, func(siblingIdx, wlIdx int) bool {
+		return wlIdx > siblingIdx
+	})
+}
+
+// findAdmittedSibling is a helper that finds an admitted Sibling Workload matching the comparison criteria.
+//
+// A Sibling is a Workload belonging to the same Parent Workload (part of the
+// Concurrent Admission feature). Favorability is determined by the order of
+// Resource Flavors defined in the ClusterQueue
+func (s *Scheduler) findAdmittedSibling(wl *workload.Info, snap *schdcache.Snapshot, compareFunc func(siblingIdx, wlIdx int) bool) *workload.Info {
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return nil
 	}
@@ -1074,41 +1139,51 @@ func (s *Scheduler) getLessFavorableSibling(log logr.Logger, wl *workload.Info, 
 	if parentUID == "" {
 		return nil
 	}
-
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	if cq == nil || len(cq.ResourceGroups) == 0 {
 		return nil
 	}
 	flavors := cq.ResourceGroups[0].Flavors
-
-	candidateFlavor := concurrentadmission.GetVariantFlavor(wl.Obj)
-	if candidateFlavor == "" {
+	wlFlavorIdx, err := getFlavorIndex(wl, flavors)
+	if err != nil {
 		return nil
 	}
+	return s.findAdmittedSiblingMatching(wl, cq, parentUID, func(sibling *workload.Info) bool {
+		siblingFlavorIdx, err := getFlavorIndex(sibling, flavors)
+		if err != nil {
+			return false
+		}
+		return compareFunc(siblingFlavorIdx, wlFlavorIdx)
+	})
+}
 
+func (s *Scheduler) findAdmittedSiblingMatching(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot, parentUID types.UID, match func(sibling *workload.Info) bool) *workload.Info {
 	for _, otherWl := range cq.Workloads {
 		if otherWl.Obj.UID == wl.Obj.UID {
 			continue
 		}
-		if concurrentadmission.GetParentWorkloadUID(otherWl.Obj) == parentUID && workload.IsAdmitted(otherWl.Obj) {
-			siblingFlavor := concurrentadmission.GetVariantFlavor(otherWl.Obj)
-			if siblingFlavor != "" && isLessFavorable(candidateFlavor, siblingFlavor, flavors) {
-				return &preemption.Target{
-					WorkloadInfo: otherWl,
-					WorkloadCq:   cq,
-					Reason:       kueue.WorkloadEvictedByFlavorMigration,
-				}
-			}
+		if concurrentadmission.GetParentWorkloadUID(otherWl.Obj) != parentUID {
+			continue
+		}
+		if !workload.IsAdmitted(otherWl.Obj) {
+			continue
+		}
+		ok := match(otherWl)
+		if ok {
+			return otherWl
 		}
 	}
 	return nil
 }
 
-func isLessFavorable(candidate, sibling kueue.ResourceFlavorReference, flavors []kueue.ResourceFlavorReference) bool {
-	candidateIdx := slices.Index(flavors, candidate)
-	siblingIdx := slices.Index(flavors, sibling)
-	if candidateIdx == -1 || siblingIdx == -1 {
-		return false
+func getFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReference) (int, error) {
+	flavor := concurrentadmission.GetVariantFlavor(wl.Obj)
+	if flavor == "" {
+		return -1, errors.New("missing variant flavor annotation")
 	}
-	return candidateIdx < siblingIdx
+	idx := slices.Index(flavors, flavor)
+	if idx == -1 {
+		return -1, fmt.Errorf("flavor %s not found in ClusterQueue flavors", flavor)
+	}
+	return idx, nil
 }

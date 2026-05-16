@@ -63,7 +63,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name:    "with prebuilt workload",
-			job:     testingutil.MakeMPIJob("job", "default").Queue("queue").Label(constants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			job:     testingutil.MakeMPIJob("job", "default").Queue("queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr: nil,
 		},
 		{

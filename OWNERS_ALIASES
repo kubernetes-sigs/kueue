@@ -20,3 +20,11 @@ aliases:
   test-approvers:
     - mbobrovskyi
     - pbundyra
+  agent-approvers:
+    - amy
+    - kannon92
+    - pbundyra
+  agent-reviewers:
+    - amy
+    - kannon92
+    - pbundyra

@@ -171,6 +171,12 @@ func main() {
 		}
 	}
 
+	// Validates the configuration after it has been loaded and feature gates have been set.
+	if err := config.Validate(&cfg, scheme).ToAggregate(); err != nil {
+		setupLog.Error(err, "Unable to validate the configuration")
+		os.Exit(1)
+	}
+
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit, "buildDate", version.BuildDate)
 
 	features.LogFeatureGates(setupLog)
@@ -296,6 +302,7 @@ func main() {
 		qcache.WithRoleTracker(roleTracker),
 		qcache.WithCustomLabels(customLabels),
 		qcache.WithLocalQueueMetrics(lqMetrics),
+		qcache.WithResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 	}
 	if cfg.Resources != nil && len(cfg.Resources.ExcludeResourcePrefixes) > 0 {
 		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
@@ -445,7 +452,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
 		setupLog.Info("Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
 	} else {
-		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), roleTracker)
+		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-provisioning-request-controller"), roleTracker)
 		if err != nil {
 			return fmt.Errorf("could not create the provisioning controller: %w", err)
 		}
@@ -573,10 +580,11 @@ func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Ma
 		queues,
 		cCache,
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.AdmissionName),
+		mgr.GetEventRecorder(constants.AdmissionName),
 		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 		scheduler.WithFairSharing(cfg.FairSharing),
 		scheduler.WithAdmissionFairSharing(cfg.AdmissionFairSharing),
+		scheduler.WithQuotaCheckStrategy(quotaCheckStrategy(cfg)),
 		scheduler.WithRoleTracker(roleTracker),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 		scheduler.WithCustomLabels(customLabels),
@@ -631,6 +639,13 @@ func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.Requeui
 	return configapi.EvictionTimestamp
 }
 
+func quotaCheckStrategy(cfg *configapi.Configuration) configapi.QuotaCheckStrategy {
+	if features.Enabled(features.QuotaCheckStrategy) && cfg.Resources != nil && cfg.Resources.QuotaCheckStrategy != nil {
+		return *cfg.Resources.QuotaCheckStrategy
+	}
+	return configapi.QuotaCheckBlockUndeclared
+}
+
 func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 	options, cfg, err := config.Load(scheme, configFile)
 	if err != nil {
@@ -640,6 +655,6 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 	if err != nil {
 		return options, cfg, err
 	}
-	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
+	setupLog.Info("Configuration loaded", "config", cfgStr)
 	return options, cfg, nil
 }

@@ -119,6 +119,12 @@ func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
 	}
 }
 
+func WithResourceMetrics(enabled bool) Option {
+	return func(m *Manager) {
+		m.resourceMetricsEnabled = enabled
+	}
+}
+
 // SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
 func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
 	m.draReconcileChannel = ch
@@ -160,9 +166,10 @@ type Manager struct {
 
 	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
 
-	roleTracker  *roletracker.RoleTracker
-	customLabels *metrics.CustomLabels
-	lqMetrics    *metrics.LocalQueueMetricsConfig
+	roleTracker            *roletracker.RoleTracker
+	customLabels           *metrics.CustomLabels
+	lqMetrics              *metrics.LocalQueueMetricsConfig
+	resourceMetricsEnabled bool
 
 	requeuer inadmissibleRequeuer
 
@@ -642,8 +649,9 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	var w kueue.Workload
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
-	// Since the client is cached, the only possible error is NotFound
-	if apierrors.IsNotFound(err) || workload.HasQuotaReservation(&w) {
+	// Since the client is cached, the only possible error is NotFound.
+	// We should not requeue a workload that is not admissible.
+	if apierrors.IsNotFound(err) || !workload.IsAdmissible(&w) {
 		return false
 	}
 
@@ -749,17 +757,6 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 	}
 
 	notifyRetryInadmissibleWithoutLock(m, sets.New(cq.name))
-}
-
-// UpdateWorkload updates the workload to the corresponding queue or adds it if
-// it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
-	m.Lock()
-	defer m.Unlock()
-	if features.Enabled(features.ConcurrentAdmission) && m.IsConcurrentAdmissionParentWithoutLock(w) {
-		return nil
-	}
-	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting

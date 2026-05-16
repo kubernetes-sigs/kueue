@@ -22,10 +22,11 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -42,6 +43,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -50,13 +52,16 @@ import (
 
 const (
 	ConcurrentAdmissionController = "concurrent-admission-controller"
+	ReasonCreatedVariant          = "CreatedVariant"
+	ReasonActivatedVariant        = "ActivatedVariant"
+	ReasonDeactivatedVariant      = "DeactivatedVariant"
 )
 
 type variantReconciler struct {
 	logName     string
 	queues      *qcache.Manager
 	client      client.Client
-	recorder    record.EventRecorder
+	recorder    events.EventRecorder
 	roleTracker *roletracker.RoleTracker
 	clock       clock.Clock
 }
@@ -64,7 +69,7 @@ type variantReconciler struct {
 var _ reconcile.Reconciler = (*variantReconciler)(nil)
 var _ predicate.TypedPredicate[*kueue.Workload] = (*variantReconciler)(nil)
 
-func newVariantReconciler(c client.Client, queues *qcache.Manager, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *variantReconciler {
+func newVariantReconciler(c client.Client, queues *qcache.Manager, recorder events.EventRecorder, roleTracker *roletracker.RoleTracker) *variantReconciler {
 	return &variantReconciler{
 		logName:     ConcurrentAdmissionController,
 		client:      c,
@@ -76,7 +81,7 @@ func newVariantReconciler(c client.Client, queues *qcache.Manager, recorder reco
 }
 
 func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
-	recorder := mgr.GetEventRecorderFor(ConcurrentAdmissionController)
+	recorder := mgr.GetEventRecorder(ConcurrentAdmissionController)
 	variantRec := newVariantReconciler(mgr.GetClient(), queues, recorder, roleTracker)
 	if ctrlName, err := variantRec.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
@@ -207,17 +212,10 @@ func (r *variantReconciler) getVariantsForParent(ctx context.Context, parent *ku
 		return nil, fmt.Errorf("workload %s/%s is not a parent variant", parent.Namespace, parent.Name)
 	}
 	list := &kueue.WorkloadList{}
-	if err := r.client.List(ctx, list, client.InNamespace(parent.Namespace)); err != nil {
-		// TODO: Index variants
+	if err := r.client.List(ctx, list, client.InNamespace(parent.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: string(parent.UID)}); err != nil {
 		return nil, err
 	}
-	variants := make([]kueue.Workload, 0)
-	for i := range list.Items {
-		if concurrentadmission.GetParentWorkloadName(&list.Items[i]) == parent.Name {
-			variants = append(variants, list.Items[i])
-		}
-	}
-	return variants, nil
+	return list.Items, nil
 }
 
 func (r *variantReconciler) getClusterQueue(ctx context.Context, wl *kueue.Workload) (*kueue.ClusterQueue, error) {
@@ -252,7 +250,7 @@ func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Wo
 			return err
 		}
 		log.V(3).Info("Variant created", "variant", klog.KObj(variant), "flavor", flavor)
-		// TODO: Emit event here
+		r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonCreatedVariant, ReasonCreatedVariant, "Variant Workload %q created", klog.KObj(variant))
 	}
 	return nil
 }
@@ -339,9 +337,9 @@ func (r *variantReconciler) clearWorkloadAdmission(ctx context.Context, wl *kueu
 	})
 }
 
-func (r *variantReconciler) deactivateVariant(ctx context.Context, v *kueue.Workload) error {
+func (r *variantReconciler) deactivateVariant(ctx context.Context, v *kueue.Workload, message string) error {
 	log := ctrl.LoggerFrom(ctx)
-	if err := deactivateWl(ctx, r.client, v); err != nil {
+	if err := r.deactivateWl(ctx, v, message); err != nil {
 		return err
 	}
 	// fetch the updated variant and unset quota
@@ -371,7 +369,7 @@ func (r *variantReconciler) deactivateVariants(
 		log.V(2).Info("Parent is not active, deactivating all variants", "parent", klog.KObj(parent))
 		for i := range variants {
 			v := &variants[i]
-			if err := r.deactivateVariant(ctx, v); err != nil {
+			if err := r.deactivateVariant(ctx, v, fmt.Sprintf("Parent Workload %q not active", klog.KObj(parent))); err != nil {
 				return err
 			}
 		}
@@ -398,7 +396,7 @@ func (r *variantReconciler) deactivateVariants(
 			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[*minPreferredFlavor] {
 				log.V(2).
 					Info("Deactivating variant because it is below the minPreferredFlavor", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "minPreferredFlavor", *minPreferredFlavor)
-				if err := r.deactivateVariant(ctx, v); err != nil {
+				if err := r.deactivateVariant(ctx, v, fmt.Sprintf("being below minPreferredFlavor: %q and another Variant admitted %q", *minPreferredFlavor, klog.KObj(admittedWl))); err != nil {
 					return err
 				}
 			}
@@ -411,7 +409,7 @@ func (r *variantReconciler) deactivateVariants(
 		if flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[concurrentadmission.GetVariantFlavor(admittedWl)] {
 			log.V(2).
 				Info("Deactivating variant because it is below the admitted variant", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "admittedFlavor", concurrentadmission.GetVariantFlavor(admittedWl))
-			if err := r.deactivateVariant(ctx, v); err != nil {
+			if err := r.deactivateVariant(ctx, v, fmt.Sprintf("being lower priority than admitted Variant %q", klog.KObj(admittedWl))); err != nil {
 				return err
 			}
 		}
@@ -431,7 +429,7 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 		// no admitted variants so activate all variants if they are not active, case of preemption
 		for i := range variants {
 			v := &variants[i]
-			if err := activateWl(ctx, r.client, v); err != nil {
+			if err := r.activateWl(ctx, v, "no other Variant being admitted"); err != nil {
 				return err
 			}
 		}
@@ -448,7 +446,8 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] <= flavorOrder[*minPreferredFlavor] &&
 				flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {
 				// activate the variant, the smaller or equal the flavor order is to the minPreferredFlavor, the higher the priority is
-				if err := activateWl(ctx, r.client, v); err != nil {
+				if err := r.activateWl(ctx, v, fmt.Sprintf("being at least minPreferredFlavor: %q and higher priority than admitted Variant %q",
+					*minPreferredFlavor, klog.KObj(admittedVariant))); err != nil {
 					return err
 				}
 			}
@@ -460,7 +459,7 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 		v := &variants[i]
 		if flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {
 			// activate the variant, the smaller the flavor order is to the admitted variant, the higher the priority is
-			if err := activateWl(ctx, r.client, v); err != nil {
+			if err := r.activateWl(ctx, v, fmt.Sprintf("being higher priority than admitted Variant %q", klog.KObj(admittedVariant))); err != nil {
 				return err
 			}
 		}
@@ -468,20 +467,28 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 	return nil
 }
 
-func activateWl(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+func (r *variantReconciler) activateWl(ctx context.Context, wl *kueue.Workload, message string) error {
 	if wl == nil || workload.IsActive(wl) {
 		return nil
 	}
 	wl.Spec.Active = new(true)
-	return c.Update(ctx, wl)
+	if err := r.client.Update(ctx, wl); err != nil {
+		return err
+	}
+	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, ReasonActivatedVariant, ReasonActivatedVariant, "Variant Workload activated due to %s", message)
+	return nil
 }
 
-func deactivateWl(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+func (r *variantReconciler) deactivateWl(ctx context.Context, wl *kueue.Workload, message string) error {
 	if wl == nil || !workload.IsActive(wl) {
 		return nil
 	}
 	wl.Spec.Active = new(false)
-	return c.Update(ctx, wl)
+	if err := r.client.Update(ctx, wl); err != nil {
+		return err
+	}
+	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, ReasonDeactivatedVariant, ReasonDeactivatedVariant, "Variant Workload deactivated due to %s", message)
+	return nil
 }
 
 func (r *variantReconciler) syncFinished(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {

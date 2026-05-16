@@ -45,7 +45,7 @@ When a Pod references a `ResourceClaimTemplate`, Kueue reads the
 to charge quota against. The number of units charged is determined by the
 `count` field in the device request (default 1).
 
-Only the `ExactCount` allocation mode is supported. CEL selectors and the
+Only the `ExactCount` allocation mode is supported. The
 `All` allocation mode are not supported in alpha.
 
 For setup instructions, see
@@ -123,9 +123,6 @@ The following limitations apply to the alpha release:
 - **ExactCount allocation mode only**: Only device requests using `exactly`
   are supported. `FirstAvailable` device selection and the `All` allocation
   mode are not supported.
-- **No CEL selectors**: Device requests with CEL selectors in the
-  `ResourceClaimTemplate` are not supported. The device class name is used
-  directly for quota mapping.
 - **No device constraints or config**: Device `constraints` (MatchAttribute)
   and per-request `config` are not supported.
 - **No AdminAccess**: Device requests with `adminAccess: true` are not

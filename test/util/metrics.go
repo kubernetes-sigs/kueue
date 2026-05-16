@@ -285,6 +285,12 @@ func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource strin
 	expectGaugeMetric(metrics.ClusterQueueResourceReservations, lvs, gomega.Equal(value))
 }
 
+func ExpectCQResourcePendingMetric(cq *kueue.ClusterQueue, resource string, matcher gomegatypes.GomegaMatcher) {
+	ginkgo.GinkgoHelper()
+	lvs := []string{cq.Name, resource, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.ClusterQueueResourcePending, lvs, matcher)
+}
+
 func expectHistogramMetric(metric *prometheus.HistogramVec, matcher gomegatypes.GomegaMatcher, lvs ...string) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {

@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
-	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -217,25 +216,19 @@ func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob 
 	var allErrs field.ErrorList
 
 	podSets, podSetsErr := jobframework.JobPodSets(ctx, rayJob)
-
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
-
 	if podSetsErr == nil {
-		headGroupPodSet := podset.FindPodSetByName(podSets, headGroupPodSetName)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSet)...)
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(&rayJob.Spec, headGroupMetaPath, workerGroupSpecsPath))...)
-	}
-
-	for i, wgs := range rayJob.Spec.WorkerGroupSpecs {
-		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
-
-		if podSetsErr != nil {
-			continue
+		for i, p := range podSets {
+			if p.Name == headGroupPodSetName {
+				allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &p.Template.ObjectMeta, &p)...)
+			} else {
+				// the raycluster PodSets function places the worker podsets from index 1
+				workerGroupMetaPath := workerGroupSpecsPath.Index(i-1).Child("template", "metadata")
+				allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &p.Template.ObjectMeta)...)
+				allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &p.Template.ObjectMeta, &p)...)
+			}
 		}
-
-		podSet := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(wgs.GroupName))
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta, podSet)...)
 	}
 
 	if len(allErrs) > 0 {

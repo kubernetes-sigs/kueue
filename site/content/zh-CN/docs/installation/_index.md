@@ -14,6 +14,7 @@ description: >
   - [通过 Helm 安装](#install-by-helm)
   - [为 Prometheus-Operator 添加指标采集](#add-metrics-scraping-for-prometheus-operator)
   - [为可见性 API 添加 API 优先级和公平性配置](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
+  - [升级策略](#upgrade-policy)
   - [卸载](#uninstall)
 - [安装自定义配置的正式版本](#install-a-custom-configured-released-version)
 - [安装最新开发版本](#install-the-latest-development-version)
@@ -100,6 +101,17 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 ### 为可见性 API 添加 API 优先级和公平性配置 {#add-api-priority-and-fairness-configuration-for-the-visibility-api}
 
 有关更多详细信息，请参阅[配置 API 优先级和公平性](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#configure-api-priority-and-fairness)。
+
+### 升级策略 {#upgrade-policy}
+
+升级 Kueue 时，请查看以下发布说明：
+
+- **次版本发布：** 升级过程中跨越的每个新次版本的 `.0` 发布说明。
+- **补丁发布：** 目标次版本线中直到并包括目标版本的补丁发布说明。
+
+**注意：** 你不需要查看先前次版本的补丁发布说明，因为这些变更已包含在下一个 `.0` 发布说明中。
+
+{{< upgrade-policy-example >}}
 
 ### 卸载 {#uninstall}
 

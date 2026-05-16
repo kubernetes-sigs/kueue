@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -73,7 +72,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
@@ -84,7 +83,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					Obj(),
@@ -100,7 +99,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					Obj(),
@@ -114,7 +113,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
@@ -131,7 +130,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
@@ -141,7 +140,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote rayjob is deleted": {
 			workerRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},

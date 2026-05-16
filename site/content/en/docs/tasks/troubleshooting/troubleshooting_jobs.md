@@ -69,6 +69,9 @@ running the following command:
 kubectl describe workload -n my-namespace job-my-job-19797
 ```
 
+If you are using an agent with access to Kueue's experimental skills, see
+[Troubleshooting with Agent Skills](/docs/tasks/troubleshooting/troubleshooting_agent_skills)
+to trace the full lineage from a Workload or Job to its Pods.
 
 ## What ResourceFlavors does my Job use?
 
@@ -291,6 +294,10 @@ status:
 
 The `Evicted` condition shows that the Workload was preempted and the `QuotaReserved` condition with `status: "True"`
 shows that Kueue already attempted to admit it again, unsuccessfully in this case.
+
+If you need to identify the Workload that caused the preemption, see
+[Troubleshooting with Agent Skills](/docs/tasks/troubleshooting/troubleshooting_agent_skills)
+for the `kueue-who-preempted` runbook.
 
 ## Are the Pods of my Job running?
 

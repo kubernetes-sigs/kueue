@@ -29,6 +29,7 @@ import (
 	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -290,10 +291,7 @@ func TestUpdateClusterQueueLabelsUpdated(t *testing.T) {
 				t.Fatalf("Failed to update ClusterQueue: %v", err)
 			}
 
-			pendingMetrics := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{"cluster_queue": "cq1"})
-			if len(pendingMetrics) != tc.wantMetricsCount {
-				t.Errorf("Unexpected pending workload metrics count: got %d, want %d", len(pendingMetrics), tc.wantMetricsCount)
-			}
+			expectGaugeCount(t, metrics.PendingWorkloads, tc.wantMetricsCount, map[string]string{"cluster_queue": "cq1"})
 
 			watcher.ProcessRequeues(ctx)
 
@@ -304,6 +302,111 @@ func TestUpdateClusterQueueLabelsUpdated(t *testing.T) {
 				t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestPendingResourceMetrics(t *testing.T) {
+	// CQ with cpu configured — this populates configuredResources, which is the
+	// anchor set for pending metrics (mirroring resource_reservation's Quotas).
+	cq := utiltestingapi.MakeClusterQueue("cq1").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default-flavor").
+				Resource(corev1.ResourceCPU, "10").
+				Obj(),
+		).Obj()
+	lq := utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj()
+	wl1 := utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("foo").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "2").Obj()).
+		Creation(time.Now()).Obj()
+	wl2 := utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("foo").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "3").Obj()).
+		Creation(time.Now()).Obj()
+
+	cases := map[string]struct {
+		ops       func(t *testing.T, log logr.Logger, manager *Manager)
+		wantValue float64
+	}{
+		"add single workload": {
+			ops: func(t *testing.T, log logr.Logger, manager *Manager) {
+				if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+					t.Fatalf("Failed adding wl1: %v", err)
+				}
+			},
+			wantValue: 2.0,
+		},
+		"add two workloads accumulates resources": {
+			ops: func(t *testing.T, log logr.Logger, manager *Manager) {
+				if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+					t.Fatalf("Failed adding wl1: %v", err)
+				}
+				if err := manager.AddOrUpdateWorkload(log, wl2); err != nil {
+					t.Fatalf("Failed adding wl2: %v", err)
+				}
+			},
+			wantValue: 5.0,
+		},
+		"delete one of two workloads reduces resources": {
+			ops: func(t *testing.T, log logr.Logger, manager *Manager) {
+				if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+					t.Fatalf("Failed adding wl1: %v", err)
+				}
+				if err := manager.AddOrUpdateWorkload(log, wl2); err != nil {
+					t.Fatalf("Failed adding wl2: %v", err)
+				}
+				manager.DeleteWorkload(log, workload.Key(wl2))
+			},
+			wantValue: 2.0,
+		},
+		"delete all workloads keeps configured series at zero": {
+			ops: func(t *testing.T, log logr.Logger, manager *Manager) {
+				if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+					t.Fatalf("Failed adding wl1: %v", err)
+				}
+				manager.DeleteWorkload(log, workload.Key(wl1))
+			},
+			wantValue: 0.0,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+			manager, _ := NewManagerForUnitTestsWithRequeuer(cl, nil, WithPreemptionExpectations(preemptexpectations.New()), WithResourceMetrics(true))
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding clusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding queue: %v", err)
+			}
+
+			metrics.ClusterQueueResourcePending.Reset()
+			pendingLabels := map[string]string{"cluster_queue": "cq1", "resource": "cpu"}
+
+			tc.ops(t, log, manager)
+
+			expectGaugeCount(t, metrics.ClusterQueueResourcePending, 1, pendingLabels)
+			expectGaugeValue(t, metrics.ClusterQueueResourcePending, pendingLabels, tc.wantValue)
+		})
+	}
+}
+
+func expectGaugeCount(t *testing.T, collector prometheus.Collector, want int, labels map[string]string) {
+	t.Helper()
+	got := len(testingmetrics.CollectFilteredGaugeVec(collector, labels))
+	if got != want {
+		t.Fatalf("unexpected metric count for labels %v: got=%d want=%d", labels, got, want)
+	}
+}
+
+func expectGaugeValue(t *testing.T, collector prometheus.Collector, labels map[string]string, want float64) {
+	t.Helper()
+	dps := testingmetrics.CollectFilteredGaugeVec(collector, labels)
+	if len(dps) != 1 {
+		t.Fatalf("expected exactly one metric for labels %v, got=%d", labels, len(dps))
+	}
+	if dps[0].Value != want {
+		t.Fatalf("unexpected metric value for labels %v: got=%v want=%v", labels, dps[0].Value, want)
 	}
 }
 
@@ -969,57 +1072,94 @@ func TestStatus(t *testing.T) {
 }
 
 func TestRequeueWorkloadStrictFIFO(t *testing.T) {
+	now := time.Now()
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	queues := []*kueue.LocalQueue{
 		utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
 		utiltestingapi.MakeLocalQueue("bar", "").Obj(),
 	}
-	cases := []struct {
+	cases := map[string]struct {
 		workload     *kueue.Workload
 		inClient     bool
 		inQueue      bool
 		wantRequeued bool
 	}{
-		{
-			workload: utiltestingapi.MakeWorkload("existing_queue_and_obj", "").
+		"existing queue and obj": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
 				Queue("foo").
 				Obj(),
 			inClient:     true,
 			wantRequeued: true,
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("non_existing_queue", "").Queue("baz").Obj(),
-			inClient: true,
+		"non existing queue": {
+			workload:     utiltestingapi.MakeWorkload("wl", "").Queue("baz").Obj(),
+			inClient:     true,
+			inQueue:      false,
+			wantRequeued: false,
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("non_existing_cluster_queue", "").
+		"non existing cluster queue": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
 				Queue("bar").
 				Obj(),
-			inClient: true,
+			inClient:     true,
+			inQueue:      false,
+			wantRequeued: false,
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("not_in_client", "").
+		"not in client": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
 				Queue("foo").
 				Obj(),
+			inClient:     false,
+			inQueue:      false,
+			wantRequeued: false,
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("already_in_queue", "").
+		"has no quota reservation": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				ReserveQuotaAt(&kueue.Admission{ClusterQueue: kueue.ClusterQueueReference(cq.Name)}, now).
+				Obj(),
+			inClient:     true,
+			inQueue:      true,
+			wantRequeued: false,
+		},
+		"finished": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				Finished().
+				Obj(),
+			inClient:     true,
+			inQueue:      true,
+			wantRequeued: false,
+		},
+		"deactivated": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				Active(false).
+				Obj(),
+			inClient:     true,
+			inQueue:      true,
+			wantRequeued: false,
+		},
+		"already in queue": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
 				Queue("foo").
 				Obj(),
-			inClient: true,
-			inQueue:  true,
+			inClient:     true,
+			inQueue:      true,
+			wantRequeued: false,
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("already_admitted", "").
+		"already admitted": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
 				Queue("foo").
 				Admission(&kueue.Admission{}).
 				Obj(),
-			inClient: true,
-			inQueue:  true,
+			inClient:     true,
+			inQueue:      true,
+			wantRequeued: false,
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.workload.Name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewFakeClient()
 			ctx, log := utiltesting.ContextWithLog(t)
 			queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
@@ -1228,7 +1368,7 @@ func TestUpdateWorkload(t *testing.T) {
 			}
 			wl := tc.workloads[0].DeepCopy()
 			tc.update(wl)
-			err := manager.UpdateWorkload(log, wl)
+			err := manager.AddOrUpdateWorkload(log, wl)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected UpdatedWorkload returned error (-want,+got):\n%s", diff)
 			}
@@ -1423,23 +1563,23 @@ func TestHeadsAsync(t *testing.T) {
 	}
 	cases := map[string]struct {
 		initialObjs []client.Object
-		op          func(context.Context, *Manager)
+		op          func(context.Context, *Manager, *sync.WaitGroup)
 		wantHeads   []workload.Info
 	}{
 		"AddClusterQueue": {
 			initialObjs: []client.Object{&wl, &queues[0]},
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
 				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
-				go func() {
+				wg.Go(func() {
 					if err := mgr.AddOrUpdateWorkload(logr.FromContextOrDiscard(ctx), &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1450,15 +1590,15 @@ func TestHeadsAsync(t *testing.T) {
 		},
 		"AddLocalQueue": {
 			initialObjs: []client.Object{&wl},
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
-				go func() {
+				wg.Go(func() {
 					if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 						t.Errorf("Failed adding queue: %s", err)
 					}
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1468,18 +1608,18 @@ func TestHeadsAsync(t *testing.T) {
 			},
 		},
 		"AddWorkload": {
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
 				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
-				go func() {
+				wg.Go(func() {
 					if err := mgr.AddOrUpdateWorkload(logr.FromContextOrDiscard(ctx), &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1489,19 +1629,19 @@ func TestHeadsAsync(t *testing.T) {
 			},
 		},
 		"UpdateWorkload": {
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
 				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
-				go func() {
+				wg.Go(func() {
 					log := logr.FromContextOrDiscard(ctx)
-					if err := mgr.UpdateWorkload(log, &wl); err != nil {
+					if err := mgr.AddOrUpdateWorkload(log, &wl); err != nil {
 						t.Errorf("Failed to add or update workload: %v", err)
 					}
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1512,7 +1652,7 @@ func TestHeadsAsync(t *testing.T) {
 		},
 		"RequeueWorkload": {
 			initialObjs: []client.Object{&wl},
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
@@ -1521,9 +1661,9 @@ func TestHeadsAsync(t *testing.T) {
 				}
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
-				go func() {
+				wg.Go(func() {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1534,7 +1674,7 @@ func TestHeadsAsync(t *testing.T) {
 		},
 		"RequeueWithOutOfDateWorkload": {
 			initialObjs: []client.Object{&wl},
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
@@ -1549,9 +1689,9 @@ func TestHeadsAsync(t *testing.T) {
 				}
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
-				go func() {
+				wg.Go(func() {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1562,7 +1702,7 @@ func TestHeadsAsync(t *testing.T) {
 		},
 		"RequeueWithQueueChangedWorkload": {
 			initialObjs: []client.Object{&wl},
-			op: func(ctx context.Context, mgr *Manager) {
+			op: func(ctx context.Context, mgr *Manager, wg *sync.WaitGroup) {
 				for _, cq := range clusterQueues {
 					if err := mgr.AddClusterQueue(ctx, cq); err != nil {
 						t.Errorf("Failed adding clusterQueue: %v", err)
@@ -1581,9 +1721,9 @@ func TestHeadsAsync(t *testing.T) {
 				}
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
-				go func() {
+				wg.Go(func() {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
-				}()
+				})
 			},
 			wantHeads: []workload.Info{
 				{
@@ -1597,13 +1737,17 @@ func TestHeadsAsync(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
-			defer cancel()
+			var wg sync.WaitGroup
+			t.Cleanup(func() {
+				cancel()
+				wg.Wait()
+			})
 			client := utiltesting.NewFakeClient(tc.initialObjs...)
 			queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
 			manager := NewManagerForUnitTests(client, nil, queueOptions...)
 
 			go manager.CleanUpOnContext(ctx)
-			tc.op(ctx, manager)
+			tc.op(ctx, manager, &wg)
 			heads := manager.Heads(ctx)
 			if diff := cmp.Diff(tc.wantHeads, heads, ignoreTypeMeta, ignoreSchedulingHash); diff != "" {
 				t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)

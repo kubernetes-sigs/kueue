@@ -55,12 +55,13 @@ import (
 )
 
 var (
-	labelsPath                      = field.NewPath("metadata", "labels")
-	admissionGatedByAnnotationsPath = field.NewPath("metadata", "annotations").Key(kueueconstants.AdmissionGatedByAnnotation)
-	queueNameLabelPath              = labelsPath.Key(constants.QueueLabel)
-	prebuiltWlNameLabelPath         = labelsPath.Key(constants.PrebuiltWorkloadLabel)
-	maxExecTimeLabelPath            = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	workloadPriorityClassNamePath   = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	labelsPath                     = field.NewPath("metadata", "labels")
+	annotationsPath                = field.NewPath("metadata", "annotations")
+	admissionGatedByAnnotationPath = annotationsPath.Key(kueueconstants.AdmissionGatedByAnnotation)
+	prebuiltWorkloadLabelPath      = labelsPath.Key(constants.PrebuiltWorkloadLabel)
+	queueNameLabelPath             = labelsPath.Key(constants.QueueLabel)
+	maxExecTimeLabelPath           = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
+	workloadPriorityClassNamePath  = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
 func TestValidateCreate(t *testing.T) {
@@ -178,11 +179,11 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJob("job", "default").
 				Parallelism(4).
 				Completions(4).
-				Label(constants.PrebuiltWorkloadLabel, "workload name").
+				PrebuiltWorkloadLabel("workload name").
 				Indexed(true).
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(prebuiltWlNameLabelPath, "workload name", testutil.InvalidRFC1123Message),
+				field.Invalid(prebuiltWorkloadLabelPath, "workload name", testutil.InvalidRFC1123Message),
 			},
 		},
 		{
@@ -190,7 +191,7 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJob("job", "default").
 				Parallelism(4).
 				Completions(4).
-				Label(constants.PrebuiltWorkloadLabel, "workload-name").
+				PrebuiltWorkloadLabel("workload-name").
 				Indexed(true).
 				Obj(),
 			wantValidationErrs: nil,
@@ -487,7 +488,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "this is an invalid value", "must be a domain-prefixed path (such as \"acme.io/foo\")"),
+				field.Invalid(admissionGatedByAnnotationPath, "this is an invalid value", "must be a domain-prefixed path (such as \"acme.io/foo\")"),
 			},
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -498,7 +499,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "duplicates.are/invalid,duplicates.are/invalid").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "duplicates.are/invalid,duplicates.are/invalid", "duplicate gate name: duplicates.are/invalid"),
+				field.Invalid(admissionGatedByAnnotationPath, "duplicates.are/invalid,duplicates.are/invalid", "duplicate gate name: duplicates.are/invalid"),
 			},
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -509,7 +510,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "cannot.be.too.long/"+strings.Repeat("but-this-is-too-long", 20)).
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.TooLong(admissionGatedByAnnotationsPath, "", webhook.MaxGateNameLengthForAdmissionGatedBy),
+				field.TooLong(admissionGatedByAnnotationPath, "", webhook.MaxGateNameLengthForAdmissionGatedBy),
 			},
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -520,7 +521,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate name").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "gate name", testutil.InvalidPathMessage),
+				field.Invalid(admissionGatedByAnnotationPath, "gate name", testutil.InvalidPathMessage),
 			},
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -531,7 +532,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/gate").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "example .com", testutil.InvalidRFC1123Message),
+				field.Invalid(admissionGatedByAnnotationPath, "example .com", testutil.InvalidRFC1123Message),
 			},
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -542,7 +543,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "valid.com/gate,invalid gate.com/controller").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", testutil.InvalidRFC1123Message),
+				field.Invalid(admissionGatedByAnnotationPath, "invalid gate.com", testutil.InvalidRFC1123Message),
 			},
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -745,13 +746,13 @@ func TestValidateUpdate(t *testing.T) {
 			name: "immutable prebuilt workload ",
 			oldJob: testingutil.MakeJob("job", "default").
 				Suspend(true).
-				Label(constants.PrebuiltWorkloadLabel, "old-workload").
+				PrebuiltWorkloadLabel("old-workload").
 				Obj(),
 			newJob: testingutil.MakeJob("job", "default").
 				Suspend(false).
-				Label(constants.PrebuiltWorkloadLabel, "new-workload").
+				PrebuiltWorkloadLabel("new-workload").
 				Obj(),
-			wantValidationErrs: apivalidation.ValidateImmutableField("new-workload", "old-workload", prebuiltWlNameLabelPath),
+			wantValidationErrs: apivalidation.ValidateImmutableField("new-workload", "old-workload", prebuiltWorkloadLabelPath),
 		},
 		{
 			name: "immutable queue name not suspend",
@@ -899,7 +900,7 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Forbidden(admissionGatedByAnnotationsPath, "cannot add admission gate after creation"),
+				field.Forbidden(admissionGatedByAnnotationPath, "cannot add admission gate after creation"),
 			},
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -951,7 +952,7 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller3").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Forbidden(admissionGatedByAnnotationsPath, "can only remove gates, not add new ones"),
+				field.Forbidden(admissionGatedByAnnotationPath, "can only remove gates, not add new ones"),
 			},
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},

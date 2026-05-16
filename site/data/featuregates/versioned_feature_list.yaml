@@ -85,9 +85,9 @@
     version: "0.17"
 - name: FinishOrphanedWorkloads
   versionedSpecs:
-  - default: true
+  - default: false
     lockToDefault: false
-    preRelease: Beta
+    preRelease: Alpha
     version: "0.18"
 - name: FlavorFungibility
   versionedSpecs:
@@ -153,6 +153,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: MetricForWorkloadCreationLatency
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: MultiKueue
   versionedSpecs:
   - default: false
@@ -275,6 +281,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.17"
+- name: QuotaCheckStrategy
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: ReclaimablePods
   versionedSpecs:
   - default: true
@@ -321,6 +333,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: ShortWorkloadNames
   versionedSpecs:
   - default: false

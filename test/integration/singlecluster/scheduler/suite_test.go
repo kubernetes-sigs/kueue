@@ -96,7 +96,11 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	}
 	cCache := schdcache.New(mgr.GetClient())
 	preemptionExpectations := preemptexpectations.New()
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, qcache.WithResourceTransformations(transformations), qcache.WithPreemptionExpectations(preemptionExpectations))
+	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
+		qcache.WithResourceTransformations(transformations),
+		qcache.WithPreemptionExpectations(preemptionExpectations),
+		qcache.WithResourceMetrics(true),
+	)
 
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
@@ -110,7 +114,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

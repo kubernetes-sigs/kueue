@@ -144,18 +144,18 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"should not suspend a SparkApplication without a queue label if manageJobsWithoutQueueName is not enabled": {
-			sparkApp:     testSparkApp.Clone().Obj(),
-			wantSparkApp: testSparkApp.Clone().Obj(),
+			sparkApp:     testSparkApp.DeepCopy(),
+			wantSparkApp: testSparkApp.DeepCopy(),
 		},
 		"should suspend a SparkApplication without a queue label if manageJobsWithoutQueueName is enabled": {
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			wantSparkApp: testSparkApp.Clone().
 				Suspend(true).
 				Obj(),
 			manageJobsWithoutQueueName: true,
 		},
 		"should set the default local queue if enabled and the user didn't specify any": {
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			wantSparkApp: testSparkApp.Clone().
 				Suspend(true).
 				Queue(string(controllerconstants.DefaultLocalQueueName)).
@@ -163,8 +163,8 @@ func TestDefault(t *testing.T) {
 			withDefaultLocalQueue: true,
 		},
 		"should not set the default local queue if doesn't exists": {
-			sparkApp:              testSparkApp.Clone().Obj(),
-			wantSparkApp:          testSparkApp.Clone().Obj(),
+			sparkApp:              testSparkApp.DeepCopy(),
+			wantSparkApp:          testSparkApp.DeepCopy(),
 			withDefaultLocalQueue: false,
 		},
 	}

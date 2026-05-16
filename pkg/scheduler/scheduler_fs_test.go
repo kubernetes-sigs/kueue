@@ -3238,6 +3238,104 @@ func TestScheduleForFairSharing(t *testing.T) {
 					Obj(),
 			},
 		},
+		"fair sharing: in-CQ preemption for CQ without cohort; repro for nil pointer panic": {
+			// Regression test: before the fix, WithinClusterQueue preemption
+			// for a CQ without a Cohort panicked because the ordering code fell
+			// through to Parent().Root() after the no-cohort early-exit block.
+			enableFairSharing: true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("no-cohort-cq").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "4").Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("no-cohort-queue", "default").ClusterQueue("no-cohort-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("nc-low", "default").
+					Queue("no-cohort-queue").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("no-cohort-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("nc-high", "default").
+					UID("wl-nc-high").
+					JobUID("job-nc-high").
+					Queue("no-cohort-queue").
+					Priority(100).
+					Request(corev1.ResourceCPU, "4").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("nc-high", "default").
+					UID("wl-nc-high").
+					JobUID("job-nc-high").
+					Queue("no-cohort-queue").
+					Priority(100).
+					Request(corev1.ResourceCPU, "4").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 4 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: kueue.DefaultPodSetName,
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("4"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("nc-low", "default").
+					Queue("no-cohort-queue").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("no-cohort-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-nc-high, JobUID: job-nc-high) due to prioritization in the ClusterQueue; preemptor path: /no-cohort-cq; preemptee path: /no-cohort-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-nc-high, JobUID: job-nc-high) due to prioritization in the ClusterQueue; preemptor path: /no-cohort-cq; preemptee path: /no-cohort-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"no-cohort-cq": {"default/nc-high"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/nc-low": *utiltestingapi.MakeAdmission("no-cohort-cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(),
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "nc-low", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "nc-low", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "nc-high", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "nc-high", "Pending", corev1.EventTypeWarning).Obj(),
+			},
+		},
 		"PreemptionOverBorrowing with fair sharing: preempt in first flavor instead of borrowing in second": {
 			enableFairSharing: true,
 			additionalClusterQueues: []kueue.ClusterQueue{

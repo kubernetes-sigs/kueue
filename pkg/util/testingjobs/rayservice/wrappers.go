@@ -109,6 +109,11 @@ func (j *ServiceWrapper) Queue(queue string) *ServiceWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of RayService
+func (j *ServiceWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *ServiceWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
 // Request adds a resource request to the default container.
 func (j *ServiceWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *ServiceWrapper {
 	switch rayType {
@@ -252,6 +257,18 @@ func (j *ServiceWrapper) RayVersion(rv string) *ServiceWrapper {
 // ManagedBy sets the ManagedBy field on the RayService spec.
 func (j *ServiceWrapper) ManagedBy(c string) *ServiceWrapper {
 	j.Spec.ManagedBy = &c
+	return j
+}
+
+// EnableInTreeAutoscaling enables in-tree autoscaling on the RayService.
+func (j *ServiceWrapper) EnableInTreeAutoscaling() *ServiceWrapper {
+	aggressive := rayv1.UpscalingMode("Aggressive")
+	idleTimeoutSeconds := int32(5)
+	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = new(true)
+	j.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
+		UpscalingMode:      &aggressive,
+		IdleTimeoutSeconds: &idleTimeoutSeconds,
+	}
 	return j
 }
 

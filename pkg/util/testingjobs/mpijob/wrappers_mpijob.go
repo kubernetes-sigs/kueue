@@ -27,6 +27,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // MPIJobWrapper wraps a Job.
@@ -85,7 +86,7 @@ func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:    "mpijob",
-						Image:   "pause",
+						Image:   utiltestingjobs.TestDefaultContainerImage,
 						Command: []string{},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{},
@@ -110,7 +111,7 @@ func (j *MPIJobWrapper) GenericLauncher() *MPIJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:    "mpijob",
-						Image:   "pause",
+						Image:   utiltestingjobs.TestDefaultContainerImage,
 						Command: []string{},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{},
@@ -169,6 +170,11 @@ func (j *MPIJobWrapper) Queue(queue string) *MPIJobWrapper {
 	}
 	j.Labels[constants.QueueLabel] = queue
 	return j
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *MPIJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *MPIJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
 }
 
 // Request adds a resource request to the default container.

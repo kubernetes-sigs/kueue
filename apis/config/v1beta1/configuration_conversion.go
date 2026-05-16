@@ -98,3 +98,7 @@ func Convert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in *v1beta2.Wa
 func Convert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in *v1beta2.MultiKueue, out *MultiKueue, s conversionapi.Scope) error {
 	return autoConvert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in, out, s)
 }
+
+func Convert_v1beta2_Resources_To_v1beta1_Resources(in *v1beta2.Resources, out *Resources, s conversionapi.Scope) error {
+	return autoConvert_v1beta2_Resources_To_v1beta1_Resources(in, out, s)
+}

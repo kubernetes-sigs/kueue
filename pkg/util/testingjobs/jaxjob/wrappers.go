@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // JAXJobWrapper wraps a Job.
@@ -84,7 +85,7 @@ func (j *JAXJobWrapper) JAXReplicaSpecsDefault() *JAXJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:    "jax",
-						Image:   "pause",
+						Image:   utiltestingjobs.TestDefaultContainerImage,
 						Command: []string{},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{},
@@ -144,6 +145,11 @@ func (j *JAXJobWrapper) Queue(queue string) *JAXJobWrapper {
 	}
 	j.Labels[constants.QueueLabel] = queue
 	return j
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *JAXJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JAXJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
 }
 
 // Request adds a resource request to the default container.

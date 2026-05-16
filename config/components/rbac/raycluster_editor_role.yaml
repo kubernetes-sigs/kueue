@@ -4,6 +4,7 @@ kind: ClusterRole
 metadata:
   name: raycluster-editor-role
   labels:
+    rbac.kueue.x-k8s.io/role: "raycluster-editor"
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.kueue.x-k8s.io/batch-user: "true"
 rules:

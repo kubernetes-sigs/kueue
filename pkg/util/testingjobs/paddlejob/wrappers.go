@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // PaddleJobWrapper wraps a Job.
@@ -80,7 +81,7 @@ func (j *PaddleJobWrapper) PaddleReplicaSpecsDefault() *PaddleJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:      "c",
-						Image:     "pause",
+						Image:     utiltestingjobs.TestDefaultContainerImage,
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 					},
@@ -98,7 +99,7 @@ func (j *PaddleJobWrapper) PaddleReplicaSpecsDefault() *PaddleJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:      "c",
-						Image:     "pause",
+						Image:     utiltestingjobs.TestDefaultContainerImage,
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 					},
@@ -146,6 +147,11 @@ func (j *PaddleJobWrapper) Queue(queue string) *PaddleJobWrapper {
 	}
 	j.Labels[constants.QueueLabel] = queue
 	return j
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job.
+func (j *PaddleJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *PaddleJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
 }
 
 // Request adds a resource request to the default container.

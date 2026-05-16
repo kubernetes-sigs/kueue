@@ -12,6 +12,11 @@ description: >
 # 2026
 
 * KubeCon EU, March, Amsterdam<br>
+  Keynote: Rules of the Road for Shared GPUs: AI Inference Scheduling at Wayve<br>
+  Mukund Muralikrishnan, Wayve<br>
+  [talk details](https://sched.co/2HgE0) | [video](https://youtu.be/QblJjpN15R8)<br>
+
+* KubeCon EU, March, Amsterdam<br>
   Instrumenting Kueue Scheduling for ML Training<br>
   Amy Chen, CoreWeave & Gabe Saba, Google<br>
   [talk details](https://sched.co/2CW0P) | [video](https://youtu.be/rcrl8-CudVw)<br>

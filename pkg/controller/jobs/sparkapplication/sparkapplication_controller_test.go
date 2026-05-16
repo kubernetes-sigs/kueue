@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -270,7 +269,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		wantErr      bool
 	}{
 		"should add to the SparkApplication specified in the PodSet info": {
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "driver",
@@ -350,7 +349,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			wantErr: true,
 		},
 		"should raise error if the wrong number of PodSet infos is provided": {
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "driver",
@@ -407,7 +406,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		wantChanged  bool
 	}{
 		"should restore PodSet info to the SparkApplication": {
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "driver",
@@ -513,7 +512,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			wantChanged: false,
 		},
 		"should not modify the SparkApplication  if the wrong number of PodSet infos is provided": {
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "driver",
@@ -522,7 +521,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 					SchedulingGates: []corev1.PodSchedulingGate{*schedulingGate.DeepCopy()},
 				},
 			},
-			wantSparkApp: testSparkApp.Clone().Obj(),
+			wantSparkApp: testSparkApp.DeepCopy(),
 			wantChanged:  false,
 		},
 	}
@@ -557,7 +556,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			sparkApp: testSparkApp.Clone().Obj(),
+			sparkApp: testSparkApp.DeepCopy(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(testSparkApp.Name, testSparkApp.Namespace).
 					PodSets(
@@ -579,7 +578,7 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)

@@ -32,7 +32,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -45,6 +45,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -342,6 +343,11 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	shape := map[string]any{
 		"podSets":  podSetShapes,
 		"priority": effectivePriority,
+	}
+	if features.Enabled(features.ConcurrentAdmission) {
+		if val, ok := wl.GetAnnotations()[controllerconstants.WorkloadAllowedResourceFlavorAnnotation]; ok {
+			shape["allowedFlavors"] = val
+		}
 	}
 	shapeJSON, err := json.Marshal(shape)
 	if err != nil {
@@ -1575,23 +1581,11 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 	return checksForAllFlavors
 }
 
-func admissionChecksForAdmission(log logr.Logger, acs AdmissionChecks, admission kueue.Admission) sets.Set[kueue.AdmissionCheckReference] {
+func admissionChecksForAdmission(_ logr.Logger, acs AdmissionChecks, admission kueue.Admission) sets.Set[kueue.AdmissionCheckReference] {
 	admissionFlavors := findAdmissionFlavors(admission)
-	if len(admissionFlavors) > 0 {
-		return filterChecks(acs, func(acFlavors flavorSet) bool {
-			return admissionFlavors.Intersection(acFlavors).Len() > 0
-		})
-	}
-
-	// Some tests allow for admissions not to be assigned any flavors.
-	// To ensure those tests work as before: flavorless Admissions are assigned/expected to fulfill all Admission Checks.
-	// Issue to address the matter further: https://github.com/kubernetes-sigs/kueue/issues/10316
-	log.V(3).Info(
-		"Admission has no Flavors; assigning all checks",
-		"AdmissionChecks",
-		acs,
-	)
-	return sets.KeySet(acs)
+	return filterChecks(acs, func(acFlavors flavorSet) bool {
+		return admissionFlavors.Intersection(acFlavors).Len() > 0
+	})
 }
 
 func filterChecks(acs AdmissionChecks, fsPredicate func(flavorSet) bool) sets.Set[kueue.AdmissionCheckReference] {
@@ -1652,7 +1646,7 @@ func EvictWithRetryOnConflictForPatch() EvictOption {
 func Evict(
 	ctx context.Context,
 	c client.Client,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 	wl *kueue.Workload,
 	reason, msg string,
 	underlyingCause kueue.EvictionUnderlyingCause,
@@ -1790,7 +1784,7 @@ func closeAllPreemptionGates(w *kueue.Workload, now time.Time) {
 	}
 }
 
-func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference,
+func reportEvictedWorkload(recorder events.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference,
 	reason, message string, underlyingCause kueue.EvictionUnderlyingCause, exposeLqMetrics bool,
 	tracker *roletracker.RoleTracker, cl *metrics.CustomLabels,
 ) {
@@ -1815,7 +1809,7 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
 		eventReason = ReasonWithCause(eventReason, string(underlyingCause))
 	}
-	recorder.Event(wl, corev1.EventTypeNormal, eventReason, message)
+	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, eventReason, message)
 }
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {

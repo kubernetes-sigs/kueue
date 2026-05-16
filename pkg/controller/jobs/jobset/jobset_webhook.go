@@ -31,7 +31,6 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
@@ -145,21 +144,13 @@ func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *Job
 	var allErrs field.ErrorList
 
 	podSets, podSetsErr := jobframework.JobPodSets(ctx, jobSet)
-
 	if podSetsErr == nil {
-		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)
-	}
-
-	for i, rj := range jobSet.Spec.ReplicatedJobs {
-		replicaJobTemplateMetaPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaJobTemplateMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta)...)
-
-		if podSetsErr != nil {
-			continue
+		for i, p := range podSets {
+			rjobsPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")
+			allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(rjobsPath, &p.Template.ObjectMeta)...)
+			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(rjobsPath, &p.Template.ObjectMeta, &p)...)
 		}
-
-		podSet := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(rj.Name))
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaJobTemplateMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta, podSet)...)
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)
 	}
 
 	if len(allErrs) > 0 {

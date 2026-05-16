@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -166,6 +167,170 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 				cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id }),
 			); diff != "" {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPruneDomainsBelowThreshold(t *testing.T) {
+	domainState := func(d *domain) [5]int32 {
+		return [5]int32{d.state, d.sliceState, d.stateWithLeader, d.sliceStateWithLeader, d.leaderState}
+	}
+
+	testCases := map[string]struct {
+		domains        func() ([]*domain, map[string]*domain)
+		threshold      int32
+		sliceSize      int32
+		sliceLevelIdx  int
+		level          int
+		leaderRequired bool
+		want           map[string][5]int32
+	}{
+		"keeps worker only domain": {
+			domains: func() ([]*domain, map[string]*domain) {
+				leaderLeaf := &domain{id: "leader-leaf", state: 6, sliceState: 6, leaderState: 1, stateWithLeader: 5, sliceStateWithLeader: 5}
+				leaderDomain := &domain{id: "leader-domain", state: 6, sliceState: 6, leaderState: 1, stateWithLeader: 5, sliceStateWithLeader: 5, children: []*domain{leaderLeaf}}
+				leaderLeaf.parent = leaderDomain
+				workerOnlyLeaf := &domain{id: "worker-only-leaf", state: 5, sliceState: 5, leaderState: 1, stateWithLeader: 4, sliceStateWithLeader: 4}
+				workerOnlyDomain := &domain{id: "worker-only-domain", state: 5, sliceState: 5, leaderState: 1, stateWithLeader: 4, sliceStateWithLeader: 4, children: []*domain{workerOnlyLeaf}}
+				workerOnlyLeaf.parent = workerOnlyDomain
+				parentDomain := &domain{id: "parent-domain", children: []*domain{leaderDomain, workerOnlyDomain}}
+				leaderDomain.parent = parentDomain
+				workerOnlyDomain.parent = parentDomain
+				return []*domain{parentDomain}, map[string]*domain{
+					"leaderDomain":     leaderDomain,
+					"parentDomain":     parentDomain,
+					"workerOnlyDomain": workerOnlyDomain,
+					"workerOnlyLeaf":   workerOnlyLeaf,
+				}
+			},
+			threshold:      5,
+			sliceSize:      1,
+			sliceLevelIdx:  2,
+			level:          0,
+			leaderRequired: true,
+			want: map[string][5]int32{
+				"leaderDomain":     {6, 6, 5, 5, 1},
+				"parentDomain":     {11, 11, 10, 10, 1},
+				"workerOnlyDomain": {5, 5, 0, 0, 0},
+				"workerOnlyLeaf":   {5, 5, 0, 0, 0},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			domains, domainsByName := tc.domains()
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
+
+			s.pruneDomainsBelowThreshold(domains, tc.threshold, tc.sliceSize, tc.sliceLevelIdx, tc.level, tc.leaderRequired)
+
+			got := make(map[string][5]int32, len(tc.want))
+			for name := range tc.want {
+				got[name] = domainState(domainsByName[name])
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected domain state (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
+	type domainSpec struct {
+		id                   string
+		parentID             string
+		levelValues          []string
+		state                int32
+		sliceState           int32
+		stateWithLeader      int32
+		sliceStateWithLeader int32
+		leaderState          int32
+	}
+
+	testCases := map[string]struct {
+		domains          []domainSpec
+		params           topologyAssignmentParameters
+		wantThreshold    int32
+		wantDomainsCount int
+	}{
+		"falls back after pruning": {
+			domains: []domainSpec{
+				{id: "b1", levelValues: []string{"b1"}},
+				{id: "b2", levelValues: []string{"b2"}},
+				{id: "b1/r1", parentID: "b1", levelValues: []string{"b1", "r1"}, state: 3, sliceState: 3, stateWithLeader: 2, sliceStateWithLeader: 2, leaderState: 1},
+				{id: "b2/r1", parentID: "b2", levelValues: []string{"b2", "r1"}, state: 2, sliceState: 2, stateWithLeader: 1, sliceStateWithLeader: 1, leaderState: 1},
+				{id: "b2/r2", parentID: "b2", levelValues: []string{"b2", "r2"}, state: 4, sliceState: 4, stateWithLeader: 2, sliceStateWithLeader: 2, leaderState: 1},
+			},
+			params: topologyAssignmentParameters{
+				count:             8,
+				sliceSize:         1,
+				leaderCount:       1,
+				requestedLevelIdx: 0,
+				sliceLevelIdx:     1,
+			},
+			wantThreshold:    1,
+			wantDomainsCount: 2,
+		},
+		"rejects after fallback": {
+			domains: []domainSpec{
+				{id: "b1", levelValues: []string{"b1"}},
+				{id: "b2", levelValues: []string{"b2"}},
+				{id: "b3", levelValues: []string{"b3"}},
+				{id: "b1/r1", parentID: "b1", levelValues: []string{"b1", "r1"}, state: 2, sliceState: 2, stateWithLeader: 1, sliceStateWithLeader: 1, leaderState: 1},
+				{id: "b2/r1", parentID: "b2", levelValues: []string{"b2", "r1"}, state: 3, sliceState: 3, stateWithLeader: 1, sliceStateWithLeader: 1, leaderState: 1},
+				{id: "b2/r2", parentID: "b2", levelValues: []string{"b2", "r2"}, state: 4, sliceState: 4, stateWithLeader: 2, sliceStateWithLeader: 2, leaderState: 1},
+				{id: "b3/r1", parentID: "b3", levelValues: []string{"b3", "r1"}, state: 4, sliceState: 4, stateWithLeader: 3, sliceStateWithLeader: 3, leaderState: 1},
+			},
+			params: topologyAssignmentParameters{
+				count:             12,
+				sliceSize:         1,
+				leaderCount:       1,
+				requestedLevelIdx: 0,
+				sliceLevelIdx:     1,
+			},
+			wantThreshold:    0,
+			wantDomainsCount: 0,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", []string{"block", "rack"}, nil)
+			domainsByID := make(map[string]*domain, len(tc.domains))
+			for _, spec := range tc.domains {
+				d := &domain{
+					id:                   utiltas.TopologyDomainID(spec.id),
+					levelValues:          spec.levelValues,
+					state:                spec.state,
+					sliceState:           spec.sliceState,
+					stateWithLeader:      spec.stateWithLeader,
+					sliceStateWithLeader: spec.sliceStateWithLeader,
+					leaderState:          spec.leaderState,
+				}
+				if len(spec.parentID) == 0 {
+					s.domainsPerLevel[0][d.id] = d
+				} else {
+					parent := domainsByID[spec.parentID]
+					if parent == nil {
+						t.Fatalf("Unknown parent domain %q", spec.parentID)
+					}
+					d.parent = parent
+					parent.children = append(parent.children, d)
+					s.domainsPerLevel[1][d.id] = d
+				}
+				domainsByID[spec.id] = d
+			}
+
+			gotDomains, gotThreshold := findBestDomainsForBalancedPlacement(s, &tc.params)
+
+			if gotThreshold != tc.wantThreshold {
+				t.Errorf("Unexpected threshold: got %d, want %d", gotThreshold, tc.wantThreshold)
+			}
+			if len(gotDomains) != tc.wantDomainsCount {
+				t.Errorf("Unexpected domains count: got %d, want %d", len(gotDomains), tc.wantDomainsCount)
 			}
 		})
 	}

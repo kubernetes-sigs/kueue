@@ -4,6 +4,7 @@ kind: ClusterRole
 metadata:
   name: jobset-viewer-role
   labels:
+    rbac.kueue.x-k8s.io/role: "jobset-viewer"
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.kueue.x-k8s.io/batch-user: "true"
     rbac.authorization.k8s.io/aggregate-to-view: "true"

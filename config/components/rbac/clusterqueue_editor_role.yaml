@@ -4,6 +4,7 @@ kind: ClusterRole
 metadata:
   name: clusterqueue-editor-role
   labels:
+    rbac.kueue.x-k8s.io/role: "clusterqueue-editor"
     rbac.kueue.x-k8s.io/batch-admin: "true"
 rules:
 - apiGroups:

@@ -100,6 +100,7 @@ func (t *TargetClusterQueueOrdering) Iter() iter.Seq[*TargetClusterQueue] {
 					return
 				}
 			}
+			return
 		}
 
 		root := t.preemptorCq.Parent().Root()

@@ -103,7 +103,7 @@ func managerAndControllerSetup(controllersCfg *config.Configuration) framework.M
 
 		reconciler := controller.NewKueuePopulatorReconciler(
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor(controller.ControllerName),
+			mgr.GetEventRecorder(controller.ControllerName),
 			opts...,
 		)
 		err = reconciler.SetupWithManager(mgr)

@@ -4,6 +4,7 @@ kind: ClusterRole
 metadata:
   name: resourceflavor-viewer-role
   labels:
+    rbac.kueue.x-k8s.io/role: "resourceflavor-viewer"
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.authorization.k8s.io/aggregate-to-admin: "true"
 rules:

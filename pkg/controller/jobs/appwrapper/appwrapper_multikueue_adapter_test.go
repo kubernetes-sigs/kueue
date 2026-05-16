@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -52,7 +51,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		Component(utiltestingaw.Component{
 			Template: utiltestingjob.MakeJob("job", "ns").SetTypeMeta().Parallelism(2).Obj(),
 		})
-	baseAppWrapperManagedByKueueBuilder := baseAppWrapperBuilder.DeepCopy().ManagedBy(kueue.MultiKueueControllerName)
+	baseAppWrapperManagedByKueueBuilder := baseAppWrapperBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		managersAppWrappers []awv1beta2.AppWrapper
@@ -67,29 +66,29 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 		"sync creates missing remote appwrapper": {
 			managersAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperManagedByKueueBuilder.DeepCopy().Obj(),
+				*baseAppWrapperManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "aw1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
 			wantManagersAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperManagedByKueueBuilder.DeepCopy().Obj(),
+				*baseAppWrapperManagedByKueueBuilder.DeepCopy(),
 			},
 			wantWorkerAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+				*baseAppWrapperBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 		},
 		"sync status from remote appwrapper": {
 			managersAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperManagedByKueueBuilder.DeepCopy().Suspend(false).Obj(),
+				*baseAppWrapperManagedByKueueBuilder.Clone().Suspend(false).Obj(),
 			},
 			workerAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+				*baseAppWrapperBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
@@ -99,14 +98,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 
 			wantManagersAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperManagedByKueueBuilder.DeepCopy().
+				*baseAppWrapperManagedByKueueBuilder.Clone().
 					Suspend(false).
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
 			},
 			wantWorkerAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+				*baseAppWrapperBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
@@ -114,11 +113,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"sync status from remote while local appwrapper is suspended": {
 			managersAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperManagedByKueueBuilder.DeepCopy().Suspend(true).Obj(),
+				*baseAppWrapperManagedByKueueBuilder.Clone().Suspend(true).Obj(),
 			},
 			workerAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+				*baseAppWrapperBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
@@ -128,14 +127,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 
 			wantManagersAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperManagedByKueueBuilder.DeepCopy().
+				*baseAppWrapperManagedByKueueBuilder.Clone().
 					Suspend(true).
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
 			},
 			wantWorkerAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+				*baseAppWrapperBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					SetPhase(awv1beta2.AppWrapperSuspended).
 					Obj(),
@@ -143,8 +142,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"remote appwrapper is deleted": {
 			workerAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+				*baseAppWrapperBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
@@ -162,7 +161,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"job with wrong managedBy is not considered managed": {
 			managersAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperBuilder.DeepCopy().Obj(),
+				*baseAppWrapperBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "aw1", Namespace: TestNamespace}); isManged {
@@ -171,13 +170,13 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperBuilder.DeepCopy().Obj(),
+				*baseAppWrapperBuilder.DeepCopy(),
 			},
 		},
 
 		"job managedBy multikueue": {
 			managersAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperManagedByKueueBuilder.DeepCopy().Obj(),
+				*baseAppWrapperManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "aw1", Namespace: TestNamespace}); !isManged {
@@ -186,7 +185,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersAppWrappers: []awv1beta2.AppWrapper{
-				*baseAppWrapperManagedByKueueBuilder.DeepCopy().Obj(),
+				*baseAppWrapperManagedByKueueBuilder.DeepCopy(),
 			},
 		},
 	}

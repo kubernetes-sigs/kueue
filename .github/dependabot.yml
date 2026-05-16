@@ -52,6 +52,7 @@ updates:
       - "/hack/testing/linkchecker"
       - "/hack/testing/depcheck"
       - "/hack/testing/ray"
+      - "/hack/testing/ray-mini"
       - "/hack/testing/secretreader"
       - "/hack/testing/shellcheck"
     schedule:

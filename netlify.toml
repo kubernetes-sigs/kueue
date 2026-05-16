@@ -1,7 +1,7 @@
 [build]
   base = "site"
   publish = "public"
-  command = "npm install && hugo --gc --minify"
+  command = "npm install && hugo --gc --minify && npx -y pagefind --site public"
 
 [build.environment]
   HUGO_VERSION = "0.160.1"
@@ -11,7 +11,7 @@
   HUGO_BASEURL = "https://kueue.sigs.k8s.io/"
 
 [context.deploy-preview]
-  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL"
+  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"
 
 [context.branch-deploy]
-  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL"
+  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"

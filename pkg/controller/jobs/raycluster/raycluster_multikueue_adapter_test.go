@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -74,7 +73,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
@@ -85,7 +84,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusConditions(metav1.Condition{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionStatus(corev1.ConditionTrue)}).
 					Obj(),
@@ -101,7 +100,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusConditions(metav1.Condition{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionStatus(corev1.ConditionTrue)}).
 					Obj(),
@@ -115,7 +114,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					StatusConditions(metav1.Condition{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionStatus(corev1.ConditionTrue)}).
@@ -132,7 +131,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					StatusConditions(metav1.Condition{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionStatus(corev1.ConditionTrue)}).
@@ -142,7 +141,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote raycluster is deleted": {
 			workerRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},

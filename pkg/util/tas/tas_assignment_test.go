@@ -791,6 +791,79 @@ func TestLowestLevelValues_iteratorStops(t *testing.T) {
 	}
 }
 
+func TestHasNodeInPodSetAssignment(t *testing.T) {
+	testCases := []struct {
+		name     string
+		psa      *kueue.PodSetAssignment
+		nodeName string
+		want     bool
+	}{
+		{
+			name:     "nil assignment",
+			psa:      nil,
+			nodeName: "node1",
+			want:     false,
+		},
+		{
+			name:     "no topology assignment",
+			psa:      &kueue.PodSetAssignment{Name: "ps1"},
+			nodeName: "node1",
+			want:     false,
+		},
+		{
+			name: "topology level is not hostname",
+			psa: &kueue.PodSetAssignment{
+				Name: "ps1",
+				TopologyAssignment: V1Beta2From(&TopologyAssignment{
+					Levels: []string{"example.com/rack"},
+					Domains: []TopologyDomainAssignment{
+						{Values: []string{"rack1"}, Count: 1},
+					},
+				}),
+			},
+			nodeName: "node1",
+			want:     false,
+		},
+		{
+			name: "pod on target node",
+			psa: &kueue.PodSetAssignment{
+				Name: "ps1",
+				TopologyAssignment: V1Beta2From(&TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []TopologyDomainAssignment{
+						{Values: []string{"node1"}, Count: 1},
+					},
+				}),
+			},
+			nodeName: "node1",
+			want:     true,
+		},
+		{
+			name: "target node with zero pods",
+			psa: &kueue.PodSetAssignment{
+				Name: "ps1",
+				TopologyAssignment: V1Beta2From(&TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []TopologyDomainAssignment{
+						{Values: []string{"node1"}, Count: 0},
+					},
+				}),
+			},
+			nodeName: "node1",
+			want:     false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := HasNodeInPodSetAssignment(tc.psa, tc.nodeName)
+			if got != tc.want {
+				t.Errorf("HasNodeInPodSetAssignment() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHasTASAssignmentOnNode(t *testing.T) {
 	testCases := []struct {
 		name      string

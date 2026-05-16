@@ -380,7 +380,7 @@ func TestReconciler(t *testing.T) {
 			wantEvents: nil,
 		},
 		"forceful termination grace period elapsed for pod": {
-			testPod:    podToForcefullyDelete.Clone().Obj(),
+			testPod:    podToForcefullyDelete.DeepCopy(),
 			wantResult: ctrl.Result{},
 			wantErr:    nil,
 			wantPod: podToForcefullyDelete.Clone().
@@ -432,7 +432,7 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
 			}
 
-			gotPod := podToForcefullyDelete.Clone().Obj()
+			gotPod := podToForcefullyDelete.DeepCopy()
 			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.testPod), gotPod); err != nil {
 				t.Fatalf("could not get pod after reconcile")
 			}

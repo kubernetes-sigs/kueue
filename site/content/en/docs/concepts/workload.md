@@ -197,7 +197,7 @@ This can bypass the strict validation rules causing issues with duplicated envir
 - [MultiKueue: remove the limitation that the external dispatches need to use kueue-admission field manager ](https://github.com/kubernetes-sigs/kueue/issues/6185)
 Using ServerSideApply blocked the ability for Workload Status to be modified from external controllers.
 Once the field e.g. `.status.nominatedClusterNames` was modified and owned by the controller (regardless if Kueue or external one) it can not be modified or cleared by the other.
-This effectively prevent External Dispatching mechanism to work properly in multi cluster enviroment.
+This effectively prevent External Dispatching mechanism to work properly in multi cluster environment.
 
 ## What's next
 

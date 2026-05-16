@@ -350,11 +350,11 @@ func TestDefault(t *testing.T) {
 			namespaceSelector: defaultNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Group("test-group").
+				GroupNameLabel("test-group").
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Group("test-group").
+				GroupNameLabel("test-group").
 				RoleHash("a9f06f3a").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
@@ -368,11 +368,11 @@ func TestDefault(t *testing.T) {
 			namespaceSelector: defaultNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Group("test-group").
+				GroupNameLabel("test-group").
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Group("test-group").
+				GroupNameLabel("test-group").
 				RoleHash("a9f06f3a").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
@@ -702,7 +702,7 @@ func TestValidateCreate(t *testing.T) {
 		"pod with group name and no group total count": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
-				Group("test-group").
+				GroupNameLabel("test-group").
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -726,7 +726,7 @@ func TestValidateCreate(t *testing.T) {
 		"pod with 0 group total count": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupTotalCount("0").
 				Obj(),
 			wantErr: field.ErrorList{
@@ -739,7 +739,7 @@ func TestValidateCreate(t *testing.T) {
 		"pod with empty group total count": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupTotalCount("").
 				Obj(),
 			wantErr: field.ErrorList{
@@ -752,7 +752,7 @@ func TestValidateCreate(t *testing.T) {
 		"pod with incorrect group name": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
-				Group("notAdns1123Subdomain*").
+				GroupNameLabel("notAdns1123Subdomain*").
 				GroupTotalCount("2").
 				Obj(),
 			wantErr: field.ErrorList{
@@ -783,20 +783,20 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"prebuilt workload for pod": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
-				PrebuiltWorkload("workload-name").
+				PrebuiltWorkloadLabel("workload-name").
 				Obj(),
 		},
 		"prebuilt workload for pod group valid": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
-				PrebuiltWorkload("group-name").
-				Group("group-name").
+				PrebuiltWorkloadLabel("group-name").
+				GroupNameLabel("group-name").
 				GroupTotalCount("3").
 				Obj(),
 		},
 		"prebuilt workload for pod group invalid": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
-				PrebuiltWorkload("workload-name").
-				Group("group-name").
+				PrebuiltWorkloadLabel("workload-name").
+				GroupNameLabel("group-name").
 				GroupTotalCount("3").
 				Obj(),
 			wantErr: field.ErrorList{
@@ -874,10 +874,10 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"pod with group name and no group total count": {
-			oldPod: testingpod.MakePod("test-pod", "test-ns").Group("test-group").Obj(),
+			oldPod: testingpod.MakePod("test-pod", "test-ns").GroupNameLabel("test-group").Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
-				Group("test-group").
+				GroupNameLabel("test-group").
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -887,10 +887,10 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"pod with 0 group total count": {
-			oldPod: testingpod.MakePod("test-pod", "test-ns").Group("test-group").Obj(),
+			oldPod: testingpod.MakePod("test-pod", "test-ns").GroupNameLabel("test-group").Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupTotalCount("0").
 				Obj(),
 			wantErr: field.ErrorList{
@@ -901,10 +901,10 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"pod with empty group total count": {
-			oldPod: testingpod.MakePod("test-pod", "test-ns").Group("test-group").Obj(),
+			oldPod: testingpod.MakePod("test-pod", "test-ns").GroupNameLabel("test-group").Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupTotalCount("").
 				Obj(),
 			wantErr: field.ErrorList{
@@ -916,11 +916,11 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"pod group name is changed": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupTotalCount("2").
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Group("test-group-new").
+				GroupNameLabel("test-group-new").
 				GroupTotalCount("2").
 				Obj(),
 			wantErr: field.ErrorList{
@@ -934,18 +934,18 @@ func TestValidateUpdate(t *testing.T) {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Group("test-group-new").
+				GroupNameLabel("test-group-new").
 				GroupTotalCount("2").
 				Obj(),
 		},
 		"retriable in group annotation is removed": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupTotalCount("2").
 				Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupTotalCount("2").
 				Obj(),
 			wantErr: field.ErrorList{
@@ -957,12 +957,12 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"retriable in group annotation is changed from false to true": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupTotalCount("2").
 				Annotation(podconstants.RetriableInGroupAnnotationKey, podconstants.RetriableInGroupAnnotationValue).
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Group("test-group").
+				GroupNameLabel("test-group").
 				GroupTotalCount("2").
 				Annotation(podconstants.RetriableInGroupAnnotationKey, "true").
 				Obj(),
@@ -975,14 +975,14 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"prebuilt workload for pod group invalid": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
-				PrebuiltWorkload("group-name").
-				Group("group-name").
+				PrebuiltWorkloadLabel("group-name").
+				GroupNameLabel("group-name").
 				GroupTotalCount("3").
 				KueueSchedulingGate().
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
-				PrebuiltWorkload("group-name-new").
-				Group("group-name").
+				PrebuiltWorkloadLabel("group-name-new").
+				GroupNameLabel("group-name").
 				GroupTotalCount("3").
 				KueueSchedulingGate().
 				Obj(),

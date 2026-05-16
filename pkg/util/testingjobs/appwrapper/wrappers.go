@@ -58,9 +58,9 @@ func (aw *AppWrapperWrapper) Obj() *awv1beta2.AppWrapper {
 	return &aw.AppWrapper
 }
 
-// DeepCopy returns a DeepCopy of aw.
-func (aw *AppWrapperWrapper) DeepCopy() *AppWrapperWrapper {
-	return &AppWrapperWrapper{AppWrapper: *aw.AppWrapper.DeepCopy()}
+// Clone returns a deep copy of AppWrapper
+func (aw *AppWrapperWrapper) Clone() *AppWrapperWrapper {
+	return &AppWrapperWrapper{AppWrapper: *aw.DeepCopy()}
 }
 
 // Label sets a label of the AppWrapper
@@ -81,6 +81,11 @@ func (aw *AppWrapperWrapper) Annotations(annotations map[string]string) *AppWrap
 // Queue updates the queue name of the AppWrapper
 func (aw *AppWrapperWrapper) Queue(q string) *AppWrapperWrapper {
 	return aw.Label(constants.QueueLabel, q)
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the AppWrapperWrapper
+func (aw *AppWrapperWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *AppWrapperWrapper {
+	return aw.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
 }
 
 // Name updates the name of the AppWrapper

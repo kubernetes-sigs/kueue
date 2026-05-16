@@ -102,7 +102,7 @@ func TestImportNamespace(t *testing.T) {
 
 		"create one": {
 			pods: []corev1.Pod{
-				*basePodWrapper.Clone().Obj(),
+				*basePodWrapper.DeepCopy(),
 			},
 			mapping: mapping.Rules{
 				mapping.Rule{
@@ -130,12 +130,12 @@ func TestImportNamespace(t *testing.T) {
 			},
 
 			wantWorkloads: []kueue.Workload{
-				*baseWlWrapper.Clone().Obj(),
+				*baseWlWrapper.DeepCopy(),
 			},
 		},
 		"create one, add labels": {
 			pods: []corev1.Pod{
-				*basePodWrapper.Clone().Obj(),
+				*basePodWrapper.DeepCopy(),
 			},
 			mapping: mapping.Rules{
 				mapping.Rule{

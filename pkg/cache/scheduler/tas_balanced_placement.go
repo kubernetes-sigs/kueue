@@ -69,12 +69,7 @@ func balanceThresholdValue(sliceCount int32, selectedDomainsCount int32, lastDom
 		threshold = min(threshold, lastDomainWithLeader.sliceStateWithLeader)
 	}
 	if lastDomain != nil {
-		// TODO: https://github.com/kubernetes-sigs/kueue/issues/7494
-		// we don't have min(threshold, lastDomain.sliceState) here because
-		// later we prune all nodes with sliceStateWithLeader < threshold
-		// while pruning we don't know which node will host the leader
-		// so we have to leave space on each node
-		threshold = min(threshold, lastDomain.sliceStateWithLeader)
+		threshold = min(threshold, lastDomain.sliceState)
 	}
 	return threshold
 }
@@ -257,19 +252,37 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, params *topologyA
 	var currFitDomain []*domain
 
 	for _, requestedLevelSiblingDomains := range requestedLevelDomainsToConsider {
-		lowerLevelDomains := getLowerLevelDomains(s, requestedLevelSiblingDomains, params.requestedLevelIdx, params.sliceLevelIdx)
+		candidateDomains := cloneDomains(requestedLevelSiblingDomains)
+		lowerLevelDomains := getLowerLevelDomains(s, candidateDomains, params.requestedLevelIdx, params.sliceLevelIdx)
 		fits, selectedDomainsCount, lastDomainWithLeader, lastDomain := evaluateGreedyAssignment(s, lowerLevelDomains, sliceCount, params.leaderCount)
 		if !fits {
 			continue
 		}
 		threshold := balanceThresholdValue(sliceCount, selectedDomainsCount, lastDomainWithLeader, lastDomain)
+		thresholdWithLeaderReservation := threshold
+		if params.leaderCount > 0 && lastDomain != nil {
+			thresholdWithLeaderReservation = min(threshold, lastDomain.sliceStateWithLeader)
+		}
 		if threshold >= bestThreshold {
-			s.pruneDomainsBelowThreshold(requestedLevelSiblingDomains, threshold, params.sliceSize, params.sliceLevelIdx, params.requestedLevelIdx, params.leaderCount > 0)
-			_, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(s, requestedLevelSiblingDomains, sliceCount, params.leaderCount)
+			s.pruneDomainsBelowThreshold(candidateDomains, threshold, params.sliceSize, params.sliceLevelIdx, params.requestedLevelIdx, params.leaderCount > 0)
+			fitsAfterPruning, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(s, candidateDomains, sliceCount, params.leaderCount)
+			if !fitsAfterPruning && thresholdWithLeaderReservation < threshold {
+				// Retry with a lower threshold that reserves leader capacity.
+				if thresholdWithLeaderReservation <= 0 || thresholdWithLeaderReservation < bestThreshold {
+					continue
+				}
+				threshold = thresholdWithLeaderReservation
+				candidateDomains = cloneDomains(requestedLevelSiblingDomains)
+				s.pruneDomainsBelowThreshold(candidateDomains, threshold, params.sliceSize, params.sliceLevelIdx, params.requestedLevelIdx, params.leaderCount > 0)
+				fitsAfterPruning, requestedLevelDomainCount, _, _ = evaluateGreedyAssignment(s, candidateDomains, sliceCount, params.leaderCount)
+			}
+			if !fitsAfterPruning {
+				continue
+			}
 			if threshold > bestThreshold || (threshold == bestThreshold && requestedLevelDomainCount < bestDomainCountOnRequestedLevel) {
 				bestThreshold = threshold
 				bestDomainCountOnRequestedLevel = requestedLevelDomainCount
-				currFitDomain = requestedLevelSiblingDomains
+				currFitDomain = candidateDomains
 			}
 		}
 	}
@@ -318,18 +331,52 @@ func clearState(d *domain) {
 	}
 }
 
+func clearLeaderCapacity(d *domain) {
+	d.stateWithLeader = int32(0)
+	d.sliceStateWithLeader = int32(0)
+	d.leaderState = int32(0)
+	for _, child := range d.children {
+		clearLeaderCapacity(child)
+	}
+}
+
+func cloneDomains(domains []*domain) []*domain {
+	result := make([]*domain, len(domains))
+	for i, d := range domains {
+		result[i] = cloneDomain(d, nil)
+	}
+	return result
+}
+
+func cloneDomain(d *domain, parent *domain) *domain {
+	clone := *d
+	clone.parent = parent
+	clone.children = make([]*domain, len(d.children))
+	for i, child := range d.children {
+		clone.children[i] = cloneDomain(child, &clone)
+	}
+	return &clone
+}
+
+func pruneDomainNodeBelowThreshold(d *domain, threshold int32, leaderRequired bool) {
+	if d.sliceState < threshold {
+		clearState(d)
+		return
+	}
+	// The domain can still be used for workers, but not as the leader host at this threshold.
+	if leaderRequired && d.leaderState > 0 && d.sliceStateWithLeader < threshold {
+		clearLeaderCapacity(d)
+	}
+}
+
 func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, threshold int32, sliceSize int32, sliceLevelIdx int, level int, leaderRequired bool) {
 	for _, d := range domains {
 		for _, c := range d.children {
-			if c.sliceStateWithLeader < threshold {
-				clearState(c)
-			}
+			pruneDomainNodeBelowThreshold(c, threshold, leaderRequired)
 		}
 	}
 	for _, d := range domains {
 		s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level, nil, leaderRequired)
-		if d.sliceStateWithLeader < threshold {
-			clearState(d)
-		}
+		pruneDomainNodeBelowThreshold(d, threshold, leaderRequired)
 	}
 }

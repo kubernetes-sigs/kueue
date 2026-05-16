@@ -391,6 +391,19 @@ func TestValidateClusterQueue(t *testing.T) {
 				Obj(),
 		},
 		{
+			name: "ConcurrentAdmissionPolicy with StrictFIFO queueing strategy is invalid",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				QueueingStrategy(kueue.StrictFIFO).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("queueingStrategy"), kueue.StrictFIFO, "StrictFIFO queueing strategy cannot be used when ConcurrentAdmissionPolicy is defined"),
+			},
+			wantDetail:   "StrictFIFO queueing strategy cannot be used when ConcurrentAdmissionPolicy is defined",
+			wantBadValue: string(kueue.StrictFIFO),
+		},
+		{
 			name: "ConcurrentAdmissionPolicy with more than one ResourceGroup",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
@@ -429,6 +442,28 @@ func TestValidateClusterQueue(t *testing.T) {
 			},
 			wantDetail:   "must have exactly one ResourceGroup when ConcurrentAdmissionPolicy is defined",
 			wantBadValue: "0",
+		},
+		{
+			name: "ConcurrentAdmissionPolicy with valid MinPreferredFlavorName",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				MinPreferredFlavorName("flavor1").
+				Obj(),
+		},
+		{
+			name: "ConcurrentAdmissionPolicy with invalid MinPreferredFlavorName",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				MinPreferredFlavorName("non-existent-flavor").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					specPath.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("minPreferredFlavorName"),
+					kueue.ResourceFlavorReference("non-existent-flavor"),
+					"must be one of the flavors defined in the ClusterQueue: [flavor1]"),
+			},
+			wantDetail:   "must be one of the flavors defined in the ClusterQueue: [flavor1]",
+			wantBadValue: "non-existent-flavor",
 		},
 	}
 
