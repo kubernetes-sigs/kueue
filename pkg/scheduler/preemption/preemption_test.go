@@ -4422,7 +4422,7 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 		Priority(-1).
 		Request(corev1.ResourceCPU, "2").
 		ReserveQuotaAt(
-			utiltestingapi.MakeAdmission(string(cqName)).
+			utiltestingapi.MakeAdmission(cqName).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", "2000m").
 					Obj()).
@@ -4459,12 +4459,7 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 		t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 	}
 
-	broadcaster := record.NewBroadcaster()
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %v", err)
-	}
-	recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
+	recorder := &utiltesting.EventRecorder{}
 	store := preemptexpectations.New()
 	preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
 
