@@ -136,6 +136,7 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 			testPod = testingpod.MakePod("test-pod", metav1.NamespaceDefault).
 				Queue(lq.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, testPod)).To(gomega.Succeed())
 
