@@ -102,54 +102,11 @@ func (j *RayCluster) PodLabelSelector() string {
 }
 
 func (j *RayCluster) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
-	// len = workerGroups + head
-	podSets := make([]kueue.PodSet, len(j.Spec.WorkerGroupSpecs)+1)
-
-	// head
-	podSets[0] = kueue.PodSet{
-		Name:     headGroupPodSetName,
-		Template: *j.Spec.HeadGroupSpec.Template.DeepCopy(),
-		Count:    1,
-	}
-
-	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
-			&j.Spec.HeadGroupSpec.Template.ObjectMeta).Build()
-		if err != nil {
-			return nil, err
-		}
-		podSets[0].TopologyRequest = topologyRequest
-	}
-
-	// workers
-	for index := range j.Spec.WorkerGroupSpecs {
-		wgs := &j.Spec.WorkerGroupSpecs[index]
-		count := int32(1)
-		if wgs.Replicas != nil {
-			count = *wgs.Replicas
-		}
-		if wgs.NumOfHosts > 1 {
-			count *= wgs.NumOfHosts
-		}
-		podSets[index+1] = kueue.PodSet{
-			Name:     kueue.NewPodSetReference(wgs.GroupName),
-			Template: *wgs.Template.DeepCopy(),
-			Count:    count,
-		}
-		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
-				&wgs.Template.ObjectMeta).Build()
-			if err != nil {
-				return nil, err
-			}
-			podSets[index+1].TopologyRequest = topologyRequest
-		}
-	}
-	return podSets, nil
+	return BuildPodSets(&j.Spec, j.Annotations)
 }
 
 func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
-	expectedLen := len(j.Spec.WorkerGroupSpecs) + 1
+	expectedLen := ExpectedPodSetsCount(&j.Spec)
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
@@ -165,7 +122,7 @@ func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 }
 
 func (j *RayCluster) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	if len(podSetsInfo) != len(j.Spec.WorkerGroupSpecs)+1 {
+	if len(podSetsInfo) != ExpectedPodSetsCount(&j.Spec) {
 		return false
 	}
 

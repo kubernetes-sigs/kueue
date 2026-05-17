@@ -32,6 +32,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -202,8 +203,17 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(bigWorkerGroup...).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs"), 10, 9),
+				field.TooMany(field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
 			}.ToAggregate(),
+		},
+		"valid managed - max worker groups with gcs fault tolerance": {
+			job: func() *rayv1.RayJob {
+				job := testingrayutil.MakeJob("job", "ns").Queue("queue").
+					WithWorkerGroups(bigWorkerGroup[:7]...).
+					Obj()
+				job.Spec.RayClusterSpec.GcsFaultToleranceOptions = &rayv1.GcsFaultToleranceOptions{RedisAddress: "redis:6379"}
+				return job
+			}(),
 		},
 		"worker group uses head name": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
