@@ -399,6 +399,12 @@ const (
 	// Enables Concurrent Admission feature which allows pursuing multiple ResourceFlavors in parallel.
 	ConcurrentAdmission featuregate.Feature = "ConcurrentAdmission"
 
+	// owner: @mimowo
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10946
+	// Enables accounting for KubeRay Redis cleanup Job resources when GCS fault tolerance is enabled.
+	KubeRayAccountForRedisCleanup featuregate.Feature = "KubeRayAccountForRedisCleanup"
+
 	// Enable recording of WorkloadCreationLatency metric.
 	MetricForWorkloadCreationLatency featuregate.Feature = "MetricForWorkloadCreationLatency"
 
@@ -661,6 +667,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ConcurrentAdmission: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	KubeRayAccountForRedisCleanup: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
 	},
 	QuotaCheckStrategy: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},

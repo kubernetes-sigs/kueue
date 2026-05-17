@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
@@ -175,6 +176,114 @@ func TestPodSets(t *testing.T) {
 				}
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
+		"with gcs fault tolerance": {
+			rayService: (*RayService)(&rayv1.RayService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rayservice",
+					Namespace: "ns",
+				},
+				Spec: rayv1.RayServiceSpec{
+					RayClusterSpec: rayv1.RayClusterSpec{
+						GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+							RedisAddress: "redis:6379",
+						},
+						HeadGroupSpec: rayv1.HeadGroupSpec{
+							Template: corev1.PodTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									Labels: map[string]string{"ray.io/cluster": "rayservice"},
+								},
+								Spec: corev1.PodSpec{Containers: []corev1.Container{{
+									Name:  "head_c",
+									Image: "rayproject/ray:2.0.0",
+								}}},
+							},
+						},
+						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+							{
+								GroupName: "group1",
+								Replicas:  ptr.To[int32](1),
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+								},
+							},
+						},
+					},
+				},
+			}),
+			wantPodSets: func(rayService *RayService) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "head_c",
+								Image: "rayproject/ray:2.0.0",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("200m"),
+										corev1.ResourceMemory: resource.MustParse("256Mi"),
+									},
+								},
+							}},
+						}).
+						Labels(rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Labels).
+						Obj(),
+					*utiltestingapi.MakePodSet("group1", 1).
+						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
+		"with gcs fault tolerance and redis cleanup accounting disabled": {
+			rayService: (*RayService)(&rayv1.RayService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rayservice",
+					Namespace: "ns",
+				},
+				Spec: rayv1.RayServiceSpec{
+					RayClusterSpec: rayv1.RayClusterSpec{
+						GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+							RedisAddress: "redis:6379",
+						},
+						HeadGroupSpec: rayv1.HeadGroupSpec{
+							Template: corev1.PodTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									Labels: map[string]string{"ray.io/cluster": "rayservice"},
+								},
+								Spec: corev1.PodSpec{Containers: []corev1.Container{{
+									Name:  "head_c",
+									Image: "rayproject/ray:2.0.0",
+								}}},
+							},
+						},
+						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+							{
+								GroupName: "group1",
+								Replicas:  ptr.To[int32](1),
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+								},
+							},
+						},
+					},
+				},
+			}),
+			wantPodSets: func(rayService *RayService) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Labels(rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Labels).
+						Obj(),
+					*utiltestingapi.MakePodSet("group1", 1).
+						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KubeRayAccountForRedisCleanup: false,
+				features.TopologyAwareScheduling:       false,
+			},
 		},
 		"with workload slicing and autoscaling enabled, update from RayCluster": {
 			rayService: (*RayService)(&rayv1.RayService{
