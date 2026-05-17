@@ -19,6 +19,7 @@ export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
 export HELM="$ROOT_DIR"/bin/helm
+export PATH="$ROOT_DIR/bin:$PATH"
 
 # GOTRACEBACK=system asks the Go runtime to include runtime-internal goroutines when a
 # subprocess spawned below (e.g. `go vet`/`go build` during `ginkgo run` compilation)
