@@ -19,11 +19,15 @@ package raycluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -36,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -51,8 +56,8 @@ const (
 	RayClusterGenerationAnnotation = "kueue.x-k8s.io/raycluster-generation"
 )
 
-// BuildPodSets builds PodSets from RayClusterSpec
-func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) {
+// BuildPodSets builds PodSets from RayClusterSpec.
+func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]string) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
 
 	// head
@@ -68,6 +73,11 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) 
 			return nil, err
 		}
 		headPodSet.TopologyRequest = topologyRequest
+	}
+	if shouldAccountForRedisCleanup(rayClusterSpec, annotations) {
+		if err := accountForRedisCleanupInHeadPodSet(&headPodSet); err != nil {
+			return nil, err
+		}
 	}
 	podSets = append(podSets, headPodSet)
 
@@ -97,6 +107,33 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) 
 	}
 
 	return podSets, nil
+}
+
+func accountForRedisCleanupInHeadPodSet(headPodSet *kueue.PodSet) error {
+	if len(headPodSet.Template.Spec.Containers) <= rayutils.RayContainerIndex {
+		return errors.New("cannot account for Redis cleanup resources: head pod template must include the Ray container")
+	}
+
+	headContainer := &headPodSet.Template.Spec.Containers[rayutils.RayContainerIndex]
+	headContainer.Resources.Requests = utilresource.MergeResourceListKeepMax(headContainer.Resources.Requests, redisCleanupResourceRequests())
+	return nil
+}
+
+func redisCleanupResourceRequests() corev1.ResourceList {
+	// KubeRay hardcodes the Redis cleanup Job CPU and memory requests/limits:
+	// https://github.com/ray-project/kuberay/blob/24442570686d81b9e056315bd08df689887a0d8c/ray-operator/controllers/ray/raycluster_controller.go#L1481
+	return corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("200m"),
+		corev1.ResourceMemory: resource.MustParse("256Mi"),
+	}
+}
+
+func shouldAccountForRedisCleanup(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]string) bool {
+	return rayutils.IsGCSFaultToleranceEnabled(rayClusterSpec, annotations)
+}
+
+func ExpectedPodSetsCount(rayClusterSpec *rayv1.RayClusterSpec) int {
+	return len(rayClusterSpec.WorkerGroupSpecs) + 1
 }
 
 func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client, object client.Object, enableInTreeAutoscaling *bool, rayClusterName string) ([]kueue.PodSet, error) {
@@ -216,9 +253,9 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 		)
 	}
 
-	// Should limit the worker count to max PodSets minus the cluster head.
-	if len(rayClusterSpec.WorkerGroupSpecs) > jobframework.MaxPodSets-1 {
-		allErrors = append(allErrors, field.TooMany(rayClusterSpecPath.Child("workerGroupSpecs"), len(rayClusterSpec.WorkerGroupSpecs), jobframework.MaxPodSets-1))
+	// Should limit the generated PodSet count to the maximum supported by Workloads.
+	if podSetsCount := ExpectedPodSetsCount(rayClusterSpec); podSetsCount > jobframework.MaxPodSets {
+		allErrors = append(allErrors, field.TooMany(rayClusterSpecPath.Child("workerGroupSpecs"), podSetsCount, jobframework.MaxPodSets))
 	}
 
 	// None of the workerGroups should be named "head"
