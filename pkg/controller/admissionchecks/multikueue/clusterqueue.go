@@ -42,7 +42,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -67,10 +66,6 @@ func newCQReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 }
 
 func (r *CQReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	if !features.Enabled(features.MultiKueueManagerQuotaAutomation) {
-		return reconcile.Result{}, nil
-	}
-
 	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", req.Name)
 	log.V(3).Info("Reconcile ClusterQueue event received (in the MultiKueue controller)")
 

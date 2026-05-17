@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -520,4 +521,152 @@ func asObjs[T client.Object](objs []T) []client.Object {
 		res[i] = obj
 	}
 	return res
+}
+
+func TestCQReconciler_EventHandlers(t *testing.T) {
+	cq := utiltestingapi.MakeClusterQueue("cq1").AdmissionChecks("ac1").Obj()
+	ac := utiltestingapi.MakeAdmissionCheck("ac1").
+		ControllerName(kueue.MultiKueueControllerName).
+		Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+		Obj()
+	cfg := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj()
+	cluster := utiltestingapi.MakeMultiKueueCluster("cluster1").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj()
+
+	c := utiltesting.NewClientBuilder().
+		WithObjects(cq, ac, cfg, cluster, lq).
+		WithIndex(&kueue.AdmissionCheck{}, AdmissionCheckControllerNameKey, admissionCheckControllerNameIndexerFunc).
+		WithIndex(&kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)).
+		WithIndex(&kueue.ClusterQueue{}, ClusterQueueAdmissionChecksKey, clusterQueueAdmissionChecksIndexerFunc).
+		WithIndex(&kueue.MultiKueueConfig{}, UsingMultiKueueClusters, multiKueueClustersIndexerFunc).
+		Build()
+
+	r := &CQReconciler{client: c}
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	type mockQueue = utiltesting.MockTypedRateLimitingInterface
+
+	cases := map[string]struct {
+		handler       func(mockQ *mockQueue)
+		wantReconcile bool
+	}{
+		"LocalQueue Create": {
+			handler: func(mockQ *mockQueue) {
+				(&lqHandler{client: c}).Create(ctx, event.CreateEvent{Object: lq}, mockQ)
+			},
+			wantReconcile: true,
+		},
+		"LocalQueue Update (irrelevant)": {
+			handler: func(mockQ *mockQueue) {
+				(&lqHandler{client: c}).Update(ctx, event.UpdateEvent{ObjectOld: lq, ObjectNew: lq}, mockQ)
+			},
+			wantReconcile: false,
+		},
+		"LocalQueue Delete": {
+			handler: func(mockQ *mockQueue) {
+				(&lqHandler{client: c}).Delete(ctx, event.DeleteEvent{Object: lq}, mockQ)
+			},
+			wantReconcile: true,
+		},
+		"AdmissionCheck Create": {
+			handler: func(mockQ *mockQueue) {
+				(&acHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: ac}, mockQ)
+			},
+			wantReconcile: true,
+		},
+		"AdmissionCheck Update (relevant)": {
+			handler: func(mockQ *mockQueue) {
+				newAC := utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config2").
+					Obj()
+				(&acHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: ac, ObjectNew: newAC}, mockQ)
+			},
+			wantReconcile: true,
+		},
+		"AdmissionCheck Update (irrelevant)": {
+			handler: func(mockQ *mockQueue) {
+				(&acHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: ac, ObjectNew: ac}, mockQ)
+			},
+			wantReconcile: false,
+		},
+		"AdmissionCheck Delete": {
+			handler: func(mockQ *mockQueue) {
+				(&acHandler{reconciler: r}).Delete(ctx, event.DeleteEvent{Object: ac}, mockQ)
+			},
+			wantReconcile: true,
+		},
+		"MultiKueueConfig Create": {
+			handler: func(mockQ *mockQueue) {
+				(&cqConfigHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: cfg}, mockQ)
+			},
+			wantReconcile: true,
+		},
+		"MultiKueueConfig Update (relevant)": {
+			handler: func(mockQ *mockQueue) {
+				newCfg := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj()
+				(&cqConfigHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: cfg, ObjectNew: newCfg}, mockQ)
+			},
+			wantReconcile: true,
+		},
+		"MultiKueueConfig Update (irrelevant)": {
+			handler: func(mockQ *mockQueue) {
+				(&cqConfigHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: cfg, ObjectNew: cfg}, mockQ)
+			},
+			wantReconcile: false,
+		},
+		"MultiKueueConfig Delete": {
+			handler: func(mockQ *mockQueue) {
+				(&cqConfigHandler{reconciler: r}).Delete(ctx, event.DeleteEvent{Object: cfg}, mockQ)
+			},
+			wantReconcile: true,
+		},
+		"MultiKueueCluster Create": {
+			handler: func(mockQ *mockQueue) {
+				(&cqClusterHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: cluster}, mockQ)
+			},
+			wantReconcile: true,
+		},
+		"MultiKueueCluster Update (relevant)": {
+			handler: func(mockQ *mockQueue) {
+				newCluster := utiltestingapi.MakeMultiKueueCluster("cluster1").
+					Active(metav1.ConditionTrue, "ByTest", "by test", 1).Obj()
+				(&cqClusterHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: cluster, ObjectNew: newCluster}, mockQ)
+			},
+			wantReconcile: true,
+		},
+		"MultiKueueCluster Update (irrelevant)": {
+			handler: func(mockQ *mockQueue) {
+				(&cqClusterHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: cluster, ObjectNew: cluster}, mockQ)
+			},
+			wantReconcile: false,
+		},
+		"MultiKueueCluster Delete": {
+			handler: func(mockQ *mockQueue) {
+				(&cqClusterHandler{reconciler: r}).Delete(ctx, event.DeleteEvent{Object: cluster}, mockQ)
+			},
+			wantReconcile: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			mockQ := &mockQueue{}
+			tc.handler(mockQ)
+
+			if tc.wantReconcile {
+				if len(mockQ.Items) != 1 {
+					t.Fatalf("expected exactly 1 item in workqueue, got %d", len(mockQ.Items))
+				}
+				if mockQ.Items[0].Name != "cq1" {
+					t.Errorf("expected workqueue item name to be %q, got %q", "cq1", mockQ.Items[0].Name)
+				}
+			} else {
+				if len(mockQ.Items) != 0 {
+					t.Fatalf("expected 0 items in workqueue, got %d", len(mockQ.Items))
+				}
+			}
+		})
+	}
 }
