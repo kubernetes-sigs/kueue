@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	apimachineryutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -500,7 +501,16 @@ func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.Erro
 	return allErrs
 }
 
-func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) field.ErrorList {
+func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) field.ErrorList {
+	if featureGateCLI != "" {
+		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGateCLI); err != nil {
+			return field.ErrorList{field.Invalid(featureGatesPath, featureGateCLI, err.Error())}
+		}
+	} else {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(featureGateMap); err != nil {
+			return field.ErrorList{field.Invalid(featureGatesPath, featureGateMap, err.Error())}
+		}
+	}
 	var allErrs field.ErrorList
 	if featureGateCLI != "" && featureGateMap != nil {
 		allErrs = append(allErrs, field.Invalid(featureGatesPath, featureGateMap, "feature gates for CLI and configuration cannot both specified"))
