@@ -131,9 +131,6 @@ test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkg
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --junit-report=multikueue-junit.xml --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
-.PHONY: test-e2e
-test-e2e: test-e2e-baseline test-e2e-extended
-
 .PHONY: test-e2e-baseline-helm
 test-e2e-baseline-helm: E2E_USE_HELM=true
 test-e2e-baseline-helm: test-e2e-baseline
