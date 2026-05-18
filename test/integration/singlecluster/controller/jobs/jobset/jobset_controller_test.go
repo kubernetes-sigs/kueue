@@ -179,7 +179,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 
 			ginkgo.By("checking the JobSet is unsuspended when workload is assigned")
 
-			admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 				kueue.PodSetAssignment{
 					Name: createdWorkload.Spec.PodSets[0].Name,
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -229,7 +229,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 			gomega.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 
 			ginkgo.By("checking the JobSet is unsuspended and selectors added when workload is assigned again")
-			admission = utiltestingapi.MakeAdmission(clusterQueue.Name).
+			admission = utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(
 					kueue.PodSetAssignment{
 						Name: "replicated-job-1",
@@ -321,7 +321,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				admission := utiltestingapi.MakeAdmission(localQueue.Name).PodSets(
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 					kueue.PodSetAssignment{
 						Name: createdWorkload.Spec.PodSets[0].Name,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -443,7 +443,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 			ginkgo.By("admit the workload", func() {
 				createdWorkload := &kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 					PodSets(
 						kueue.PodSetAssignment{
 							Name: createdWorkload.Spec.PodSets[0].Name,
@@ -597,7 +597,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 			})
 
 			ginkgo.By("admit the workload", func() {
-				admission := utiltestingapi.MakeAdmission(clusterQueueAc.Name).
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueAc.Name)).
 					PodSets(
 						kueue.PodSetAssignment{
 							Name: createdWorkload.Spec.PodSets[0].Name,

@@ -4530,14 +4530,14 @@ func TestCandidatesOrdering(t *testing.T) {
 
 	wlLowUsageLq := workload.NewInfo(utiltestingapi.MakeWorkload("low_lq_usage", "").
 		Queue("low_usage_lq").
-		ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 		Priority(1).
 		Obj())
 	wlLowUsageLq.LocalQueueFSUsage = ptr.To(0.1)
 
 	wlMidUsageLq := workload.NewInfo(utiltestingapi.MakeWorkload("mid_lq_usage", "").
 		Queue("mid_usage_lq").
-		ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 		Priority(10).
 		Obj())
 	wlMidUsageLq.LocalQueueFSUsage = ptr.To(0.5)
@@ -4557,11 +4557,11 @@ func TestCandidatesOrdering(t *testing.T) {
 		"workloads sorted by priority": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("high", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("low", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(-10).
 					Obj()),
 			},
@@ -4570,7 +4570,7 @@ func TestCandidatesOrdering(t *testing.T) {
 		"evicted workload first": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("other", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("evicted", "").
@@ -4586,7 +4586,7 @@ func TestCandidatesOrdering(t *testing.T) {
 		"workload from different CQ first": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("preemptorCq", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("other", "").
@@ -4599,13 +4599,13 @@ func TestCandidatesOrdering(t *testing.T) {
 		"old workloads last": {
 			candidates: []workload.Info{
 				*workload.NewInfo(utiltestingapi.MakeWorkload("older", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now.Add(-time.Second)).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now.Add(-time.Second)).
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("younger", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now.Add(time.Second)).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now.Add(time.Second)).
 					Obj()),
 				*workload.NewInfo(utiltestingapi.MakeWorkload("current", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(preemptorCq).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Obj()),
 			},
 			wantCandidates: []workload.Reference{"younger", "current", "older"},
