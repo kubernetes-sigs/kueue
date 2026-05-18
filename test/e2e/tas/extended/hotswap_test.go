@@ -115,7 +115,6 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
-
 		// In this test we use a jobset with SliceSize = 3 and SliceRequiredTopology = Block
 		// Each pod requires 1 "extraResource" so the jobSet will use three nodes from a Block.
 		// Since each Block has 4 nodes (see the image above), one node will be free.
@@ -152,7 +151,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			ginkgo.By("JobSet is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -230,7 +229,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			ginkgo.By("JobSet is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
