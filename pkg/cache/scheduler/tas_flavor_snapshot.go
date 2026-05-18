@@ -656,12 +656,15 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 }
 
 func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, ta *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
-	for _, domain := range ta.Domains {
-		domainID := utiltas.DomainID(domain.Values)
+	addUsagePerDomain(assumedUsage, utiltas.ComputeUsagePerDomain(ta, tr.SinglePodRequests))
+}
+
+func addUsagePerDomain(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, usagePerDomain map[utiltas.TopologyDomainID]resources.Requests) {
+	for domainID, usage := range usagePerDomain {
 		if assumedUsage[domainID] == nil {
 			assumedUsage[domainID] = resources.Requests{}
 		}
-		assumedUsage[domainID].Add(tr.SinglePodRequests.ScaledUp(int64(domain.Count)))
+		assumedUsage[domainID].Add(usage)
 	}
 }
 

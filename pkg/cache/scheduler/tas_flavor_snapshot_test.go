@@ -625,6 +625,46 @@ func TestComputeAssumedUsageFromAssignment(t *testing.T) {
 	}
 }
 
+func TestAddAssumedUsageIncludesPodCount(t *testing.T) {
+	assumedUsage := map[tas.TopologyDomainID]resources.Requests{
+		"node-a": {
+			corev1.ResourceCPU:  1000,
+			corev1.ResourcePods: 1,
+		},
+	}
+	assignment := &tas.TopologyAssignment{
+		Levels: []string{"hostname"},
+		Domains: []tas.TopologyDomainAssignment{
+			{Values: []string{"node-a"}, Count: 1},
+			{Values: []string{"node-b"}, Count: 2},
+		},
+	}
+	tasRequests := &TASPodSetRequests{
+		SinglePodRequests: resources.Requests{
+			corev1.ResourceCPU:    500,
+			corev1.ResourceMemory: 2048,
+		},
+	}
+
+	addAssumedUsage(assumedUsage, assignment, tasRequests)
+
+	want := map[tas.TopologyDomainID]resources.Requests{
+		"node-a": {
+			corev1.ResourceCPU:    1500,
+			corev1.ResourceMemory: 2048,
+			corev1.ResourcePods:   2,
+		},
+		"node-b": {
+			corev1.ResourceCPU:    1000,
+			corev1.ResourceMemory: 4096,
+			corev1.ResourcePods:   2,
+		},
+	}
+	if diff := cmp.Diff(want, assumedUsage); diff != "" {
+		t.Errorf("addAssumedUsage() mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestTruncateAssignment(t *testing.T) {
 	cases := map[string]struct {
 		assignment *tas.TopologyAssignment
