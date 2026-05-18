@@ -212,24 +212,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Finish orphaned workloads whose controller owner no longer exists.
-	// The ownerReference still points to a non-existent object (e.g., a
-	// Deployment-owned pod deleted after PodsReady timeout eviction).
-	if features.Enabled(features.FinishOrphanedWorkloads) && wl.DeletionTimestamp.IsZero() {
-		if ownerGone, err := r.isControllerOwnerGone(ctx, &wl); err != nil {
-			return ctrl.Result{}, err
-		} else if ownerGone {
-			log.V(2).Info("Workload is orphaned, finishing to release quota")
-			if err := workload.Finish(ctx, r.client, &wl, kueue.WorkloadFinishedReasonOwnerNotFound, "The workload's owner no longer exists", r.clock); err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
-			if err := workload.RemoveFinalizer(ctx, r.client, &wl); err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
-			return ctrl.Result{}, nil
-		}
-	}
-
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
 		updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := r.syncPreemptionGateStates(wl)
@@ -1368,34 +1350,6 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Watches(&kueue.ClusterQueue{}, wqh).
 		Watches(&kueue.LocalQueue{}, wqh).
 		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
-}
-
-// isControllerOwnerGone checks whether the controller owner of the workload
-// still exists. Returns true if the controller owner reference points to an
-// object that no longer exists (NotFound) or whose UID no longer matches.
-// This is used to detect stale workloads whose owning pod was deleted
-// (e.g., by eviction) and replaced by a new pod from a Deployment.
-func (r *WorkloadReconciler) isControllerOwnerGone(ctx context.Context, wl *kueue.Workload) (bool, error) {
-	ref := metav1.GetControllerOf(wl)
-	if ref == nil {
-		return false, nil
-	}
-	obj := &metav1.PartialObjectMetadata{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: ref.APIVersion,
-			Kind:       ref.Kind,
-		},
-	}
-	key := client.ObjectKey{Namespace: wl.Namespace, Name: ref.Name}
-	if err := r.client.Get(ctx, key, obj); err != nil {
-		if apierrors.IsNotFound(err) {
-			return true, nil
-		}
-		return false, err
-	}
-	// A different UID means the original owner was deleted and a new object
-	// with the same name was created.
-	return obj.UID != ref.UID, nil
 }
 
 // admittedNotReadyWorkload returns the underlying cause and remaining time for
