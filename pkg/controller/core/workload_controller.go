@@ -298,7 +298,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
 			err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-				updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now())
+				updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, "KueueDRAIntegration feature does not support use of resource claims", r.clock.Now())
 				if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false) {
 					updated = true
 				}
@@ -333,7 +333,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// Process Extended Resources backed by DRA (new path)
 		var extendedResources map[kueue.PodSetReference]corev1.ResourceList
 		var replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
-		if features.Enabled(features.DRAExtendedResources) {
+		if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 			var extFieldErrs field.ErrorList
 			extendedResources, replacedExtendedResources, extFieldErrs = dra.ResolveExtendedResourceQuota(ctx, r.client, &wl)
 			if len(extFieldErrs) > 0 {

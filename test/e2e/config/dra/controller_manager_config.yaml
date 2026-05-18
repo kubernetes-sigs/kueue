@@ -20,8 +20,8 @@ integrations:
   - "batch/job"
   - "pod"
 featureGates:
-  DynamicResourceAllocation: true
-  DRAExtendedResources: true
+  KueueDRAIntegration: true
+  KueueDRAIntegrationExtendedResource: true
 resources:
   deviceClassMappings:
   - name: gpu
