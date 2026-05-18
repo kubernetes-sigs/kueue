@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	apimachineryutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -492,7 +493,16 @@ func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.Erro
 	return allErrs
 }
 
-func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) error {
+func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) error {
+	if featureGateCLI != "" {
+		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGateCLI); err != nil {
+			return err
+		}
+	} else {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(featureGateMap); err != nil {
+			return err
+		}
+	}
 	if featureGateCLI != "" && featureGateMap != nil {
 		return errors.New("feature gates for CLI and configuration cannot both specified")
 	}
