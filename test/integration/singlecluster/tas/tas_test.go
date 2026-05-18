@@ -3458,7 +3458,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
 						Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "node-bad").
-						Label("region", "us-west").
+						Label("region", "us-east").
 						Label("zone", "eu").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
@@ -3523,7 +3523,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						utiltas.V1Beta2From(&utiltas.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
 							Domains: []utiltas.TopologyDomainAssignment{
-								{Count: 1, Values: []string{"node-bad"}},
+								{Count: 1, Values: []string{"node-best"}},
 							},
 						}),
 					))
