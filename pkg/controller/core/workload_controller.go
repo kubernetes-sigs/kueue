@@ -265,10 +265,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		log.V(2).Info("Deleting workload because it has finished and the retention period has elapsed", "retention", *r.workloadRetention.afterFinished)
-		if err := r.client.Delete(ctx, &wl); err != nil {
+
+		// Finished Workloads should no longer need Kueue's resource-in-use finalizer.
+		// However, WorkloadSlices and other paths can mark a Workload as Finished without
+		// going through the job finalization path that normally removes it. Remove only
+		// Kueue's finalizer before deleting; otherwise Kubernetes may only set
+		// deletionTimestamp and the Workload can remain stuck until the finalizer is removed.
+		deleteRequested, err := workload.Delete(ctx, r.client, &wl)
+		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
-		r.recorder.Eventf(&wl, nil, corev1.EventTypeNormal, "Deleted", "Deleted", "Deleted finished workload due to elapsed retention")
+		if deleteRequested {
+			r.recorder.Eventf(&wl, nil, corev1.EventTypeNormal, "Deleted", "Deleted", "Deleted finished workload due to elapsed retention")
+		}
+
 		return ctrl.Result{}, nil
 	}
 
