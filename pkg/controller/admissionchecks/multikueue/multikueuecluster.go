@@ -36,12 +36,14 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -61,6 +63,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
+	kueueinformers "sigs.k8s.io/kueue/client-go/informers/externalversions"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -105,17 +109,25 @@ type clientConfig struct {
 	RestConfig *rest.Config
 }
 
+func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
+	if c.RestConfig != nil {
+		return c.RestConfig, nil
+	}
+	return clientcmd.RESTConfigFromKubeConfig(c.Kubeconfig)
+}
+
 type remoteClient struct {
-	clusterName  string
-	localClient  client.Client
-	client       client.WithWatch
-	wlUpdateCh   chan<- event.GenericEvent
-	watchEndedCh chan<- event.GenericEvent
-	cqUpdateCh   chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
-	watchCancel  func()
-	config       *clientConfig
-	origin       string
-	adapters     map[string]jobframework.MultiKueueAdapter
+	clusterName    string
+	localClient    client.Client
+	client         client.WithWatch
+	wlUpdateCh     chan<- event.GenericEvent
+	watchEndedCh   chan<- event.GenericEvent
+	cqUpdateCh     chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
+	watchCancel    func()
+	config         *clientConfig
+	origin         string
+	adapters       map[string]jobframework.MultiKueueAdapter
+	queuesInformer kueueinformers.SharedInformerFactory
 
 	connecting           atomic.Bool
 	failedConnAttempts   uint
@@ -155,10 +167,7 @@ func newRemoteClient(
 }
 
 func newClientWithWatch(config *clientConfig, options client.Options) (client.WithWatch, error) {
-	if config.RestConfig != nil {
-		return client.NewWithWatch(config.RestConfig, options)
-	}
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig(config.Kubeconfig)
+	restConfig, err := config.toRESTConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -363,38 +372,84 @@ func (rc *remoteClient) startWorkloadOrJobWatcher(ctx context.Context, kind stri
 }
 
 func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
-	if err := rc.startWatcher(ctx, "ClusterQueue", &kueue.ClusterQueueList{}, func(obj client.Object) {
-		if cq, ok := obj.(*kueue.ClusterQueue); ok {
-			rc.queueEventsForCQ(ctx, cq)
-		}
-	}); err != nil {
-		return fmt.Errorf("starting remote ClusterQueue watch: %w", err)
+	restConfig, err := rc.config.toRESTConfig()
+	if err != nil {
+		return fmt.Errorf("building rest config: %w", err)
 	}
 
-	if err := rc.startWatcher(ctx, "LocalQueue", &kueue.LocalQueueList{}, func(obj client.Object) {
-		if lq, ok := obj.(*kueue.LocalQueue); ok {
-			rc.queueEventsForLQ(ctx, lq)
-		}
-	}); err != nil {
-		return fmt.Errorf("starting remote LocalQueue watch: %w", err)
+	kueueClient, err := kueueclientset.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("creating kueue clientset: %w", err)
 	}
 
+	rc.queuesInformer = kueueinformers.NewSharedInformerFactory(kueueClient, 5*time.Minute)
+	cqInformer := rc.queuesInformer.Kueue().V1beta2().ClusterQueues()
+	lqInformer := rc.queuesInformer.Kueue().V1beta2().LocalQueues()
+
+	_, err = cqInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			if cq, ok := obj.(*kueue.ClusterQueue); ok {
+				rc.queueEventsForCQ(ctx, cq)
+			}
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			oldCQ, ok1 := oldObj.(*kueue.ClusterQueue)
+			newCQ, ok2 := newObj.(*kueue.ClusterQueue)
+			if ok1 && ok2 && !equality.Semantic.DeepEqual(oldCQ.Spec.ResourceGroups, newCQ.Spec.ResourceGroups) {
+				rc.queueEventsForCQ(ctx, newCQ)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			if cq, err := deletedObjectState[*kueue.ClusterQueue](obj); err == nil {
+				rc.queueEventsForCQ(ctx, cq)
+			}
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("adding ClusterQueue event handler: %w", err)
+	}
+
+	_, err = lqInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			if lq, ok := obj.(*kueue.LocalQueue); ok {
+				rc.queueEventsForLQ(ctx, lq)
+			}
+		},
+		UpdateFunc: nil, // LQ -> CQ bindings are immutable.
+		DeleteFunc: func(obj interface{}) {
+			if lq, err := deletedObjectState[*kueue.LocalQueue](obj); err == nil {
+				rc.queueEventsForLQ(ctx, lq)
+			}
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("adding LocalQueue event handler: %w", err)
+	}
+
+	rc.queuesInformer.Start(ctx.Done())
 	return nil
 }
 
 func (rc *remoteClient) queueEventsForCQ(ctx context.Context, remoteCQ *kueue.ClusterQueue) {
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteCQ", remoteCQ.Name)
 
-	// Remote clients aren't indexed, so we fetch all remote LQs.
-	remoteLQs := &kueue.LocalQueueList{}
-	if err := rc.client.List(ctx, remoteLQs); err != nil {
-		log.Error(err, "Failed to list remote LocalQueues")
+	if rc.queuesInformer == nil {
+		log.V(3).Info("queuesInformer is not initialized yet")
 		return
 	}
 
-	for _, rlq := range remoteLQs.Items {
+	// Ideally, we should restrict this list by .Spec.ClusterQueue right away.
+	// For example, by adding an indexer.
+	// This is postponed to Manager Quota Automation Beta.
+	remoteLQs, err := rc.queuesInformer.Kueue().V1beta2().LocalQueues().Lister().List(labels.Everything())
+	if err != nil {
+		log.Error(err, "Failed to list remote LocalQueues from cache")
+		return
+	}
+
+	for _, rlq := range remoteLQs {
 		if string(rlq.Spec.ClusterQueue) == remoteCQ.Name {
-			rc.queueEventsForLQ(ctx, &rlq)
+			rc.queueEventsForLQ(ctx, rlq)
 		}
 	}
 }
@@ -418,6 +473,7 @@ func (rc *remoteClient) StopWatchers() {
 	if rc.watchCancel != nil {
 		rc.watchCancel()
 	}
+	rc.queuesInformer = nil
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
@@ -1118,4 +1174,21 @@ func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.
 		}
 		q.Add(req)
 	}
+}
+
+func deletedObjectState[T client.Object](obj interface{}) (T, error) {
+	var zero T
+	typedObj, ok := obj.(T)
+	if ok {
+		return typedObj, nil
+	}
+	tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+	if !ok {
+		return zero, fmt.Errorf("unknown object type %T", obj)
+	}
+	typedObj, ok = tombstone.Obj.(T)
+	if !ok {
+		return zero, fmt.Errorf("tombstone contained object of type %T, expected %T", tombstone.Obj, zero)
+	}
+	return typedObj, nil
 }

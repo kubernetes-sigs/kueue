@@ -1211,51 +1211,76 @@ func (c *interceptedCache) hasWatch(kind string) bool {
 	return c.requestedWatches.Has(kind)
 }
 
-type quotaAutomationFeatureGateTestSpec struct {
-	featureGateEnabled bool
-	wantWatched        bool
-}
-
 var _ = ginkgo.Describe("Manager quota automation feature", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	const cqTypeName = "*v1beta2.ClusterQueue"
+
 	ginkgo.AfterEach(func() {
 		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 	})
 
-	ginkgo.DescribeTable("Quota automation feature gate verification", func(spec quotaAutomationFeatureGateTestSpec) {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, spec.featureGateEnabled)
+	ginkgo.When("Feature gate disabled", func() {
+		ginkgo.It("Should not watch manager-side ClusterQueues", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, false)
 
-		ic, newCacheFunc := newInterceptedCache()
-		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
-			err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ic, newCacheFunc := newInterceptedCache()
+			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+				err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			adapters, err := jobframework.GetMultiKueueAdapters(defaultEnabledIntegrations)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				adapters, err := jobframework.GetMultiKueueAdapters(defaultEnabledIntegrations)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
-				multikueue.WithGCInterval(2*time.Second),
-				multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
-				multikueue.WithEventsBatchPeriod(100*time.Millisecond),
-				multikueue.WithAdapters(adapters),
-				multikueue.WithDispatcherName(config.MultiKueueDispatcherModeAllAtOnce),
-			)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
+					multikueue.WithGCInterval(2*time.Second),
+					multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
+					multikueue.WithEventsBatchPeriod(100*time.Millisecond),
+					multikueue.WithAdapters(adapters),
+					multikueue.WithDispatcherName(config.MultiKueueDispatcherModeAllAtOnce),
+				)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			failedWebhook, err := webhooks.Setup(mgr, nil)
-			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
-		}, framework.WithNewCache(newCacheFunc))
+				failedWebhook, err := webhooks.Setup(mgr, nil)
+				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+			}, framework.WithNewCache(newCacheFunc))
 
-		time.Sleep(3 * time.Second)
 
-		gomega.Expect(ic.hasWatch("*v1beta2.ClusterQueue")).To(gomega.Equal(spec.wantWatched))
-	},
-		ginkgo.Entry("Feature gate disabled implies no ClusterQueue watch", quotaAutomationFeatureGateTestSpec{
-			featureGateEnabled: false,
-			wantWatched:        false,
-		}),
-		ginkgo.Entry("Feature gate enabled implies ClusterQueue watch is registered", quotaAutomationFeatureGateTestSpec{
-			featureGateEnabled: true,
-			wantWatched:        true,
-		}),
-	)
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(ic.hasWatch(cqTypeName)).To(gomega.BeFalse())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("Feature gate enabled", func() {
+		ginkgo.It("Should watch manager-side ClusterQueues", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, true)
+
+			ic, newCacheFunc := newInterceptedCache()
+			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+				managerSetup(ctx, mgr)
+
+				err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				adapters, err := jobframework.GetMultiKueueAdapters(defaultEnabledIntegrations)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
+					multikueue.WithGCInterval(2*time.Second),
+					multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
+					multikueue.WithEventsBatchPeriod(100*time.Millisecond),
+					multikueue.WithAdapters(adapters),
+					multikueue.WithDispatcherName(config.MultiKueueDispatcherModeAllAtOnce),
+				)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				failedWebhook, err := webhooks.Setup(mgr, nil)
+				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+			}, framework.WithNewCache(newCacheFunc))
+
+			ginkgo.By("Verify watch for manager-side ClusterQueues")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(ic.hasWatch(cqTypeName)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })
