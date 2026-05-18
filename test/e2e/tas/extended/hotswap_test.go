@@ -115,7 +115,6 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
-
 		// In this test we use a jobset with SliceSize = 3 and SliceRequiredTopology = Block
 		// Each pod requires 1 "extraResource" so the jobSet will use three nodes from a Block.
 		// Since each Block has 4 nodes (see the image above), one node will be free.
