@@ -1,25 +1,31 @@
 ---
-title: "Set Up Concurrent Admission"
+title: "Concurrent Admission"
 linkTitle: "Concurrent Admission"
 date: 2026-05-05
 weight: 8
 description: >
-  Configure Kueue to admit workloads by trying multiple resource flavors concurrently.
+  Migrate admitted workloads to more preferred ResourceFlavors and run flavor-scoped admission checks concurrently.
 ---
 
 {{< feature-state state="alpha" for_version="v0.18" >}}
 
-Concurrent Admission lets Kueue try multiple [ResourceFlavors](/docs/concepts/resource_flavor)
-for the same [Workload](/docs/concepts/workload) at the same time. A Workload can
-start on the first flavor that leads to admission, while Kueue can continue
-trying more preferred flavors and migrate the Workload if a better flavor later
-becomes available.
+Concurrent Admission lets a [Workload](/docs/concepts/workload) start on an
+admitted [ResourceFlavor](/docs/concepts/resource_flavor), while Kueue keeps
+admission attempts for more preferred flavors.
+
+Concurrent Admission has two main effects:
+
+- Kueue can migrate a running Workload to a more preferred ResourceFlavor when
+  that flavor becomes available.
+- Kueue can run admission checks for variants constrained to different
+  ResourceFlavors concurrently, instead of waiting for one flavor's admission
+  check before trying another flavor.
 
 Use Concurrent Admission when workloads can tolerate disruption and you want to
-trade extra scheduling work for faster placement or for migration to a preferred
-flavor, such as a reservation.
+trade extra scheduling work for faster placement, concurrent admission checks,
+or migration to a preferred flavor, such as a reservation.
 
-The intended audience for this page are [batch administrators](/docs/tasks#batch-administrator).
+The intended audience for this page is [batch administrators](/docs/tasks#batch-administrator).
 
 ## Before you begin
 
@@ -36,22 +42,29 @@ Make sure the following conditions are met:
 
 Install or reconfigure Kueue with the feature gate enabled:
 
-```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta2
-kind: Configuration
-featureGates:
-  ConcurrentAdmission: true
+```diff
+kind: Deployment
+...
+spec:
+  ...
+  template:
+    ...
+    spec:
+      containers:
+      - name: manager
+        args:
++       - --feature-gates=ConcurrentAdmission=true
 ```
 
 Follow the
-[custom configuration installation instructions](/docs/installation#install-a-custom-configured-released-version)
-for details on changing the Kueue configuration.
+[feature gates configuration instructions](/docs/installation/#change-the-feature-gates-configuration)
+for details.
 
 ## Configure flavors and queues
 
-Create a `ClusterQueue` with multiple flavors in one `resourceGroup` and enable
-`.spec.concurrentAdmissionPolicy`. The flavor order matters: list flavors from
-the most preferred to the least preferred.
+Create a `BestEffortFIFO` `ClusterQueue` with multiple flavors in one
+`resourceGroup` and enable `.spec.concurrentAdmissionPolicy`. The flavor order
+matters: list flavors from the most preferred to the least preferred.
 
 {{< include "examples/admin/concurrent-admission-setup.yaml" "yaml" >}}
 
@@ -68,9 +81,11 @@ With this configuration, Kueue can create one admission attempt for each flavor:
 - `spot` is the least preferred flavor.
 
 The only supported migration mode is `TryPreferredFlavors`. In this mode, if a
-Workload starts on `spot`, Kueue keeps trying `reservation` and `on-demand`. If a
-more preferred flavor is admitted later, Kueue migrates the Workload to that
-flavor.
+Workload starts on `spot`, it means `reservation` and `on-demand` did not admit
+the Workload at that time because quota was unavailable or the required
+admission checks were still pending. Kueue keeps trying `reservation` and
+`on-demand`. If a more preferred flavor is admitted later, Kueue migrates the
+Workload to that flavor.
 
 ## Limit migration to a minimum preferred flavor
 
@@ -90,6 +105,62 @@ concurrentAdmissionPolicy:
 
 Kueue compares `minPreferredFlavorName` using the order of
 `.spec.resourceGroups[*].flavors` in the `ClusterQueue`.
+
+## Use a reservation with homogeneous flavors
+
+Use `minPreferredFlavorName` when you have one preferred reservation flavor and
+several less preferred homogeneous flavors. This lets workloads migrate to the
+reservation if it becomes available, without migrating between homogeneous
+fallback flavors.
+
+For example, a Workload running on `zone-b` can migrate to `reservation`, but it
+doesn't migrate to `zone-a`:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: cluster-queue
+spec:
+  namespaceSelector: {}
+  queueingStrategy: BestEffortFIFO
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: reservation
+      resources:
+      - name: cpu
+        nominalQuota: 4
+      - name: memory
+        nominalQuota: 16Gi
+    - name: zone-a
+      resources:
+      - name: cpu
+        nominalQuota: 8
+      - name: memory
+        nominalQuota: 32Gi
+    - name: zone-b
+      resources:
+      - name: cpu
+        nominalQuota: 8
+      - name: memory
+        nominalQuota: 32Gi
+    - name: zone-c
+      resources:
+      - name: cpu
+        nominalQuota: 8
+      - name: memory
+        nominalQuota: 32Gi
+  admissionChecksStrategy:
+    admissionChecks:
+    - name: capacity-check
+      onFlavors: [zone-a, zone-b, zone-c]
+  concurrentAdmissionPolicy:
+    migration:
+      mode: TryPreferredFlavors
+      constraints:
+        minPreferredFlavorName: reservation
+```
 
 ## Observe Concurrent Admission
 
@@ -127,6 +198,8 @@ Concurrent Admission currently has the following constraints:
 
 - The feature is available on the `v1beta2` ClusterQueue API.
 - The `ConcurrentAdmission` feature gate must be enabled.
+- A `ClusterQueue` with `.spec.concurrentAdmissionPolicy` must use
+  `BestEffortFIFO`. `StrictFIFO` is not supported.
 - A `ClusterQueue` with `.spec.concurrentAdmissionPolicy` must have exactly one
   `resourceGroup`.
 - The `resourceGroup` can contain at most 16 ResourceFlavors.

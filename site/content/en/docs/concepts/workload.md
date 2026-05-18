@@ -20,7 +20,7 @@ Workload objects that represent the resource requirements of an arbitrary
 workload. Kueue automatically creates a Workload for each Job object and syncs
 the decisions and statuses.
 
-When [Concurrent Admission](/docs/tasks/manage/setup_concurrent_admission) is
+When [Concurrent Admission](/docs/concepts/concurrent_admission) is
 enabled for the Workload's ClusterQueue, Kueue can represent one Job with a
 parent Workload and multiple variant Workloads. The parent Workload aggregates
 the admission status for the Job integration, and each variant is an internal

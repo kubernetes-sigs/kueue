@@ -19,8 +19,9 @@ metadata:
   name: team-cluster-queue
 spec:
   namespaceSelector: {}
+  queueingStrategy: BestEffortFIFO
   resourceGroups:
-  - coveredResources: ["cpu", "memory", "pods"]
+  - coveredResources: ["cpu", "memory"]
     flavors:
     # Flavors are ordered from the most preferred to the least preferred.
     - name: reservation
@@ -29,24 +30,18 @@ spec:
         nominalQuota: 4
       - name: memory
         nominalQuota: 16Gi
-      - name: pods
-        nominalQuota: 4
     - name: on-demand
       resources:
       - name: cpu
         nominalQuota: 8
       - name: memory
         nominalQuota: 32Gi
-      - name: pods
-        nominalQuota: 8
     - name: spot
       resources:
       - name: cpu
         nominalQuota: 16
       - name: memory
         nominalQuota: 64Gi
-      - name: pods
-        nominalQuota: 16
   concurrentAdmissionPolicy:
     migration:
       mode: TryPreferredFlavors

@@ -1,21 +1,25 @@
 ---
-title: "设置并发准入（Concurrent Admission）"
+title: "并发准入（Concurrent Admission）"
 linkTitle: "并发准入"
 date: 2026-05-05
 weight: 8
 description: >
-  配置 Kueue 通过同时尝试多个资源规格来准入工作负载。
+  将已准入的工作负载迁移到更优先的 ResourceFlavor，并发运行按规格划分的准入检查。
 ---
 
 {{< feature-state state="alpha" for_version="v0.18" >}}
 
-并发准入（Concurrent Admission）允许 Kueue 为同一个
-[工作负载](/docs/concepts/workload)同时尝试多个
-[资源规格](/docs/concepts/resource_flavor)。工作负载可以先在第一个成功准入的规格上启动。
-同时，Kueue 仍可以继续尝试更优先的规格，并在更好的规格可用时迁移工作负载。
+并发准入（Concurrent Admission）允许[工作负载](/docs/concepts/workload)先在已准入的
+[资源规格](/docs/concepts/resource_flavor)上启动，同时 Kueue 继续保留更优先规格的准入尝试。
+
+并发准入主要提供两个能力：
+
+- 当更优先的 ResourceFlavor 可用时，Kueue 可以将正在运行的 Workload 迁移到该规格。
+- Kueue 可以为限制到不同 ResourceFlavor 的变体并发运行准入检查，而不是等待某个规格的
+  准入检查结束后再尝试另一个规格。
 
 当工作负载可以接受中断，并且你希望用额外调度开销换取更快放置或迁移到更优先规格时，
-可以使用并发准入。例如，将工作负载迁移到预留资源规格。
+可以使用并发准入。例如，并发运行准入检查，或将工作负载迁移到预留资源规格。
 
 本文面向[批处理管理员](/docs/tasks#batch-administrator)。
 
@@ -34,19 +38,26 @@ description: >
 
 安装或重新配置 Kueue，并启用该特性门控：
 
-```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta2
-kind: Configuration
-featureGates:
-  ConcurrentAdmission: true
+```diff
+kind: Deployment
+...
+spec:
+  ...
+  template:
+    ...
+    spec:
+      containers:
+      - name: manager
+        args:
++       - --feature-gates=ConcurrentAdmission=true
 ```
 
 有关修改 Kueue 配置的详细步骤，请参阅
-[自定义配置安装说明](/docs/installation#install-a-custom-configured-released-version)。
+[特性门控配置说明](/docs/installation/#change-the-feature-gates-configuration)。
 
 ## 配置规格和队列 {#configure-flavors-and-queues}
 
-创建包含多个规格的 `ClusterQueue`，并启用 `.spec.concurrentAdmissionPolicy`。
+创建包含多个规格的 `BestEffortFIFO` `ClusterQueue`，并启用 `.spec.concurrentAdmissionPolicy`。
 所有规格必须位于同一个 `resourceGroup` 中。规格顺序很重要：请按照从最高优先级到
 最低优先级的顺序列出规格。
 
@@ -65,8 +76,9 @@ kubectl apply -f https://kueue.sigs.k8s.io/examples/admin/concurrent-admission-s
 - `spot` 是最低优先级规格。
 
 当前唯一支持的迁移模式是 `TryPreferredFlavors`。在该模式下，如果工作负载先在 `spot`
-上启动，Kueue 会继续尝试 `reservation` 和 `on-demand`。如果之后更高优先级的规格被准入，
-Kueue 会将工作负载迁移到该规格。
+上启动，说明 `reservation` 和 `on-demand` 当时没有准入该工作负载，原因可能是配额不可用，
+也可能是所需的准入检查仍在等待。Kueue 会继续尝试 `reservation` 和 `on-demand`。
+如果之后更高优先级的规格被准入，Kueue 会将工作负载迁移到该规格。
 
 ## 将迁移限制到最低优先规格 {#limit-migration-to-a-minimum-preferred-flavor}
 
@@ -85,6 +97,60 @@ concurrentAdmissionPolicy:
 
 Kueue 会根据 `ClusterQueue` 中 `.spec.resourceGroups[*].flavors` 的顺序比较
 `minPreferredFlavorName`。
+
+## 将 reservation 与同质规格配合使用 {#use-a-reservation-with-homogeneous-flavors}
+
+当你有一个优先的预留规格，以及多个优先级较低且同质的规格时，可以使用
+`minPreferredFlavorName`。这样，如果预留规格可用，工作负载可以迁移到该规格；
+但不会在同质的兜底规格之间迁移。
+
+例如，运行在 `zone-b` 上的 Workload 可以迁移到 `reservation`，但不会迁移到 `zone-a`：
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: cluster-queue
+spec:
+  namespaceSelector: {}
+  queueingStrategy: BestEffortFIFO
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: reservation
+      resources:
+      - name: cpu
+        nominalQuota: 4
+      - name: memory
+        nominalQuota: 16Gi
+    - name: zone-a
+      resources:
+      - name: cpu
+        nominalQuota: 8
+      - name: memory
+        nominalQuota: 32Gi
+    - name: zone-b
+      resources:
+      - name: cpu
+        nominalQuota: 8
+      - name: memory
+        nominalQuota: 32Gi
+    - name: zone-c
+      resources:
+      - name: cpu
+        nominalQuota: 8
+      - name: memory
+        nominalQuota: 32Gi
+  admissionChecksStrategy:
+    admissionChecks:
+    - name: capacity-check
+      onFlavors: [zone-a, zone-b, zone-c]
+  concurrentAdmissionPolicy:
+    migration:
+      mode: TryPreferredFlavors
+      constraints:
+        minPreferredFlavorName: reservation
+```
 
 ## 观察并发准入 {#observe-concurrent-admission}
 
@@ -120,6 +186,8 @@ kubectl get workloads -o yaml
 
 - 该特性可用于 `v1beta2` ClusterQueue API。
 - 必须启用 `ConcurrentAdmission` 特性门控。
+- 配置了 `.spec.concurrentAdmissionPolicy` 的 `ClusterQueue` 必须使用 `BestEffortFIFO`。
+  不支持 `StrictFIFO`。
 - 配置了 `.spec.concurrentAdmissionPolicy` 的 `ClusterQueue` 必须正好有一个
   `resourceGroup`。
 - 该 `resourceGroup` 最多可以包含 16 个 ResourceFlavor。
