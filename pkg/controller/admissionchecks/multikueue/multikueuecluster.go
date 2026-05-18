@@ -841,7 +841,10 @@ func (c *clustersReconciler) Update(e event.UpdateEvent) bool {
 			log.Error(err, "AddOrUpdate FS watch")
 		}
 	}
-	return true
+	if !clusterNew.DeletionTimestamp.IsZero() {
+		return true
+	}
+	return clusterOld.Generation != clusterNew.Generation
 }
 
 func (c *clustersReconciler) Delete(e event.DeleteEvent) bool {

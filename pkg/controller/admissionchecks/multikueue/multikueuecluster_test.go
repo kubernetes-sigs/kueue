@@ -1077,7 +1077,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 			},
 			wantReconcile: true,
 		},
-		"update cluster status only change does not skip reconcile": {
+		"update cluster status only change skips reconcile": {
 			invoke: func(p predicate.Predicate) bool {
 				return p.Update(event.UpdateEvent{
 					ObjectOld: baseCluster,
@@ -1087,7 +1087,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 						Obj(),
 				})
 			},
-			wantReconcile: true,
+			wantReconcile: false,
 		},
 		"update cluster deletion timestamp triggers reconcile": {
 			invoke: func(p predicate.Predicate) bool {
@@ -1098,20 +1098,22 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 			},
 			wantReconcile: true,
 		},
-		"update cluster no change does not skip reconcile": {
+		"update cluster no change skips reconcile": {
 			invoke: func(p predicate.Predicate) bool {
 				return p.Update(event.UpdateEvent{
 					ObjectOld: baseCluster,
 					ObjectNew: baseCluster.DeepCopy(),
 				})
 			},
-			wantReconcile: true,
+			wantReconcile: false,
 		},
 		"update cluster path location changed to secret triggers reconcile": {
 			invoke: func(p predicate.Predicate) bool {
+				objNew := baseCluster.DeepCopy()
+				objNew.SetGeneration(2)
 				return p.Update(event.UpdateEvent{
 					ObjectOld: baseClusterWithPath,
-					ObjectNew: baseCluster,
+					ObjectNew: objNew,
 				})
 			},
 			wantReconcile: true,

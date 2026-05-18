@@ -911,7 +911,8 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		if useBalancedPlacement {
 			currFitDomain, fitLevelIdx, reason = applyBalancedPlacementAlgorithm(s, &state.topologyAssignmentParameters, bestThreshold, currFitDomain)
 			if len(reason) > 0 {
-				return nil, reason
+				s.log.V(3).Info("Balanced placement algorithm failed, falling back to Best Fit", "reason", reason)
+				useBalancedPlacement = false
 			}
 		}
 	}
