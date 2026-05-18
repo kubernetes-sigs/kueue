@@ -75,7 +75,20 @@ const (
 
 	// Bounds how long startWatcher waits for client.Watch() to return,
 	// so a hung remote cannot head-of-line block the reconciler. See #11206.
-	defaultWatchEstablishTimeout = 60 * time.Second
+	//
+	// The bound has to cover the slowest legitimate case, not just the common
+	// one. client.Watch() returns as soon as the apiserver sends HTTP 200
+	// headers, but the apiserver can delay sending those headers while it
+	// warms its watch cache. When the served version differs from the storage
+	// version and a conversion webhook is in play, that warmup serializes a
+	// per-object conversion and has been observed to take ~8 min at ~50k
+	// Workloads (kubernetes/kubernetes#136950). 10 min leaves headroom above
+	// the documented worst case while still ringing the alarm on a remote
+	// that is truly hung. Today Kueue's served and storage versions match
+	// (v1beta2), so the warmup path is not exercised, but we keep the
+	// generous bound as a guard against future version skew and unknown
+	// apiserver behavior.
+	defaultWatchEstablishTimeout = 10 * time.Minute
 )
 
 var (
