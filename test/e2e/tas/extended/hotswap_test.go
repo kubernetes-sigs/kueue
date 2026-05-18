@@ -193,6 +193,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				})
 			})
 		})
+
 		// In this test we use a jobset with SliceSize = 2 and SliceRequiredTopology = Rack
 		// Each pod requires 1 "extraResource" so the jobSet will use both nodes from a Rack.
 		// When one of the nodes fail, the replacement mechanism would need to find the
