@@ -83,6 +83,11 @@ type domain struct {
 	sliceStateWithLeader int32
 	leaderState          int32
 
+	// minNonZeroLeafState is the smallest state>0 among leaves in this subtree
+	// (or math.MaxInt32 if all empty). LFC sorts by this to prefer subtrees
+	// containing a nearly-full host.
+	minNonZeroLeafState int32
+
 	// levelValues stores the mapping from domain ID back to the
 	// ordered list of values
 	levelValues []string
@@ -832,6 +837,8 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			return nil, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s", workersTasPodSetRequests.PodSet.Name, err.Error())
 		}
 	}
+	// preferPartialDomains for single-pod to fit them on the tightest non-empty leaf
+	preferPartialDomains := state.count == 1
 
 	// If slice topology is not requested then we can assume that slice is a single pod
 	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(workersTasPodSetRequests.PodSet.TopologyRequest)
@@ -930,7 +937,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	for ; currentLevelIdx < min(len(s.domainsPerLevel)-1, state.sliceLevelIdx) && !useBalancedPlacement; currentLevelIdx++ {
 		// If we are "above" the requested slice topology level and we don't run the balanced placement algorithm,
 		// we're greedily assigning pods/slices to all domains without checking what we've assigned to parent domains.
-		sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), state.unconstrained)
+		sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), state.unconstrained, preferPartialDomains)
 		currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, state.count, state.leaderCount, state.sliceSize, state.unconstrained, true)
 	}
 
@@ -951,7 +958,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		}
 		newCurrFitDomain := make([]*domain, 0)
 		for _, domain := range currFitDomain {
-			sortedLowerDomains := s.sortedDomains(domain.children, state.unconstrained)
+			sortedLowerDomains := s.sortedDomains(domain.children, state.unconstrained, preferPartialDomains)
 
 			if sliceSizeOnLevel > 1 {
 				// For inner slice layers, recompute sliceState on the
@@ -1242,7 +1249,8 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[searchLevelIdx])
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
-	sortedDomain := s.sortedDomainsWithLeader(levelDomains, state.unconstrained)
+	preferPartialDomains := state.count == 1
+	sortedDomain := s.sortedDomainsWithLeader(levelDomains, state.unconstrained, preferPartialDomains)
 	topDomain := sortedDomain[0]
 
 	sliceCount := state.count / state.sliceSize
@@ -1301,7 +1309,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 
 		// At this point we have assigned all leaders, so we sort remaining domains based on worker capacity
 		// and assign remaining workers.
-		sortedDomain = s.sortedDomains(sortedDomain[idx:], state.unconstrained)
+		sortedDomain = s.sortedDomains(sortedDomain[idx:], state.unconstrained, preferPartialDomains)
 		for idx := 0; remainingSliceCount > 0 && idx < len(sortedDomain); idx++ {
 			domain := sortedDomain[idx]
 			if useBestFitAlgorithm(state.unconstrained) && sortedDomain[idx].sliceState >= remainingSliceCount {
@@ -1508,12 +1516,20 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 	return result
 }
 
-func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
+// sortedDomainsWithLeader sorts like sortedDomains but gives leaderState
+// (descending) the highest priority.
+func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool, preferPartialDomains bool) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
+	partialDomainPreference := isLeastFreeCapacity && preferPartialDomains
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		if a.leaderState != b.leaderState {
 			return cmp.Compare(b.leaderState, a.leaderState)
+		}
+
+		// LFC + single-pod: prefer subtrees containing a nearly-full leaf.
+		if partialDomainPreference && a.minNonZeroLeafState != b.minNonZeroLeafState {
+			return cmp.Compare(a.minNonZeroLeafState, b.minNonZeroLeafState)
 		}
 
 		if a.sliceStateWithLeader != b.sliceStateWithLeader {
@@ -1534,17 +1550,21 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 	return result
 }
 
-// This function sorts domains based on a specified algorithm: BestFit or LeastFreeCapacity.
-//
-// The sorting criteria are:
-// - **BestFit**: `sliceState` (descending), `state` (ascending), `levelValues` (ascending)
-// - **LeastFreeCapacity**: `sliceState` (ascending), `state` (ascending), `levelValues` (ascending)
-//
-// `state` is always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity.
-func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
+// sortedDomains orders domains for placement.
+// BestFit: sliceState desc, state asc, levelValues asc.
+// LFC: sliceState asc, state asc, levelValues asc.
+// LFC + preferPartialDomains: minNonZeroLeafState asc is prepended as the
+// highest-priority key.
+func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool, preferPartialDomains bool) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
+	partialDomainPreference := isLeastFreeCapacity && preferPartialDomains
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
+		// LFC + single-pod: prefer subtrees containing a nearly-full leaf.
+		if partialDomainPreference && a.minNonZeroLeafState != b.minNonZeroLeafState {
+			return cmp.Compare(a.minNonZeroLeafState, b.minNonZeroLeafState)
+		}
+
 		if a.sliceState != b.sliceState {
 			if isLeastFreeCapacity {
 				// Start from the domain with the least amount of free resources.
@@ -1574,6 +1594,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		domain.sliceState = 0
 		domain.sliceStateWithLeader = 0
 		domain.leaderState = 0
+		domain.minNonZeroLeafState = 0
 	}
 	for _, leaf := range s.leaves {
 		state.stats.TotalNodes++
@@ -1658,6 +1679,7 @@ func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas
 func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int, sliceSizeAtLevel map[int]int32, leaderRequired bool) {
 	// logic for a leaf
 	if len(domain.children) == 0 {
+		domain.minNonZeroLeafState = cmp.Or(domain.state, math.MaxInt32)
 		if level == sliceLevelIdx {
 			// initialize the sliceState if leaf is the request slice level
 			domain.sliceState = domain.state / sliceSize
@@ -1672,6 +1694,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	minStateWithLeaderDifference := int32(math.MaxInt32)
 	minSliceStateWithLeaderDifference := int32(math.MaxInt32)
 	leaderState := int32(0)
+	domain.minNonZeroLeafState = math.MaxInt32
 
 	// When multi-layer constraints exist, children at a constrained level
 	// can only contribute pods in multiples of the inner slice size.
@@ -1698,6 +1721,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 			minSliceStateWithLeaderDifference = min(child.sliceState-child.sliceStateWithLeader, minSliceStateWithLeaderDifference)
 		}
 		leaderState = max(child.leaderState, leaderState)
+		domain.minNonZeroLeafState = min(child.minNonZeroLeafState, domain.minNonZeroLeafState)
 	}
 	domain.state = childrenCapacity
 	sliceStateWithLeader := int32(0)

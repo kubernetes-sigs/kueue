@@ -6114,6 +6114,111 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 		})
 	})
+
+	ginkgo.When("LeastFreeCapacity profile prefers the globally tightest non-empty leaf", framework.SlowSpec, func() {
+		var (
+			topology     *kueue.Topology
+			tasFlavor    *kueue.ResourceFlavor
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			nodes        []corev1.Node
+		)
+
+		// Topology (block → rack → host), with asymmetric per-rack/per-host
+		// capacity:
+		//
+		//   block-a / rack-a1 / host-a1   capacity 1   ← globally tightest leaf
+		//   block-a / rack-a2 / host-a2   capacity 8
+		//   block-b / rack-b1 / host-b1   capacity 4
+		//   block-b / rack-b2 / host-b2   capacity 4
+		//
+		// Aggregate sliceState (counted as host count × per-host capacity):
+		//   block-a = 9, block-b = 8.
+		//
+		// Without the new minNonZeroLeafState sort key, LFC at the block
+		// level prefers the smaller aggregate (block-b, 8 < 9) and the
+		// workload lands on a host inside block-b. With the new key,
+		// block-a wins (minNZL = 1 < 4) and the workload lands on host-a1
+		// — the globally tightest non-empty leaf.
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASProfileMixed, true)
+
+			makeNode := func(name, block, rack string, podCapacity int64) corev1.Node {
+				return *testingnode.MakeNode(name).
+					Label("node-group", "tas").
+					Label(utiltesting.DefaultBlockTopologyLevel, block).
+					Label(utiltesting.DefaultRackTopologyLevel, rack).
+					Label(corev1.LabelHostname, name).
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("8"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+						corev1.ResourcePods:   *resource.NewQuantity(podCapacity, resource.DecimalSI),
+					}).
+					Ready().
+					Obj()
+			}
+			nodes = []corev1.Node{
+				makeNode("host-a1", "block-a", "rack-a1", 1),
+				makeNode("host-a2", "block-a", "rack-a2", 8),
+				makeNode("host-b1", "block-b", "rack-b1", 4),
+				makeNode("host-b2", "block-b", "rack-b2", 4),
+			}
+			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+			topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
+			util.MustCreate(ctx, k8sClient, topology)
+
+			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor-lfc").
+				NodeLabel("node-group", "tas").
+				TopologyName("default").Obj()
+			util.MustCreate(ctx, k8sClient, tasFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("cq-lfc").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+					Resource(corev1.ResourceCPU, "100").
+					Obj()).Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("lq-lfc", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			for i := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+			}
+		})
+
+		ginkgo.It("a single-pod workload lands on the globally tightest non-empty host", func() {
+			// Slice-topology-only request triggers the multi-level descent
+			// loop in findTopologyAssignment under LFC; count == 1 enables
+			// the partial-domain preference gate.
+			wl := utiltestingapi.MakeWorkload("wl-single", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			wl.Spec.PodSets[0].Count = 1
+			wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+				PodSetSliceSize:             ptr.To[int32](1),
+			}
+			util.MustCreate(ctx, k8sClient, wl)
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+			gomega.Expect(ta.Domains).To(gomega.HaveLen(1))
+			hostnameIdx := slices.Index(ta.Levels, corev1.LabelHostname)
+			gomega.Expect(hostnameIdx).To(gomega.BeNumerically(">=", 0))
+			gomega.Expect(ta.Domains[0].Values[hostnameIdx]).To(gomega.Equal("host-a1"),
+				"single-pod LFC workload should land on host-a1 (capacity 1, globally tightest non-empty leaf), not on a host inside block-b which has the lower aggregate sliceState")
+		})
+	})
 })
 
 // Tests the "Retain" resource transformation strategy: regular CPU requests are
