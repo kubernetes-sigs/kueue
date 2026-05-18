@@ -387,19 +387,19 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 	lqInformer := rc.queuesInformer.Kueue().V1beta2().LocalQueues()
 
 	_, err = cqInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			if cq, ok := obj.(*kueue.ClusterQueue); ok {
 				rc.queueEventsForCQ(ctx, cq)
 			}
 		},
-		UpdateFunc: func(oldObj, newObj interface{}) {
+		UpdateFunc: func(oldObj, newObj any) {
 			oldCQ, ok1 := oldObj.(*kueue.ClusterQueue)
 			newCQ, ok2 := newObj.(*kueue.ClusterQueue)
 			if ok1 && ok2 && !equality.Semantic.DeepEqual(oldCQ.Spec.ResourceGroups, newCQ.Spec.ResourceGroups) {
 				rc.queueEventsForCQ(ctx, newCQ)
 			}
 		},
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			if cq, err := deletedObjectState[*kueue.ClusterQueue](obj); err == nil {
 				rc.queueEventsForCQ(ctx, cq)
 			}
@@ -410,13 +410,13 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 	}
 
 	_, err = lqInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			if lq, ok := obj.(*kueue.LocalQueue); ok {
 				rc.queueEventsForLQ(ctx, lq)
 			}
 		},
 		UpdateFunc: nil, // LQ -> CQ bindings are immutable.
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			if lq, err := deletedObjectState[*kueue.LocalQueue](obj); err == nil {
 				rc.queueEventsForLQ(ctx, lq)
 			}
@@ -1176,7 +1176,7 @@ func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.
 	}
 }
 
-func deletedObjectState[T client.Object](obj interface{}) (T, error) {
+func deletedObjectState[T client.Object](obj any) (T, error) {
 	var zero T
 	typedObj, ok := obj.(T)
 	if ok {

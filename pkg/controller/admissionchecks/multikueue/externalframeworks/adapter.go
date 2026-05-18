@@ -44,7 +44,7 @@ type Adapter struct {
 }
 
 var (
-	_ jobframework.MultiKueueAdapter = (*Adapter)(nil)
+	_ jobframework.MultiKueueAdapter              = (*Adapter)(nil)
 	_ jobframework.MultiKueueWorkloadOrJobWatcher = (*Adapter)(nil)
 )
 

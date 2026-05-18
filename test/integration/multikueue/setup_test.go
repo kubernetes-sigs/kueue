@@ -1243,7 +1243,6 @@ var _ = ginkgo.Describe("Manager quota automation feature", ginkgo.Label("area:m
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 			}, framework.WithNewCache(newCacheFunc))
 
-
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(ic.hasWatch(cqTypeName)).To(gomega.BeFalse())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
