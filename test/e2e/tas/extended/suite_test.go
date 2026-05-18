@@ -86,7 +86,3 @@ var _ = ginkgo.BeforeSuite(func() {
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}
 })
-
-var _ = ginkgo.AfterSuite(func() {
-	util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
-})
