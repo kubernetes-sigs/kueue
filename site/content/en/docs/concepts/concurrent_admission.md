@@ -9,17 +9,13 @@ description: >
 
 {{< feature-state state="alpha" for_version="v0.18" >}}
 
-Concurrent Admission lets a [Workload](/docs/concepts/workload) start on an
-admitted [ResourceFlavor](/docs/concepts/resource_flavor), while Kueue keeps
-admission attempts for more preferred flavors.
+Concurrent Admission consists of two main components:
+- **Event-driven migration:** Moving a running Workload to a more preferred ResourceFlavor as soon as that flavor becomes available.
+- **Concurrent multi-flavor pursuit:** Allowing a Workload to independently pursue multiple ResourceFlavors at the same time
 
-Concurrent Admission has two main effects:
+The feature implements this by creating so-called Variants of the original Workload (referred to as the Parent Workload). Each Variant is a copy of the Parent Workload assigned to a specific ResourceFlavor, allowing them to try to schedule concurrently and independently on their respective flavors.
 
-- Kueue can migrate a running Workload to a more preferred ResourceFlavor when
-  that flavor becomes available.
-- Kueue can run admission checks for variants constrained to different
-  ResourceFlavors concurrently, instead of waiting for one flavor's admission
-  check before trying another flavor.
+The order of Flavors within a ClusterQueue's ResourceGroups dictates their preference, with the first Flavor being the most preferred.
 
 Use Concurrent Admission when workloads can tolerate disruption and you want to
 trade extra scheduling work for faster placement, concurrent admission checks,
