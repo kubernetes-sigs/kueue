@@ -39,7 +39,7 @@ import (
 type multiKueueAdapter struct{}
 
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
-var _ jobframework.MultiKueueWatcher = (*multiKueueAdapter)(nil)
+var _ jobframework.MultiKueueWorkloadOrJobWatcher = (*multiKueueAdapter)(nil)
 var _ jobframework.MultiKueueMultiWorkloadAdapter = (*multiKueueAdapter)(nil)
 
 func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {

@@ -167,7 +167,7 @@ func newClientWithWatch(config *clientConfig, options client.Options) (client.Wi
 
 type workloadKueueWatcher struct{}
 
-var _ jobframework.MultiKueueWatcher = (*workloadKueueWatcher)(nil)
+var _ jobframework.MultiKueueWorkloadOrJobWatcher = (*workloadKueueWatcher)(nil)
 
 func (*workloadKueueWatcher) GetEmptyList() client.ObjectList {
 	return &kueue.WorkloadList{}
@@ -228,18 +228,18 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 	rc.client = remoteClient
 
 	watchCtx, rc.watchCancel = context.WithCancel(watchCtx)
-	err = rc.startGenericWorkloadWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
+	err = rc.startWorkloadOrJobWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
 		return rc.increaseFailedConnAttempt(), err
 	}
 
 	// add a watch for all the adapters implementing multiKueueWatcher
 	for kind, adapter := range rc.adapters {
-		watcher, implementsWatcher := adapter.(jobframework.MultiKueueWatcher)
+		watcher, implementsWatcher := adapter.(jobframework.MultiKueueWorkloadOrJobWatcher)
 		if !implementsWatcher {
 			continue
 		}
-		err := rc.startGenericWorkloadWatcher(watchCtx, kind, watcher)
+		err := rc.startWorkloadOrJobWatcher(watchCtx, kind, watcher)
 		if err != nil {
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to start the watcher", "kind", kind)
@@ -349,7 +349,7 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, list clie
 	return nil
 }
 
-func (rc *remoteClient) startGenericWorkloadWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) error {
+func (rc *remoteClient) startWorkloadOrJobWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWorkloadOrJobWatcher) error {
 	return rc.startWatcher(ctx, kind, w.GetEmptyList(), func(obj client.Object) {
 		wlKeys, err := w.WorkloadKeysFor(obj)
 		if err != nil {

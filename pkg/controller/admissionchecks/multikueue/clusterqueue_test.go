@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,11 +54,9 @@ func TestCQReconcile(t *testing.T) {
 		configs []*kueue.MultiKueueConfig
 		workers map[string]workerState
 
-		wantQuotaAutomated      bool
-		wantNominalQuotas       map[string]string // Ignored if wantQuotaAutomated == false
-		wantAutomationCondition bool
-		wantReason              string
-		wantMessage             string
+		wantQuotaAutomated bool
+		wantNominalQuotas  map[string]string // Ignored if wantQuotaAutomated == false
+		wantCondition      *metav1.Condition
 	}{
 		"multiple resources for single LQs and CQs": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -99,9 +98,12 @@ func TestCQReconcile(t *testing.T) {
 				"cpu":    "15",
 				"memory": "30Gi",
 			},
-			wantAutomationCondition: true,
-			wantReason:              "QuotaAutomated",
-			wantMessage:             "ClusterQueue quota is automatically managed based on MultiKueue workers.",
+			wantCondition: &metav1.Condition{
+				Type:    kueue.MultiKueueManagerQuotaAutomation,
+				Status:  metav1.ConditionTrue,
+				Reason:  "QuotaAutomated",
+				Message: "ClusterQueue quota is automatically managed based on MultiKueue workers.",
+			},
 		},
 		"unrelated CQs and inactive workers are ignored": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -146,9 +148,12 @@ func TestCQReconcile(t *testing.T) {
 			wantNominalQuotas: map[string]string{
 				"cpu": "10",
 			},
-			wantAutomationCondition: true,
-			wantReason:              "QuotaAutomated",
-			wantMessage:             "ClusterQueue quota is automatically managed based on MultiKueue workers.",
+			wantCondition: &metav1.Condition{
+				Type:    kueue.MultiKueueManagerQuotaAutomation,
+				Status:  metav1.ConditionTrue,
+				Reason:  "QuotaAutomated",
+				Message: "ClusterQueue quota is automatically managed based on MultiKueue workers.",
+			},
 		},
 		"multiple LQs pointing to same and different CQs on workers": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -199,9 +204,12 @@ func TestCQReconcile(t *testing.T) {
 			wantNominalQuotas: map[string]string{
 				"cpu": "23", // 10 + 5 + 8; 10 should be counted only once
 			},
-			wantAutomationCondition: true,
-			wantReason:              "QuotaAutomated",
-			wantMessage:             "ClusterQueue quota is automatically managed based on MultiKueue workers.",
+			wantCondition: &metav1.Condition{
+				Type:    kueue.MultiKueueManagerQuotaAutomation,
+				Status:  metav1.ConditionTrue,
+				Reason:  "QuotaAutomated",
+				Message: "ClusterQueue quota is automatically managed based on MultiKueue workers.",
+			},
 		},
 		"multiple flavors and incompatible ResourceGroups across workers": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -251,9 +259,12 @@ func TestCQReconcile(t *testing.T) {
 				"cpu": "19",
 				"gpu": "4",
 			},
-			wantAutomationCondition: true,
-			wantReason:              "QuotaAutomated",
-			wantMessage:             "ClusterQueue quota is automatically managed based on MultiKueue workers.",
+			wantCondition: &metav1.Condition{
+				Type:    kueue.MultiKueueManagerQuotaAutomation,
+				Status:  metav1.ConditionTrue,
+				Reason:  "QuotaAutomated",
+				Message: "ClusterQueue quota is automatically managed based on MultiKueue workers.",
+			},
 		},
 		"workers with a subset of manager resources": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -296,9 +307,12 @@ func TestCQReconcile(t *testing.T) {
 				"memory": "20Gi",
 				"gpu":    "0",
 			},
-			wantAutomationCondition: true,
-			wantReason:              "QuotaAutomated",
-			wantMessage:             "ClusterQueue quota is automatically managed based on MultiKueue workers.",
+			wantCondition: &metav1.Condition{
+				Type:    kueue.MultiKueueManagerQuotaAutomation,
+				Status:  metav1.ConditionTrue,
+				Reason:  "QuotaAutomated",
+				Message: "ClusterQueue quota is automatically managed based on MultiKueue workers.",
+			},
 		},
 		"quota automation not requested": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -327,10 +341,13 @@ func TestCQReconcile(t *testing.T) {
 					},
 				},
 			},
-			wantQuotaAutomated:      false,
-			wantAutomationCondition: true,
-			wantReason:              "NotRequested",
-			wantMessage:             "MultiKueue manager quota automation has not been requested.",
+			wantQuotaAutomated: false,
+			wantCondition: &metav1.Condition{
+				Type:    kueue.MultiKueueManagerQuotaAutomation,
+				Status:  metav1.ConditionFalse,
+				Reason:  "NotRequested",
+				Message: "MultiKueue manager quota automation has not been requested.",
+			},
 		},
 		"quota automation unsupported for multiple manager flavors": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -347,10 +364,13 @@ func TestCQReconcile(t *testing.T) {
 			configs: []*kueue.MultiKueueConfig{
 				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
 			},
-			wantQuotaAutomated:      false,
-			wantAutomationCondition: true,
-			wantReason:              "UnsupportedConfiguration",
-			wantMessage:             "Quota automation requires that the manager-side ClusterQueue has exactly one ResourceFlavor",
+			wantQuotaAutomated: false,
+			wantCondition: &metav1.Condition{
+				Type:    kueue.MultiKueueManagerQuotaAutomation,
+				Status:  metav1.ConditionFalse,
+				Reason:  "UnsupportedConfiguration",
+				Message: "Quota automation requires that the manager-side ClusterQueue has exactly one ResourceFlavor",
+			},
 		},
 		"quota automation unsupported for missing manager covered resources": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -379,10 +399,13 @@ func TestCQReconcile(t *testing.T) {
 					},
 				},
 			},
-			wantQuotaAutomated:      false,
-			wantAutomationCondition: true,
-			wantReason:              "UnsupportedConfiguration",
-			wantMessage:             "manager-side coveredResources is missing resources configured on workers: [gpu memory]",
+			wantQuotaAutomated: false,
+			wantCondition: &metav1.Condition{
+				Type:    kueue.MultiKueueManagerQuotaAutomation,
+				Status:  metav1.ConditionFalse,
+				Reason:  "UnsupportedConfiguration",
+				Message: "manager-side coveredResources is missing resources configured on workers: [gpu memory]",
+			},
 		},
 		"not a MultiKueue manager ClusterQueue": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -392,8 +415,7 @@ func TestCQReconcile(t *testing.T) {
 			lqs: []*kueue.LocalQueue{
 				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
 			},
-			wantQuotaAutomated:      false,
-			wantAutomationCondition: false,
+			wantQuotaAutomated: false,
 		},
 		"referenced MultiKueueConfig not found": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -406,10 +428,13 @@ func TestCQReconcile(t *testing.T) {
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config-not-found").
 					Obj(),
 			},
-			wantQuotaAutomated:      false,
-			wantAutomationCondition: true,
-			wantReason:              "UnsupportedConfiguration",
-			wantMessage:             "The referenced MultiKueueConfig was not found.",
+			wantQuotaAutomated: false,
+			wantCondition: &metav1.Condition{
+				Type:    kueue.MultiKueueManagerQuotaAutomation,
+				Status:  metav1.ConditionFalse,
+				Reason:  "UnsupportedConfiguration",
+				Message: "The referenced MultiKueueConfig was not found.",
+			},
 		},
 	}
 
@@ -487,29 +512,9 @@ func TestCQReconcile(t *testing.T) {
 			}
 
 			// Verify condition state
-			cond := apimeta.FindStatusCondition(gotCQ.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
-			if tc.wantAutomationCondition {
-				if cond == nil {
-					t.Error("expected status condition to be defined, got nil")
-				} else {
-					expectedStatus := metav1.ConditionFalse
-					if tc.wantQuotaAutomated {
-						expectedStatus = metav1.ConditionTrue
-					}
-					if cond.Status != expectedStatus {
-						t.Errorf("expected status: %s, got: %s", expectedStatus, cond.Status)
-					}
-					if cond.Reason != tc.wantReason {
-						t.Errorf("expected reason: %s, got: %s", tc.wantReason, cond.Reason)
-					}
-					if cond.Message != tc.wantMessage {
-						t.Errorf("expected message: %q, got: %q", tc.wantMessage, cond.Message)
-					}
-				}
-			} else {
-				if cond != nil {
-					t.Errorf("expected status condition to be absent, got: %v", cond)
-				}
+			gotCond := apimeta.FindStatusCondition(gotCQ.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
+			if diff := cmp.Diff(tc.wantCondition, gotCond, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+				t.Errorf("Unexpected status condition (-want/+got):\n%s", diff)
 			}
 		})
 	}
