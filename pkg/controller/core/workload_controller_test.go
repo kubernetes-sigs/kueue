@@ -3251,6 +3251,9 @@ func TestReconcile(t *testing.T) {
 				queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptexpectations.New())}
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache, queueOptions...)
 				reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
+				if features.Enabled(features.DynamicResourceAllocation) {
+					qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
+				}
 				// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
 				reconciler.clock = fakeClock
 

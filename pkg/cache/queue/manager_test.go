@@ -35,8 +35,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/queue"
@@ -88,6 +90,58 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 	}
 	if diff := cmp.Diff(expectedWorkloads, assignedWorkloads); diff != "" {
 		t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
+	}
+}
+
+func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
+
+	// Create an admissible workload that triggers dra.NeedsDRAReconcile via HasDRA().
+	tmplName := "claim-tmpl"
+	wl := utiltestingapi.MakeWorkload("wl", "earth").Queue("foo").PodSets(
+		*utiltestingapi.MakePodSet("ps", 1).PodSpec(corev1.PodSpec{
+			ResourceClaims: []corev1.PodResourceClaim{{
+				Name:                      "rc",
+				ResourceClaimTemplateName: &tmplName,
+			}},
+		}).Obj(),
+	).Obj()
+
+	kClient := utiltesting.NewFakeClient(wl)
+	manager := NewManagerForUnitTests(kClient, nil)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	// Pre-fill the channel so the first send blocks until we drain it.
+	ch := make(chan event.TypedGenericEvent[*kueue.Workload], 1)
+	ch <- event.TypedGenericEvent[*kueue.Workload]{Object: wl}
+	manager.SetDRAReconcileChannel(ch)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj())
+	}()
+
+	// Drain the pre-filled event to unblock AddLocalQueue's blocking send.
+	// The send must happen outside the manager lock, so draining here cannot deadlock.
+	select {
+	case <-ch:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting to drain draReconcileChannel")
+	}
+
+	// AddLocalQueue must complete after the channel is drained.
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("AddLocalQueue returned error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("AddLocalQueue did not complete after draReconcileChannel was drained")
+	}
+
+	// The workload event must have been delivered (guaranteed, not dropped).
+	if got := len(ch); got != 1 {
+		t.Fatalf("unexpected draReconcileChannel length: got %d, want 1", got)
 	}
 }
 
