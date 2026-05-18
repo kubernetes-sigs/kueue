@@ -30,6 +30,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -367,6 +368,7 @@ type clustersReconciler struct {
 
 	clusterProfileCreds clusterProfileCreds
 
+	logName     string
 	roleTracker *roletracker.RoleTracker
 }
 
@@ -385,6 +387,7 @@ var _ clusterProfileCreds = (*NoOpClusterProfileCreds)(nil)
 
 var _ manager.Runnable = (*clustersReconciler)(nil)
 var _ reconcile.Reconciler = (*clustersReconciler)(nil)
+var _ predicate.Predicate = (*clustersReconciler)(nil)
 
 func (c *clustersReconciler) Start(ctx context.Context) error {
 	c.rootContext = ctx
@@ -714,8 +717,13 @@ func newClustersReconciler(
 		fsWatcher:           fsWatcher,
 		adapters:            adapters,
 		clusterProfileCreds: cpCreds,
+		logName:             "multikueuecluster-reconciler",
 		roleTracker:         roleTracker,
 	}
+}
+
+func (c *clustersReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(c.logName), c.roleTracker)
 }
 
 func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
@@ -741,63 +749,13 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		},
 	}
 
-	filterLog := mgr.GetLogger().WithName("MultiKueueCluster filter")
-	filter := predicate.Funcs{
-		CreateFunc: func(ce event.CreateEvent) bool {
-			if cluster, isCluster := ce.Object.(*kueue.MultiKueueCluster); isCluster {
-				if cluster.Spec.ClusterSource.KubeConfig != nil && cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType {
-					err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.ClusterSource.KubeConfig.Location)
-					if err != nil {
-						filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(cluster))
-					}
-				}
-			}
-			return true
-		},
-		UpdateFunc: func(ue event.UpdateEvent) bool {
-			clusterNew, isClusterNew := ue.ObjectNew.(*kueue.MultiKueueCluster)
-			clusterOld, isClusterOld := ue.ObjectOld.(*kueue.MultiKueueCluster)
-			if !isClusterNew || !isClusterOld {
-				return true
-			}
-
-			clusterNewHasKubeConfigPath := clusterNew.Spec.ClusterSource.KubeConfig != nil && clusterNew.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType
-			clusterOldHasKubeConfigPath := clusterOld.Spec.ClusterSource.KubeConfig != nil && clusterOld.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType
-			if clusterOldHasKubeConfigPath && !clusterNewHasKubeConfigPath {
-				err := c.fsWatcher.Remove(clusterOld.Name)
-				if err != nil {
-					filterLog.Error(err, "Remove FS watch", "cluster", klog.KObj(clusterOld))
-				}
-			}
-
-			if clusterNewHasKubeConfigPath {
-				err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.ClusterSource.KubeConfig.Location)
-				if err != nil {
-					filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(clusterNew))
-				}
-			}
-			return true
-		},
-		DeleteFunc: func(de event.DeleteEvent) bool {
-			if cluster, isCluster := de.Object.(*kueue.MultiKueueCluster); isCluster {
-				if cluster.Spec.ClusterSource.KubeConfig != nil && cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType {
-					err := c.fsWatcher.Remove(cluster.Name)
-					if err != nil {
-						filterLog.Error(err, "Remove FS watch", "cluster", klog.KObj(cluster))
-					}
-				}
-			}
-			return true
-		},
-	}
-
 	controllerBuilder := ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_cluster").
 		For(&kueue.MultiKueueCluster{}).
 		Watches(&corev1.Secret{}, &secretHandler{client: c.localClient}).
 		WatchesRawSource(source.Channel(c.watchEndedCh, syncHndl)).
 		WatchesRawSource(source.Channel(c.fsWatcher.reconcile, fsWatcherHndl)).
-		WithEventFilter(filter).
+		WithEventFilter(c).
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "multikueue-cluster"),
 		})
@@ -811,6 +769,65 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return controllerBuilder.Complete(c)
+}
+
+func (c *clustersReconciler) Generic(e event.GenericEvent) bool {
+	return false
+}
+
+func (c *clustersReconciler) Create(e event.CreateEvent) bool {
+	if cluster, isCluster := e.Object.(*kueue.MultiKueueCluster); isCluster {
+		log := c.logger().WithValues("multiKueueCluster", klog.KObj(cluster))
+		log.V(5).Info("MultiKueueCluster create event")
+		if cluster.Spec.ClusterSource.KubeConfig != nil && cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType {
+			err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.ClusterSource.KubeConfig.Location)
+			if err != nil {
+				log.Error(err, "AddOrUpdate FS watch")
+			}
+		}
+	}
+	return true
+}
+
+func (c *clustersReconciler) Update(e event.UpdateEvent) bool {
+	clusterNew, isClusterNew := e.ObjectNew.(*kueue.MultiKueueCluster)
+	clusterOld, isClusterOld := e.ObjectOld.(*kueue.MultiKueueCluster)
+	if !isClusterNew || !isClusterOld {
+		return true
+	}
+	log := c.logger().WithValues("multiKueueCluster", klog.KObj(clusterNew))
+	log.V(5).Info("MultiKueueCluster update event")
+
+	clusterNewHasKubeConfigPath := clusterNew.Spec.ClusterSource.KubeConfig != nil && clusterNew.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType
+	clusterOldHasKubeConfigPath := clusterOld.Spec.ClusterSource.KubeConfig != nil && clusterOld.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType
+	if clusterOldHasKubeConfigPath && !clusterNewHasKubeConfigPath {
+		err := c.fsWatcher.Remove(clusterOld.Name)
+		if err != nil {
+			log.Error(err, "Remove FS watch")
+		}
+	}
+
+	if clusterNewHasKubeConfigPath {
+		err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.ClusterSource.KubeConfig.Location)
+		if err != nil {
+			log.Error(err, "AddOrUpdate FS watch")
+		}
+	}
+	return true
+}
+
+func (c *clustersReconciler) Delete(e event.DeleteEvent) bool {
+	if cluster, isCluster := e.Object.(*kueue.MultiKueueCluster); isCluster {
+		log := c.logger().WithValues("multiKueueCluster", klog.KObj(cluster))
+		log.V(5).Info("MultiKueueCluster delete event")
+		if cluster.Spec.ClusterSource.KubeConfig != nil && cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType {
+			err := c.fsWatcher.Remove(cluster.Name)
+			if err != nil {
+				log.Error(err, "Remove FS watch")
+			}
+		}
+	}
+	return true
 }
 
 type secretHandler struct {
