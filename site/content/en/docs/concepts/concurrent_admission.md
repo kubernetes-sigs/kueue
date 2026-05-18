@@ -197,7 +197,7 @@ Concurrent Admission currently has the following constraints:
 - The feature is available on the `v1beta2` ClusterQueue API.
 - The `ConcurrentAdmission` feature gate must be enabled.
 - A `ClusterQueue` with `.spec.concurrentAdmissionPolicy` must use
-  `BestEffortFIFO`. `StrictFIFO` is not supported.
+  `BestEffortFIFO` queueing strategy. `StrictFIFO` is not supported.
 - A `ClusterQueue` with `.spec.concurrentAdmissionPolicy` must have exactly one
   `resourceGroup`.
 - The `resourceGroup` can contain at most 16 ResourceFlavors.
