@@ -19,6 +19,9 @@ metadata:
   name: team-cluster-queue
 spec:
   namespaceSelector: {}
+  concurrentAdmissionPolicy:
+    migration:
+      mode: TryPreferredFlavors
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -41,9 +44,6 @@ spec:
         nominalQuota: 16
       - name: memory
         nominalQuota: 64Gi
-  concurrentAdmissionPolicy:
-    migration:
-      mode: TryPreferredFlavors
 ---
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue

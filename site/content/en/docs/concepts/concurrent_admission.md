@@ -182,6 +182,20 @@ reference to the parent:
 kubectl get workloads -o yaml
 ```
 
+A variant Workload owner reference can look like this:
+
+```yaml
+metadata:
+  name: sample-job-variant-spot-a2342
+  ownerReferences:
+  - apiVersion: kueue.x-k8s.io/v1beta2
+    kind: Workload
+    name: sample-job
+    uid: 7a9a0d5e-2c9c-4b3a-9c62-2b64a72f6a3f
+    controller: true
+    blockOwnerDeletion: true
+```
+
 The parent Workload is the object that job integrations watch for admission.
 Variant Workloads are internal admission attempts. Do not create or edit parent
 labels or variant annotations manually.
