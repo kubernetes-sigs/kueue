@@ -82,7 +82,7 @@ The only supported migration mode is `TryPreferredFlavors`. In this mode, if a
 Workload starts on `spot`, it means `reservation` and `on-demand` did not admit
 the Workload at that time because quota was unavailable or the required
 admission checks were still pending. Kueue keeps trying `reservation` and
-`on-demand`. If a more preferred flavor is admitted later, Kueue migrates the
+`on-demand`. If a Variant assigned to more preferred flavor is admitted later, Kueue migrates the
 Workload to that flavor.
 
 ## Limit migration to a minimum preferred flavor
