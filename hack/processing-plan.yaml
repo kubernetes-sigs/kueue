@@ -271,6 +271,38 @@ files:
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
+          namespaceSelector:
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+            {{- else }}
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values:
+                  - kube-system
+                  - '{{ .Release.Namespace }}'
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].rules[0].apiGroups[0] != "kueue.x-k8s.io"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+          namespaceSelector:
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+            {{- else }}
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values:
+                  - kube-system
+                  - '{{ .Release.Namespace }}'
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].rules[0].apiGroups[0] != "kueue.x-k8s.io"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
           {{- if has "pod" $integrationsConfig.frameworks }}
           failurePolicy: Fail
           {{- else }}
@@ -328,38 +360,6 @@ files:
           {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-statefulset"'
-      - type: INSERT_TEXT
-        key: .webhooks.[].name
-        value: |
-          namespaceSelector:
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-            {{- else }}
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: NotIn
-                values:
-                  - kube-system
-                  - '{{ .Release.Namespace }}'
-            {{- end }}
-        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
-        onItemCondition: '.webhooks.[].rules[0].apiGroups[0] != "kueue.x-k8s.io"'
-      - type: INSERT_TEXT
-        key: .webhooks.[].name
-        value: |
-          namespaceSelector:
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-            {{- else }}
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: NotIn
-                values:
-                  - kube-system
-                  - '{{ .Release.Namespace }}'
-            {{- end }}
-        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
-        onItemCondition: '.webhooks.[].rules[0].apiGroups[0] != "kueue.x-k8s.io"'
   - path: ./config/components/kueueviz/*.yaml
     outputDir: ./charts/kueue/templates/kueueviz
     removeComments: true
