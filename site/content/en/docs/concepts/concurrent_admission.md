@@ -87,8 +87,7 @@ Workload to that flavor.
 
 ## Limit migration to a minimum preferred flavor
 
-Use `minPreferredFlavorName` when you want migration only to a specific flavor or
-to a flavor that is more preferred than it.
+If you want to limit migration, only to ResourceFlavors above a certain threshold, use `minPreferredFlavorName` API. It lets the user define what is the minimal flavor a Workload can migrate to. 
 
 For example, this policy allows migration to `reservation`, but not from `spot`
 to `on-demand`:
