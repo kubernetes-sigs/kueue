@@ -19,7 +19,6 @@ metadata:
   name: team-cluster-queue
 spec:
   namespaceSelector: {}
-  queueingStrategy: BestEffortFIFO
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
