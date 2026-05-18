@@ -28,12 +28,14 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -777,6 +779,90 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			})
 		})
 	})
+
+	ginkgo.Context("Manager quota automation", func() {
+		ginkgo.BeforeEach(func() {
+			ginkgo.By("set up resource groups and flavor quotas on worker1 and worker2 ClusterQueues")
+			gomega.Eventually(func(g gomega.Gomega) {
+				w1Cq := &kueue.ClusterQueue{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(worker1Cq), w1Cq)).To(gomega.Succeed())
+				w1Cq.Spec.ResourceGroups = []kueue.ResourceGroup{
+					{
+						CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
+						Flavors: []kueue.FlavorQuotas{
+							*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "10").Obj(),
+						},
+					},
+				}
+				g.Expect(worker1TestCluster.client.Update(worker1TestCluster.ctx, w1Cq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				w2Cq := &kueue.ClusterQueue{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(worker2Cq), w2Cq)).To(gomega.Succeed())
+				w2Cq.Spec.ResourceGroups = []kueue.ResourceGroup{
+					{
+						CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
+						Flavors: []kueue.FlavorQuotas{
+							*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "10").Obj(),
+						},
+					},
+				}
+				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, w2Cq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("enable quota automation on the MultiKueueConfig")
+			gomega.Eventually(func(g gomega.Gomega) {
+				mkc := &kueue.MultiKueueConfig{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(managerMultiKueueConfig), mkc)).To(gomega.Succeed())
+				mkc.Spec.QuotaManagement = ptr.To(kueue.QuotaManagementAutomated)
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, mkc)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verify manager ClusterQueue CPU quota is aggregated")
+			cqKey := client.ObjectKeyFromObject(managerCq)
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, cq)).To(gomega.Succeed())
+				g.Expect(cq.Spec.ResourceGroups).To(gomega.HaveLen(1))
+				g.Expect(cq.Spec.ResourceGroups[0].Flavors).To(gomega.HaveLen(1))
+				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources).To(gomega.HaveLen(1))
+				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].Name).To(gomega.Equal(corev1.ResourceCPU))
+				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("20"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should update manager ClusterQueue quota when worker ClusterQueue quota changes", func() {
+			ginkgo.By("decrease worker1 ClusterQueue quota")
+			gomega.Eventually(func(g gomega.Gomega) {
+				w1Cq := &kueue.ClusterQueue{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(worker1Cq), w1Cq)).To(gomega.Succeed())
+				w1Cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("5")
+				g.Expect(worker1TestCluster.client.Update(worker1TestCluster.ctx, w1Cq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verify manager ClusterQueue quota drops accordingly")
+			cqKey := client.ObjectKeyFromObject(managerCq)
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, cq)).To(gomega.Succeed())
+				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("15"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should update manager ClusterQueue quota when worker LocalQueue is removed", func() {
+			ginkgo.By("delete worker1 LocalQueue")
+			util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq, true)
+
+			ginkgo.By("verify manager ClusterQueue quota drops accordingly")
+			cqKey := client.ObjectKeyFromObject(managerCq)
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, cq)).To(gomega.Succeed())
+				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("10"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })
 
 var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -1211,7 +1297,7 @@ func (c *interceptedCache) hasWatch(kind string) bool {
 	return c.requestedWatches.Has(kind)
 }
 
-var _ = ginkgo.Describe("Manager quota automation feature", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Manager quota automation feature gate", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const cqTypeName = "*v1beta2.ClusterQueue"
 
 	ginkgo.AfterEach(func() {

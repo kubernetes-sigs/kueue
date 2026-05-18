@@ -1201,7 +1201,7 @@ func TestEstablishWatch(t *testing.T) {
 			c := getClientBuilder(ctx).WithInterceptorFuncs(tc.interceptor).Build()
 
 			start := time.Now()
-			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, testTimeout, client.MatchingLabels{kueue.MultiKueueOriginLabel: "test-origin"})
 			elapsed := time.Since(start)
 
 			if !errors.Is(err, tc.wantErr) {
@@ -1230,7 +1230,7 @@ func TestEstablishWatch(t *testing.T) {
 			},
 		}).Build()
 
-		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, testTimeout, client.MatchingLabels{kueue.MultiKueueOriginLabel: "test-origin"})
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
 		}

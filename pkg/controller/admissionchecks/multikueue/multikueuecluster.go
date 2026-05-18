@@ -143,6 +143,8 @@ type remoteClient struct {
 	// and creating valid kubeconfig content is not trivial.
 	// The full client creation and usage is validated in the integration and e2e tests.
 	builderOverride clientWithWatchBuilder
+
+	mu sync.RWMutex
 }
 
 func newRemoteClient(
@@ -191,11 +193,15 @@ func (*workloadKueueWatcher) WorkloadKeysFor(o runtime.Object) ([]types.Namespac
 }
 
 func (rc *remoteClient) resetFailedConnAttempt() {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	rc.failedConnAttempts = 0
 	rc.retryConnNextAttempt = metav1.Time{}
 }
 
 func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	rc.failedConnAttempts++
 	d := retryAfter(rc.failedConnAttempts)
 	rc.retryConnNextAttempt = metav1.NewTime(rc.clock.Now().Add(d))
@@ -220,7 +226,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 	}
 
 	if connecting {
-		if untilNextAttempt := rc.retryConnNextAttempt.Sub(rc.clock.Now()); untilNextAttempt > 0 {
+		if untilNextAttempt := rc.getRetryConnNextAttempt().Sub(rc.clock.Now()); untilNextAttempt > 0 {
 			return &untilNextAttempt, nil
 		}
 	}
@@ -382,9 +388,10 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 		return fmt.Errorf("creating kueue clientset: %w", err)
 	}
 
-	rc.queuesInformer = kueueinformers.NewSharedInformerFactory(kueueClient, 5*time.Minute)
-	cqInformer := rc.queuesInformer.Kueue().V1beta2().ClusterQueues()
-	lqInformer := rc.queuesInformer.Kueue().V1beta2().LocalQueues()
+	informer := kueueinformers.NewSharedInformerFactory(kueueClient, 5*time.Minute)
+	rc.setQueuesInformer(informer)
+	cqInformer := informer.Kueue().V1beta2().ClusterQueues()
+	lqInformer := informer.Kueue().V1beta2().LocalQueues()
 
 	_, err = cqInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
@@ -426,14 +433,15 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 		return fmt.Errorf("adding LocalQueue event handler: %w", err)
 	}
 
-	rc.queuesInformer.Start(ctx.Done())
+	informer.Start(ctx.Done())
 	return nil
 }
 
 func (rc *remoteClient) queueEventsForCQ(ctx context.Context, remoteCQ *kueue.ClusterQueue) {
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteCQ", remoteCQ.Name)
 
-	if rc.queuesInformer == nil {
+	informer := rc.getQueuesInformer()
+	if informer == nil {
 		log.V(3).Info("queuesInformer is not initialized yet")
 		return
 	}
@@ -441,7 +449,7 @@ func (rc *remoteClient) queueEventsForCQ(ctx context.Context, remoteCQ *kueue.Cl
 	// Ideally, we should restrict this list by .Spec.ClusterQueue right away.
 	// For example, by adding an indexer.
 	// This is postponed to Manager Quota Automation Beta.
-	remoteLQs, err := rc.queuesInformer.Kueue().V1beta2().LocalQueues().Lister().List(labels.Everything())
+	remoteLQs, err := informer.Kueue().V1beta2().LocalQueues().Lister().List(labels.Everything())
 	if err != nil {
 		log.Error(err, "Failed to list remote LocalQueues from cache")
 		return
@@ -469,7 +477,33 @@ func (rc *remoteClient) queueEventsForLQ(ctx context.Context, remoteLQ *kueue.Lo
 	rc.cqUpdateCh <- event.TypedGenericEvent[kueue.ClusterQueueReference]{Object: localLQ.Spec.ClusterQueue}
 }
 
+func (rc *remoteClient) setQueuesInformer(informer kueueinformers.SharedInformerFactory) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.queuesInformer = informer
+}
+
+func (rc *remoteClient) getQueuesInformer() kueueinformers.SharedInformerFactory {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.queuesInformer
+}
+
+func (rc *remoteClient) getFailedConnAttempts() uint {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.failedConnAttempts
+}
+
+func (rc *remoteClient) getRetryConnNextAttempt() metav1.Time {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.retryConnNextAttempt
+}
+
 func (rc *remoteClient) StopWatchers() {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	if rc.watchCancel != nil {
 		rc.watchCancel()
 	}
@@ -650,7 +684,7 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
 	} else if retryAfter != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.failedConnAttempts)
+		ctrl.LoggerFrom(ctx).V(2).Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.getFailedConnAttempts())
 		return retryAfter, nil
 	}
 	return nil, nil
