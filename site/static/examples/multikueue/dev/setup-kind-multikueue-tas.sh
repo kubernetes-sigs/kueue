@@ -130,7 +130,8 @@ for cluster in ${WORKER_CLUSTERS}; do
     # Create ServiceAccount
     kubectl --context "kind-${cluster}" create sa ${SERVICE_ACCOUNT} -n kueue-system 2>/dev/null || true
 
-    # Create ClusterRole for Jobs
+    # Create ClusterRoles for jobs and queues
+
     kubectl --context "kind-${cluster}" create clusterrole multikueue-role \
       --verb=create,delete,get,list,watch \
       --resource=jobs.batch,workloads.kueue.x-k8s.io,pods 2>/dev/null || true
@@ -139,13 +140,22 @@ for cluster in ${WORKER_CLUSTERS}; do
       --verb=get,patch,update \
       --resource=jobs.batch/status,workloads.kueue.x-k8s.io/status,pods/status 2>/dev/null || true
 
+    kubectl --context "kind-${cluster}" create clusterrole multikueue-role-queues \
+      --verb=get,list,watch \
+      --resource=clusterqueues.kueue.x-k8s.io,localqueues.kueue.x-k8s.io 2>/dev/null || true
+
     # Create ClusterRoleBindings
+
     kubectl --context "kind-${cluster}" create clusterrolebinding multikueue-crb \
       --clusterrole=multikueue-role \
       --serviceaccount=kueue-system:${SERVICE_ACCOUNT} 2>/dev/null || true
 
     kubectl --context "kind-${cluster}" create clusterrolebinding multikueue-crb-status \
       --clusterrole=multikueue-role-status \
+      --serviceaccount=kueue-system:${SERVICE_ACCOUNT} 2>/dev/null || true
+
+    kubectl --context "kind-${cluster}" create clusterrolebinding multikueue-crb-queues \
+      --clusterrole=multikueue-role-queues \
       --serviceaccount=kueue-system:${SERVICE_ACCOUNT} 2>/dev/null || true
     
     # Create a secret bound to the new service account
