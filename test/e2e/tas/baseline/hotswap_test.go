@@ -151,6 +151,9 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					PodLabel("job-name", jobName).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletionFailOnExit).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
+					PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+					PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+					PodAnnotation(kueue.PodSetSliceSizeAnnotation, "2").
 					RequestAndLimit(extraResource, "1").
 					CompletionMode(batchv1.IndexedCompletion).
 					BackoffLimit(1).
