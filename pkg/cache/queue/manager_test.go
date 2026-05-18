@@ -32,11 +32,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/queue"
@@ -88,6 +92,58 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 	}
 	if diff := cmp.Diff(expectedWorkloads, assignedWorkloads); diff != "" {
 		t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
+	}
+}
+
+func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
+
+	// Create an admissible workload that triggers dra.NeedsDRAReconcile via HasDRA().
+	tmplName := "claim-tmpl"
+	wl := utiltestingapi.MakeWorkload("wl", "earth").Queue("foo").PodSets(
+		*utiltestingapi.MakePodSet("ps", 1).PodSpec(corev1.PodSpec{
+			ResourceClaims: []corev1.PodResourceClaim{{
+				Name:                      "rc",
+				ResourceClaimTemplateName: &tmplName,
+			}},
+		}).Obj(),
+	).Obj()
+
+	kClient := utiltesting.NewFakeClient(wl)
+	manager := NewManagerForUnitTests(kClient, nil)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	// Pre-fill the channel so the first send blocks until we drain it.
+	ch := make(chan event.TypedGenericEvent[*kueue.Workload], 1)
+	ch <- event.TypedGenericEvent[*kueue.Workload]{Object: wl}
+	manager.SetDRAReconcileChannel(ch)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj())
+	}()
+
+	// Drain the pre-filled event to unblock AddLocalQueue's blocking send.
+	// The send must happen outside the manager lock, so draining here cannot deadlock.
+	select {
+	case <-ch:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting to drain draReconcileChannel")
+	}
+
+	// AddLocalQueue must complete after the channel is drained.
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("AddLocalQueue returned error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("AddLocalQueue did not complete after draReconcileChannel was drained")
+	}
+
+	// The workload event must have been delivered (guaranteed, not dropped).
+	if got := len(ch); got != 1 {
+		t.Fatalf("unexpected draReconcileChannel length: got %d, want 1", got)
 	}
 }
 
@@ -202,7 +258,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 
 	// Put cq2 in the same cohort as cq1.
 	clusterQueues[1].Spec.CohortName = clusterQueues[0].Spec.CohortName
-	if err := manager.UpdateClusterQueue(ctx, clusterQueues[1], true, false); err != nil {
+	if err := manager.UpdateClusterQueue(ctx, clusterQueues[1], true); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 
@@ -237,72 +293,141 @@ func TestUpdateClusterQueue(t *testing.T) {
 	}
 }
 
-// TestUpdateClusterQueueLabelsUpdated tests that labelsUpdated triggers pending
-// workload metrics reporting without requeuing inadmissible workloads.
-func TestUpdateClusterQueueLabelsUpdated(t *testing.T) {
-	cases := map[string]struct {
-		labelsUpdated    bool
-		wantMetricsCount int
-	}{
-		"labelsUpdated=true reports metrics": {
-			labelsUpdated:    true,
-			wantMetricsCount: 2, // active + inadmissible gauges
-		},
-		"labelsUpdated=false does not report metrics": {
-			labelsUpdated:    false,
-			wantMetricsCount: 0,
-		},
+func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	defer metrics.InitMetricVectors(nil)
+
+	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
+	fakeClient := utiltesting.NewFakeClient(
+		utiltesting.MakeNamespace(defaultNamespace),
+		utiltestingapi.MakeWorkload("done", defaultNamespace).Queue("foo").Finished().Obj(),
+	)
+	manager, _ := NewManagerForUnitTestsWithRequeuer(fakeClient, nil, WithCustomLabels(customLabels))
+
+	cq := utiltestingapi.MakeClusterQueue("cq1").Label("team", "alpha").Obj()
+	lq := utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj()
+	wl := utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(time.Now()).Obj()
+	customLabels.CQStore("cq1", cq.GetLabels(), cq.GetAnnotations())
+
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue: %v", err)
 	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			cq := utiltestingapi.MakeClusterQueue("cq1").Obj()
-			lq := utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj()
-			wl := utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(time.Now()).Obj()
-
-			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
-			manager, watcher := NewManagerForUnitTestsWithRequeuer(cl, nil)
-
-			if err := manager.AddClusterQueue(ctx, cq); err != nil {
-				t.Fatalf("Failed adding clusterQueue: %v", err)
-			}
-			if err := manager.AddLocalQueue(ctx, lq); err != nil {
-				t.Fatalf("Failed adding queue: %v", err)
-			}
-
-			watcher.ProcessRequeues(ctx)
-
-			manager.getClusterQueue("cq1").popCycle++
-			if err := cl.Create(ctx, wl); err != nil {
-				t.Fatalf("Failed adding workload to client: %v", err)
-			}
-			manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric)
-
-			wantInadmissibleWorkloads := map[kueue.ClusterQueueReference][]workload.Reference{
-				"cq1": {"default/a"},
-			}
-			if diff := cmp.Diff(wantInadmissibleWorkloads, manager.DumpInadmissible()); diff != "" {
-				t.Fatalf("Unexpected set of inadmissible workloads (-want +got):\n%s", diff)
-			}
-
-			metrics.PendingWorkloads.Reset()
-
-			if err := manager.UpdateClusterQueue(ctx, cq, false, tc.labelsUpdated); err != nil {
-				t.Fatalf("Failed to update ClusterQueue: %v", err)
-			}
-
-			expectGaugeCount(t, metrics.PendingWorkloads, tc.wantMetricsCount, map[string]string{"cluster_queue": "cq1"})
-
-			watcher.ProcessRequeues(ctx)
-
-			if diff := cmp.Diff(wantInadmissibleWorkloads, manager.DumpInadmissible()); diff != "" {
-				t.Errorf("Unexpected set of inadmissible workloads (-want +got):\n%s", diff)
-			}
-			if diff := cmp.Diff(map[kueue.ClusterQueueReference][]workload.Reference(nil), manager.Dump()); diff != "" {
-				t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
-			}
-		})
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding queue: %v", err)
 	}
+	if err := fakeClient.Create(ctx, wl); err != nil {
+		t.Fatalf("Failed adding workload to client: %v", err)
+	}
+	manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric)
+	manager.ResyncClusterQueueGaugeMetrics("cq1")
+
+	expectPending := func(team string, count int) {
+		t.Helper()
+		got := len(testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+			"cluster_queue": "cq1",
+			"custom_team":   team,
+		}))
+		if got != count {
+			t.Fatalf("Unexpected pending workload metric count for team %q: got %d, want %d", team, got, count)
+		}
+	}
+	expectFinished := func(team string, count int) {
+		t.Helper()
+		got := len(testingmetrics.CollectFilteredGaugeVec(metrics.FinishedWorkloads, map[string]string{
+			"cluster_queue": "cq1",
+			"custom_team":   team,
+		}))
+		if got != count {
+			t.Fatalf("Unexpected finished workload metric count for team %q: got %d, want %d", team, got, count)
+		}
+	}
+
+	expectPending("alpha", 2)
+	expectFinished("alpha", 1)
+
+	customLabels.CQStore("cq1", map[string]string{"team": "beta"}, nil)
+	metrics.ClearClusterQueueMetrics("cq1")
+	metrics.ClearClusterQueueMetricsOnLabelChange("cq1")
+	manager.ResyncClusterQueueGaugeMetrics("cq1")
+
+	expectPending("alpha", 0)
+	expectFinished("alpha", 0)
+	expectPending("beta", 2)
+	expectFinished("beta", 1)
+}
+
+func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	defer metrics.InitMetricVectors(nil)
+
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+
+	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
+	fakeClient := utiltesting.NewFakeClient(
+		utiltesting.MakeNamespace(defaultNamespace),
+		utiltestingapi.MakeWorkload("done", defaultNamespace).Queue("foo").Finished().Obj(),
+	)
+	manager, _ := NewManagerForUnitTestsWithRequeuer(fakeClient, nil,
+		WithCustomLabels(customLabels),
+		WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{Enabled: true, QueueSelector: labels.Everything()}),
+	)
+
+	cq := utiltestingapi.MakeClusterQueue("cq1").Obj()
+	lq := utiltestingapi.MakeLocalQueue("foo", defaultNamespace).Label("team", "alpha").ClusterQueue("cq1").Obj()
+	wl := utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(time.Now()).Obj()
+	customLabels.LQStore(queue.Key(lq), lq.GetLabels(), lq.GetAnnotations())
+
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding queue: %v", err)
+	}
+	if err := fakeClient.Create(ctx, wl); err != nil {
+		t.Fatalf("Failed adding workload to client: %v", err)
+	}
+	manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric)
+	manager.ResyncLocalQueueGaugeMetrics(queue.Key(lq))
+
+	expectPending := func(team string, count int) {
+		t.Helper()
+		got := len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+			"name":        "foo",
+			"namespace":   defaultNamespace,
+			"custom_team": team,
+		}))
+		if got != count {
+			t.Fatalf("Unexpected local queue pending metric count for team %q: got %d, want %d", team, got, count)
+		}
+	}
+	expectFinished := func(team string, count int) {
+		t.Helper()
+		got := len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueFinishedWorkloads, map[string]string{
+			"name":        "foo",
+			"namespace":   defaultNamespace,
+			"custom_team": team,
+		}))
+		if got != count {
+			t.Fatalf("Unexpected local queue finished metric count for team %q: got %d, want %d", team, got, count)
+		}
+	}
+
+	expectPending("alpha", 2)
+	expectFinished("alpha", 1)
+
+	updatedLq := lq.DeepCopy()
+	updatedLq.Labels["team"] = "beta"
+	customLabels.LQStore(queue.Key(updatedLq), updatedLq.GetLabels(), updatedLq.GetAnnotations())
+	if err := manager.UpdateLocalQueue(logr.Discard(), updatedLq); err != nil {
+		t.Fatalf("Failed to update local queue: %v", err)
+	}
+	clearLQMetrics(queue.Key(updatedLq))
+	manager.ResyncLocalQueueGaugeMetrics(queue.Key(updatedLq))
+
+	expectPending("alpha", 0)
+	expectFinished("alpha", 0)
+	expectPending("beta", 2)
+	expectFinished("beta", 1)
 }
 
 func TestPendingResourceMetrics(t *testing.T) {
@@ -653,7 +778,7 @@ func TestClusterQueueToActive(t *testing.T) {
 		t.Fatalf("Failed adding clusterQueue %v", err)
 	}
 
-	if err := manager.UpdateClusterQueue(ctx, runningCq, false, false); err != nil {
+	if err := manager.UpdateClusterQueue(ctx, runningCq, false); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 

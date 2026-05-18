@@ -449,10 +449,9 @@ func (s *Scheduler) processEntry(
 
 	s.waitForPodsReadyIfBlocked(ctx, log, e)
 
+	// Copy ClusterName from old slice before admission (needed for MultiKueue).
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
-		if err := s.replaceOldWorkloadSlice(ctx, log, e, oldWorkloadSlice); err != nil {
-			return
-		}
+		e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
 	}
 
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
@@ -463,7 +462,7 @@ func (s *Scheduler) processEntry(
 	}
 
 	e.markNominated()
-	if err := s.admit(ctx, e, cq); err != nil {
+	if err := s.admit(ctx, e, cq, oldWorkloadSlice); err != nil {
 		e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 	}
 }
@@ -531,18 +530,14 @@ func (s *Scheduler) waitForPodsReadyIfBlocked(ctx context.Context, log logr.Logg
 	log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 }
 
-// replaceOldWorkloadSlice deactivates the old slice and finalizes its status.
-// The new slice's clusterName is copied from the old one so that MultiKueue
-// placement stays consistent across the replacement. If the subsequent admit
-// fails, the old slice may end up Finished while the new one is not admitted;
-// downstream controllers handle suspension/eviction.
-func (s *Scheduler) replaceOldWorkloadSlice(ctx context.Context, log logr.Logger, e *entry, oldWorkloadSlice *preemption.Target) error {
-	e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
+// replaceOldWorkloadSlice finishes the old slice after the new slice has been
+// admitted. Called inside the admit success path so the old slice is only
+// finished when the new one is confirmed. If this fails, the job reconciler's
+// EnsureWorkloadSlices detects both slices admitted and finishes the old one.
+func (s *Scheduler) replaceOldWorkloadSlice(ctx context.Context, log logr.Logger, e *entry, oldWorkloadSlice *preemption.Target) {
 	if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
-		log.Error(err, "Failed to replace workload slice")
-		return err
+		log.Error(err, "Failed to finish old workload slice after admitting replacement; job reconciler will handle recovery")
 	}
-	return nil
 }
 
 type entryStatus string
@@ -788,7 +783,7 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
 // Note: this does not necessarily make the workload "admitted".
-func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQueueSnapshot) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQueueSnapshot, oldWorkloadSlice *preemption.Target) error {
 	log := ctrl.LoggerFrom(ctx)
 	admission := &kueue.Admission{
 		ClusterQueue:      e.ClusterQueue,
@@ -816,6 +811,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			s.recordWorkloadAdmissionMetrics(log, newWorkload, e.Obj, admission, consideredStr)
 
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
+				s.replaceOldWorkloadSlice(ctx, log, e, oldWorkloadSlice)
+			}
 			return
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted

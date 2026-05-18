@@ -49,7 +49,7 @@ var (
 )
 
 func TestSchedulerWithConcurrentAdmission(t *testing.T) {
-	util.RunSuite(t, "MultiKueue with Scheduler Suite")
+	util.RunSuite(t, "Concurrent Admission Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {

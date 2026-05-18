@@ -143,7 +143,7 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 		if opts.roleTracker != nil {
 			opts.roleTracker.OnElected(func() {
 				metrics.ClearGaugeMetricsForRole(roletracker.RoleFollower)
-				cCache.ResyncGaugeMetrics()
+				cCache.ResyncGaugeMetrics(ginkgo.GinkgoLogr)
 				queues.ResyncGaugeMetrics()
 			})
 		}
