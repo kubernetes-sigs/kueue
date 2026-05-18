@@ -187,7 +187,7 @@ exclude:
 
 # Additional markdown files to run content rules on (glob format)
 content-paths:
-  - cmd/experimental/agent/skills/**
+  - cmd/experimental/skills/**
 
 # Treat warnings as errors
 strict: true
