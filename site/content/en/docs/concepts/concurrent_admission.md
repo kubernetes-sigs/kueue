@@ -89,8 +89,7 @@ Workload to that flavor.
 
 If you want to limit migration, only to ResourceFlavors above a certain threshold, use `minPreferredFlavorName` API. It lets the user define what is the minimal flavor a Workload can migrate to. 
 
-For example, this policy allows migration to `reservation`, but not from `spot`
-to `on-demand`:
+For example, using this policy a Workload can migrate from `spot` to `reservation`, and from `on-demand` to `reservation`, but not from `spot` to `on-demand`
 
 ```yaml
 concurrentAdmissionPolicy:
