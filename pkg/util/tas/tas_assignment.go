@@ -20,9 +20,11 @@ import (
 	"iter"
 	"slices"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 type TopologyAssignment struct {
@@ -254,6 +256,18 @@ func V1Beta2From(ta *TopologyAssignment) *kueue.TopologyAssignment {
 		return nil
 	}
 	return singleCompactSliceEncoding(ta)
+}
+
+// ComputeUsagePerDomain calculates resource usage per topology domain from an assignment.
+func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.Requests) map[TopologyDomainID]resources.Requests {
+	usage := make(map[TopologyDomainID]resources.Requests)
+	for _, domain := range ta.Domains {
+		domainID := DomainID(domain.Values)
+		domainUsage := singlePodRequests.ScaledUp(int64(domain.Count))
+		domainUsage.Add(resources.Requests{corev1.ResourcePods: int64(domain.Count)})
+		usage[domainID] = domainUsage
+	}
+	return usage
 }
 
 func HasTASAssignmentOnNode(admission *kueue.Admission, nodeName string) bool {
