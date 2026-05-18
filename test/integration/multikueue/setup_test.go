@@ -1276,7 +1276,6 @@ var _ = ginkgo.Describe("Manager quota automation feature", ginkgo.Label("area:m
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 			}, framework.WithNewCache(newCacheFunc))
 
-			ginkgo.By("Verify watch for manager-side ClusterQueues")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(ic.hasWatch(cqTypeName)).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
