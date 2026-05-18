@@ -164,7 +164,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				ginkgo.By("Job is unsuspended", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -253,7 +253,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				ginkgo.By("Job is unsuspended", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -342,7 +342,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				ginkgo.By("Job is unsuspended", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -478,7 +478,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				ginkgo.By("Job is unsuspended", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
-						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+						g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
