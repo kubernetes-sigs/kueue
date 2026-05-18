@@ -215,10 +215,10 @@ root:
   - child:
       name: child3
 `,
-			opType:      InsertText,
-			key:         ".root.[].child.name",
-			value:       "plain text\nsecond line\nthird line\n",
-			indentation: 0,
+			opType:          InsertText,
+			key:             ".root.[].child.name",
+			value:           "plain text\nsecond line\nthird line\n",
+			indentation:     0,
 			onItemCondition: `.root.[].child.name != "child2"`,
 			want: `
 root:
