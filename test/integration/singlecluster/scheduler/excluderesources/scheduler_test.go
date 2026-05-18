@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
@@ -41,7 +41,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 		lq            *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		configuration := &config.Configuration{
 			Resources: &config.Resources{
 				ExcludeResourcePrefixes: []string{
@@ -51,9 +51,6 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 			},
 		}
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
-	})
-
-	ginkgo.BeforeEach(func() {
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
 
@@ -82,9 +79,6 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-	})
-
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 
@@ -205,7 +199,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 	})
 })
 
-var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", func() {
 	var (
 		tasFlavor *kueue.ResourceFlavor
 		topology  *kueue.Topology
@@ -215,7 +209,7 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 		nodes     []corev1.Node
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		configuration := &config.Configuration{
 			Resources: &config.Resources{
 				ExcludeResourcePrefixes: []string{
@@ -224,9 +218,6 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 			},
 		}
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
-	})
-
-	ginkgo.BeforeEach(func() {
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("tas-n1").
 				Label("node-group", "tas").
@@ -288,9 +279,6 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 		for _, node := range nodes {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 		}
-	})
-
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 

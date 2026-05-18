@@ -63,7 +63,7 @@ func setupEnv(c *exec.Cmd, kassetsPath string, kubeconfigPath string) {
 	c.Env = append(c.Env, "KUBECONFIG="+kubeconfigPath)
 }
 
-var _ = ginkgo.Describe("Kueuectl Pass-through", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Kueuectl Pass-through", func() {
 	var (
 		ns *corev1.Namespace
 	)

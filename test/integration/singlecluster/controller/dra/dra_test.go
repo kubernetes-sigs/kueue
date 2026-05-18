@@ -38,17 +38,14 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(nil))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("DRA Integration", func() {
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(nil))
 		ctx = context.Background()
+	})
+
+	ginkgo.AfterEach(func() {
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("DRA is configured via ConfigMap", func() {
@@ -850,18 +847,11 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		const extendedResourceName = "example.com/gpu"
 
-		ginkgo.BeforeAll(func() {
+		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DRAExtendedResources, true)
 			fwk.StopManager(ctx)
 			fwk.StartManager(ctx, cfg, managerSetup(nil))
-		})
 
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
-			fwk.StartManager(ctx, cfg, managerSetup(nil))
-		})
-
-		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "dra-ext-",
@@ -956,7 +946,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			logicalName          = "gpu-claims"
 		)
 
-		ginkgo.BeforeAll(func() {
+		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DRAExtendedResources, true)
 
@@ -975,15 +965,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 					DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
 				})
 			}))
-		})
 
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			fwk.StartManager(ctx, cfg, managerSetup(nil))
-		})
-
-		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{GenerateName: "dra-unified-"},
 			}
@@ -1021,6 +1003,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
 		})
 
 		ginkgo.It("Should use deviceClassMappings logical name as quota key", func() {
@@ -1053,19 +1036,12 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		const extendedResourceName = "example.com/gpu"
 
-		ginkgo.BeforeAll(func() {
+		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DRAExtendedResources, false)
 			fwk.StopManager(ctx)
 			fwk.StartManager(ctx, cfg, managerSetup(nil))
-		})
 
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
-			fwk.StartManager(ctx, cfg, managerSetup(nil))
-		})
-
-		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "dra-gate-off-",

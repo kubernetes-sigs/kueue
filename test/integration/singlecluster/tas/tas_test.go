@@ -93,25 +93,18 @@ func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyReques
 	})
 }
 
-var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 	var (
 		ns *corev1.Namespace
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup())
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
 	})
-
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Delete Topology", func() {
@@ -6124,7 +6117,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 // admission, while original CPU still participates in flavor selection / fitting.
 //
 // See: https://kueue.sigs.k8s.io/docs/tasks/manage/share_quotas_across_flavors/
-var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: Retain CPU → cpu_credits (Share Quotas Across Flavors)", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: Retain CPU → cpu_credits (Share Quotas Across Flavors)", func() {
 	const cpuCredits = "cpu_credits"
 
 	var (
@@ -6138,20 +6131,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: 
 		lq       *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		// Starts the manager with a single retain transformation: 1 CPU → 1 cpu_credits
 		fwk.StartManager(ctx, cfg, managerSetup(config.ResourceTransformation{
 			Input:    corev1.ResourceCPU,
 			Strategy: ptr.To(config.Retain),
 			Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
 		}))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.BeforeEach(func() {
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("on-demand").
 				Label("node-type", "on-demand").
@@ -6212,7 +6198,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: 
 		lq = utiltestingapi.MakeLocalQueue("team-queue", ns.Name).ClusterQueue(cq.Name).Obj()
 		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
-
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
@@ -6223,6 +6208,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: 
 		for i := range nodes {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
 		}
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("workloads request regular CPU but are transformed to cpu_credits", func() {
