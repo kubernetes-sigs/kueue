@@ -103,7 +103,7 @@ concurrentAdmissionPolicy:
 Kueue compares `minPreferredFlavorName` using the order of
 `.spec.resourceGroups[*].flavors` in the `ClusterQueue`.
 
-## Use a reservation with homogeneous flavors
+## Reservation with homogeneous flavors setup
 
 Use `minPreferredFlavorName` when you have one preferred reservation flavor and
 several less preferred homogeneous flavors. This lets workloads migrate to the
