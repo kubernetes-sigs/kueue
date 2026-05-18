@@ -100,7 +100,13 @@ func (r *CQReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	if len(cq.Spec.ResourceGroups) != 1 || len(cq.Spec.ResourceGroups[0].Flavors) != 1 {
-		err = r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, "UnsupportedConfiguration", "Quota automation requires that the manager-side ClusterQueue has exactly one ResourceFlavor")
+		err = r.updateQuotaAutomationCondition(
+			ctx,
+			cq,
+			metav1.ConditionFalse,
+			"UnsupportedConfiguration",
+			"Quota automation requires that the manager-side ClusterQueue has exactly one ResourceFlavor",
+		)
 		return reconcile.Result{}, err
 	}
 	singleFlavor := &cq.Spec.ResourceGroups[0].Flavors[0]
@@ -229,7 +235,7 @@ func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 }
 
 func (r *CQReconciler) removeQuotaAutomationCondition(ctx context.Context, cq *kueue.ClusterQueue) error {
-	if !apimeta.RemoveStatusCondition(&cq.Status.Conditions, string(kueue.MultiKueueManagerQuotaAutomation)) {
+	if !apimeta.RemoveStatusCondition(&cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation) {
 		return nil
 	}
 	if err := r.client.Status().Update(ctx, cq); err != nil {
@@ -240,14 +246,14 @@ func (r *CQReconciler) removeQuotaAutomationCondition(ctx context.Context, cq *k
 
 func (r *CQReconciler) updateQuotaAutomationCondition(ctx context.Context, cq *kueue.ClusterQueue, status metav1.ConditionStatus, reason, message string) error {
 	newCondition := metav1.Condition{
-		Type:               string(kueue.MultiKueueManagerQuotaAutomation),
+		Type:               kueue.MultiKueueManagerQuotaAutomation,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
 		ObservedGeneration: cq.Generation,
 	}
 
-	oldCondition := apimeta.FindStatusCondition(cq.Status.Conditions, string(kueue.MultiKueueManagerQuotaAutomation))
+	oldCondition := apimeta.FindStatusCondition(cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
 	if cmpConditionState(oldCondition, &newCondition) {
 		return nil
 	}

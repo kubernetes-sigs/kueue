@@ -27,18 +27,18 @@ import (
 )
 
 type listItemsGetter[T any, PL client.ObjectList] interface {
-	items(PL) []T
+	Items(PL) []T
 }
 
 type lqItemsGetter struct{}
 
-func (lqItemsGetter) items(l *kueue.LocalQueueList) []kueue.LocalQueue {
+func (lqItemsGetter) Items(l *kueue.LocalQueueList) []kueue.LocalQueue {
 	return l.Items
 }
 
 type cqItemsGetter struct{}
 
-func (cqItemsGetter) items(l *kueue.ClusterQueueList) []kueue.ClusterQueue {
+func (cqItemsGetter) Items(l *kueue.ClusterQueueList) []kueue.ClusterQueue {
 	return l.Items
 }
 
@@ -81,7 +81,7 @@ func getOrList[T any, PT interface {
 	}
 
 	var filtered []T
-	for _, item := range getter.items(PL(&list)) {
+	for _, item := range getter.Items(PL(&list)) {
 		objPtr := PT(&item)
 		key := types.NamespacedName{Namespace: objPtr.GetNamespace(), Name: objPtr.GetName()}
 		if keys.Has(key) {

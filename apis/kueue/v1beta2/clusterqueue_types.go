@@ -26,8 +26,8 @@ import (
 const (
 	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
 	// can be borrowed by other ClusterQueues in the same cohort.
-	ClusterQueueActive               string = "Active"
-	// MultiKueueManagerQuotaAutomation indicates that this ClusterQueue is a 
+	ClusterQueueActive string = "Active"
+	// MultiKueueManagerQuotaAutomation indicates that this ClusterQueue is a
 	// MultiKueue manager queue and its quota is automatically managed.
 	MultiKueueManagerQuotaAutomation string = "MultiKueueManagerQuotaAutomation"
 )
@@ -423,8 +423,6 @@ type ResourceUsage struct {
 	// +optional
 	Borrowed resource.Quantity `json:"borrowed,omitempty"`
 }
-
-
 
 type PreemptionPolicy string
 

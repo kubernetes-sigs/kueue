@@ -29,13 +29,13 @@ import (
 )
 
 const (
-	UsingKubeConfigs               = "spec.kubeconfigs"
-	UsingClusterProfiles           = "spec.clusterProfiles"
-	UsingMultiKueueClusters        = "spec.multiKueueClusters"
-	AdmissionCheckUsingConfigKey   = "spec.multiKueueConfig"
-	WorkloadsWithAdmissionCheckKey = "status.admissionChecks"
+	UsingKubeConfigs                = "spec.kubeconfigs"
+	UsingClusterProfiles            = "spec.clusterProfiles"
+	UsingMultiKueueClusters         = "spec.multiKueueClusters"
+	AdmissionCheckUsingConfigKey    = "spec.multiKueueConfig"
+	WorkloadsWithAdmissionCheckKey  = "status.admissionChecks"
 	AdmissionCheckControllerNameKey = "spec.controllerName"
-	ClusterQueueAdmissionChecksKey = "spec.admissionChecks"
+	ClusterQueueAdmissionChecksKey  = "spec.admissionChecks"
 )
 
 var (

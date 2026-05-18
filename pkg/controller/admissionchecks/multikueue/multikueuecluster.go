@@ -133,7 +133,13 @@ type remoteClient struct {
 	builderOverride clientWithWatchBuilder
 }
 
-func newRemoteClient(localClient client.Client, wlUpdateCh, watchEndedCh chan<- event.GenericEvent, cqUpdateCh chan<- event.TypedGenericEvent[kueue.ClusterQueueReference], origin, clusterName string, adapters map[string]jobframework.MultiKueueAdapter) *remoteClient {
+func newRemoteClient(
+	localClient client.Client,
+	wlUpdateCh, watchEndedCh chan<- event.GenericEvent,
+	cqUpdateCh chan<- event.TypedGenericEvent[kueue.ClusterQueueReference],
+	origin, clusterName string,
+	adapters map[string]jobframework.MultiKueueAdapter,
+) *remoteClient {
 	rc := &remoteClient{
 		clusterName:  clusterName,
 		wlUpdateCh:   wlUpdateCh,

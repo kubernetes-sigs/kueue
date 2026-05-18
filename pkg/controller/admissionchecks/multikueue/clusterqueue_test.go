@@ -94,7 +94,7 @@ func TestCQReconcile(t *testing.T) {
 					},
 				},
 			},
-			wantQuotaAutomated:      true,
+			wantQuotaAutomated: true,
 			wantNominalQuotas: map[string]string{
 				"cpu":    "15",
 				"memory": "30Gi",
@@ -142,7 +142,7 @@ func TestCQReconcile(t *testing.T) {
 					inactive: true,
 				},
 			},
-			wantQuotaAutomated:      true,
+			wantQuotaAutomated: true,
 			wantNominalQuotas: map[string]string{
 				"cpu": "10",
 			},
@@ -195,7 +195,7 @@ func TestCQReconcile(t *testing.T) {
 					},
 				},
 			},
-			wantQuotaAutomated:      true,
+			wantQuotaAutomated: true,
 			wantNominalQuotas: map[string]string{
 				"cpu": "23", // 10 + 5 + 8; 10 should be counted only once
 			},
@@ -246,7 +246,7 @@ func TestCQReconcile(t *testing.T) {
 					},
 				},
 			},
-			wantQuotaAutomated:      true,
+			wantQuotaAutomated: true,
 			wantNominalQuotas: map[string]string{
 				"cpu": "19",
 				"gpu": "4",
@@ -290,7 +290,7 @@ func TestCQReconcile(t *testing.T) {
 					},
 				},
 			},
-			wantQuotaAutomated:      true,
+			wantQuotaAutomated: true,
 			wantNominalQuotas: map[string]string{
 				"cpu":    "15",
 				"memory": "20Gi",
@@ -387,7 +387,7 @@ func TestCQReconcile(t *testing.T) {
 		"not a MultiKueue manager ClusterQueue": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "100").Obj()).
-				Condition(string(kueue.MultiKueueManagerQuotaAutomation), metav1.ConditionTrue, "QuotaAutomated", "ClusterQueue quota is automatically managed based on MultiKueue workers.").
+				Condition(kueue.MultiKueueManagerQuotaAutomation, metav1.ConditionTrue, "QuotaAutomated", "ClusterQueue quota is automatically managed based on MultiKueue workers.").
 				Obj(),
 			lqs: []*kueue.LocalQueue{
 				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
@@ -487,7 +487,7 @@ func TestCQReconcile(t *testing.T) {
 			}
 
 			// Verify condition state
-			cond := apimeta.FindStatusCondition(gotCQ.Status.Conditions, string(kueue.MultiKueueManagerQuotaAutomation))
+			cond := apimeta.FindStatusCondition(gotCQ.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
 			if tc.wantAutomationCondition {
 				if cond == nil {
 					t.Error("expected status condition to be defined, got nil")
@@ -662,10 +662,8 @@ func TestCQReconciler_EventHandlers(t *testing.T) {
 				if mockQ.Items[0].Name != "cq1" {
 					t.Errorf("expected workqueue item name to be %q, got %q", "cq1", mockQ.Items[0].Name)
 				}
-			} else {
-				if len(mockQ.Items) != 0 {
-					t.Fatalf("expected 0 items in workqueue, got %d", len(mockQ.Items))
-				}
+			} else if len(mockQ.Items) != 0 {
+				t.Fatalf("expected 0 items in workqueue, got %d", len(mockQ.Items))
 			}
 		})
 	}

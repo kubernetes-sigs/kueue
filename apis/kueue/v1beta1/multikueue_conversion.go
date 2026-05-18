@@ -72,4 +72,3 @@ func Convert_v1beta2_MultiKueueConfigSpec_To_v1beta1_MultiKueueConfigSpec(in *v1
 	// Copy all fields except the unsupported QuotaManagement.
 	return autoConvert_v1beta2_MultiKueueConfigSpec_To_v1beta1_MultiKueueConfigSpec(in, out, s)
 }
-

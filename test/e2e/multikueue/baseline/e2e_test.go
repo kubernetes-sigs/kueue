@@ -1945,7 +1945,7 @@ app = HelloWorld.bind()`,
 					cq := &kueue.ClusterQueue{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
 
-					cond := apimeta.FindStatusCondition(cq.Status.Conditions, string(kueue.MultiKueueManagerQuotaAutomation))
+					cond := apimeta.FindStatusCondition(cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
 					g.Expect(cond).NotTo(gomega.BeNil())
 					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
 					g.Expect(cond.Reason).To(gomega.Equal("QuotaAutomated"))
