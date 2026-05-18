@@ -1765,6 +1765,51 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "pods": 1`,
 			}},
 		},
+		"multiple PodSets account assumed pod usage against allocatable pods; BestFit": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "one",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count: 1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Values: []string{"x1"},
+								Count:  1,
+							},
+						},
+					},
+				},
+				{
+					podSetName: "two",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count:      1,
+					wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "pods": 1`,
+				},
+			},
+		},
 		"skip node which doesn't match node selector, missing label; BestFit": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x3").
