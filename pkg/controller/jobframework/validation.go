@@ -31,6 +31,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -49,7 +50,15 @@ var (
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
-	supportedPrebuiltWlJobGVKs    = sets.New(
+	annotationsPath               = field.NewPath("metadata", "annotations")
+	elasticJobAnnotationPath      = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
+	supportedElasticJobGVKs       = sets.New(
+		batchv1.SchemeGroupVersion.WithKind("Job").String(),
+		rayv1.GroupVersion.WithKind("RayCluster").String(),
+		rayv1.GroupVersion.WithKind("RayJob").String(),
+		rayv1.GroupVersion.WithKind("RayService").String(),
+	)
+	supportedPrebuiltWlJobGVKs = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
 		jobset.SchemeGroupVersion.WithKind("JobSet").String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.TFJobKind).String(),
@@ -71,6 +80,7 @@ func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 	allErrs := ValidateQueueName(job.Object())
 	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
+	allErrs = append(allErrs, ValidateElasticJobAnnotation(job.Object(), job.GVK())...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(job.Object())...)
@@ -106,6 +116,17 @@ func validateCreateForPrebuiltWorkload(job GenericJob) field.ErrorList {
 		}
 	}
 	return allErrs
+}
+
+// ValidateElasticJobAnnotation rejects the elastic-job annotation on unsupported frameworks.
+func ValidateElasticJobAnnotation(obj client.Object, gvk schema.GroupVersionKind) field.ErrorList {
+	if !workloadslicing.Enabled(obj) {
+		return nil
+	}
+	if !supportedElasticJobGVKs.Has(gvk.String()) {
+		return field.ErrorList{field.Forbidden(elasticJobAnnotationPath, fmt.Sprintf("elastic job is not supported for %q", gvk))}
+	}
+	return nil
 }
 
 func ValidateLabelAsCRDName(obj client.Object, crdNameLabel string) field.ErrorList {

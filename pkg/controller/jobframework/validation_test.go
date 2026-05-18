@@ -25,6 +25,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
@@ -336,6 +337,64 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			newMJ := newMockJob(tc.newJob)
 
 			gotErr := jobframework.ValidateJobOnUpdate(oldMJ, newMJ, func(string) bool { return tc.nsHasDefaultQueue })
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateJobOnCreate(t *testing.T) {
+	t.Cleanup(jobframework.EnableIntegrationsForTest(t, "batch/job"))
+	elasticAnnotationPath := field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey)
+	testCases := map[string]struct {
+		job          *batchv1.Job
+		gvk          schema.GroupVersionKind
+		featureGates map[featuregate.Feature]bool
+		wantErr      field.ErrorList
+	}{
+		"elastic annotation on batch/v1.Job is allowed": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		"elastic annotation on unsupported framework is rejected": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			gvk: schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"},
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: elasticAnnotationPath.String(),
+				},
+			},
+		},
+		"elastic annotation without feature gate is ignored": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			gvk: schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"},
+		},
+	}
+
+	for tcName, tc := range testCases {
+		t.Run(tcName, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			mockctrl := gomock.NewController(t)
+			mj := mocks.NewMockGenericJob(mockctrl)
+			mj.EXPECT().Object().Return(tc.job).AnyTimes()
+			mj.EXPECT().GVK().Return(tc.gvk).AnyTimes()
+
+			gotErr := jobframework.ValidateJobOnCreate(mj)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
