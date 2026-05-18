@@ -62,9 +62,7 @@ for details.
 
 ## Configure flavors and queues
 
-Create a `BestEffortFIFO` `ClusterQueue` with multiple flavors in one
-`resourceGroup` and enable `.spec.concurrentAdmissionPolicy`. The flavor order
-matters: list flavors from the most preferred to the least preferred.
+Create a `ClusterQueue` with `.spec.concurrentAdmissionPolicy` defined multiple Resource Flavors in one ResourceGroup. The order of flavors matters - list flavors from the most preferred to the least preferred.
 
 {{< include "examples/admin/concurrent-admission-setup.yaml" "yaml" >}}
 
