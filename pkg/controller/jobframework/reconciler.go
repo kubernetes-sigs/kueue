@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -688,6 +689,24 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 	}
 	for i := range workloads {
 		wl := &workloads[i]
+
+		// Finish the orphaned workload. This can happen when the workload is readmitted
+		// after eviction (e.g., waitForPodsReady) due to the workload waiting retention policy.
+		// We need to finish the workload to prevent such a situation.
+		// For example, a Deployment-owned pod deleted after PodsReady timeout eviction.
+		if features.Enabled(features.FinishOrphanedWorkloads) && controllerutil.HasControllerReference(wl) {
+			log.V(2).Info("Workload is orphaned; finishing to release quota")
+			err := workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOwnerNotFound,
+				"The workload's owner no longer exists", r.clock)
+			if err != nil {
+				if client.IgnoreNotFound(err) != nil {
+					log.Error(err, "Finishing orphaned workload")
+					return err
+				}
+				return nil
+			}
+		}
+
 		if err := workload.RemoveFinalizer(ctx, r.client, wl); client.IgnoreNotFound(err) != nil {
 			log.Error(err, "Removing finalizer")
 			return err
@@ -1238,9 +1257,11 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 // EquivalentToWorkload checks if the job corresponds to the workload
 func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
-	// Indexes don't work in unit tests, so we explicitly check for the
-	// owner here.
 	if owner.Name != job.Object().GetName() {
+		return false, nil
+	}
+
+	if features.Enabled(features.FinishOrphanedWorkloads) && owner.UID != job.Object().GetUID() {
 		return false, nil
 	}
 
