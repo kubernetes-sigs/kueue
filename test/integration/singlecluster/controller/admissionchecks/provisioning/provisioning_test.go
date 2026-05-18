@@ -148,7 +148,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
 			}
 
-			admission = utiltestingapi.MakeAdmission(cq.Name).
+			admission = utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 				PodSets(
 					utiltestingapi.MakePodSetAssignment("ps1").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
@@ -796,7 +796,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
-			admission = utiltestingapi.MakeAdmission(cq.Name).
+			admission = utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 				PodSets(
 					utiltestingapi.MakePodSetAssignment("ps1").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
@@ -1243,7 +1243,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
-			admission = utiltestingapi.MakeAdmission(cq.Name).
+			admission = utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment("ps1").
 					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
 					Count(3).
@@ -1438,7 +1438,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
 			}
 
-			admission = utiltestingapi.MakeAdmission(cq.Name).
+			admission = utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
 				PodSets(
 					utiltestingapi.MakePodSetAssignment("master").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").

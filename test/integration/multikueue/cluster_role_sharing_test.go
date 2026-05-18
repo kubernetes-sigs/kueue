@@ -214,12 +214,12 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 		wlNonMkLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobNonMk.Name, jobNonMk.UID), Namespace: worker1Ns.Name}
 
 		ginkgo.By("setting multikueue workload reservation in the management cluster", func() {
-			admission := utiltestingapi.MakeAdmission(managerMkCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, admission)
 		})
 
 		ginkgo.By("setting non multikueue workload reservation in the worker1 cluster", func() {
-			admission := utiltestingapi.MakeAdmission(worker1Cq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(worker1Cq.Name)).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlNonMkLookupKey, admission)
 		})
 
@@ -245,7 +245,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 		})
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
-			admission := utiltestingapi.MakeAdmission(managerMkCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
 
 			util.ExpectAdmissionCheckStateWithMessage(
@@ -393,12 +393,12 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 		wlNonMkLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobNonMk.Name, jobNonMk.UID), Namespace: managerNs.Name}
 
 		ginkgo.By("setting multikueue workload reservation in the management cluster", func() {
-			admission := utiltestingapi.MakeAdmission(managerMkCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, admission)
 		})
 
 		ginkgo.By("setting non multikueue workload reservation in the worker1 cluster", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlNonMkLookupKey, admission)
 		})
 
@@ -424,7 +424,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 		})
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
-			admission := utiltestingapi.MakeAdmission(managerMkCq.Name).Obj()
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
 
 			util.ExpectAdmissionCheckStateWithMessage(

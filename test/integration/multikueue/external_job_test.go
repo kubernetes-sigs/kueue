@@ -215,7 +215,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 
 		ginkgo.It("Should run a RayCluster on worker if admitted", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
 				kueue.PodSetAssignment{
 					Name: "head",
 				}, kueue.PodSetAssignment{
@@ -265,7 +265,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 
 		ginkgo.It("Should run a RayCluster on worker if admitted (ManagedBy)", func() {
-			admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
 				kueue.PodSetAssignment{
 					Name: "head",
 				}, kueue.PodSetAssignment{
@@ -325,7 +325,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID), Namespace: managerNs.Name}
 
 			ginkgo.By("setting workload reservation in the management cluster", func() {
-				admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
 					kueue.PodSetAssignment{
 						Name: "head",
 					}, kueue.PodSetAssignment{
@@ -352,7 +352,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			restoreConnectionToWorker2 := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
 
 			ginkgo.By("setting workload reservation in worker1, the raycluster is created in worker1", func() {
-				admission := utiltestingapi.MakeAdmission(managerCq.Name).PodSets(
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
 					kueue.PodSetAssignment{
 						Name: "head",
 					}, kueue.PodSetAssignment{
