@@ -382,6 +382,12 @@ const (
 
 	// Enable recording of WorkloadCreationLatency metric.
 	MetricForWorkloadCreationLatency featuregate.Feature = "MetricForWorkloadCreationLatency"
+
+	// owner: @j-skiba
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10902
+	// Enable evaluation of preferredDuringSchedulingIgnoredDuringExecution node affinities during scheduling in TAS.
+	// The preferred affinity will take precedence over the placement policy (eg. BestFit , LeastFreeCapacity).
+	TASRespectNodeAffinityPreferred featuregate.Feature = "TASRespectNodeAffinityPreferred"
 )
 
 func init() {
@@ -591,6 +597,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MetricForWorkloadCreationLatency: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
+	},
+	TASRespectNodeAffinityPreferred: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
