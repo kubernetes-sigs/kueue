@@ -99,8 +99,6 @@ concurrentAdmissionPolicy:
       minPreferredFlavorName: reservation
 ```
 
-Kueue compares `minPreferredFlavorName` using the order of
-`.spec.resourceGroups[*].flavors` in the `ClusterQueue`.
 
 ## Reservation with homogeneous flavors setup
 
