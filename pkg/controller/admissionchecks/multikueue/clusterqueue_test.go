@@ -350,7 +350,7 @@ func TestCQReconcile(t *testing.T) {
 			wantQuotaAutomated:      false,
 			wantAutomationCondition: true,
 			wantReason:              "UnsupportedConfiguration",
-			wantMessage:             "manager-side ClusterQueue must have exactly one ResourceFlavor",
+			wantMessage:             "Quota automation requires that the manager-side ClusterQueue has exactly one ResourceFlavor",
 		},
 		"quota automation unsupported for missing manager covered resources": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").

@@ -100,7 +100,7 @@ func (r *CQReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	if len(cq.Spec.ResourceGroups) != 1 || len(cq.Spec.ResourceGroups[0].Flavors) != 1 {
-		err = r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, "UnsupportedConfiguration", "manager-side ClusterQueue must have exactly one ResourceFlavor")
+		err = r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, "UnsupportedConfiguration", "Quota automation requires that the manager-side ClusterQueue has exactly one ResourceFlavor")
 		return reconcile.Result{}, err
 	}
 	singleFlavor := &cq.Spec.ResourceGroups[0].Flavors[0]
