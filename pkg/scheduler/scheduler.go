@@ -454,10 +454,10 @@ func (s *Scheduler) processEntry(
 	}
 
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
+		if !s.isMigrationAllowed(cq, e, log) {
+			return
+		}
 		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
-			if !s.isMigrationAllowed(cq, e, log) {
-				return
-			}
 			s.issueMigration(ctx, log, e, lessFavorableSibling)
 			return
 		}
@@ -1145,12 +1145,12 @@ func (s *Scheduler) findAdmittedSibling(wl *workload.Info, snap *schdcache.Snaps
 		return nil
 	}
 	flavors := cq.ResourceGroups[0].Flavors
-	wlFlavorIdx, err := getFlavorIndex(wl, flavors)
+	wlFlavorIdx, err := resolveFlavorIndex(wl, flavors)
 	if err != nil {
 		return nil
 	}
 	return s.findAdmittedSiblingMatching(wl, cq, parentUID, func(sibling *workload.Info) bool {
-		siblingFlavorIdx, err := getFlavorIndex(sibling, flavors)
+		siblingFlavorIdx, err := resolveFlavorIndex(sibling, flavors)
 		if err != nil {
 			return false
 		}
@@ -1177,16 +1177,20 @@ func (s *Scheduler) findAdmittedSiblingMatching(wl *workload.Info, cq *schdcache
 	return nil
 }
 
+// isMigrationAllowed checks if a Variant uses flavor equal or higher than the minimum preferred flavor defined in the migration constraints of the Concurrent Admission policy.
+// Workloads cannot migrate to a flavor that is considered less preferred than the minimum preferred flavor. If the constraint is not defined, migration is allowed by default.
 func (s *Scheduler) isMigrationAllowed(cq *schdcache.ClusterQueueSnapshot, e *entry, log klog.Logger) bool {
 	if cq.ConcurrentAdmissionPolicy == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName == nil {
 		return true
 	}
 	minPrefFlavor := *cq.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName
 	flavors := cq.ResourceGroups[0].Flavors
+	// the minPrefFlavor will always be present as it's validated with CQ webhook
 	minPrefIdx := slices.Index(flavors, minPrefFlavor)
-	wlFlavorIdx, err := getFlavorIndex(&e.Info, flavors)
-	if err != nil || minPrefIdx < 0 {
-		return true
+	wlFlavorIdx, err := resolveFlavorIndex(&e.Info, flavors)
+	if err != nil {
+		log.Error(err, "Workload migration failed")
+		return false
 	}
 	if wlFlavorIdx > minPrefIdx {
 		log.V(3).Info("Skipping migration as target flavor is below MinPreferredFlavorName", "targetFlavor", concurrentadmission.GetVariantFlavor(e.Obj), "minPreferredFlavor", minPrefFlavor)
@@ -1196,7 +1200,7 @@ func (s *Scheduler) isMigrationAllowed(cq *schdcache.ClusterQueueSnapshot, e *en
 	return true
 }
 
-func getFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReference) (int, error) {
+func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReference) (int, error) {
 	flavor := concurrentadmission.GetVariantFlavor(wl.Obj)
 	if flavor == "" {
 		return -1, errors.New("missing variant flavor annotation")

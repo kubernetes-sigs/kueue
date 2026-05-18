@@ -34,15 +34,15 @@ import (
 )
 
 type ClusterQueueSnapshot struct {
-	Name              kueue.ClusterQueueReference
-	ResourceGroups    []ResourceGroup
-	Workloads         map[workload.Reference]*workload.Info
-	WorkloadsNotReady sets.Set[workload.Reference]
-	NamespaceSelector labels.Selector
-	Preemption        kueue.ClusterQueuePreemption
-	FairWeight        float64
-	FlavorFungibility kueue.FlavorFungibility
-	AdmissionScope    kueue.AdmissionScope
+	Name                      kueue.ClusterQueueReference
+	ResourceGroups            []ResourceGroup
+	Workloads                 map[workload.Reference]*workload.Info
+	WorkloadsNotReady         sets.Set[workload.Reference]
+	NamespaceSelector         labels.Selector
+	Preemption                kueue.ClusterQueuePreemption
+	FairWeight                float64
+	FlavorFungibility         kueue.FlavorFungibility
+	AdmissionScope            kueue.AdmissionScope
 	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
