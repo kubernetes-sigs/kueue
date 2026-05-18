@@ -89,11 +89,6 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-apps-v1-deployment
     name: mdeployment.kb.io
-    {{- if has "deployment" $integrationsConfig.frameworks }}
-    failurePolicy: Fail
-    {{- else }}
-    failurePolicy: Ignore
-    {{- end }}
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
@@ -105,6 +100,11 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- if has "deployment" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
     rules:
       - apiGroups:
           - apps
@@ -312,11 +312,6 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate--v1-pod
     name: mpod.kb.io
-    {{- if has "pod" $integrationsConfig.frameworks }}
-    failurePolicy: Fail
-    {{- else }}
-    failurePolicy: Ignore
-    {{- end }}
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
@@ -328,6 +323,11 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- if has "pod" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
     rules:
       - apiGroups:
           - ""
@@ -492,6 +492,17 @@ webhooks:
         path: /mutate-sparkoperator-k8s-io-v1beta2-sparkapplication
     failurePolicy: Fail
     name: msparkapplication.kb.io
+    namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - sparkoperator.k8s.io
@@ -511,11 +522,6 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-apps-v1-statefulset
     name: mstatefulset.kb.io
-    {{- if has "statefulset" $integrationsConfig.frameworks }}
-    failurePolicy: Fail
-    {{- else }}
-    failurePolicy: Ignore
-    {{- end }}
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
@@ -527,6 +533,11 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- if has "statefulset" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
     rules:
       - apiGroups:
           - apps
@@ -579,6 +590,17 @@ webhooks:
         path: /mutate-trainer-kubeflow-org-v1alpha1-trainjob
     failurePolicy: Fail
     name: mtrainjob.kb.io
+    namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - trainer.kubeflow.org
@@ -733,11 +755,6 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-apps-v1-deployment
     name: vdeployment.kb.io
-    {{- if has "deployment" $integrationsConfig.frameworks }}
-    failurePolicy: Fail
-    {{- else }}
-    failurePolicy: Ignore
-    {{- end }}
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
@@ -749,6 +766,11 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- if has "deployment" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
     rules:
       - apiGroups:
           - apps
@@ -954,11 +976,6 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate--v1-pod
     name: vpod.kb.io
-    {{- if has "pod" $integrationsConfig.frameworks }}
-    failurePolicy: Fail
-    {{- else }}
-    failurePolicy: Ignore
-    {{- end }}
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
@@ -970,6 +987,11 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- if has "pod" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
     rules:
       - apiGroups:
           - ""
@@ -1134,6 +1156,17 @@ webhooks:
         path: /validate-sparkoperator-k8s-io-v1beta2-sparkapplication
     failurePolicy: Fail
     name: vsparkapplication.kb.io
+    namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - sparkoperator.k8s.io
@@ -1153,11 +1186,6 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-apps-v1-statefulset
     name: vstatefulset.kb.io
-    {{- if has "statefulset" $integrationsConfig.frameworks }}
-    failurePolicy: Fail
-    {{- else }}
-    failurePolicy: Ignore
-    {{- end }}
     namespaceSelector:
       {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
         {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
@@ -1169,6 +1197,11 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- if has "statefulset" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
     rules:
       - apiGroups:
           - apps
@@ -1220,6 +1253,17 @@ webhooks:
         path: /validate-trainer-kubeflow-org-v1alpha1-trainjob
     failurePolicy: Fail
     name: vtrainjob.kb.io
+    namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - trainer.kubeflow.org
