@@ -177,7 +177,7 @@ test-multikueue-e2e-helm: test-multikueue-e2e
 ## Examples:
 ##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
 .PHONY: test-e2e-extended
-test-e2e-extended: E2E_NPROCS := 4
+test-e2e-extended: E2E_NPROCS := 1
 test-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
@@ -186,7 +186,7 @@ test-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-
 ## Examples:
 ##   Run only job tests: GINKGO_ARGS="--label-filter=feature:job" make test-e2e-baseline
 .PHONY: test-e2e-baseline
-test-e2e-baseline: E2E_NPROCS := 4
+test-e2e-baseline: E2E_NPROCS := 1
 test-e2e-baseline: setup-e2e-env kueuectl run-test-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-baseline
