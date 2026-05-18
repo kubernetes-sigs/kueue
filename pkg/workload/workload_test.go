@@ -1032,6 +1032,74 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 	}
 }
 
+func TestCountsTowardsPodsReadyWorkloadsMetric(t *testing.T) {
+	const ns = "ns"
+
+	now := time.Now().Truncate(time.Second)
+
+	makeWorkload := func(podsReady metav1.ConditionStatus, admitted bool) *kueue.Workload {
+		wlBuilder := utiltestingapi.MakeWorkload("wl", ns).
+			Queue("lq1").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now)
+		if admitted {
+			wlBuilder = wlBuilder.AdmittedAt(true, now)
+		}
+		reason := kueue.WorkloadWaitForStart
+		if podsReady == metav1.ConditionTrue {
+			reason = kueue.WorkloadStarted
+		}
+		return wlBuilder.
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             podsReady,
+				Reason:             reason,
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"admitted and pods ready": {
+			workload: makeWorkload(metav1.ConditionTrue, true),
+			want:     true,
+		},
+		"pods not ready": {
+			workload: makeWorkload(metav1.ConditionFalse, true),
+		},
+		"not admitted": {
+			workload: makeWorkload(metav1.ConditionTrue, false),
+		},
+		"finished": {
+			workload: makeWorkload(metav1.ConditionTrue, true).DeepCopy(),
+		},
+		"evicted": {
+			workload: makeWorkload(metav1.ConditionTrue, true).DeepCopy(),
+		},
+	}
+	apimeta.SetStatusCondition(&cases["finished"].workload.Status.Conditions, metav1.Condition{
+		Type:               kueue.WorkloadFinished,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(now),
+	})
+	apimeta.SetStatusCondition(&cases["evicted"].workload.Status.Conditions, metav1.Condition{
+		Type:               kueue.WorkloadEvicted,
+		Status:             metav1.ConditionTrue,
+		Reason:             kueue.WorkloadEvictedByPreemption,
+		LastTransitionTime: metav1.NewTime(now),
+	})
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := CountsTowardsPodsReadyWorkloadsMetric(tc.workload); got != tc.want {
+				t.Errorf("Unexpected CountsTowardsPodsReadyWorkloadsMetric result: got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFlavorResourceUsage(t *testing.T) {
 	cases := map[string]struct {
 		info *Info
