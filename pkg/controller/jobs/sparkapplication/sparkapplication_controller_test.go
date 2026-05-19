@@ -230,7 +230,7 @@ func TestPodSets(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			kSparkApp := (*SparkApplication)(tc.sparkApp)
-			got, err := kSparkApp.PodSets(ctx)
+			got, err := kSparkApp.PodSets(ctx, nil)
 
 			if err != nil {
 				t.Fatalf("PodSets() returned error: %v", err)
@@ -367,7 +367,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			kSparkApp := (*SparkApplication)(tc.sparkApp)
-			err := kSparkApp.RunWithPodSetsInfo(ctx, tc.podsetsInfo)
+			err := kSparkApp.RunWithPodSetsInfo(ctx, nil, tc.podsetsInfo)
 			if tc.wantErr {
 				if err == nil {
 					t.Errorf("expected RunWithPodSetsInfo() to fail")

@@ -80,7 +80,7 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 
 			ginkgo.By("by creating the TrainJob", func() {
 				util.MustCreate(ctx, k8sClient, testTr)
-				util.MustCreate(ctx, k8sClient, trainJob)
+				util.MustCreateWithRetry(ctx, k8sClient, trainJob)
 			})
 
 			ginkgo.By("suspending it", func() {
@@ -112,7 +112,7 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 
 			ginkgo.By("by creating the TrainJob", func() {
 				util.MustCreate(ctx, k8sClient, testTr)
-				util.MustCreate(ctx, k8sClient, trainJob)
+				util.MustCreateWithRetry(ctx, k8sClient, trainJob)
 			})
 
 			ginkgo.By("and not suspending it", func() {

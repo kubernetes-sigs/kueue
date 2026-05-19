@@ -393,7 +393,7 @@ func priorityBoostAnnotationChanged(oldInfo, newInfo *workload.Info) bool {
 // DRA extended resources are resolved in Reconcile, which can modify TotalRequests
 // without changing the workload Spec.
 func draRequestsChanged(oldInfo, newInfo *workload.Info) bool {
-	if !features.Enabled(features.DynamicResourceAllocation) {
+	if !features.Enabled(features.KueueDRAIntegration) {
 		return false
 	}
 	return !equality.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)

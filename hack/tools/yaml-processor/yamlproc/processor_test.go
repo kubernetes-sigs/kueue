@@ -36,6 +36,7 @@ func TestApplyOperations(t *testing.T) {
 		value           string
 		addKeyIfMissing bool
 		onCondition     string
+		onItemCondition string
 		indentation     int
 		want            string
 		wantErr         []string
@@ -204,6 +205,37 @@ root:
     name: child1
 `,
 		},
+		"InsertText_onItemConditionMet_With_Multiple_Matching_Keys": {
+			data: `
+root:
+  - child:
+      name: child1
+  - child:
+      name: child2
+  - child:
+      name: child3
+`,
+			opType:          InsertText,
+			key:             ".root.[].child.name",
+			value:           "plain text\nsecond line\nthird line\n",
+			indentation:     0,
+			onItemCondition: `.root.[].child.name != "child2"`,
+			want: `
+root:
+  - child:
+      name: child1
+      plain text
+      second line
+      third line
+  - child:
+      name: child2
+  - child:
+      name: child3
+      plain text
+      second line
+      third line
+`,
+		},
 		"InsertText_OnConditionNotMet": {
 			data: `
 root:
@@ -234,6 +266,7 @@ root:
 				Value:           tt.value,
 				AddKeyIfMissing: tt.addKeyIfMissing,
 				OnFileCondition: tt.onCondition,
+				OnItemCondition: tt.onItemCondition,
 				Indentation:     tt.indentation,
 			}
 			fileOps := FileOperations{}

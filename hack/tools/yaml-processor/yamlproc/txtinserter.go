@@ -60,7 +60,6 @@ func (ti *TextInserter) Insert(yamlData []byte, opts InsertOptions) ([]byte, err
 
 func (ti *TextInserter) insertBelowKey(yamlData []byte, opts InsertOptions) ([]byte, error) {
 	var buffer bytes.Buffer
-	var offset int
 
 	sanitizedYaml := Sanitize(yamlData)
 	keyLines, err := ti.yq.FindKeyLines(sanitizedYaml, opts.Key, opts.OnItemCondition)
@@ -73,7 +72,7 @@ func (ti *TextInserter) insertBelowKey(yamlData []byte, opts InsertOptions) ([]b
 		trimmedLine := strings.TrimSpace(line)
 		buffer.WriteString(line + "\n")
 
-		if slices.Contains(keyLines, i+offset) {
+		if slices.Contains(keyLines, i) {
 			before, _, ok := strings.Cut(line, trimmedLine)
 			if !ok {
 				return nil, fmt.Errorf("unable to calculate indentation for %q in line %q (line number: %d)", trimmedLine, line, i)
@@ -81,7 +80,6 @@ func (ti *TextInserter) insertBelowKey(yamlData []byte, opts InsertOptions) ([]b
 			baseIndent := before
 			indentedContent := ti.indentContent(opts.Value, baseIndent+strings.Repeat(" ", opts.Indentation))
 			buffer.WriteString(indentedContent)
-			offset += len(strings.Split(indentedContent, "\n"))
 		}
 	}
 

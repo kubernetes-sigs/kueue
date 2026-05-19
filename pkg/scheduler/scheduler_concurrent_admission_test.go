@@ -234,7 +234,7 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
 		},
-		"concurrent admission: migration is stopped when target flavor is below MinPreferredFlavorName": {
+		"concurrent admission: migration is stopped when target flavor is below LastAcceptableFlavorName": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("sibling-less-favorable", "eng-alpha").
 					UID("sibling-uid").
@@ -277,7 +277,7 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 						*utiltestingapi.MakeFlavorQuotas("spot").
 							Resource(corev1.ResourceCPU, "10").Obj(),
 					).
-					MinPreferredFlavorName("reservation").
+					LastAcceptableFlavorName("reservation").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -304,7 +304,7 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "Target flavor is below MinPreferredFlavorName",
+						Message:            "Target flavor is below LastAcceptableFlavorName",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{

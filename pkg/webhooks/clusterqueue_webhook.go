@@ -247,14 +247,14 @@ func validateConcurrentAdmissionPolicy(cq *kueue.ClusterQueue, path *field.Path)
 			"cannot have more than 16 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined"))
 	}
 
-	if cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil && cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName != nil {
-		minPrefFlavor := *cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName
+	if cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil && cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName != nil {
+		lastAcceptableFlavor := *cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
 		validFlavors := utilqueue.AllFlavors(cq.Spec.ResourceGroups)
-		if !validFlavors.Has(minPrefFlavor) {
+		if !validFlavors.Has(lastAcceptableFlavor) {
 			allowedFlavors := utilslices.Map(validFlavors.UnsortedList(), func(f *kueue.ResourceFlavorReference) string { return string(*f) })
 			allErrs = append(allErrs, field.Invalid(
-				path.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("minPreferredFlavorName"),
-				minPrefFlavor,
+				path.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("lastAcceptableFlavorName"),
+				lastAcceptableFlavor,
 				fmt.Sprintf("must be one of the flavors defined in the ClusterQueue: %v", allowedFlavors)))
 		}
 	}
