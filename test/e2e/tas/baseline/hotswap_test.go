@@ -118,7 +118,6 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 		})
 
 		ginkgo.Context("with TASReplaceNodeOnNodeTaints enabled", func() {
-
 			// In this test we use a job with SliceSize = 2 and SliceRequiredTopology = Rack
 			// Each pod requires 1 "extraResource" so the job will use both nodes from a Rack.
 			// We simulate a node failure by tainting it with NoExecute.

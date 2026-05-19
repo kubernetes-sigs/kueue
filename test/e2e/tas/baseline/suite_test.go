@@ -18,7 +18,6 @@ package baseline
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -37,7 +36,6 @@ var (
 	k8sClient       client.WithWatch
 	ctx             context.Context
 	defaultKueueCfg *configapi.Configuration
-	kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
 )
 
 func TestAPIs(t *testing.T) {
