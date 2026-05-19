@@ -4,7 +4,7 @@
   command = "npm install && hugo --gc --minify && npx -y pagefind --site public"
 
 [build.environment]
-  HUGO_VERSION = "0.160.1"
+  HUGO_VERSION = "0.161.1"
 
 [context.production.environment]
   HUGO_ENV = "production"
