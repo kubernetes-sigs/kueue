@@ -21,12 +21,12 @@ Concurrent Admission consists of two main components:
 - **Concurrent multi-flavor pursuit:** A Workload can independently pursue
   multiple ResourceFlavors at the same time.
 
-Kueue implements this by creating variants of the original Workload, which is
-called the parent Workload. Each variant is a copy of the parent Workload
-assigned to a specific ResourceFlavor, allowing variants to try scheduling
-concurrently and independently on their respective flavors. The order of flavors
-within a ClusterQueue's resource groups dictates their preference, with the first
-flavor being the most preferred.
+Kueue implements this by creating Variants of the original Workload, which is
+called the Parent Workload. Each Variant is a copy of the Parent Workload
+assigned to a specific ResourceFlavor, allowing Variants to try scheduling
+concurrently and independently on their respective ResourceFlavors. The order of
+ResourceFlavors within a ClusterQueue's ResourceGroups dictates their
+preference, with the first ResourceFlavor being the most preferred.
 
 Use Concurrent Admission when workloads can tolerate disruption and you want to
 trade extra scheduling work for faster placement, concurrent admission checks,
@@ -35,8 +35,8 @@ or migration to a preferred flavor, such as a reservation.
 ## Flavor preference and migration
 
 The only supported migration mode is `TryPreferredFlavors`. In this mode, if a
-Workload starts on a less preferred flavor, Kueue keeps pursuing variants for
-more preferred flavors. If a variant assigned to a more preferred flavor is
+Workload starts on a less preferred flavor, Kueue keeps pursuing Variants for
+more preferred flavors. If a Variant assigned to a more preferred flavor is
 admitted later, Kueue migrates the Workload to that flavor.
 
 If you want to limit migration to flavors above a certain preference threshold,
@@ -107,21 +107,28 @@ spec:
       onFlavors: [zone-a, zone-b, zone-c]
 ```
 
-## Parent and variant Workloads
+## Parent and Variant Workloads
 
 When Concurrent Admission is enabled for the `ClusterQueue`, Kueue marks the
-original Workload as a parent and creates variant Workloads owned by that parent.
-Each variant is constrained to one ResourceFlavor.
+original Workload as a Parent and creates Variant Workloads owned by that Parent.
+Each Variant is constrained to one ResourceFlavor.
 
-Variant Workloads are labeled with the parent label
-`kueue.x-k8s.io/concurrent-admission-parent`, which stores the parent Workload
-name. A variant Workload can have metadata like this:
+Parent Workloads are labeled with `kueue.x-k8s.io/concurrent-admission-parent`
+set to `"true"`. A Parent Workload can have metadata like this:
+
+```yaml
+metadata:
+  name: sample-job
+  labels:
+    kueue.x-k8s.io/concurrent-admission-parent: "true"
+```
+
+Variant Workloads reference the Parent Workload through `ownerReferences`. A
+Variant Workload can have metadata like this:
 
 ```yaml
 metadata:
   name: sample-job-variant-spot-a2342
-  labels:
-    kueue.x-k8s.io/concurrent-admission-parent: sample-job
   ownerReferences:
   - apiVersion: kueue.x-k8s.io/v1beta2
     kind: Workload
@@ -131,9 +138,9 @@ metadata:
     blockOwnerDeletion: true
 ```
 
-The parent Workload is the object that job integrations watch for admission.
-Variant Workloads are internal admission attempts. Do not create or edit parent
-labels or variant annotations manually.
+The Parent Workload is the object that job integrations watch for admission.
+Variant Workloads are internal admission attempts. Do not create or edit Parent
+labels or Variant annotations manually.
 
 ## Constraints
 
@@ -154,7 +161,7 @@ Concurrent Admission currently has the following constraints:
 
 - [Set up Concurrent Admission](/docs/tasks/manage/setup_concurrent_admission).
 - Learn about [ClusterQueue flavor order](/docs/concepts/cluster_queue#flavors-and-resources).
-- Read the [Workload concept](/docs/concepts/workload) to understand parent and
-  variant Workloads.
+- Read the [Workload concept](/docs/concepts/workload) to understand Parent and
+  Variant Workloads.
 - Read the [API reference](/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy)
   for `ConcurrentAdmissionPolicy`.

@@ -62,8 +62,8 @@ spec:
 Kueue 会优先分配 ClusterQueue `.spec.resourceGroups[*].flavors` 列表中第一个拥有足够未用 `nominalQuota` 的规格，无论是在本 ClusterQueue 还是其[队列组](#cohort)中。
 
 当为 ClusterQueue 启用[并发准入](/docs/concepts/concurrent_admission)时，
-`.spec.resourceGroups[*].flavors` 的顺序也会定义规格偏好：列表中的第一个规格是迁移时最优先的规格。
-Kueue 可以在多个规格上并发且独立地尝试准入。
+`.spec.resourceGroups[*].flavors` 的顺序也会定义 ResourceFlavor 偏好：列表中的第一个 ResourceFlavor 是迁移时最优先的 ResourceFlavor。
+Kueue 可以在多个 ResourceFlavor 上并发且独立地尝试准入。
 
 {{% alert title="注意" color="primary" %}}
 在 ClusterQueue 配额中使用 `pods` 资源名来限制可接纳的 Pod 数量。

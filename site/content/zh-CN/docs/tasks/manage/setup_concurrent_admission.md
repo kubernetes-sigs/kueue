@@ -49,7 +49,7 @@ kubectl apply -f https://kueue.sigs.k8s.io/examples/admin/concurrent-admission-s
 当前唯一支持的迁移模式是 `TryPreferredFlavors`。在该模式下，如果 Workload
 先在 `spot` 上启动，说明 `reservation` 和 `on-demand` 当时没有准入该 Workload，
 原因可能是配额不可用，也可能是所需的准入检查仍在等待。Kueue 会继续尝试
-`reservation` 和 `on-demand`。如果之后某个更高优先级规格对应的变体被准入，
+`reservation` 和 `on-demand`。如果之后某个更高优先级规格对应的 Variant 被准入，
 Kueue 会将 Workload 迁移到该规格。
 
 ## 将迁移限制到最后可接受规格 {#limit-migration-to-a-last-acceptable-flavor}
@@ -124,8 +124,8 @@ spec:
 ## 观察并发准入 {#observe-concurrent-admission}
 
 向指向该 `ClusterQueue` 的 `LocalQueue` 提交工作负载。
-当 `ClusterQueue` 启用并发准入时，Kueue 会将原始 Workload 标记为父 Workload，
-并创建由该父对象拥有的变体 Workload。每个变体都被限制到一个 ResourceFlavor。
+当 `ClusterQueue` 启用并发准入时，Kueue 会将原始 Workload 标记为 Parent，
+并创建由该 Parent 拥有的 Variant Workload。每个 Variant 都被限制到一个 ResourceFlavor。
 
 列出 Workload：
 
@@ -133,31 +133,38 @@ spec:
 kubectl get workloads
 ```
 
-查看父 Workload：
+查看 Parent Workload：
 
 ```shell
 kubectl describe workload WORKLOAD_NAME
 ```
 
-通过父对象标签 `kueue.x-k8s.io/concurrent-admission-parent` 查找变体 Workload：
+通过 Parent 标签 `kueue.x-k8s.io/concurrent-admission-parent` 查找 Parent Workload：
 
 ```shell
-kubectl get workloads -l kueue.x-k8s.io/concurrent-admission-parent=WORKLOAD_NAME
+kubectl get workloads -l kueue.x-k8s.io/concurrent-admission-parent=true
 ```
 
-查看变体元数据：
+Parent Workload 的元数据可以如下所示：
+
+```yaml
+metadata:
+  name: sample-job
+  labels:
+    kueue.x-k8s.io/concurrent-admission-parent: "true"
+```
+
+查看 Variant 元数据，并确认它通过 `ownerReferences` 引用 Parent Workload：
 
 ```shell
 kubectl get workload VARIANT_WORKLOAD_NAME -o yaml
 ```
 
-变体 Workload 的元数据可以如下所示：
+Variant Workload 的元数据可以如下所示：
 
 ```yaml
 metadata:
   name: sample-job-variant-spot-a2342
-  labels:
-    kueue.x-k8s.io/concurrent-admission-parent: sample-job
   ownerReferences:
   - apiVersion: kueue.x-k8s.io/v1beta2
     kind: Workload
@@ -167,8 +174,8 @@ metadata:
     blockOwnerDeletion: true
 ```
 
-父 Workload 是作业集成观察准入状态的对象。变体 Workload 是内部准入尝试。
-不要手动创建或编辑父对象标签，也不要手动编辑变体注解。
+Parent Workload 是作业集成观察准入状态的对象。Variant Workload 是内部准入尝试。
+不要手动创建或编辑 Parent 标签，也不要手动编辑 Variant 注解。
 
 ## 接下来 {#whats-next}
 

@@ -22,8 +22,8 @@ the decisions and statuses.
 
 When [Concurrent Admission](/docs/concepts/concurrent_admission) is
 enabled for the Workload's ClusterQueue, Kueue can represent one Job with a
-parent Workload and multiple variant Workloads. The parent Workload aggregates
-the admission status for the Job integration, and each variant is an internal
+Parent Workload and multiple Variant Workloads. The Parent Workload aggregates
+the admission status for the Job integration, and each Variant is an internal
 admission attempt constrained to a ResourceFlavor.
 
 The manifest for a Workload looks like the following:

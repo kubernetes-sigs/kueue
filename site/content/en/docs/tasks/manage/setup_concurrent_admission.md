@@ -32,7 +32,7 @@ to enable the `ConcurrentAdmission` feature gate in the Kueue controller manager
 
 Create a `ClusterQueue` with `.spec.concurrentAdmissionPolicy` defined and
 multiple ResourceFlavors in one ResourceGroup. The order of flavors matters:
-list flavors from the most preferred to the least preferred.
+list ResourceFlavors from the most preferred to the least preferred.
 
 {{< include "examples/admin/concurrent-admission-setup.yaml" "yaml" >}}
 
@@ -52,7 +52,7 @@ The only supported migration mode is `TryPreferredFlavors`. In this mode, if a
 Workload starts on `spot`, it means `reservation` and `on-demand` did not admit
 the Workload at that time because quota was unavailable or the required
 admission checks were still pending. Kueue keeps trying `reservation` and
-`on-demand`. If a variant assigned to a more preferred flavor is admitted later,
+`on-demand`. If a Variant assigned to a more preferred flavor is admitted later,
 Kueue migrates the Workload to that flavor.
 
 ## Limit migration to a last acceptable flavor
@@ -132,8 +132,8 @@ spec:
 
 Submit workloads to a `LocalQueue` that points to the configured `ClusterQueue`.
 When Concurrent Admission is enabled for the `ClusterQueue`, Kueue marks the
-original Workload as a parent and creates variant Workloads owned by that parent.
-Each variant is constrained to one ResourceFlavor.
+original Workload as a Parent and creates Variant Workloads owned by that Parent.
+Each Variant is constrained to one ResourceFlavor.
 
 List the Workloads:
 
@@ -141,32 +141,39 @@ List the Workloads:
 kubectl get workloads
 ```
 
-Inspect a parent Workload:
+Inspect a Parent Workload:
 
 ```shell
 kubectl describe workload WORKLOAD_NAME
 ```
 
-Find variants by looking for Workloads with the parent label
+Find Parent Workloads by looking for Workloads with the Parent label
 `kueue.x-k8s.io/concurrent-admission-parent`:
 
 ```shell
-kubectl get workloads -l kueue.x-k8s.io/concurrent-admission-parent=WORKLOAD_NAME
+kubectl get workloads -l kueue.x-k8s.io/concurrent-admission-parent=true
 ```
 
-Inspect the variant metadata:
+A Parent Workload can have metadata like this:
+
+```yaml
+metadata:
+  name: sample-job
+  labels:
+    kueue.x-k8s.io/concurrent-admission-parent: "true"
+```
+
+Inspect the Variant metadata and check that it references the Parent Workload:
 
 ```shell
 kubectl get workload VARIANT_WORKLOAD_NAME -o yaml
 ```
 
-A variant Workload can have metadata like this:
+A Variant Workload can have metadata like this:
 
 ```yaml
 metadata:
   name: sample-job-variant-spot-a2342
-  labels:
-    kueue.x-k8s.io/concurrent-admission-parent: sample-job
   ownerReferences:
   - apiVersion: kueue.x-k8s.io/v1beta2
     kind: Workload
@@ -176,9 +183,9 @@ metadata:
     blockOwnerDeletion: true
 ```
 
-The parent Workload is the object that job integrations watch for admission.
-Variant Workloads are internal admission attempts. Do not create or edit parent
-labels or variant annotations manually.
+The Parent Workload is the object that job integrations watch for admission.
+Variant Workloads are internal admission attempts. Do not create or edit Parent
+labels or Variant annotations manually.
 
 ## What's next?
 

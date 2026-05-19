@@ -20,8 +20,8 @@ description: >
   Workload 迁移到该规格。
 - **并发多规格尝试：** 一个 Workload 可以同时独立尝试多个 ResourceFlavor。
 
-Kueue 通过为原始 Workload 创建变体来实现此功能。原始 Workload 称为父 Workload。
-每个变体都是父 Workload 的副本，并被分配到特定的 ResourceFlavor，因此这些变体可以在各自的规格上并发且独立地尝试调度。
+Kueue 通过为原始 Workload 创建 Variant 来实现此功能。原始 Workload 称为 Parent Workload。
+每个 Variant 都是 Parent Workload 的副本，并被分配到特定的 ResourceFlavor，因此这些 Variant 可以在各自的规格上并发且独立地尝试调度。
 ClusterQueue 的资源组中 ResourceFlavor 的顺序决定规格偏好，列表中的第一个规格优先级最高。
 
 当工作负载可以接受中断，并且你希望用额外调度开销换取更快放置、并发准入检查，
@@ -30,8 +30,8 @@ ClusterQueue 的资源组中 ResourceFlavor 的顺序决定规格偏好，列表
 ## 规格偏好和迁移 {#flavor-preference-and-migration}
 
 当前唯一支持的迁移模式是 `TryPreferredFlavors`。在该模式下，如果 Workload
-先在较低优先级的规格上启动，Kueue 会继续尝试更高优先级规格对应的变体。
-如果之后某个更高优先级规格对应的变体被准入，Kueue 会将 Workload 迁移到该规格。
+先在较低优先级的规格上启动，Kueue 会继续尝试更高优先级规格对应的 Variant。
+如果之后某个更高优先级规格对应的 Variant 被准入，Kueue 会将 Workload 迁移到该规格。
 
 如果希望将迁移限制到某个规格偏好阈值以上，请使用 `lastAcceptableFlavorName` API。
 该字段定义 Workload 可以迁移到的最低可接受规格。
@@ -97,19 +97,26 @@ spec:
       onFlavors: [zone-a, zone-b, zone-c]
 ```
 
-## 父 Workload 和变体 Workload {#parent-and-variant-workloads}
+## Parent Workload 和 Variant Workload {#parent-and-variant-workloads}
 
-当 `ClusterQueue` 启用并发准入时，Kueue 会将原始 Workload 标记为父 Workload，
-并创建由该父对象拥有的变体 Workload。每个变体都被限制到一个 ResourceFlavor。
+当 `ClusterQueue` 启用并发准入时，Kueue 会将原始 Workload 标记为 Parent，
+并创建由该 Parent 拥有的 Variant Workload。每个 Variant 都被限制到一个 ResourceFlavor。
 
-变体 Workload 带有父对象标签 `kueue.x-k8s.io/concurrent-admission-parent`，
-该标签的值是父 Workload 的名称。变体 Workload 的元数据可以如下所示：
+Parent Workload 带有 `kueue.x-k8s.io/concurrent-admission-parent` 标签，标签值为 `"true"`。
+Parent Workload 的元数据可以如下所示：
+
+```yaml
+metadata:
+  name: sample-job
+  labels:
+    kueue.x-k8s.io/concurrent-admission-parent: "true"
+```
+
+Variant Workload 通过 `ownerReferences` 引用 Parent Workload。Variant Workload 的元数据可以如下所示：
 
 ```yaml
 metadata:
   name: sample-job-variant-spot-a2342
-  labels:
-    kueue.x-k8s.io/concurrent-admission-parent: sample-job
   ownerReferences:
   - apiVersion: kueue.x-k8s.io/v1beta2
     kind: Workload
@@ -119,8 +126,8 @@ metadata:
     blockOwnerDeletion: true
 ```
 
-父 Workload 是作业集成观察准入状态的对象。变体 Workload 是内部准入尝试。
-不要手动创建或编辑父对象标签，也不要手动编辑变体注解。
+Parent Workload 是作业集成观察准入状态的对象。Variant Workload 是内部准入尝试。
+不要手动创建或编辑 Parent 标签，也不要手动编辑 Variant 注解。
 
 ## 约束 {#constraints}
 
@@ -140,5 +147,5 @@ metadata:
 
 - [设置并发准入](/docs/tasks/manage/setup_concurrent_admission)。
 - 了解 [ClusterQueue 规格顺序](/docs/concepts/cluster_queue#resource-flavors-and-resources)。
-- 阅读[工作负载概念](/docs/concepts/workload)，了解父 Workload 和变体 Workload。
+- 阅读[工作负载概念](/docs/concepts/workload)，了解 Parent Workload 和 Variant Workload。
 - 阅读 [`ConcurrentAdmissionPolicy` API 参考](/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy)。

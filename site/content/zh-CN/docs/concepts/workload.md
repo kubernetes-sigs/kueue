@@ -19,8 +19,8 @@ Kubernetes API。
 Workload 对象。Kueue 自动为每个 Job 对象创建一个 Workload，并同步决策和状态。
 
 当工作负载所在的 ClusterQueue 启用[并发准入](/docs/concepts/concurrent_admission)时，
-Kueue 可以用一个父 Workload 和多个变体 Workload 表示同一个作业。父 Workload 聚合作业集成所需的
-准入状态，每个变体都是一次内部准入尝试，并被限制到一个 ResourceFlavor。
+Kueue 可以用一个 Parent Workload 和多个 Variant Workload 表示同一个作业。Parent Workload 聚合作业集成所需的
+准入状态，每个 Variant 都是一次内部准入尝试，并被限制到一个 ResourceFlavor。
 
 Workload 的清单如下所示：
 

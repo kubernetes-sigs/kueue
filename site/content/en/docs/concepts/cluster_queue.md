@@ -72,8 +72,9 @@ ClusterQueue's [cohort](#cohort).
 
 When [Concurrent Admission](/docs/concepts/concurrent_admission) is enabled for
 a ClusterQueue, the order of `.spec.resourceGroups[*].flavors` also defines
-flavor preference: the first flavor is the most preferred flavor for migration.
-Kueue can concurrently pursue admission on multiple flavors independently.
+ResourceFlavor preference: the first ResourceFlavor is the most preferred
+ResourceFlavor for migration. Kueue can concurrently pursue admission on
+multiple ResourceFlavors independently.
 
 {{% alert title="Note" color="primary" %}}
 Use the `pods` resource name in the ClusterQueue quotas to limit the number of pods that can be admitted.
