@@ -45,7 +45,7 @@ type GenericJob interface {
 
 	// RunWithPodSetsInfo injects node affinity and pod set counts extracted
 	// from the workload into the job and unsuspends it.
-	RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error
+	RunWithPodSetsInfo(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo) error
 
 	// RestorePodSetsInfo restores the original node affinity and pod set counts
 	// of the job. It returns whether any change was made.
@@ -57,13 +57,13 @@ type GenericJob interface {
 	Finished(ctx context.Context) (message string, success, finished bool)
 
 	// PodSets builds workload pod sets corresponding to the job.
-	PodSets(ctx context.Context) ([]kueue.PodSet, error)
+	PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error)
 
 	// IsActive returns true if there are any running pods.
 	IsActive() bool
 
 	// PodsReady indicates whether all job-derived pods are ready.
-	PodsReady(ctx context.Context) bool
+	PodsReady(ctx context.Context, c client.Client) bool
 
 	// GVK returns the GroupVersionKind for the job.
 	GVK() schema.GroupVersionKind
@@ -80,7 +80,7 @@ type JobWithPodLabelSelector interface {
 // when reclaimable pod information is needed.
 type JobWithReclaimablePods interface {
 	// ReclaimablePods returns the list of reclaimable pods.
-	ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error)
+	ReclaimablePods(ctx context.Context, c client.Client) ([]kueue.ReclaimablePod, error)
 }
 
 // JobWithCustomStop is an optional interface that should be implemented by generic jobs

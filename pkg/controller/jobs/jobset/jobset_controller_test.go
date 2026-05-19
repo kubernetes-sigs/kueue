@@ -107,7 +107,7 @@ func TestPodsReady(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			jobSet := (JobSet)(tc.jobSet)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := jobSet.PodsReady(ctx)
+			got := jobSet.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -191,7 +191,7 @@ func TestReclaimablePods(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			jobSet := (*JobSet)(tc.jobSet)
-			got, err := jobSet.ReclaimablePods(ctx)
+			got, err := jobSet.ReclaimablePods(ctx, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %s", err)
 			}
@@ -345,7 +345,7 @@ func TestPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.jobSet.PodSets(ctx)
+			gotPodSets, err := tc.jobSet.PodSets(ctx, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %s", err)
 			}

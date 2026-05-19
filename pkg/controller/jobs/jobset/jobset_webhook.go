@@ -143,7 +143,7 @@ func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet) (fie
 func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := jobframework.JobPodSets(ctx, jobSet)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, jobSet, nil)
 	if podSetsErr == nil {
 		for i, p := range podSets {
 			rjobsPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")

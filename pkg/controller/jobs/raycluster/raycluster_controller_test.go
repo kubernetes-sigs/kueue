@@ -285,7 +285,7 @@ func TestPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.rayCluster.PodSets(ctx)
+			gotPodSets, err := tc.rayCluster.PodSets(ctx, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

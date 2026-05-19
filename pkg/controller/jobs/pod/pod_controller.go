@@ -336,7 +336,7 @@ func (p *Pod) CustomQueueNameChange(ctx context.Context, c client.Client, wl *ku
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) RunWithPodSetsInfo(_ context.Context, _ []podset.PodSetInfo) error {
+func (p *Pod) RunWithPodSetsInfo(_ context.Context, _ client.Client, _ []podset.PodSetInfo) error {
 	// Not implemented because this is not called when JobWithCustomRun is implemented.
 	return errors.New("RunWithPodSetsInfo is not implemented for the Pod object")
 }
@@ -395,7 +395,7 @@ func (p *Pod) Finished(ctx context.Context) (message string, success, finished b
 }
 
 // PodSets will build workload podSets corresponding to the job.
-func (p *Pod) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	if !p.isGroup {
 		return constructPodSets(&p.pod)
 	} else {
@@ -459,7 +459,7 @@ func hasPodReadyTrue(conds []corev1.PodCondition) bool {
 }
 
 // PodsReady instructs whether job derived pods are all ready now.
-func (p *Pod) PodsReady(ctx context.Context) bool {
+func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	if !p.isGroup {
 		return hasPodReadyTrue(p.pod.Status.Conditions)
 	}
@@ -1093,7 +1093,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		p.list.Items = activePods[:len(activePods)-excessPodsCount]
 	}
 
-	podSets, err := jobframework.JobPodSets(ctx, p)
+	podSets, err := jobframework.JobPodSets(ctx, p, nil)
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
 			r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", err.Error())
@@ -1302,7 +1302,7 @@ func (p *Pod) isReclaimable() bool {
 	return p.isGroup && !p.isServing()
 }
 
-func (p *Pod) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
+func (p *Pod) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.ReclaimablePod, error) {
 	if !p.isReclaimable() {
 		return []kueue.ReclaimablePod{}, nil
 	}
