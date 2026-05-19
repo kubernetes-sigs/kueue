@@ -106,16 +106,13 @@ func TestAmountFromQuantity(t *testing.T) {
 }
 
 // TestAmountArithmetic pins the unlimited-propagation and saturation rules
-// that prevent cohort math from overflowing, matching mimowo's request that
-// quota arithmetic be funneled through an abstraction rather than relying on
-// raw int64.
+// that prevent cohort math from overflowing. Quota arithmetic must funnel
+// through Amount rather than raw int64 so these invariants hold globally.
 func TestAmountArithmetic(t *testing.T) {
-	testCases := []struct {
-		name string
-		run  func(t *testing.T)
+	testCases := map[string]struct {
+		run func(t *testing.T)
 	}{
-		{
-			name: "Add propagates Unlimited",
+		"Add propagates Unlimited": {
 			run: func(t *testing.T) {
 				got := NewAmount(5).Add(Unlimited)
 				if !got.isUnlimited() {
@@ -123,8 +120,7 @@ func TestAmountArithmetic(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "Add saturates on bounded overflow becomes Unlimited",
+		"Add saturates on bounded overflow becomes Unlimited": {
 			run: func(t *testing.T) {
 				got := NewAmount(math.MaxInt64 - 5).Add(NewAmount(100))
 				if !got.isUnlimited() {
@@ -132,8 +128,7 @@ func TestAmountArithmetic(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "Sub of Unlimited stays Unlimited",
+		"Sub of Unlimited stays Unlimited": {
 			run: func(t *testing.T) {
 				got := Unlimited.SubInt64(1000)
 				if !got.isUnlimited() {
@@ -141,8 +136,7 @@ func TestAmountArithmetic(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "Cmp - Unlimited greater than any bounded",
+		"Cmp - Unlimited greater than any bounded": {
 			run: func(t *testing.T) {
 				// MaxInt64 is the Unlimited sentinel; use MaxInt64-1 for a bounded value.
 				if Unlimited.CmpInt64(math.MaxInt64-1) <= 0 {
@@ -153,8 +147,7 @@ func TestAmountArithmetic(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "Cmp - two Unlimited equal",
+		"Cmp - two Unlimited equal": {
 			run: func(t *testing.T) {
 				left, right := Unlimited, Unlimited
 				if got := left.Cmp(right); got != 0 {
@@ -162,8 +155,29 @@ func TestAmountArithmetic(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "AddInt64 saturates",
+		"Sub Unlimited minus Unlimited yields zero": {
+			run: func(t *testing.T) {
+				// Intentional edge case: Unlimited - Unlimited = 0.
+				// This arises in localQuota when SubtreeQuota == LendingLimit == Unlimited,
+				// meaning the node lends everything and retains nothing locally.
+				got := Unlimited.Sub(Unlimited)
+				if got.isUnlimited() {
+					t.Errorf("Unlimited.Sub(Unlimited) should be bounded zero, got Unlimited")
+				}
+				if got.Int64() != 0 {
+					t.Errorf("Unlimited.Sub(Unlimited) = %d, want 0", got.Int64())
+				}
+			},
+		},
+		"Sub bounded minus Unlimited yields MinInt64": {
+			run: func(t *testing.T) {
+				got := NewAmount(1000).Sub(Unlimited)
+				if got.Int64() != math.MinInt64 {
+					t.Errorf("bounded.Sub(Unlimited) = %d, want MinInt64", got.Int64())
+				}
+			},
+		},
+		"AddInt64 saturates": {
 			run: func(t *testing.T) {
 				got := NewAmount(math.MaxInt64 - 1).AddInt64(100)
 				if got.Int64() != math.MaxInt64 {
@@ -173,7 +187,7 @@ func TestAmountArithmetic(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, tc.run)
+	for name, tc := range testCases {
+		t.Run(name, tc.run)
 	}
 }

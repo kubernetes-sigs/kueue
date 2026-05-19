@@ -144,11 +144,11 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	}
 
 	var borrowedFRs []resources.FlavorResource
-	borrowing := make(map[corev1.ResourceName]int64, len(node.getResourceNode().SubtreeQuota))
+	borrowing := make(map[corev1.ResourceName]resources.Amount, len(node.getResourceNode().SubtreeQuota))
 	for fr, quota := range node.getResourceNode().SubtreeQuota {
-		amountBorrowed := wlReq[fr].Add(node.getResourceNode().Usage[fr]).Sub(quota).Int64()
-		if amountBorrowed > 0 {
-			borrowing[fr.Resource] += amountBorrowed
+		amountBorrowed := wlReq[fr].Add(node.getResourceNode().Usage[fr]).Sub(quota)
+		if amountBorrowed.CmpInt64(0) > 0 {
+			borrowing[fr.Resource] = borrowing[fr.Resource].Add(amountBorrowed)
 			borrowedFRs = append(borrowedFRs, fr)
 		}
 	}
@@ -160,8 +160,8 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 
 	lendable := calculateLendable(node.parentHRN())
 	for rName, b := range borrowing {
-		if lr := lendable[rName]; lr > 0 {
-			ratio := float64(b) * 1000.0 / float64(lr)
+		if lr := lendable[rName]; lr.CmpInt64(0) > 0 {
+			ratio := float64(b.Int64()) * 1000.0 / float64(lr.Int64())
 			// Use alphabetical order to get a deterministic resource name.
 			if ratio > drs.unweightedRatio || (ratio == drs.unweightedRatio && rName < drs.dominantResource) {
 				drs.unweightedRatio = ratio
@@ -174,18 +174,18 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 
 // calculateLendable aggregates capacity for resources across all
 // FlavorResources.
-func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]int64 {
+func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
 	// walk to root
 	root := node
 	for root.HasParent() {
 		root = root.parentHRN()
 	}
 
-	lendable := make(map[corev1.ResourceName]int64, len(root.getResourceNode().SubtreeQuota))
+	lendable := make(map[corev1.ResourceName]resources.Amount, len(root.getResourceNode().SubtreeQuota))
 	// The root's SubtreeQuota contains all FlavorResources,
 	// as we accumulate even 0s in accumulateFromChild.
 	for fr := range root.getResourceNode().SubtreeQuota {
-		lendable[fr.Resource] += potentialAvailable(node, fr)
+		lendable[fr.Resource] = lendable[fr.Resource].Add(potentialAvailable(node, fr))
 	}
 	return lendable
 }

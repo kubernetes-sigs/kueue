@@ -386,8 +386,8 @@ func TestAvailable(t *testing.T) {
 					gotAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					gotPotentiallyAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					for fr := range cq.ResourceNode.Quotas {
-						gotAvailable[cq.Name][fr] = resources.NewAmount(cq.Available(fr))
-						gotPotentiallyAvailable[cq.Name][fr] = resources.NewAmount(potentialAvailable(cq, fr))
+						gotAvailable[cq.Name][fr] = cq.Available(fr)
+						gotPotentiallyAvailable[cq.Name][fr] = potentialAvailable(cq, fr)
 					}
 				}
 				// before adding usage, available == potentiallyAvailable
@@ -412,8 +412,8 @@ func TestAvailable(t *testing.T) {
 					gotAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					gotPotentiallyAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					for fr := range cq.ResourceNode.Quotas {
-						gotAvailable[cq.Name][fr] = resources.NewAmount(cq.Available(fr))
-						gotPotentiallyAvailable[cq.Name][fr] = resources.NewAmount(potentialAvailable(cq, fr))
+						gotAvailable[cq.Name][fr] = cq.Available(fr)
+						gotPotentiallyAvailable[cq.Name][fr] = potentialAvailable(cq, fr)
 					}
 				}
 				if diff := cmp.Diff(tc.wantAvailable, gotAvailable); diff != "" {
@@ -437,8 +437,8 @@ func TestAvailable(t *testing.T) {
 					gotAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					gotPotentiallyAvailable[cq.Name] = make(resources.FlavorResourceQuantities, numFrs)
 					for fr := range cq.ResourceNode.Quotas {
-						gotAvailable[cq.Name][fr] = resources.NewAmount(cq.Available(fr))
-						gotPotentiallyAvailable[cq.Name][fr] = resources.NewAmount(potentialAvailable(cq, fr))
+						gotAvailable[cq.Name][fr] = cq.Available(fr)
+						gotPotentiallyAvailable[cq.Name][fr] = potentialAvailable(cq, fr)
 					}
 				}
 				// once again, available == potentiallyAvailable

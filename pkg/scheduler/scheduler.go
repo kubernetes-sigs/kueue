@@ -659,7 +659,7 @@ func quotaResourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) resou
 				reservedUsage[fr] = resources.MinAmount(usage, cqQuota.Nominal.Add(*cqQuota.BorrowingLimit).Sub(cq.ResourceNode.Usage[fr]))
 			}
 		} else {
-			reservedUsage[fr] = resources.NewAmount(max(0, resources.MinAmount(usage, cqQuota.Nominal.Sub(cq.ResourceNode.Usage[fr])).Int64()))
+			reservedUsage[fr] = resources.MaxAmount(resources.NewAmount(0), resources.MinAmount(usage, cqQuota.Nominal.Sub(cq.ResourceNode.Usage[fr])))
 		}
 	}
 	return reservedUsage

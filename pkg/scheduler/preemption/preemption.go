@@ -617,10 +617,10 @@ func cqIsBorrowing(cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Se
 // if it belongs to one.
 func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 	for fr, v := range preemptionCtx.workloadUsage.Quota {
-		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v.Int64()) {
+		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
 			return false
 		}
-		if v.Int64() > preemptionCtx.preemptorCQ.Available(fr) {
+		if v.Cmp(preemptionCtx.preemptorCQ.Available(fr)) > 0 {
 			return false
 		}
 	}

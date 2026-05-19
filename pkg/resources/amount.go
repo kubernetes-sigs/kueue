@@ -115,8 +115,9 @@ func (a Amount) AddInt64(v int64) Amount {
 }
 
 // Sub returns a - b. If a is Unlimited and b is bounded, the result stays
-// Unlimited. If both are Unlimited (which shouldn't happen in normal cohort
-// math), the result is bounded zero.
+// Unlimited. If b is Unlimited and a is bounded, the result is math.MinInt64
+// (callers treat any negative as "no available capacity").
+// Sub(Unlimited, Unlimited) returns bounded zero.
 func (a Amount) Sub(b Amount) Amount {
 	if a.isUnlimited() && b.isUnlimited() {
 		return Amount{}
@@ -175,6 +176,14 @@ func (a Amount) CmpInt64(v int64) int {
 // MinAmount returns the smaller of a and b.
 func MinAmount(a, b Amount) Amount {
 	if a.Cmp(b) < 0 {
+		return a
+	}
+	return b
+}
+
+// MaxAmount returns the larger of a and b.
+func MaxAmount(a, b Amount) Amount {
+	if a.Cmp(b) > 0 {
 		return a
 	}
 	return b

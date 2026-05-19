@@ -830,11 +830,11 @@ func TestSnapshot(t *testing.T) {
 							ResourceNode: resourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
 									{Flavor: "tas-flavor", Resource: corev1.ResourceCPU}: {
-										Nominal: 100_000,
+										Nominal: resources.NewAmount(100_000),
 									},
 								},
 								SubtreeQuota: resources.FlavorResourceQuantities{
-									{Flavor: "tas-flavor", Resource: corev1.ResourceCPU}: 100_000,
+									{Flavor: "tas-flavor", Resource: corev1.ResourceCPU}: resources.NewAmount(100_000),
 								},
 							},
 							FlavorFungibility: defaultFlavorFungibility,

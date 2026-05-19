@@ -43,7 +43,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
 	fr resources.FlavorResource,
-	quantity int64,
+	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
 	candidates := p.preemptor.getTargets(&preemptionCtx{
 		clock:             p.preemptor.clock,
@@ -52,7 +52,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
 		snapshot:          p.snapshot,
 		frsNeedPreemption: sets.New(fr),
-		workloadUsage:     workload.Usage{Quota: resources.FlavorResourceQuantities{fr: resources.NewAmount(quantity)}},
+		workloadUsage:     workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
 	})
 
 	if len(candidates) == 0 {

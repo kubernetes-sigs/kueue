@@ -1531,10 +1531,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					UsedResources: cq.resourceNode.Usage,
 				}
 			}
-			cmpFilter := func(a, b resources.FlavorResourceQuantities) bool { return len(a) != 0 || len(b) != 0 }
 			cmpOpts := []cmp.Option{
 				cmpopts.EquateEmpty(),
-				cmp.FilterValues(cmpFilter, cmp.Comparer(equalFlavorResourceQuantitiesIgnoringZero)),
+				cmp.FilterValues(func(a, b resources.FlavorResourceQuantities) bool { return len(a) != 0 || len(b) != 0 }, cmp.Comparer(equalFlavorResourceQuantitiesIgnoringZero)),
 			}
 			if diff := cmp.Diff(step.wantResults, gotResult, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
@@ -2622,12 +2621,11 @@ func TestCacheQueueOperations(t *testing.T) {
 					cacheQueues[qKey] = cacheQ
 				}
 			}
-			cmpFilter := func(a, b resources.FlavorResourceQuantities) bool { return len(a) != 0 || len(b) != 0 }
 			cmpOpts := []cmp.Option{
 				cmp.AllowUnexported(LocalQueue{}),
 				cmpopts.EquateEmpty(),
 				cmpopts.IgnoreTypes(sync.RWMutex{}),
-				cmp.FilterValues(cmpFilter, cmp.Comparer(equalFlavorResourceQuantitiesIgnoringZero)),
+				cmp.FilterValues(func(a, b resources.FlavorResourceQuantities) bool { return len(a) != 0 || len(b) != 0 }, cmp.Comparer(equalFlavorResourceQuantitiesIgnoringZero)),
 			}
 			if diff := cmp.Diff(tc.wantLocalQueues, cacheQueues, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected localQueues (-want,+got):\n%s", diff)
@@ -3038,25 +3036,12 @@ func TestIsAddedCheckWorkload(t *testing.T) {
 	}
 }
 
-func normalizeFlavorResourceQuantities(in resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
-	out := make(resources.FlavorResourceQuantities, len(in))
-	for k, v := range in {
-		if v.CmpInt64(0) != 0 {
-			out[k] = v
-		}
-	}
-	return out
-}
-
 func equalFlavorResourceQuantitiesIgnoringZero(a, b resources.FlavorResourceQuantities) bool {
-	na := normalizeFlavorResourceQuantities(a)
-	nb := normalizeFlavorResourceQuantities(b)
-	if len(na) != len(nb) {
-		return false
+	if len(b) > len(a) {
+		a, b = b, a
 	}
-	for k, av := range na {
-		bv, ok := nb[k]
-		if !ok || !av.Equal(bv) {
+	for k, av := range a {
+		if av.Cmp(b[k]) != 0 {
 			return false
 		}
 	}

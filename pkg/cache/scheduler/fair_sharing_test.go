@@ -732,6 +732,58 @@ func TestDominantResourceShare(t *testing.T) {
 				},
 			},
 		},
+		// When the lending CQ holds an "exabyte-scale" quota (1E CPU), AmountFromQuantity
+		// returns Unlimited (math.MaxInt64 sentinel). calculateLendable then aggregates
+		// potentialAvailable and lendable["cpu"] saturates to Unlimited (MaxInt64).
+		// The ratio float64(b.Int64())*1000/float64(lr.Int64()) evaluates to a tiny
+		// positive finite number; math.Ceil rounds it up to 1. This test pins that
+		// behaviour and guards against NaN/Inf regressions.
+		"borrowing against unlimited lendable capacity (exabyte-scale quota)": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000), // 1 CPU
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						// "1E" CPU overflows int64 milliCPU → AmountFromQuantity returns Unlimited.
+						ResourceQuotaWrapper("cpu").NominalQuota("1E").Append().
+						Obj(),
+				).Obj(),
+			want: []fairSharingResult{
+				{
+					Name:     "cq",
+					NodeType: nodeTypeCq,
+					// ratio = float64(1000)*1000/float64(MaxInt64) ≈ 1.09e-13; math.Ceil → 1.
+					DrValue:   1,
+					DrName:    corev1.ResourceCPU,
+					Borrowing: true,
+				},
+				{
+					Name:      "lending-cq",
+					NodeType:  nodeTypeCq,
+					DrValue:   0,
+					DrName:    "",
+					Borrowing: false,
+				},
+				{
+					Name:      "test-cohort",
+					NodeType:  nodeTypeCohort,
+					DrValue:   0,
+					DrName:    "",
+					Borrowing: false,
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

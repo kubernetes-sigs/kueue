@@ -159,7 +159,7 @@ func (f *testOracle) SimulatePreemption(
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
 	fr resources.FlavorResource,
-	quantity int64,
+	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
 	if f.simulationResult != nil {
 		if result, ok := f.simulationResult[fr]; ok {

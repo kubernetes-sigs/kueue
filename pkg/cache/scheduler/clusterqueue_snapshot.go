@@ -121,7 +121,7 @@ func (c *ClusterQueueSnapshot) updateTASUsage(usage workload.TASUsage, op usageO
 
 func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) bool {
 	for fr, q := range usage.Quota {
-		if c.Available(fr) < q.Int64() {
+		if c.Available(fr).Cmp(q) < 0 {
 			return false
 		}
 	}
@@ -141,25 +141,25 @@ func (c *ClusterQueueSnapshot) QuotaFor(fr resources.FlavorResource) ResourceQuo
 }
 
 func (c *ClusterQueueSnapshot) Borrowing(fr resources.FlavorResource) bool {
-	return c.BorrowingWith(fr, 0)
+	return c.BorrowingWith(fr, resources.NewAmount(0))
 }
 
-func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {
-	return c.QuotaFor(fr).Nominal.Cmp(c.ResourceNode.Usage[fr].AddInt64(val)) < 0
+func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val resources.Amount) bool {
+	return c.QuotaFor(fr).Nominal.Cmp(c.ResourceNode.Usage[fr].Add(val)) < 0
 }
 
 // Available returns the current capacity available, before preempting
 // any workloads. Includes local capacity and capacity borrowed from
 // Cohort. When the ClusterQueue/Cohort is in debt, Available
 // will return 0.
-func (c *ClusterQueueSnapshot) Available(fr resources.FlavorResource) int64 {
-	return max(0, available(c, fr))
+func (c *ClusterQueueSnapshot) Available(fr resources.FlavorResource) resources.Amount {
+	return resources.MaxAmount(resources.NewAmount(0), available(c, fr))
 }
 
 // PotentialAvailable returns the largest workload this ClusterQueue could
 // possibly admit, accounting for its capacity and capacity borrowed
 // its from Cohort.
-func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) int64 {
+func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) resources.Amount {
 	return potentialAvailable(c, fr)
 }
 

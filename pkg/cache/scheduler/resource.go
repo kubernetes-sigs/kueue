@@ -19,6 +19,7 @@ package scheduler
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -57,17 +58,10 @@ func (q ResourceQuota) Equal(other ResourceQuota) bool {
 	if !q.Nominal.Equal(other.Nominal) {
 		return false
 	}
-	if !equalAmountPtr(q.BorrowingLimit, other.BorrowingLimit) {
+	if !ptr.Equal(q.BorrowingLimit, other.BorrowingLimit) {
 		return false
 	}
-	return equalAmountPtr(q.LendingLimit, other.LendingLimit)
-}
-
-func equalAmountPtr(a, b *resources.Amount) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return a.Equal(*b)
+	return ptr.Equal(q.LendingLimit, other.LendingLimit)
 }
 
 func createResourceQuotas(kueueRgs []kueue.ResourceGroup) map[resources.FlavorResource]ResourceQuota {

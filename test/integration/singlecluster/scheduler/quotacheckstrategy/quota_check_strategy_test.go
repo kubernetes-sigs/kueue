@@ -22,7 +22,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -148,15 +147,8 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			createdWl := &kueue.Workload{}
 			wlKey := client.ObjectKeyFromObject(wl)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
-				g.Expect(workload.IsAdmitted(createdWl)).To(gomega.BeTrue(), "expected workload to be admitted with very large nominal quota")
-				cond := apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadQuotaReserved)
-				g.Expect(cond).NotTo(gomega.BeNil())
-				g.Expect(cond.Message).NotTo(gomega.ContainSubstring("maximum capacity (0)"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
 		})
 	})
 	ginkgo.When("quota check strategy is set to IgnoreUndeclared and feature gate is disabled", func() {
