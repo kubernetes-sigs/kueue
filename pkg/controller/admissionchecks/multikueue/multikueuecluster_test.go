@@ -1241,7 +1241,10 @@ func TestEstablishWatch(t *testing.T) {
 	})
 }
 
-func TestEstablishTimeoutFor(t *testing.T) {
+// Pins the schedule produced by establishBackoff: 1m, 2m, 4m, 8m, 10m, 10m, ...
+// The helper itself is tested in pkg/util/wait; this is a guard against
+// accidental changes to the initial/cap/factor wiring.
+func TestEstablishBackoffSchedule(t *testing.T) {
 	cases := map[string]struct {
 		failedAttempts uint
 		want           time.Duration
@@ -1252,14 +1255,13 @@ func TestEstablishTimeoutFor(t *testing.T) {
 		"three failures":            {failedAttempts: 3, want: 8 * time.Minute},
 		"four failures hits cap":    {failedAttempts: 4, want: maxEstablishTimeout},
 		"many failures stay at cap": {failedAttempts: 20, want: maxEstablishTimeout},
-		"huge value does not panic": {failedAttempts: 1000, want: maxEstablishTimeout},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := establishTimeoutFor(tc.failedAttempts)
+			got := establishBackoff.WaitTime(int(tc.failedAttempts) + 1)
 			if got != tc.want {
-				t.Fatalf("establishTimeoutFor(%d) = %v, want %v", tc.failedAttempts, got, tc.want)
+				t.Fatalf("WaitTime(%d) = %v, want %v", tc.failedAttempts+1, got, tc.want)
 			}
 		})
 	}
