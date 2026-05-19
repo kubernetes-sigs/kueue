@@ -377,16 +377,6 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	halfLifeTime := r.admissionFSConfig.UsageHalfLifeTime.Seconds()
 	now := r.clock.Now()
 
-	if halfLifeTime == 0 {
-		if err := r.updateAdmissionFsStatus(ctx, lq, corev1.ResourceList{}, now); err != nil {
-			log.V(2).Info("Failed to reset LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
-			return err
-		}
-		r.queues.AfsConsumedResources.Set(lqKey, corev1.ResourceList{}, now)
-		log.V(2).Info("Reset AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name)
-		return nil
-	}
-
 	entry, _ := r.queues.AfsConsumedResources.Get(lqKey)
 
 	cacheLq, err := r.cache.GetCacheLocalQueue(lq.Spec.ClusterQueue, lqKey)

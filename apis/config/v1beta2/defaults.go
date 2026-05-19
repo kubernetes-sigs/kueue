@@ -125,6 +125,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, new(MultiKueueDispatcherModeAllAtOnce))
 
 	if afs := cfg.AdmissionFairSharing; afs != nil {
+		afs.UsageHalfLifeTime.Duration = cmp.Or(afs.UsageHalfLifeTime.Duration, 10*time.Minute)
 		afs.UsageSamplingInterval.Duration = cmp.Or(afs.UsageSamplingInterval.Duration, 5*time.Minute)
 	}
 	cfg.VisibilityServer = cmp.Or(cfg.VisibilityServer, &VisibilityServerConfiguration{})
