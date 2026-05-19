@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1265,5 +1266,78 @@ func TestEstablishBackoffSchedule(t *testing.T) {
 				t.Fatalf("WaitTime(%d) = %v, want %v", tc.failedAttempts+1, got, tc.want)
 			}
 		})
+	}
+}
+
+// Regression for #11297. A remote stuck inside Watch must not stop
+// reconciles of other clusters.
+func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	slowReached := make(chan struct{})
+	slowRelease := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseSlow := func() { releaseOnce.Do(func() { close(slowRelease) }) }
+	t.Cleanup(releaseSlow)
+
+	gatedBuilder := func(config *clientConfig, _ client.Options) (client.WithWatch, error) {
+		kubeconfig := string(config.Kubeconfig)
+		b := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(watchCtx context.Context, c client.WithWatch, obj client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
+				if strings.Contains(kubeconfig, "slow-user") {
+					close(slowReached)
+					select {
+					case <-slowRelease:
+						return nil, errors.New("released")
+					case <-watchCtx.Done():
+						return nil, watchCtx.Err()
+					}
+				}
+				return c.Watch(watchCtx, obj, opts...)
+			},
+		})
+		return b.Build(), nil
+	}
+
+	localClient := getClientBuilder(ctx).Build()
+	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileCreds{}, nil)
+	reconciler.rootContext = ctx
+	reconciler.builderOverride = gatedBuilder
+
+	slowConfig := &clientConfig{Kubeconfig: []byte(testKubeconfig("slow-user"))}
+	fastConfig := &clientConfig{Kubeconfig: []byte(testKubeconfig("fast-user"))}
+
+	slowDone := make(chan struct{})
+	go func() {
+		defer close(slowDone)
+		_, _ = reconciler.setRemoteClientConfig(ctx, "cluster-slow", slowConfig, defaultOrigin)
+	}()
+
+	select {
+	case <-slowReached:
+	case <-time.After(2 * time.Second):
+		t.Fatal("slow cluster's setConfig did not reach the Watch call in time")
+	}
+
+	fastDone := make(chan error, 1)
+	go func() {
+		_, err := reconciler.setRemoteClientConfig(ctx, "cluster-fast", fastConfig, defaultOrigin)
+		fastDone <- err
+	}()
+
+	select {
+	case err := <-fastDone:
+		if err != nil {
+			t.Fatalf("cluster-fast setRemoteClientConfig returned err: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cluster-fast setRemoteClientConfig was blocked by cluster-slow (head-of-line)")
+	}
+
+	releaseSlow()
+	select {
+	case <-slowDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("slow goroutine did not exit after release")
 	}
 }
