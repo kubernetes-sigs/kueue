@@ -32,33 +32,39 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 
 ## Production Readiness status
 
-- ✔️ API version: v1beta2, respecting [Kubernetes Deprecation Policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/)
+- ✔️ API version: v1beta2, respecting [Kubernetes Deprecation Policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/).
 - ✔️ Up-to-date [documentation](https://kueue.sigs.k8s.io/docs).
-- ✔️ Test Coverage:
-  - ✔️ Unit Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-unit-main).
-  - ✔️ Integration Test Baseline [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-baseline-main)
-  - ✔️ Integration Test Extended [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-extended-main)
-  - ✔️ Integration MultiKueue Tests [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-multikueue-main)
-  - ✔️ E2E Tests Baseline for Kubernetes
-    [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-33),
-    [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-34),
-    [1.35](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-35),
-    on Kind.
-  - ✔️ E2E Tests Extended for Kubernetes
-    [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-33),
-    [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-34),
-    [1.35](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-35),
-    on Kind.
-  - ✔️ E2E TAS Baseline Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-baseline-main)
-  - ✔️ E2E TAS Extended Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-extended-main)
-  - ✔️ E2E Sequential Baseline Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-baseline-main)
-  - ✔️ E2E Sequential Extended Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-extended-main)
-  - ✔️ E2E Cert Manager Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-certmanager-main)
-  - ✔️ E2E DRA Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-dra-main)
-  - ✔️ E2E MultuKueue Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-main)
-  - ✔️ E2E MultuKueue DRA Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-dra-main)
-  - ✔️ Scheduling Performance Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-scheduling-perf-main)
-  - ✔️ TAS Scheduling Performance Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-tas-scheduling-perf-main)
+- ✔️ Test coverage:
+  - ✔️ Unit test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-unit-main).
+  - ✔️ Integration tests:
+    - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-baseline-main).
+    - ✔️ Extended suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-extended-main).
+    - ✔️ MultiKueue suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-multikueue-main).
+  - ✔️ E2E tests:
+    - ✔️ Baseline suites for Kubernetes
+      [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-33),
+      [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-34),
+      [1.35](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-35)
+      on Kind.
+    - ✔️ Extended suites for Kubernetes
+      [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-33),
+      [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-34),
+      [1.35](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-35)
+      on Kind.
+    - ✔️ TAS: 
+      - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-baseline-main).
+      - ✔️ Extended suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-extended-main).
+    - ✔️ Sequential tests: 
+      - ✔️ Baseline suites [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-baseline-main).
+      - ✔️ Extended suites [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-extended-main).
+    - ✔️ E2E Cert Manager test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-certmanager-main).
+    - ✔️ DRA test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-dra-main).
+    - ✔️ MultuKueue: [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-main).
+    - ✔️ MultuKueue DRA test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-dra-main).
+  - ✔️ Scheduling performance tests:
+    - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-scheduling-perf-main).
+    - ✔️ TAS suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-tas-scheduling-perf-main).
+    - ✔️ Large-Scale suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-large-scale-scheduling-perf-main).
 - ✔️ Scalability verification via [performance tests](https://github.com/kubernetes-sigs/kueue/tree/main/test/performance).
 - ✔️ Monitoring via [metrics](https://kueue.sigs.k8s.io/docs/reference/metrics).
 - ✔️ Security: RBAC based accessibility.
