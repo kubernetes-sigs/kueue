@@ -25,12 +25,12 @@ import (
 // ConcurrentAdmissionConstraintsApplyConfiguration represents a declarative configuration of the ConcurrentAdmissionConstraints type for use
 // with apply.
 type ConcurrentAdmissionConstraintsApplyConfiguration struct {
-	// minPreferredFlavorName defines the minimal flavor a Workload can migrate to.
+	// lastAcceptableFlavorName defines the last acceptable flavor a Workload can migrate to.
 	// The order is based on the order of flavors in ClusterQueue.
 	// It can only be used if the Mode is `TryPreferredFlavors`.
-	// If the Mode is `TryPreferredFlavors` and MinPreferredFlavorName is not specified, then
+	// If the Mode is `TryPreferredFlavors` and LastAcceptableFlavorName is not specified, then
 	// Workload can migrate to any flavor that is more preferable than the one it was admitted to.
-	MinPreferredFlavorName *kueuev1beta2.ResourceFlavorReference `json:"minPreferredFlavorName,omitempty"`
+	LastAcceptableFlavorName *kueuev1beta2.ResourceFlavorReference `json:"lastAcceptableFlavorName,omitempty"`
 }
 
 // ConcurrentAdmissionConstraintsApplyConfiguration constructs a declarative configuration of the ConcurrentAdmissionConstraints type for use with
@@ -39,10 +39,10 @@ func ConcurrentAdmissionConstraints() *ConcurrentAdmissionConstraintsApplyConfig
 	return &ConcurrentAdmissionConstraintsApplyConfiguration{}
 }
 
-// WithMinPreferredFlavorName sets the MinPreferredFlavorName field in the declarative configuration to the given value
+// WithLastAcceptableFlavorName sets the LastAcceptableFlavorName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the MinPreferredFlavorName field is set to the value of the last call.
-func (b *ConcurrentAdmissionConstraintsApplyConfiguration) WithMinPreferredFlavorName(value kueuev1beta2.ResourceFlavorReference) *ConcurrentAdmissionConstraintsApplyConfiguration {
-	b.MinPreferredFlavorName = &value
+// If called multiple times, the LastAcceptableFlavorName field is set to the value of the last call.
+func (b *ConcurrentAdmissionConstraintsApplyConfiguration) WithLastAcceptableFlavorName(value kueuev1beta2.ResourceFlavorReference) *ConcurrentAdmissionConstraintsApplyConfiguration {
+	b.LastAcceptableFlavorName = &value
 	return b
 }

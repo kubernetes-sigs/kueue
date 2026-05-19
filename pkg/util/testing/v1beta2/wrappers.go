@@ -976,14 +976,14 @@ func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdm
 	return c
 }
 
-func (c *ClusterQueueWrapper) MinPreferredFlavorName(name string) *ClusterQueueWrapper {
+func (c *ClusterQueueWrapper) LastAcceptableFlavorName(name string) *ClusterQueueWrapper {
 	if c.Spec.ConcurrentAdmissionPolicy == nil {
 		c = c.ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors)
 	}
 	if c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints == nil {
 		c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints = &kueue.ConcurrentAdmissionConstraints{}
 	}
-	c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName = new(kueue.ResourceFlavorReference(name))
+	c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName = new(kueue.ResourceFlavorReference(name))
 	return c
 }
 
