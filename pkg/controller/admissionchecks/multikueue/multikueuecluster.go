@@ -262,7 +262,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 	}
 	remoteClient, err := builder(watchCtx, config, client.Options{Scheme: rc.localClient.Scheme()})
 	if err != nil {
-		return nil, err
+		return rc.increaseFailedConnAttempt(), err
 	}
 
 	rc.client = remoteClient

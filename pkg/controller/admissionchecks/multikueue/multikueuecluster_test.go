@@ -288,7 +288,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, cancelCalled),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil), 1),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -297,6 +297,7 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRequeueAfter: 5 * time.Second,
 			wantCancelCalled: 1,
 		},
 		"update client with invalid path config": {
@@ -445,7 +446,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": setReconnectState(newTestClient(ctx, []byte("nowatch"), nil, cancelCalled), 5),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil), 1),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -454,6 +455,7 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRequeueAfter: 5 * time.Second,
 			wantCancelCalled: 1,
 		},
 		"failed due to insecure kubeconfig": {
