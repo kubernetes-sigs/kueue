@@ -51,7 +51,7 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 
 type fullInterface interface {
 	jobframework.MultiKueueAdapter
-	jobframework.MultiKueueWorkloadOrJobWatcher
+	jobframework.MultiKueueWatcher
 }
 
 // NewMKAdapter creates a generic MultiKueue adapter for Ray job types.

@@ -43,10 +43,10 @@ type MultiKueueAdapter interface {
 	GVK() schema.GroupVersionKind
 }
 
-// MultiKueueWorkloadOrJobWatcher optional interface that can be implemented by a MultiKueueAdapter
+// MultiKueueWatcher optional interface that can be implemented by a MultiKueueAdapter
 // to receive job related watch events from the worker cluster.
 // If not implemented, MultiKueue will only receive events related to the job's workload.
-type MultiKueueWorkloadOrJobWatcher interface {
+type MultiKueueWatcher interface {
 	// GetEmptyList returns an empty list of objects
 	GetEmptyList() client.ObjectList
 	// WorkloadKeysFor returns the keys of the workloads of interest

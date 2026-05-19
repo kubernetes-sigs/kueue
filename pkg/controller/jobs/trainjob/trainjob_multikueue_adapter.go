@@ -109,7 +109,7 @@ func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-var _ jobframework.MultiKueueWorkloadOrJobWatcher = (*multiKueueAdapter)(nil)
+var _ jobframework.MultiKueueWatcher = (*multiKueueAdapter)(nil)
 
 func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &kftrainerapi.TrainJobList{}

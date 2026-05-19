@@ -104,7 +104,7 @@ func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Cl
 	return true, "", nil
 }
 
-var _ jobframework.MultiKueueWorkloadOrJobWatcher = (*multiKueueAdapter)(nil)
+var _ jobframework.MultiKueueWatcher = (*multiKueueAdapter)(nil)
 
 func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &awv1beta2.AppWrapperList{}

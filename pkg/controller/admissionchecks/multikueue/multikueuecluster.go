@@ -197,7 +197,7 @@ func newClientWithWatch(ctx context.Context, config *clientConfig, options clien
 
 type workloadKueueWatcher struct{}
 
-var _ jobframework.MultiKueueWorkloadOrJobWatcher = (*workloadKueueWatcher)(nil)
+var _ jobframework.MultiKueueWatcher = (*workloadKueueWatcher)(nil)
 
 func (*workloadKueueWatcher) GetEmptyList() client.ObjectList {
 	return &kueue.WorkloadList{}
@@ -263,18 +263,18 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 
 	rc.client = remoteClient
 
-	err = rc.startWorkloadOrJobWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
+	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
 		return rc.increaseFailedConnAttempt(), err
 	}
 
 	// add a watch for all the adapters implementing multiKueueWatcher
 	for kind, adapter := range rc.adapters {
-		watcher, implementsWatcher := adapter.(jobframework.MultiKueueWorkloadOrJobWatcher)
+		watcher, implementsWatcher := adapter.(jobframework.MultiKueueWatcher)
 		if !implementsWatcher {
 			continue
 		}
-		err := rc.startWorkloadOrJobWatcher(watchCtx, kind, watcher)
+		err := rc.startWatcher(watchCtx, kind, watcher)
 		if err != nil {
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to start the watcher", "kind", kind)
@@ -311,7 +311,7 @@ func (cw *cancelOnStopWatcher) Stop() {
 // timeout. On timeout the in-flight Watch is canceled and
 // errWatchEstablishTimeout is returned so the caller falls back to the
 // standard failedConnAttempts / retryAfter backoff in setConfig.
-func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, timeout time.Duration, watchOpts ...client.ListOption) (watch.Interface, error) {
+func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, timeout time.Duration, origin string) (watch.Interface, error) {
 	type result struct {
 		w   watch.Interface
 		err error
@@ -320,7 +320,10 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 	establishCtx, cancel := context.WithCancel(ctx)
 
 	go func() {
-		w, err := c.Watch(establishCtx, obj, watchOpts...)
+		w, err := c.Watch(establishCtx, obj,
+			client.MatchingLabels{kueue.MultiKueueOriginLabel: origin},
+			&client.ListOptions{Raw: &metav1.ListOptions{AllowWatchBookmarks: true}},
+		)
 		resultCh <- result{w: w, err: err}
 	}()
 
@@ -340,10 +343,9 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 	}
 }
 
-func (rc *remoteClient) startWatcher(ctx context.Context, kind string, list client.ObjectList, callback func(client.Object), watchOpts ...client.ListOption) error {
+func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	watchOpts = append(watchOpts, &client.ListOptions{Raw: &metav1.ListOptions{AllowWatchBookmarks: true}})
-	newWatcher, err := establishWatch(ctx, rc.client, list, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), watchOpts...)
+	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), rc.origin)
 	if err != nil {
 		return err
 	}
@@ -365,8 +367,13 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, list clie
 					log.V(3).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
 				}
 			default:
-				if obj, ok := r.Object.(client.Object); ok {
-					callback(obj)
+				wlKeys, err := w.WorkloadKeysFor(r.Object)
+				if err != nil {
+					log.Error(err, "Cannot get workload keys", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
+				} else {
+					for _, wlKey := range wlKeys {
+						rc.queueWorkloadEvent(ctx, wlKey)
+					}
 				}
 			}
 		}
@@ -382,19 +389,6 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, list clie
 		}
 	}()
 	return nil
-}
-
-func (rc *remoteClient) startWorkloadOrJobWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWorkloadOrJobWatcher) error {
-	return rc.startWatcher(ctx, kind, w.GetEmptyList(), func(obj client.Object) {
-		wlKeys, err := w.WorkloadKeysFor(obj)
-		if err != nil {
-			ctrl.LoggerFrom(ctx).Error(err, "Cannot get workload keys", "jobKind", obj.GetObjectKind().GroupVersionKind())
-		} else {
-			for _, wlKey := range wlKeys {
-				rc.queueWorkloadEvent(ctx, wlKey)
-			}
-		}
-	}, client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin})
 }
 
 func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {

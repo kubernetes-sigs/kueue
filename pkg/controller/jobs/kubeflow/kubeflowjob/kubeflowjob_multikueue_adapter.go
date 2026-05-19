@@ -50,7 +50,7 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 
 type fullInterface interface {
 	jobframework.MultiKueueAdapter
-	jobframework.MultiKueueWorkloadOrJobWatcher
+	jobframework.MultiKueueWatcher
 }
 
 func NewMKAdapter[PtrT objAsPtr[T], T any](
