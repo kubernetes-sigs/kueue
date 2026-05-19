@@ -1070,6 +1070,21 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRAIntegration:                 false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -1093,18 +1108,18 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGatesCLI: "",
 		},
 		"feature gate cli": {
-			featureGatesCLI: string(features.DynamicResourceAllocation) + "=false",
+			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
 			gatesToRestore: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation: false,
+				features.KueueDRAIntegration: false,
 			},
 		},
 		"cannot specify both feature gates": {
-			featureGatesCLI: string(features.DynamicResourceAllocation) + "=false",
+			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
 			featureGateMap: map[string]bool{
-				string(features.DynamicResourceAllocation): false,
+				string(features.KueueDRAIntegration): false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation: false,
+				features.KueueDRAIntegration: false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1218,20 +1233,20 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
-		"DRAExtendedResources requires DynamicResourceAllocation": {
+		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
 			featureGateMap: map[string]bool{
-				string(features.DRAExtendedResources):      true,
-				string(features.DynamicResourceAllocation): false,
+				string(features.KueueDRAIntegrationExtendedResource): true,
+				string(features.KueueDRAIntegration):                 false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
-				features.DRAExtendedResources:      false,
-				features.DynamicResourceAllocation: true,
+				features.KueueDRAIntegrationExtendedResource: false,
+				features.KueueDRAIntegration:                 true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "DRAExtendedResources requires DynamicResourceAllocation to be enabled",
+					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
 				},
 			},
 		},

@@ -511,7 +511,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return err
 	}
 
-	if !features.Enabled(features.DynamicResourceAllocation) {
+	if !features.Enabled(features.KueueDRAIntegration) {
 		return nil
 	}
 
