@@ -307,11 +307,7 @@ func (r *cqReconciler) setupWithManager(mgr ctrl.Manager) error {
 				return true
 			}
 
-			if equality.Semantic.DeepEqual(oldCQ.Spec.AdmissionChecksStrategy, newCQ.Spec.AdmissionChecksStrategy) &&
-				equality.Semantic.DeepEqual(oldCQ.Spec.ResourceGroups, newCQ.Spec.ResourceGroups) {
-				return false
-			}
-			return true
+			return oldCQ.Generation != newCQ.Generation
 		},
 	}
 
