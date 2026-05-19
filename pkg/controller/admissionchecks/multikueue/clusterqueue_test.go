@@ -18,6 +18,7 @@ package multikueue
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -467,7 +468,7 @@ func TestCQReconcile(t *testing.T) {
 			}
 
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
-			reconciler := newCQReconciler(c, helper, cRec, nil)
+			reconciler := newCQReconciler(c, helper, cRec, nil, 100*time.Millisecond)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.cq.Name}})
 			if gotErr != nil {
@@ -545,7 +546,7 @@ func TestCQReconciler_EventHandlers(t *testing.T) {
 		WithIndex(&kueue.MultiKueueConfig{}, UsingMultiKueueClusters, multiKueueClustersIndexerFunc).
 		Build()
 
-	r := &CQReconciler{client: c}
+	r := &cqReconciler{client: c}
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -557,19 +558,19 @@ func TestCQReconciler_EventHandlers(t *testing.T) {
 	}{
 		"LocalQueue Create": {
 			handler: func(mockQ *mockQueue) {
-				(&lqHandler{client: c}).Create(ctx, event.CreateEvent{Object: lq}, mockQ)
+				(&lqHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: lq}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"LocalQueue Update (irrelevant)": {
 			handler: func(mockQ *mockQueue) {
-				(&lqHandler{client: c}).Update(ctx, event.UpdateEvent{ObjectOld: lq, ObjectNew: lq}, mockQ)
+				(&lqHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: lq, ObjectNew: lq}, mockQ)
 			},
 			wantReconcile: false,
 		},
 		"LocalQueue Delete": {
 			handler: func(mockQ *mockQueue) {
-				(&lqHandler{client: c}).Delete(ctx, event.DeleteEvent{Object: lq}, mockQ)
+				(&lqHandler{reconciler: r}).Delete(ctx, event.DeleteEvent{Object: lq}, mockQ)
 			},
 			wantReconcile: true,
 		},

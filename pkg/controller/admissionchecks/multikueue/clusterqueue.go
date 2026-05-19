@@ -19,6 +19,7 @@ package multikueue
 import (
 	"context"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -46,25 +47,27 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-type CQReconciler struct {
-	client      client.Client
-	helper      *admissioncheck.MultiKueueStoreHelper
-	clusters    *clustersReconciler
-	roleTracker *roletracker.RoleTracker
+type cqReconciler struct {
+	client            client.Client
+	helper            *admissioncheck.MultiKueueStoreHelper
+	clusters          *clustersReconciler
+	roleTracker       *roletracker.RoleTracker
+	eventsBatchPeriod time.Duration
 }
 
-var _ reconcile.Reconciler = (*CQReconciler)(nil)
+var _ reconcile.Reconciler = (*cqReconciler)(nil)
 
-func newCQReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, clusters *clustersReconciler, roleTracker *roletracker.RoleTracker) *CQReconciler {
-	return &CQReconciler{
-		client:      c,
-		helper:      helper,
-		clusters:    clusters,
-		roleTracker: roleTracker,
+func newCQReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, clusters *clustersReconciler, roleTracker *roletracker.RoleTracker, eventsBatchPeriod time.Duration) *cqReconciler {
+	return &cqReconciler{
+		client:            c,
+		helper:            helper,
+		clusters:          clusters,
+		roleTracker:       roleTracker,
+		eventsBatchPeriod: eventsBatchPeriod,
 	}
 }
 
-func (r *CQReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", req.Name)
 	log.V(3).Info("Reconcile ClusterQueue event received (in the MultiKueue controller)")
 
@@ -143,7 +146,7 @@ func (r *CQReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	return reconcile.Result{}, err
 }
 
-func (r *CQReconciler) getMultiKueueAdmissionCheck(ctx context.Context, cq *kueue.ClusterQueue) (*kueue.AdmissionCheck, bool, error) {
+func (r *cqReconciler) getMultiKueueAdmissionCheck(ctx context.Context, cq *kueue.ClusterQueue) (*kueue.AdmissionCheck, bool, error) {
 	if cq.Spec.AdmissionChecksStrategy == nil {
 		return nil, false, nil
 	}
@@ -167,7 +170,7 @@ func (r *CQReconciler) getMultiKueueAdmissionCheck(ctx context.Context, cq *kueu
 	return nil, false, nil
 }
 
-func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.ClusterQueue, cfg *kueue.MultiKueueConfig) (map[corev1.ResourceName]resource.Quantity, error) {
+func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.ClusterQueue, cfg *kueue.MultiKueueConfig) (map[corev1.ResourceName]resource.Quantity, error) {
 	localLQs := &kueue.LocalQueueList{}
 	if err := r.client.List(ctx, localLQs, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name}); err != nil {
 		return nil, fmt.Errorf("listing local LocalQueues: %w", err)
@@ -228,7 +231,7 @@ func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 	return total, nil
 }
 
-func (r *CQReconciler) removeQuotaAutomationCondition(ctx context.Context, cq *kueue.ClusterQueue) error {
+func (r *cqReconciler) removeQuotaAutomationCondition(ctx context.Context, cq *kueue.ClusterQueue) error {
 	if !apimeta.RemoveStatusCondition(&cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation) {
 		return nil
 	}
@@ -238,7 +241,7 @@ func (r *CQReconciler) removeQuotaAutomationCondition(ctx context.Context, cq *k
 	return nil
 }
 
-func (r *CQReconciler) updateQuotaAutomationCondition(ctx context.Context, cq *kueue.ClusterQueue, status metav1.ConditionStatus, reason, message string) error {
+func (r *cqReconciler) updateQuotaAutomationCondition(ctx context.Context, cq *kueue.ClusterQueue, status metav1.ConditionStatus, reason, message string) error {
 	newCondition := metav1.Condition{
 		Type:               kueue.MultiKueueManagerQuotaAutomation,
 		Status:             status,
@@ -259,20 +262,22 @@ func (r *CQReconciler) updateQuotaAutomationCondition(ctx context.Context, cq *k
 	return nil
 }
 
-func (r *CQReconciler) queueEventsForAC(ctx context.Context, acName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (r *cqReconciler) queueEventsForAC(ctx context.Context, acName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	cqList := &kueue.ClusterQueueList{}
 	if err := r.client.List(ctx, cqList, client.MatchingFields{ClusterQueueAdmissionChecksKey: acName}); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to list ClusterQueues for AdmissionCheck", "admissionCheck", acName)
 		return
 	}
 
 	for _, cq := range cqList.Items {
-		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: cq.Name}})
+		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: cq.Name}}, r.eventsBatchPeriod)
 	}
 }
 
-func (r *CQReconciler) queueEventsForMKConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (r *cqReconciler) queueEventsForMKConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	acList := &kueue.AdmissionCheckList{}
 	if err := r.client.List(ctx, acList, client.MatchingFields{AdmissionCheckUsingConfigKey: configName}); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to list AdmissionChecks using MultiKueueConfig", "multiKueueConfig", configName)
 		return
 	}
 
@@ -281,9 +286,10 @@ func (r *CQReconciler) queueEventsForMKConfig(ctx context.Context, configName st
 	}
 }
 
-func (r *CQReconciler) queueEventsForMKCluster(ctx context.Context, clusterName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (r *cqReconciler) queueEventsForMKCluster(ctx context.Context, clusterName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	configList := &kueue.MultiKueueConfigList{}
 	if err := r.client.List(ctx, configList, client.MatchingFields{UsingMultiKueueClusters: clusterName}); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to list MultiKueueConfigs using MultiKueueCluster", "multiKueueCluster", clusterName)
 		return
 	}
 
@@ -292,7 +298,7 @@ func (r *CQReconciler) queueEventsForMKCluster(ctx context.Context, clusterName 
 	}
 }
 
-func (r *CQReconciler) setupWithManager(mgr ctrl.Manager) error {
+func (r *cqReconciler) setupWithManager(mgr ctrl.Manager) error {
 	cqEventFilter := predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldCQ, okOld := e.ObjectOld.(*kueue.ClusterQueue)
@@ -311,14 +317,14 @@ func (r *CQReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 	remoteHandler := handler.TypedFuncs[kueue.ClusterQueueReference, reconcile.Request]{
 		GenericFunc: func(_ context.Context, e event.TypedGenericEvent[kueue.ClusterQueueReference], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(e.Object)}})
+			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(e.Object)}}, r.eventsBatchPeriod)
 		},
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_clusterqueue").
 		For(&kueue.ClusterQueue{}, builder.WithPredicates(cqEventFilter)).
-		Watches(&kueue.LocalQueue{}, &lqHandler{client: r.client}).
+		Watches(&kueue.LocalQueue{}, &lqHandler{reconciler: r}).
 		Watches(&kueue.AdmissionCheck{}, &acHandler{reconciler: r}).
 		Watches(&kueue.MultiKueueConfig{}, &cqConfigHandler{reconciler: r}).
 		Watches(&kueue.MultiKueueCluster{}, &cqClusterHandler{reconciler: r}).
@@ -330,14 +336,14 @@ func (r *CQReconciler) setupWithManager(mgr ctrl.Manager) error {
 }
 
 type lqHandler struct {
-	client client.Client
+	reconciler *cqReconciler
 }
 
 var _ handler.EventHandler = (*lqHandler)(nil)
 
 func (l *lqHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	if lq, ok := event.Object.(*kueue.LocalQueue); ok {
-		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(lq.Spec.ClusterQueue)}})
+		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(lq.Spec.ClusterQueue)}}, l.reconciler.eventsBatchPeriod)
 	}
 }
 
@@ -347,7 +353,7 @@ func (l *lqHandler) Update(ctx context.Context, event event.UpdateEvent, q workq
 
 func (l *lqHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	if lq, ok := event.Object.(*kueue.LocalQueue); ok {
-		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(lq.Spec.ClusterQueue)}})
+		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(lq.Spec.ClusterQueue)}}, l.reconciler.eventsBatchPeriod)
 	}
 }
 
@@ -355,7 +361,7 @@ func (l *lqHandler) Generic(ctx context.Context, event event.GenericEvent, q wor
 }
 
 type acHandler struct {
-	reconciler *CQReconciler
+	reconciler *cqReconciler
 }
 
 var _ handler.EventHandler = (*acHandler)(nil)
@@ -387,7 +393,7 @@ func (a *acHandler) Generic(ctx context.Context, event event.GenericEvent, q wor
 }
 
 type cqConfigHandler struct {
-	reconciler *CQReconciler
+	reconciler *cqReconciler
 }
 
 var _ handler.EventHandler = (*cqConfigHandler)(nil)
@@ -419,7 +425,7 @@ func (c *cqConfigHandler) Generic(ctx context.Context, event event.GenericEvent,
 }
 
 type cqClusterHandler struct {
-	reconciler *CQReconciler
+	reconciler *cqReconciler
 }
 
 var _ handler.EventHandler = (*cqClusterHandler)(nil)

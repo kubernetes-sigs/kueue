@@ -161,7 +161,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
-		cqRec := newCQReconciler(mgr.GetClient(), helper, cRec, options.roleTracker)
+		cqRec := newCQReconciler(mgr.GetClient(), helper, cRec, options.roleTracker, options.eventsBatchPeriod)
 		err = cqRec.setupWithManager(mgr)
 		if err != nil {
 			return err

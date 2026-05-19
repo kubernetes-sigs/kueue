@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
-// CacheIndexOption defines a field to index on the cache before starting
+// cacheIndexOption defines a field to index on the cache before starting
 type CacheIndexOption struct {
 	Object       client.Object
 	Field        string
