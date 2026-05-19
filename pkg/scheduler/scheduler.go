@@ -361,6 +361,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	if result != metrics.AdmissionResultSuccess {
 		return wait.SlowDown
 	}
+
 	return wait.KeepGoing
 }
 
