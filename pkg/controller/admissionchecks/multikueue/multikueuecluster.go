@@ -64,6 +64,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
 )
 
 const (
@@ -78,13 +79,14 @@ const (
 	// covers the apiserver cold cache + conversion warmup path documented in
 	// kubernetes/kubernetes#136950 (~8 min at 50k Workloads). v1beta2 does
 	// not exercise that path today; the cap is a guard. See #11206.
-	initialEstablishTimeout  = 1 * time.Minute
-	maxEstablishTimeout      = 10 * time.Minute
-	establishTimeoutMaxSteps = 4
+	initialEstablishTimeout = 1 * time.Minute
+	maxEstablishTimeout     = 10 * time.Minute
 )
 
 var (
 	errWatchEstablishTimeout = errors.New("watch establishment timed out")
+
+	establishBackoff = utilwait.NewBackoff(initialEstablishTimeout, maxEstablishTimeout, 2, 0)
 )
 
 // retryAfter returns an exponentially increasing interval between
@@ -94,16 +96,6 @@ func retryAfter(failedAttempts uint) time.Duration {
 		return 0
 	}
 	return (1 << (min(failedAttempts, retryMaxSteps) - 1)) * retryIncrement
-}
-
-// establishTimeoutFor doubles initialEstablishTimeout per failure, capped at
-// maxEstablishTimeout. Schedule: 1m, 2m, 4m, 8m, 10m, 10m, ...
-func establishTimeoutFor(failedAttempts uint) time.Duration {
-	t := initialEstablishTimeout << min(failedAttempts, establishTimeoutMaxSteps)
-	if t > maxEstablishTimeout {
-		return maxEstablishTimeout
-	}
-	return t
 }
 
 type clientWithWatchBuilder func(config *clientConfig, options client.Options) (client.WithWatch, error)
@@ -300,7 +292,7 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 
 func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishTimeoutFor(rc.failedConnAttempts))
+	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1))
 	if err != nil {
 		return err
 	}
