@@ -30,20 +30,112 @@ tests:
           path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
           value: false
 
-  - it: should configure ConfigMap correctly
+  - it: should configure ConfigMap with Kueue namespace selector
     documentIndex: 3
     set:
       kueuePopulator.config.localQueue.name: "my-local-queue"
-      kueuePopulator.config.managedJobsNamespaceSelector:
-        matchLabels:
-          app: my-app
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        apiVersion: config.kueue.x-k8s.io/v1beta2
+        kind: Configuration
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: ml
     asserts:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
           pattern: "localQueueName: my-local-queue"
       - matchRegex:
           path: data["controller_manager_config.yaml"]
-          pattern: "managedJobsNamespaceSelector:\n\\s+matchExpressions:\n\\s+- key: kubernetes.io/metadata.name\n\\s+operator: NotIn\n\\s+values:\n\\s+- kube-system\n\\s+- kueue-system\n\\s+matchLabels:\n\\s+app: my-app"
+          pattern: |
+            managedJobsNamespaceSelector:
+            \s+matchLabels:
+            \s+team: ml
+      - notExists:
+          path: data["kueue_controller_manager_config.yaml"]
+
+  - it: should let explicit populator namespace selector override Kueue selector
+    documentIndex: 3
+    set:
+      kueuePopulator.config.managedJobsNamespaceSelector:
+        matchLabels:
+          app: my-app
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        apiVersion: config.kueue.x-k8s.io/v1beta2
+        kind: Configuration
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: ml
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: |
+            managedJobsNamespaceSelector:
+            \s+matchLabels:
+            \s+app: my-app
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: ml"
+
+  - it: should default ConfigMap namespace selector from release namespace
+    documentIndex: 3
+    release:
+      namespace: custom-kueue-system
+    set:
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        apiVersion: config.kueue.x-k8s.io/v1beta2
+        kind: Configuration
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: |
+            managedJobsNamespaceSelector:
+            \s+matchExpressions:
+            \s+- key: kubernetes.io/metadata.name
+            \s+operator: NotIn
+            \s+values:
+            \s+- kube-system
+            \s+- custom-kueue-system
+
+  - it: should preserve explicit empty Kueue namespace selector
+    documentIndex: 3
+    set:
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        apiVersion: config.kueue.x-k8s.io/v1beta2
+        kind: Configuration
+        managedJobsNamespaceSelector: {}
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: |
+            managedJobsNamespaceSelector:\s+{}
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "kube-system"
+
+  - it: should default null Kueue namespace selector from release namespace
+    documentIndex: 3
+    release:
+      namespace: custom-kueue-system
+    set:
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        apiVersion: config.kueue.x-k8s.io/v1beta2
+        kind: Configuration
+        managedJobsNamespaceSelector: null
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: |
+            managedJobsNamespaceSelector:
+            \s+matchExpressions:
+            \s+- key: kubernetes.io/metadata.name
+            \s+operator: NotIn
+            \s+values:
+            \s+- kube-system
+            \s+- custom-kueue-system
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: |
+            managedJobsNamespaceSelector:\s+null
 
   - it: should set imagePullSecrets
     documentIndex: 4
