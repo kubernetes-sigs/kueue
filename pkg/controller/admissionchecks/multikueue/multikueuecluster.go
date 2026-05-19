@@ -63,6 +63,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -187,12 +188,9 @@ func newClientWithWatch(ctx context.Context, config *clientConfig, options clien
 
 	indexOpts := []CacheIndexOption{
 		{
-			Object: &kueue.LocalQueue{},
-			Field:  "spec.clusterQueue",
-			ExtractValue: func(obj client.Object) []string {
-				lq := obj.(*kueue.LocalQueue)
-				return []string{string(lq.Spec.ClusterQueue)}
-			},
+			Object:       &kueue.LocalQueue{},
+			Field:        indexer.QueueClusterQueueKey,
+			ExtractValue: indexer.IndexQueueClusterQueue,
 		},
 	}
 
@@ -442,7 +440,7 @@ func (rc *remoteClient) queueEventsForCQ(ctx context.Context, remoteCQ *kueue.Cl
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteCQ", remoteCQ.Name)
 
 	lqList := kueue.LocalQueueList{}
-	err := rc.client.List(ctx, &lqList, client.MatchingFields{"spec.clusterQueue": remoteCQ.Name})
+	err := rc.client.List(ctx, &lqList, client.MatchingFields{indexer.QueueClusterQueueKey: remoteCQ.Name})
 	if err != nil {
 		log.Error(err, "Failed to list remote LocalQueues from cache")
 		return
