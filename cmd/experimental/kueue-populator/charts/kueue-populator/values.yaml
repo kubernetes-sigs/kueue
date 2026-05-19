@@ -48,12 +48,9 @@ kueuePopulator:
       # nodeLabels:
       #   cloud.google.com/gke-nodepool: "default-pool"
       nodeLabels: {}
-    # -- Label selector to filter namespaces where the default LocalQueue will be created.
-    managedJobsNamespaceSelector:
-      matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values: ["kube-system", "kueue-system"]
+      # -- Optional selector to override Kueue's managedJobsNamespaceSelector for the populator.
+      # If unset, the chart copies Kueue's managedJobsNamespaceSelector from the Kueue manager configuration.
+      # managedJobsNamespaceSelector: {}
 # Default values for the dependency 'kueue'
 kueue:
   # -- Enable the Kueue subchart

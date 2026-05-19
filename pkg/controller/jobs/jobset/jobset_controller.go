@@ -111,7 +111,7 @@ func (j *JobSet) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", jobsetapi.JobSetNameKey, j.Name)
 }
 
-func (j *JobSet) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *JobSet) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, len(j.Spec.ReplicatedJobs))
 	for index, replicatedJob := range j.Spec.ReplicatedJobs {
 		podSets[index] = kueue.PodSet{
@@ -134,7 +134,7 @@ func (j *JobSet) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
 	j.Spec.Suspend = new(false)
 	if len(podSetsInfo) != len(j.Spec.ReplicatedJobs) {
 		return podset.BadPodSetsInfoLenError(len(j.Spec.ReplicatedJobs), len(podSetsInfo))
@@ -175,7 +175,7 @@ func (j *JobSet) Finished(ctx context.Context) (message string, success, finishe
 	return message, success, false
 }
 
-func (j *JobSet) PodsReady(ctx context.Context) bool {
+func (j *JobSet) PodsReady(ctx context.Context, _ client.Client) bool {
 	var replicas int32
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {
 		replicas += replicatedJob.Replicas
@@ -187,7 +187,7 @@ func (j *JobSet) PodsReady(ctx context.Context) bool {
 	return replicas == readyReplicas
 }
 
-func (j *JobSet) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
+func (j *JobSet) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.ReclaimablePod, error) {
 	if len(j.Status.ReplicatedJobsStatus) == 0 {
 		return nil, nil
 	}

@@ -1281,14 +1281,14 @@ The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p
 <tbody>
     
   
-<tr><td><code>minPreferredFlavorName</code><br/>
+<tr><td><code>lastAcceptableFlavorName</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
 </td>
 <td>
-   <p>minPreferredFlavorName defines the minimal flavor a Workload can migrate to.
+   <p>lastAcceptableFlavorName defines the last acceptable flavor a Workload can migrate to.
 The order is based on the order of flavors in ClusterQueue.
 It can only be used if the Mode is <code>TryPreferredFlavors</code>.
-If the Mode is <code>TryPreferredFlavors</code> and MinPreferredFlavorName is not specified, then
+If the Mode is <code>TryPreferredFlavors</code> and LastAcceptableFlavorName is not specified, then
 Workload can migrate to any flavor that is more preferable than the one it was admitted to.</p>
 </td>
 </tr>

@@ -634,6 +634,51 @@ func (p *PodSetWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelec
 	return p
 }
 
+func (p *PodSetWrapper) PreferredDuringSchedulingIgnoredDuringExecution(preferredSchedulingTerms []corev1.PreferredSchedulingTerm) *PodSetWrapper {
+	if p.Template.Spec.Affinity == nil {
+		p.Template.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity == nil {
+		p.Template.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	p.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = append(
+		p.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution,
+		preferredSchedulingTerms...,
+	)
+	return p
+}
+
+func (p *PodSetWrapper) RequiredNodeSelectorRequirement(key string, op corev1.NodeSelectorOperator, values ...string) *PodSetWrapper {
+	return p.RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+		{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      key,
+					Operator: op,
+					Values:   values,
+				},
+			},
+		},
+	})
+}
+
+func (p *PodSetWrapper) PreferredNodeSelectorRequirement(weight int32, key string, op corev1.NodeSelectorOperator, values ...string) *PodSetWrapper {
+	return p.PreferredDuringSchedulingIgnoredDuringExecution([]corev1.PreferredSchedulingTerm{
+		{
+			Weight: weight,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      key,
+						Operator: op,
+						Values:   values,
+					},
+				},
+			},
+		},
+	})
+}
+
 func (p *PodSetWrapper) NodeName(name string) *PodSetWrapper {
 	p.Template.Spec.NodeName = name
 	return p
@@ -931,14 +976,14 @@ func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdm
 	return c
 }
 
-func (c *ClusterQueueWrapper) MinPreferredFlavorName(name string) *ClusterQueueWrapper {
+func (c *ClusterQueueWrapper) LastAcceptableFlavorName(name string) *ClusterQueueWrapper {
 	if c.Spec.ConcurrentAdmissionPolicy == nil {
 		c = c.ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors)
 	}
 	if c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints == nil {
 		c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints = &kueue.ConcurrentAdmissionConstraints{}
 	}
-	c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName = new(kueue.ResourceFlavorReference(name))
+	c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName = new(kueue.ResourceFlavorReference(name))
 	return c
 }
 

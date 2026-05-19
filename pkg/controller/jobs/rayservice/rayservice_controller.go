@@ -154,7 +154,7 @@ func (j *RayService) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayService) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayService spec first
 	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec)
 	if err != nil {
@@ -170,7 +170,7 @@ func (j *RayService) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *RayService) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
@@ -219,7 +219,7 @@ func (j *RayService) SetManagedBy(managedBy *string) {
 	j.Spec.ManagedBy = managedBy
 }
 
-func (j *RayService) PodsReady(ctx context.Context) bool {
+func (j *RayService) PodsReady(ctx context.Context, _ client.Client) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
 }
 

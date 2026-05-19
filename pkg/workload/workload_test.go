@@ -1677,7 +1677,7 @@ func TestNeedsSecondPass(t *testing.T) {
 }
 
 func TestWithPreprocessedDRAResources(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
 	cases := map[string]struct {
 		workload     kueue.Workload
@@ -1798,7 +1798,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 }
 
 func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
 	cases := map[string]struct {
 		workload                  kueue.Workload

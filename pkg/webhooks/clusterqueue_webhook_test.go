@@ -444,21 +444,21 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantBadValue: "0",
 		},
 		{
-			name: "ConcurrentAdmissionPolicy with valid MinPreferredFlavorName",
+			name: "ConcurrentAdmissionPolicy with valid LastAcceptableFlavorName",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
-				MinPreferredFlavorName("flavor1").
+				LastAcceptableFlavorName("flavor1").
 				Obj(),
 		},
 		{
-			name: "ConcurrentAdmissionPolicy with invalid MinPreferredFlavorName",
+			name: "ConcurrentAdmissionPolicy with invalid LastAcceptableFlavorName",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
-				MinPreferredFlavorName("non-existent-flavor").
+				LastAcceptableFlavorName("non-existent-flavor").
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(
-					specPath.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("minPreferredFlavorName"),
+					specPath.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("lastAcceptableFlavorName"),
 					kueue.ResourceFlavorReference("non-existent-flavor"),
 					"must be one of the flavors defined in the ClusterQueue: [flavor1]"),
 			},
