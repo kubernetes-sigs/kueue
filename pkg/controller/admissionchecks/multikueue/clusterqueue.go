@@ -43,7 +43,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -179,18 +178,22 @@ func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 		lqKeys.Insert(types.NamespacedName{Namespace: llq.Namespace, Name: llq.Name})
 	}
 
-	workerTotals := make([]map[corev1.ResourceName]resource.Quantity, len(cfg.Spec.Clusters))
+	total := make(map[corev1.ResourceName]resource.Quantity)
 
-	err := parallelize.Until(ctx, len(cfg.Spec.Clusters), func(i int) error {
-		workerName := cfg.Spec.Clusters[i]
+	for _, workerName := range cfg.Spec.Clusters {
 		rc, found := r.clusters.controllerFor(workerName)
-		if !found || rc.connecting.Load() {
-			return nil
+		if !found {
+			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client not found, skipping it in quota aggregation", "workerCluster", workerName)
+			continue
+		}
+		if rc.connecting.Load() {
+			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client still connecting, skipping it in quota aggregation", "workerCluster", workerName)
+			continue
 		}
 		remoteLQList := &kueue.LocalQueueList{}
 		// This List is cached (by the selectivelyCachingClient).
 		if err := rc.client.List(ctx, remoteLQList); err != nil {
-			return err
+			return nil, err
 		}
 		remoteCQKeys := sets.New[types.NamespacedName]()
 		for _, rlq := range remoteLQList.Items {
@@ -202,10 +205,9 @@ func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 		remoteCQList := &kueue.ClusterQueueList{}
 		// This List is cached (by the selectivelyCachingClient).
 		if err := rc.client.List(ctx, remoteCQList); err != nil {
-			return err
+			return nil, err
 		}
 
-		workerTotal := make(map[corev1.ResourceName]resource.Quantity)
 		for _, rcq := range remoteCQList.Items {
 			key := types.NamespacedName{Name: rcq.Name}
 			if !remoteCQKeys.Has(key) {
@@ -214,27 +216,12 @@ func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 			for _, rg := range rcq.Spec.ResourceGroups {
 				for _, flavor := range rg.Flavors {
 					for _, res := range flavor.Resources {
-						curr := workerTotal[res.Name]
+						curr := total[res.Name]
 						curr.Add(res.NominalQuota)
-						workerTotal[res.Name] = curr
+						total[res.Name] = curr
 					}
 				}
 			}
-		}
-		workerTotals[i] = workerTotal
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	total := make(map[corev1.ResourceName]resource.Quantity)
-	for _, wt := range workerTotals {
-		for name, qty := range wt {
-			curr := total[name]
-			curr.Add(qty)
-			total[name] = curr
 		}
 	}
 
