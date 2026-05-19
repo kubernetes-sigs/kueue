@@ -176,6 +176,10 @@ func newClientWithWatch(ctx context.Context, config *clientConfig, options clien
 		return nil, err
 	}
 
+	if !features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+		return NewNeverCachingClient(directClient), nil
+	}
+
 	cachedKinds := sets.New(
 		kueue.GroupVersion.WithKind("ClusterQueue").GroupKind(),
 		kueue.GroupVersion.WithKind("LocalQueue").GroupKind(),
