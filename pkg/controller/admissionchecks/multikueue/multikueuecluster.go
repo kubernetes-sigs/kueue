@@ -490,8 +490,12 @@ func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 	}
 }
 
-func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string) (*time.Duration, error) {
+// findOrCreateRemoteClient returns the remoteClient for clusterName, creating
+// one if absent. Only the brief map operation runs under c.lock.
+func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string) *remoteClient {
 	c.lock.Lock()
+	defer c.lock.Unlock()
+
 	client, found := c.remoteClients[clusterName]
 	if !found {
 		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, origin, clusterName, c.adapters)
@@ -500,7 +504,11 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 		}
 		c.remoteClients[clusterName] = client
 	}
-	c.lock.Unlock()
+	return client
+}
+
+func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string) (*time.Duration, error) {
+	client := c.findOrCreateRemoteClient(clusterName, origin)
 
 	client.setConfigLock.Lock()
 	defer client.setConfigLock.Unlock()
