@@ -63,8 +63,8 @@ var (
 	errCannotWatch   = errors.New("client cannot watch")
 )
 
-func fakeClientBuilder(ctx context.Context) func(*clientConfig, client.Options) (client.WithWatch, error) {
-	return func(config *clientConfig, _ client.Options) (client.WithWatch, error) {
+func fakeClientBuilder(ctx context.Context) func(context.Context, *clientConfig, client.Options) (SelectivelyCachingClient, error) {
+	return func(builderCtx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error) {
 		kubeconfig := config.Kubeconfig
 		if strings.Contains(string(kubeconfig), "invalid") {
 			return nil, errInvalidConfig
@@ -78,7 +78,7 @@ func fakeClientBuilder(ctx context.Context) func(*clientConfig, client.Options) 
 				return client.Watch(ctx, obj, opts...)
 			},
 		})
-		return b.Build(), nil
+		return NewNeverCachingClient(b.Build()), nil
 	}
 }
 
@@ -824,9 +824,9 @@ func TestReconnectBackoff(t *testing.T) {
 
 			var buildCalls int
 			inner := fakeClientBuilder(ctx)
-			reconciler.builderOverride = func(cfg *clientConfig, opts client.Options) (client.WithWatch, error) {
+			reconciler.builderOverride = func(builderCtx context.Context, cfg *clientConfig, opts client.Options) (SelectivelyCachingClient, error) {
 				buildCalls++
-				return inner(cfg, opts)
+				return inner(builderCtx, cfg, opts)
 			}
 
 			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
@@ -959,7 +959,7 @@ func TestRemoteClientGC(t *testing.T) {
 
 			worker1Builder := getClientBuilder(ctx)
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}, &batchv1.JobList{Items: tc.workersJobs})
-			worker1Client := worker1Builder.Build()
+			worker1Client := NewNeverCachingClient(worker1Builder.Build())
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)

@@ -36,10 +36,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
@@ -63,8 +63,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
-	kueueinformers "sigs.k8s.io/kueue/client-go/informers/externalversions"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -102,7 +100,7 @@ func retryAfter(failedAttempts uint) time.Duration {
 	return (1 << (min(failedAttempts, retryMaxSteps) - 1)) * retryIncrement
 }
 
-type clientWithWatchBuilder func(config *clientConfig, options client.Options) (client.WithWatch, error)
+type clientWithWatchBuilder func(ctx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error)
 
 type clientConfig struct {
 	Kubeconfig []byte
@@ -117,17 +115,16 @@ func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
 }
 
 type remoteClient struct {
-	clusterName    string
-	localClient    client.Client
-	client         client.WithWatch
-	wlUpdateCh     chan<- event.GenericEvent
-	watchEndedCh   chan<- event.GenericEvent
-	cqUpdateCh     chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
-	watchCancel    func()
-	config         *clientConfig
-	origin         string
-	adapters       map[string]jobframework.MultiKueueAdapter
-	queuesInformer kueueinformers.SharedInformerFactory
+	clusterName  string
+	localClient  client.Client
+	client       SelectivelyCachingClient
+	wlUpdateCh   chan<- event.GenericEvent
+	watchEndedCh chan<- event.GenericEvent
+	cqUpdateCh   chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
+	watchCancel  func()
+	config       *clientConfig
+	origin       string
+	adapters     map[string]jobframework.MultiKueueAdapter
 
 	connecting           atomic.Bool
 	failedConnAttempts   uint
@@ -168,12 +165,34 @@ func newRemoteClient(
 	return rc
 }
 
-func newClientWithWatch(config *clientConfig, options client.Options) (client.WithWatch, error) {
+func newClientWithWatch(ctx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error) {
 	restConfig, err := config.toRESTConfig()
 	if err != nil {
 		return nil, err
 	}
-	return client.NewWithWatch(restConfig, options)
+
+	directClient, err := client.NewWithWatch(restConfig, options)
+	if err != nil {
+		return nil, err
+	}
+
+	cachedKinds := sets.New(
+		kueue.GroupVersion.WithKind("ClusterQueue").GroupKind(),
+		kueue.GroupVersion.WithKind("LocalQueue").GroupKind(),
+	)
+
+	indexOpts := []CacheIndexOption{
+		{
+			Object: &kueue.LocalQueue{},
+			Field:  "spec.clusterQueue",
+			ExtractValue: func(obj client.Object) []string {
+				lq := obj.(*kueue.LocalQueue)
+				return []string{string(lq.Spec.ClusterQueue)}
+			},
+		},
+	}
+
+	return NewSelectivelyCachingClient(ctx, restConfig, directClient, options.Scheme, cachedKinds, indexOpts)
 }
 
 type workloadKueueWatcher struct{}
@@ -231,18 +250,19 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 		}
 	}
 
+	watchCtx, rc.watchCancel = context.WithCancel(watchCtx)
+
 	builder := newClientWithWatch
 	if rc.builderOverride != nil {
 		builder = rc.builderOverride
 	}
-	remoteClient, err := builder(config, client.Options{Scheme: rc.localClient.Scheme()})
+	remoteClient, err := builder(watchCtx, config, client.Options{Scheme: rc.localClient.Scheme()})
 	if err != nil {
 		return nil, err
 	}
 
 	rc.client = remoteClient
 
-	watchCtx, rc.watchCancel = context.WithCancel(watchCtx)
 	err = rc.startWorkloadOrJobWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
 		return rc.increaseFailedConnAttempt(), err
@@ -378,22 +398,7 @@ func (rc *remoteClient) startWorkloadOrJobWatcher(ctx context.Context, kind stri
 }
 
 func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
-	restConfig, err := rc.config.toRESTConfig()
-	if err != nil {
-		return fmt.Errorf("building rest config: %w", err)
-	}
-
-	kueueClient, err := kueueclientset.NewForConfig(restConfig)
-	if err != nil {
-		return fmt.Errorf("creating kueue clientset: %w", err)
-	}
-
-	informer := kueueinformers.NewSharedInformerFactory(kueueClient, 5*time.Minute)
-	rc.setQueuesInformer(informer)
-	cqInformer := informer.Kueue().V1beta2().ClusterQueues()
-	lqInformer := informer.Kueue().V1beta2().LocalQueues()
-
-	_, err = cqInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := rc.client.AddCacheEventHandler(ctx, &kueue.ClusterQueue{}, cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
 			if cq, ok := obj.(*kueue.ClusterQueue); ok {
 				rc.queueEventsForCQ(ctx, cq)
@@ -416,7 +421,7 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 		return fmt.Errorf("adding ClusterQueue event handler: %w", err)
 	}
 
-	_, err = lqInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err = rc.client.AddCacheEventHandler(ctx, &kueue.LocalQueue{}, cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
 			if lq, ok := obj.(*kueue.LocalQueue); ok {
 				rc.queueEventsForLQ(ctx, lq)
@@ -432,33 +437,21 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("adding LocalQueue event handler: %w", err)
 	}
-
-	informer.Start(ctx.Done())
 	return nil
 }
 
 func (rc *remoteClient) queueEventsForCQ(ctx context.Context, remoteCQ *kueue.ClusterQueue) {
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteCQ", remoteCQ.Name)
 
-	informer := rc.getQueuesInformer()
-	if informer == nil {
-		log.V(3).Info("queuesInformer is not initialized yet")
-		return
-	}
-
-	// Ideally, we should restrict this list by .Spec.ClusterQueue right away.
-	// For example, by adding an indexer.
-	// This is postponed to Manager Quota Automation Beta.
-	remoteLQs, err := informer.Kueue().V1beta2().LocalQueues().Lister().List(labels.Everything())
+	lqList := kueue.LocalQueueList{}
+	err := rc.client.List(ctx, &lqList, client.MatchingFields{"spec.clusterQueue": remoteCQ.Name})
 	if err != nil {
 		log.Error(err, "Failed to list remote LocalQueues from cache")
 		return
 	}
 
-	for _, rlq := range remoteLQs {
-		if string(rlq.Spec.ClusterQueue) == remoteCQ.Name {
-			rc.queueEventsForLQ(ctx, rlq)
-		}
+	for i := range lqList.Items {
+		rc.queueEventsForLQ(ctx, &lqList.Items[i])
 	}
 }
 
@@ -475,18 +468,6 @@ func (rc *remoteClient) queueEventsForLQ(ctx context.Context, remoteLQ *kueue.Lo
 	}
 
 	rc.cqUpdateCh <- event.TypedGenericEvent[kueue.ClusterQueueReference]{Object: localLQ.Spec.ClusterQueue}
-}
-
-func (rc *remoteClient) setQueuesInformer(informer kueueinformers.SharedInformerFactory) {
-	rc.mu.Lock()
-	defer rc.mu.Unlock()
-	rc.queuesInformer = informer
-}
-
-func (rc *remoteClient) getQueuesInformer() kueueinformers.SharedInformerFactory {
-	rc.mu.RLock()
-	defer rc.mu.RUnlock()
-	return rc.queuesInformer
 }
 
 func (rc *remoteClient) getFailedConnAttempts() uint {
@@ -506,8 +487,8 @@ func (rc *remoteClient) StopWatchers() {
 	defer rc.mu.Unlock()
 	if rc.watchCancel != nil {
 		rc.watchCancel()
+		rc.watchCancel = nil
 	}
-	rc.queuesInformer = nil
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {

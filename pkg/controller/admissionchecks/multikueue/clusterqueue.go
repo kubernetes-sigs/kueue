@@ -187,23 +187,30 @@ func (r *CQReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 		if !found || rc.connecting.Load() {
 			return nil
 		}
-		remoteLQs, err := getOrList(ctx, rc.client, lqKeys, lqItemsGetter{})
-		if err != nil {
+		remoteLQList := &kueue.LocalQueueList{}
+		// This List is cached (by the selectivelyCachingClient).
+		if err := rc.client.List(ctx, remoteLQList); err != nil {
 			return err
 		}
-
 		remoteCQKeys := sets.New[types.NamespacedName]()
-		for _, rlq := range remoteLQs {
-			remoteCQKeys.Insert(types.NamespacedName{Name: string(rlq.Spec.ClusterQueue)})
+		for _, rlq := range remoteLQList.Items {
+			if lqKeys.Has(types.NamespacedName{Namespace: rlq.Namespace, Name: rlq.Name}) {
+				remoteCQKeys.Insert(types.NamespacedName{Name: string(rlq.Spec.ClusterQueue)})
+			}
 		}
 
-		remoteCQs, err := getOrList(ctx, rc.client, remoteCQKeys, cqItemsGetter{})
-		if err != nil {
+		remoteCQList := &kueue.ClusterQueueList{}
+		// This List is cached (by the selectivelyCachingClient).
+		if err := rc.client.List(ctx, remoteCQList); err != nil {
 			return err
 		}
 
 		workerTotal := make(map[corev1.ResourceName]resource.Quantity)
-		for _, rcq := range remoteCQs {
+		for _, rcq := range remoteCQList.Items {
+			key := types.NamespacedName{Name: rcq.Name}
+			if !remoteCQKeys.Has(key) {
+				continue
+			}
 			for _, rg := range rcq.Spec.ResourceGroups {
 				for _, flavor := range rg.Flavors {
 					for _, res := range flavor.Resources {

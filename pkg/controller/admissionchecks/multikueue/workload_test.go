@@ -1532,18 +1532,18 @@ func TestWlReconcile(t *testing.T) {
 				adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 				cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil)
 
-				worker1Client := getClientBuilder(ctx).
+				worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
 					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
 					WithStatusSubresource(&kueue.Workload{}).
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
-					Build()
+					Build())
 
 				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 				w1remoteClient.client = worker1Client
 				w1remoteClient.connecting.Store(false)
 				cRec.remoteClients["worker1"] = w1remoteClient
 
-				var worker2Client client.WithWatch
+				var worker2Client SelectivelyCachingClient
 				if tc.useSecondWorker {
 					worker2Builder := getClientBuilder(ctx)
 					worker2Builder = worker2Builder.WithLists(&kueue.WorkloadList{Items: tc.worker2Workloads}, &batchv1.JobList{Items: tc.worker2Jobs})
@@ -1568,8 +1568,7 @@ func TestWlReconcile(t *testing.T) {
 							return c.Delete(ctx, obj, opts...)
 						},
 					})
-					worker2Client = worker2Builder.Build()
-
+					worker2Client = NewNeverCachingClient(worker2Builder.Build())
 					w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 					w2remoteClient.client = worker2Client
 					if !tc.worker2Reconnecting {
@@ -1776,10 +1775,9 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				},
 				)
 			}
-
 			remoteClients := make(map[string]*remoteClient, len(tt.remotes))
 			for remote, builder := range remoteClientBuilders {
-				remoteClients[remote] = &remoteClient{client: builder.Build(), origin: remote}
+				remoteClients[remote] = &remoteClient{client: NewNeverCachingClient(builder.Build()), origin: remote}
 			}
 
 			if tt.cond != nil {
