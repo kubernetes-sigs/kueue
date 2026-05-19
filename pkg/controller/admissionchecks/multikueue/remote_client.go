@@ -118,7 +118,7 @@ func (c *selectivelyCachingClient) AddCacheEventHandler(ctx context.Context, obj
 // NewSelectivelyCachingClient constructs the background cache, registers indexes,
 // starts it in the background, and returns the client.
 func NewSelectivelyCachingClient(
-	watchCtx context.Context,
+	ctx context.Context,
 	restConfig *rest.Config,
 	directClient client.WithWatch,
 	scheme *runtime.Scheme,
@@ -131,7 +131,7 @@ func NewSelectivelyCachingClient(
 	}
 
 	for _, opt := range indexes {
-		err = remoteCache.IndexField(watchCtx, opt.Object, opt.Field, opt.ExtractValue)
+		err = remoteCache.IndexField(ctx, opt.Object, opt.Field, opt.ExtractValue)
 		if err != nil {
 			return nil, fmt.Errorf("registering index for %s on %s: %w", opt.Field, opt.Object.GetObjectKind().GroupVersionKind().Kind, err)
 		}
@@ -140,15 +140,15 @@ func NewSelectivelyCachingClient(
 	var synced atomic.Bool
 
 	go func() {
-		if err := remoteCache.Start(watchCtx); err != nil {
-			ctrl.LoggerFrom(watchCtx).Error(err, "Remote cache execution failed")
+		if err := remoteCache.Start(ctx); err != nil {
+			ctrl.LoggerFrom(ctx).Error(err, "Remote cache execution failed")
 		}
 	}()
 
 	go func() {
-		if remoteCache.WaitForCacheSync(watchCtx) {
+		if remoteCache.WaitForCacheSync(ctx) {
 			synced.Store(true)
-			ctrl.LoggerFrom(watchCtx).V(2).Info("Remote cache successfully synchronized")
+			ctrl.LoggerFrom(ctx).V(2).Info("Remote cache successfully synchronized")
 		}
 	}()
 
