@@ -119,16 +119,6 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
-		ginkgo.Context("with TASReplaceNodeOnNodeTaints enabled", func() {
-			ginkgo.BeforeAll(func() {
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
-					if cfg.FeatureGates == nil {
-						cfg.FeatureGates = make(map[string]bool)
-					}
-					cfg.FeatureGates[string(features.TASReplaceNodeOnNodeTaints)] = true
-				})
-			})
-
 			ginkgo.AfterAll(func() {
 				util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 			})
