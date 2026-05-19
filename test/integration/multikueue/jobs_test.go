@@ -1627,7 +1627,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, testCtr.DeepCopy())
 		util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, testCtr.DeepCopy())
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, testCtr)
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, trainJob)
+		util.MustCreateWithRetry(managerTestCluster.ctx, managerTestCluster.client, trainJob)
 		wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainJob.Name, trainJob.UID), Namespace: managerNs.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdWorkload := &kueue.Workload{}
