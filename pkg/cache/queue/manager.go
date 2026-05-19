@@ -381,7 +381,7 @@ func (m *Manager) IsConcurrentAdmissionParentWithoutLock(wl *kueue.Workload) boo
 	return m.ConcurrentAdmissionEnabledWithoutLock(cqName) && !concurrentadmission.IsVariant(wl)
 }
 
-func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue, specUpdated, labelsUpdated bool) error {
+func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue, specUpdated bool) error {
 	m.Lock()
 	defer m.Unlock()
 	cqName := kueue.ClusterQueueReference(cq.Name)
@@ -407,7 +407,7 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName))
 	}
 	becameActive := !oldActive && cqImpl.Active()
-	if becameActive || labelsUpdated {
+	if becameActive {
 		reportPendingWorkloads(m, cqName)
 	}
 	if becameActive {
@@ -447,13 +447,16 @@ func (m *Manager) DefaultLocalQueueExist(namespace string) bool {
 	return ok
 }
 
-func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
+// addLocalQueueLocked registers the local queue under the manager lock and
+// returns the DRA reconcile channel and any workloads that need DRA reconciling.
+// Callers must send events to the channel after this returns (outside any lock).
+func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) ([]*kueue.Workload, error) {
 	m.Lock()
 	defer m.Unlock()
 
 	key := queue.Key(q)
 	if _, ok := m.localQueues[key]; ok {
-		return fmt.Errorf("queue %q already exists", q.Name)
+		return nil, fmt.Errorf("queue %q already exists", q.Name)
 	}
 	qImpl := newLocalQueue(q)
 	m.localQueues[key] = qImpl
@@ -467,8 +470,9 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	// queue might have been added earlier.
 	var workloads kueue.WorkloadList
 	if err := m.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadQueueKey: q.Name}, client.InNamespace(q.Namespace)); err != nil {
-		return fmt.Errorf("listing workloads that match the queue: %w", err)
+		return nil, fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
+	var draWorkloads []*kueue.Workload
 	for _, w := range workloads.Items {
 		m.assignWorkload(workload.Key(&w), qImpl.Key)
 
@@ -482,10 +486,9 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 
 		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
 		if dra.NeedsDRAReconcile(&w) {
-			if m.draReconcileChannel != nil {
-				m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: &w}
-				log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")
-			}
+			// Collect DRA workloads to send outside the lock; DeepCopy keeps a
+			// stable pointer since the range variable is reused each iteration.
+			draWorkloads = append(draWorkloads, w.DeepCopy())
 			continue
 		}
 
@@ -498,6 +501,26 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	if cq != nil && cq.AddFromLocalQueue(qImpl, m.roleTracker, m.customLabels) {
 		m.Broadcast()
 	}
+
+	return draWorkloads, nil
+}
+
+func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
+	draWorkloads, err := m.addLocalQueueLocked(ctx, q)
+	if err != nil {
+		return err
+	}
+
+	if !features.Enabled(features.KueueDRAIntegration) {
+		return nil
+	}
+
+	for _, wl := range draWorkloads {
+		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
+		m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: wl}
+		log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")
+	}
+
 	return nil
 }
 
@@ -900,18 +923,44 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 	}
 }
 
+func (m *Manager) resyncClusterQueueGaugeMetricsLocked(cq *ClusterQueue) {
+	if cq == nil {
+		return
+	}
+	reportCQPendingWorkloads(m, cq)
+	reportCQFinishedWorkloads(cq, m.roleTracker, m.customLabels)
+}
+
+func (m *Manager) ResyncClusterQueueGaugeMetrics(cqName kueue.ClusterQueueReference) {
+	m.RLock()
+	defer m.RUnlock()
+	m.resyncClusterQueueGaugeMetricsLocked(m.hm.ClusterQueue(cqName))
+}
+
+func (m *Manager) resyncLocalQueueGaugeMetricsLocked(lq *LocalQueue) {
+	if lq == nil {
+		return
+	}
+	reportLQPendingWorkloads(m, lq)
+	reportLQFinishedWorkloads(m, lq)
+}
+
+func (m *Manager) ResyncLocalQueueGaugeMetrics(lqRef queue.LocalQueueReference) {
+	m.RLock()
+	defer m.RUnlock()
+	m.resyncLocalQueueGaugeMetricsLocked(m.localQueues[lqRef])
+}
+
 // ResyncGaugeMetrics re-reports pending and finished workload gauge metrics.
 func (m *Manager) ResyncGaugeMetrics() {
 	m.RLock()
 	defer m.RUnlock()
 	for _, cq := range m.hm.ClusterQueues() {
-		reportCQPendingWorkloads(m, cq)
-		reportCQFinishedWorkloads(cq, m.roleTracker, m.customLabels)
+		m.resyncClusterQueueGaugeMetricsLocked(cq)
 	}
 	if m.lqMetrics.IsEnabled() {
 		for _, lq := range m.localQueues {
-			reportLQPendingWorkloads(m, lq)
-			reportLQFinishedWorkloads(m, lq)
+			m.resyncLocalQueueGaugeMetricsLocked(lq)
 		}
 	}
 }

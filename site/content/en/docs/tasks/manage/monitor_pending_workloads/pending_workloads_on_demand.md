@@ -76,8 +76,6 @@ If you disable the feature, you also need to remove the associated `APIService` 
 
 If you need the embedded visibility server to run on a different port, you can use the Configuration API `visibilityServer.bindPort`.
 
-(Deprecated as of 0.17, to be removed in the future) Alternatively, you can use the `--visibility-server-port` flag when running the Kueue controller manager. For example: `--visibility-server-port=8443`.
-
 {{% /alert %}}
 
 To install a simple setup of ClusterQueue

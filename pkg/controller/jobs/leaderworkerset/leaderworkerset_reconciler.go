@@ -28,7 +28,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -454,19 +453,11 @@ func (r *Reconciler) deleteWorkload(ctx context.Context, wl *kueue.Workload) err
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
 	log.V(3).Info("Delete LeaderWorkerSet Workload")
 
-	// Remove the finalizer before deleting to ensure prompt cleanup,
-	// consistent with how the job framework reconciler deletes workloads.
-	if err := workload.RemoveFinalizer(ctx, r.client, wl); err != nil && !apierrors.IsNotFound(err) {
-		log.Error(err, "Failed to remove finalizer")
-		return err
-	}
-	err := r.client.Delete(ctx, wl)
+	_, err := workload.Delete(ctx, r.client, wl)
 	if err != nil {
 		log.Error(err, "Failed to delete workload")
-		return err
 	}
-
-	return nil
+	return err
 }
 
 func (r *Reconciler) reconcilePods(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, statefulSets []appsv1.StatefulSet, pods []corev1.Pod) error {

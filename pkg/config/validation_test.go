@@ -1070,6 +1070,21 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRAIntegration:                 false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -1082,22 +1097,30 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestValidateFeatureGates(t *testing.T) {
+func TestLoadAndValidateFeatureGates(t *testing.T) {
 	cases := map[string]struct {
 		featureGatesCLI string
 		featureGateMap  map[string]bool
-		featureGates    map[featuregate.Feature]bool
+		gatesToRestore  map[featuregate.Feature]bool
 		wantErr         field.ErrorList
 	}{
 		"no feature gates is null": {
 			featureGatesCLI: "",
 		},
 		"feature gate cli": {
-			featureGatesCLI: "test:true",
+			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration: false,
+			},
 		},
 		"cannot specify both feature gates": {
-			featureGatesCLI: "test:true",
-			featureGateMap:  map[string]bool{"test": true},
+			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegration): false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration: false,
+			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
@@ -1107,9 +1130,13 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"cannot set TAS profile with TAS disabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TASProfileMixed:         true,
-				features.TopologyAwareScheduling: false,
+			featureGateMap: map[string]bool{
+				string(features.TASProfileMixed):         true,
+				string(features.TopologyAwareScheduling): false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASProfileMixed:         false,
+				features.TopologyAwareScheduling: true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1120,11 +1147,17 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
-				features.TopologyAwareScheduling:             true,
-				features.ElasticJobsViaWorkloadSlices:        false,
-				features.TASProfileMixed:                     false,
+			featureGateMap: map[string]bool{
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.TopologyAwareScheduling):             true,
+				string(features.ElasticJobsViaWorkloadSlices):        false,
+				string(features.TASProfileMixed):                     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.TopologyAwareScheduling:             false,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.TASProfileMixed:                     true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1135,11 +1168,17 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
-				features.ElasticJobsViaWorkloadSlices:        true,
-				features.TopologyAwareScheduling:             false,
-				features.TASProfileMixed:                     false,
+			featureGateMap: map[string]bool{
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.ElasticJobsViaWorkloadSlices):        true,
+				string(features.TopologyAwareScheduling):             false,
+				string(features.TASProfileMixed):                     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.ElasticJobsViaWorkloadSlices:        false,
+				features.TopologyAwareScheduling:             true,
+				features.TASProfileMixed:                     true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1150,19 +1189,31 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS valid when all dependencies enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
-				features.ElasticJobsViaWorkloadSlices:        true,
-				features.TopologyAwareScheduling:             true,
-				features.TASProfileMixed:                     false,
+			featureGateMap: map[string]bool{
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.ElasticJobsViaWorkloadSlices):        true,
+				string(features.TopologyAwareScheduling):             true,
+				string(features.TASProfileMixed):                     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.ElasticJobsViaWorkloadSlices:        false,
+				features.TopologyAwareScheduling:             false,
+				features.TASProfileMixed:                     true,
 			},
 		},
 		"multiple FG validation errors at once": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TASProfileMixed:                     true,
-				features.TopologyAwareScheduling:             false,
-				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
-				features.ElasticJobsViaWorkloadSlices:        false,
+			featureGateMap: map[string]bool{
+				string(features.TASProfileMixed):                     true,
+				string(features.TopologyAwareScheduling):             false,
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.ElasticJobsViaWorkloadSlices):        false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASProfileMixed:                     false,
+				features.TopologyAwareScheduling:             true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.ElasticJobsViaWorkloadSlices:        true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1182,27 +1233,31 @@ func TestValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
-		"DRAExtendedResources requires DynamicResourceAllocation": {
-			featureGates: map[featuregate.Feature]bool{
-				features.DRAExtendedResources:      true,
-				features.DynamicResourceAllocation: false,
+		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationExtendedResource): true,
+				string(features.KueueDRAIntegration):                 false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: false,
+				features.KueueDRAIntegration:                 true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "DRAExtendedResources requires DynamicResourceAllocation to be enabled",
+					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
 				},
 			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			// Set up feature gates for this test
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			got := ValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
+			// Ensure clean up is registered for the feature gates to their default values
+			features.SetFeatureGatesDuringTest(t, tc.gatesToRestore)
+			got := LoadAndValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
 			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
-				t.Errorf("Unexpected result from ValidateFeatureGates (-want,+got):\n%s", diff)
+				t.Errorf("Unexpected result from LoadAndValidateFeatureGates (-want,+got):\n%s", diff)
 			}
 		})
 	}

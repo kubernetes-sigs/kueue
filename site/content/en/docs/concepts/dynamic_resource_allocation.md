@@ -6,6 +6,12 @@ description: >
   Quota management for workloads using Kubernetes Dynamic Resource Allocation (DRA).
 ---
 
+{{% alert title="Warning" color="warning" %}}
+In Kueue 0.18, the DRA feature gates were renamed to avoid conflicts with upstream
+Kubernetes feature gates: `DynamicResourceAllocation` is now `KueueDRAIntegration`,
+and `DRAExtendedResources` is now `KueueDRAIntegrationExtendedResource`.
+{{% /alert %}}
+
 ## Dynamic Resource Allocation
 
 [Dynamic Resource Allocation (DRA)](https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/)
@@ -57,11 +63,11 @@ For setup instructions, see
 
 When a Pod requests an extended resource backed by DRA (e.g.,
 `nvidia.com/gpu: 1`), the kube-scheduler auto-creates a `ResourceClaim`.
-Without the `DRAExtendedResources` feature gate enabled, Kueue would charge
+Without the `KueueDRAIntegrationExtendedResource` feature gate enabled, Kueue would charge
 quota for both the `resources.requests` entry **and** the auto-created claim,
 double counting the same device.
 
-With `DRAExtendedResources` enabled, Kueue detects the matching `DeviceClass`,
+With `KueueDRAIntegrationExtendedResource` enabled, Kueue detects the matching `DeviceClass`,
 uses `extendedResourceName` as the quota key, and drops the auto-created claim
 from accounting. No `deviceClassMappings` configuration is needed — the
 mapping is discovered from the `DeviceClass` automatically.
@@ -69,8 +75,8 @@ mapping is discovered from the `DeviceClass` automatically.
 {{% alert title="Note" color="info" %}}
 The extended resource path additionally requires the Kubernetes
 `DRAExtendedResource` feature gate on kube-apiserver and kube-scheduler
-(alpha in Kubernetes 1.34), in addition to Kueue's `DynamicResourceAllocation`
-and `DRAExtendedResources` feature gates.
+(alpha in Kubernetes 1.34), in addition to Kueue's `KueueDRAIntegration`
+and `KueueDRAIntegrationExtendedResource` feature gates.
 {{% /alert %}}
 
 ## Path separation
