@@ -38,6 +38,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/component-base/compatibility"
 	"k8s.io/component-base/version"
+	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
@@ -76,9 +77,9 @@ func init() {
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates a visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, cfg *configapi.Configuration, kubeConfig *rest.Config, port int, tlsOpts *tlsconfig.TLS) error {
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, cfg *configapi.Configuration, kubeConfig *rest.Config, tlsOpts *tlsconfig.TLS) error {
 	config := newVisibilityServerConfig(kubeConfig)
-	if err := applyVisibilityServerOptions(config, cfg, port, tlsOpts); err != nil {
+	if err := applyVisibilityServerOptions(config, cfg, tlsOpts); err != nil {
 		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
 
@@ -98,7 +99,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 	return nil
 }
 
-func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cfg *configapi.Configuration, port int, tlsOpts *tlsconfig.TLS) error {
+func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cfg *configapi.Configuration, tlsOpts *tlsconfig.TLS) error {
 	o := genericoptions.NewRecommendedOptions("", codecs.LegacyCodec(
 		visibilityv1beta2.SchemeGroupVersion,
 		visibilityv1beta1.SchemeGroupVersion,
@@ -112,16 +113,13 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cf
 		o.SecureServing.ServerCert.CertKey.KeyFile = certDir + "/tls.key"
 	}
 
-	// Apply visibility overrides from Configuration API if present and non-default.
-	// If the API value is non-default, it takes precedence.
-	// Otherwise, use the flag.
-	if cfg.VisibilityServer != nil && cfg.VisibilityServer.BindPort != nil && *cfg.VisibilityServer.BindPort != configapi.DefaultVisibilityBindPort {
-		o.SecureServing.BindPort = int(*cfg.VisibilityServer.BindPort)
-	} else {
-		o.SecureServing.BindPort = port
-	}
-	if cfg.VisibilityServer != nil && cfg.VisibilityServer.BindAddress != nil {
-		o.SecureServing.BindAddress = net.ParseIP(*cfg.VisibilityServer.BindAddress)
+	o.SecureServing.BindPort = int(configapi.DefaultVisibilityBindPort)
+
+	if cfg.VisibilityServer != nil {
+		o.SecureServing.BindPort = int(ptr.Deref(
+			cfg.VisibilityServer.BindPort,
+			configapi.DefaultVisibilityBindPort,
+		))
 	}
 
 	if f := flag.Lookup("kubeconfig"); f != nil {
