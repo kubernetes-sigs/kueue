@@ -64,6 +64,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
 )
 
 const (
@@ -73,27 +74,19 @@ const (
 	retryIncrement = 5 * time.Second
 	retryMaxSteps  = 7
 
-	// Bounds how long startWatcher waits for client.Watch() to return,
-	// so a hung remote cannot head-of-line block the reconciler. See #11206.
-	//
-	// The bound has to cover the slowest legitimate case, not just the common
-	// one. client.Watch() returns as soon as the apiserver sends HTTP 200
-	// headers, but the apiserver can delay sending those headers while it
-	// warms its watch cache. When the served version differs from the storage
-	// version and a conversion webhook is in play, that warmup serializes a
-	// per-object conversion and has been observed to take ~8 min at ~50k
-	// Workloads (kubernetes/kubernetes#136950). 10 min leaves headroom above
-	// the documented worst case while still ringing the alarm on a remote
-	// that is truly hung. Today Kueue's served and storage versions match
-	// (v1beta2), so the warmup path is not exercised, but we keep the
-	// generous bound as a guard against future version skew and unknown
-	// apiserver behavior.
-	defaultWatchEstablishTimeout = 10 * time.Minute
+	// Bounds how long startWatcher waits for client.Watch(). The schedule
+	// (1m, 2m, 4m, 8m, 10m, ...) catches hung remotes quickly while the cap
+	// covers the apiserver cold cache + conversion warmup path documented in
+	// kubernetes/kubernetes#136950 (~8 min at 50k Workloads). v1beta2 does
+	// not exercise that path today; the cap is a guard. See #11206.
+	initialEstablishTimeout = 1 * time.Minute
+	maxEstablishTimeout     = 10 * time.Minute
 )
 
 var (
-	watchEstablishTimeout    = defaultWatchEstablishTimeout
 	errWatchEstablishTimeout = errors.New("watch establishment timed out")
+
+	establishBackoff = utilwait.NewBackoff(initialEstablishTimeout, maxEstablishTimeout, 2, 0)
 )
 
 // retryAfter returns an exponentially increasing interval between
@@ -261,11 +254,11 @@ func (cw *cancelOnStopWatcher) Stop() {
 	cw.cancel()
 }
 
-// establishWatch opens a MultiKueue remote watch, bounded by
-// watchEstablishTimeout. On timeout the in-flight Watch is canceled and
+// establishWatch opens a MultiKueue remote watch, bounded by the given
+// timeout. On timeout the in-flight Watch is canceled and
 // errWatchEstablishTimeout is returned so the caller falls back to the
 // standard failedConnAttempts / retryAfter backoff in setConfig.
-func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string) (watch.Interface, error) {
+func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string, timeout time.Duration) (watch.Interface, error) {
 	type result struct {
 		w   watch.Interface
 		err error
@@ -288,7 +281,7 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 			return nil, r.err
 		}
 		return &cancelOnStopWatcher{Interface: r.w, cancel: cancel}, nil
-	case <-time.After(watchEstablishTimeout):
+	case <-time.After(timeout):
 		cancel()
 		if r := <-resultCh; r.w != nil {
 			r.w.Stop()
@@ -299,7 +292,7 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 
 func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin)
+	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1))
 	if err != nil {
 		return err
 	}

@@ -1172,10 +1172,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 func TestEstablishWatch(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
-	prev := watchEstablishTimeout
-	watchEstablishTimeout = 100 * time.Millisecond
-	t.Cleanup(func() { watchEstablishTimeout = prev })
-
+	const testTimeout = 100 * time.Millisecond
 	errBoom := errors.New("boom")
 
 	cases := map[string]struct {
@@ -1191,7 +1188,7 @@ func TestEstablishWatch(t *testing.T) {
 				},
 			},
 			wantErr:    errWatchEstablishTimeout,
-			maxElapsed: 10 * watchEstablishTimeout,
+			maxElapsed: 10 * testTimeout,
 		},
 		"Watch error propagates": {
 			interceptor: interceptor.Funcs{
@@ -1202,7 +1199,7 @@ func TestEstablishWatch(t *testing.T) {
 			wantErr: errBoom,
 		},
 		"success returns without waiting": {
-			maxElapsed: watchEstablishTimeout,
+			maxElapsed: testTimeout,
 		},
 	}
 
@@ -1211,7 +1208,7 @@ func TestEstablishWatch(t *testing.T) {
 			c := getClientBuilder(ctx).WithInterceptorFuncs(tc.interceptor).Build()
 
 			start := time.Now()
-			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin")
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
 			elapsed := time.Since(start)
 
 			if !errors.Is(err, tc.wantErr) {
@@ -1235,12 +1232,12 @@ func TestEstablishWatch(t *testing.T) {
 		fw := watch.NewFake()
 		c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
 			Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
-				time.Sleep(2 * watchEstablishTimeout)
+				time.Sleep(2 * testTimeout)
 				return fw, nil
 			},
 		}).Build()
 
-		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin")
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
 		}
@@ -1251,4 +1248,30 @@ func TestEstablishWatch(t *testing.T) {
 			t.Fatal("racing watcher was not Stop()ed; would leak")
 		}
 	})
+}
+
+// Pins the schedule produced by establishBackoff: 1m, 2m, 4m, 8m, 10m, 10m, ...
+// The helper itself is tested in pkg/util/wait; this is a guard against
+// accidental changes to the initial/cap/factor wiring.
+func TestEstablishBackoffSchedule(t *testing.T) {
+	cases := map[string]struct {
+		failedAttempts uint
+		want           time.Duration
+	}{
+		"first attempt is initial":  {failedAttempts: 0, want: 1 * time.Minute},
+		"one failure doubles":       {failedAttempts: 1, want: 2 * time.Minute},
+		"two failures":              {failedAttempts: 2, want: 4 * time.Minute},
+		"three failures":            {failedAttempts: 3, want: 8 * time.Minute},
+		"four failures hits cap":    {failedAttempts: 4, want: maxEstablishTimeout},
+		"many failures stay at cap": {failedAttempts: 20, want: maxEstablishTimeout},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := establishBackoff.WaitTime(int(tc.failedAttempts) + 1)
+			if got != tc.want {
+				t.Fatalf("WaitTime(%d) = %v, want %v", tc.failedAttempts+1, got, tc.want)
+			}
+		})
+	}
 }
