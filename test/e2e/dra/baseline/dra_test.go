@@ -709,4 +709,102 @@ var _ = ginkgo.Describe("DRA", func() {
 			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
 		})
 	})
+
+	ginkgo.When("Late DeviceClass creation with Extended Resources", func() {
+		var (
+			resourceFlavor *kueue.ResourceFlavor
+			clusterQueue   *kueue.ClusterQueue
+			localQueue     *kueue.LocalQueue
+		)
+
+		const (
+			extendedResourceName       = "example.com/gpu"
+			lateDeviceClassName        = "gpu-late-dc.example.com"
+			lateDeviceClassLogicalName = "gpu-late-dc"
+		)
+
+		ginkgo.BeforeEach(func() {
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("late-dc-flavor-" + ns.Name).Obj()
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("late-dc-cq-" + ns.Name).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(corev1.ResourceCPU, "4").
+						Resource(corev1.ResourceName(lateDeviceClassLogicalName), "4").
+						Obj()).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("late-dc-lq", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		})
+
+		ginkgo.It("Should admit job after DeviceClass is created", func() {
+			ginkgo.By("Creating Job with extended resource request before DeviceClass exists")
+			job := testingjob.MakeJob("late-dc-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceName(extendedResourceName), "1").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying job remains suspended (no DeviceClass, no translation)")
+			createdJob := &batchv1.Job{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
+			}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating DeviceClass with extendedResourceName")
+			deviceClass := &resourceapi.DeviceClass{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: lateDeviceClassName,
+				},
+				Spec: resourceapi.DeviceClassSpec{
+					Selectors: []resourceapi.DeviceSelector{
+						{
+							CEL: &resourceapi.CELDeviceSelector{
+								Expression: "device.driver == '" + draconsts.DriverName + "'",
+							},
+						},
+					},
+					ExtendedResourceName: ptr.To(extendedResourceName),
+				},
+			}
+			util.MustCreate(ctx, k8sClient, deviceClass)
+			defer func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			}()
+
+			ginkgo.By("Verifying workload is admitted with logical name as quota key")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
+				g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+
+				assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName(lateDeviceClassLogicalName)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying job is unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
+
+			ginkgo.By("Verifying job completes successfully")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
+		})
+	})
 })

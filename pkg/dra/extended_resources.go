@@ -35,13 +35,9 @@ import (
 )
 
 // NeedsDRAReconcile returns true if the workload needs DRA processing in Reconcile.
-// Fast in-memory check with no API calls. Uses a broad format-based filter
-// (IsExtendedResourceName) which may over-trigger for non-DRA extended resources,
-// but this only costs one extra Reconcile that finds no DeviceClass and queues normally.
-//
-// Note: there is no DeviceClass watcher. If a DeviceClass is created after a workload
-// was marked inadmissible, requeuing depends on the next QueueInadmissibleWorkloads event.
-func NeedsDRAReconcile(wl *kueue.Workload) bool {
+// For extended resources, checks the provided cache to confirm the resource
+// is backed by a DeviceClass before triggering DRA reconciliation.
+func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool {
 	if !features.Enabled(features.KueueDRAIntegration) {
 		return features.Enabled(features.KueueDRARejectWorkloadsWhenDRADisabled) && workload.HasDRA(wl)
 	}
@@ -56,7 +52,7 @@ func NeedsDRAReconcile(wl *kueue.Workload) bool {
 		for _, containers := range [][]corev1.Container{ps.Template.Spec.InitContainers, ps.Template.Spec.Containers} {
 			for _, c := range containers {
 				for name, qty := range c.Resources.Requests {
-					if !qty.IsZero() && utilresource.IsExtendedResourceName(name) {
+					if !qty.IsZero() && utilresource.IsExtendedResourceName(name) && erCache.Has(name) {
 						return true
 					}
 				}

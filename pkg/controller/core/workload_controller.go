@@ -27,6 +27,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -147,6 +148,12 @@ func WithDRAMapper(value *dra.ResourceMapper) Option {
 	}
 }
 
+func WithDRABackedResources(value *dra.ExtendedResourceCache) Option {
+	return func(r *WorkloadReconciler) {
+		r.draBackedResources = value
+	}
+}
+
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
@@ -164,6 +171,7 @@ type WorkloadReconciler struct {
 	workloadRetention      *workloadRetentionConfig
 	draReconcileChannel    chan event.TypedGenericEvent[*kueue.Workload]
 	draMapper              *dra.ResourceMapper
+	draBackedResources     *dra.ExtendedResourceCache
 	admissionFSConfig      *config.AdmissionFairSharing
 	roleTracker            *roletracker.RoleTracker
 	preemptionExpectations *expectations.Store
@@ -302,7 +310,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		return ctrl.Result{}, nil
 	}
-	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl) {
+	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl, r.draBackedResources) {
 		workload.AdjustResources(ctx, r.client, &wl)
 		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
@@ -1135,7 +1143,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
-	if dra.NeedsDRAReconcile(e.Object) {
+	if dra.NeedsDRAReconcile(e.Object, r.draBackedResources) {
 		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
 		return true
 	}
@@ -1236,7 +1244,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		})
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		switch {
-		case dra.NeedsDRAReconcile(e.ObjectNew):
+		case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		default:
 			if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
@@ -1276,7 +1284,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// reconciler, we would execute it on every run, which might mess up the state.
 			if immediate {
 				switch {
-				case dra.NeedsDRAReconcile(e.ObjectNew):
+				case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				default:
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
@@ -1361,7 +1369,8 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	ruh := &resourceUpdatesHandler{r: r}
 	wqh := &workloadQueueHandler{r: r}
 	deh := &draEventHandler{}
-	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+	dch := &deviceClassHandler{r: r}
+	bld := builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("workload_controller").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
@@ -1378,8 +1387,17 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Watches(&corev1.LimitRange{}, ruh).
 		Watches(&nodev1.RuntimeClass{}, ruh).
 		Watches(&kueue.ClusterQueue{}, wqh).
-		Watches(&kueue.LocalQueue{}, wqh).
-		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
+		Watches(&kueue.LocalQueue{}, wqh)
+	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		if _, err := mgr.GetRESTMapper().RESTMapping(resourcev1.SchemeGroupVersion.WithKind("DeviceClass").GroupKind()); err != nil && apimeta.IsNoMatchError(err) {
+			r.logger().V(2).Info("DeviceClass API not available, skipping DeviceClass watcher")
+		} else if err != nil {
+			return err
+		} else {
+			bld = bld.Watches(&resourcev1.DeviceClass{}, dch)
+		}
+	}
+	return bld.Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
 // admittedNotReadyWorkload returns the underlying cause and remaining time for
@@ -1472,7 +1490,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
 
-		if dra.NeedsDRAReconcile(wlCopy) {
+		if dra.NeedsDRAReconcile(wlCopy, h.r.draBackedResources) {
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      wlCopy.Name,
@@ -1624,4 +1642,76 @@ func (h *draEventHandler) Generic(ctx context.Context, e event.TypedGenericEvent
 // GetDRAReconcileChannel returns the DRA reconcile channel for connecting to the queue manager.
 func (r *WorkloadReconciler) GetDRAReconcileChannel() chan<- event.TypedGenericEvent[*kueue.Workload] {
 	return r.draReconcileChannel
+}
+
+type deviceClassHandler struct {
+	r *WorkloadReconciler
+}
+
+func (h *deviceClassHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	dc := e.Object.(*resourcev1.DeviceClass)
+	if ern := extendedResourceName(dc); ern != "" {
+		h.r.draBackedResources.Add(corev1.ResourceName(ern), dc.Name)
+		h.reconcileWorkloads(ctx, q, ern)
+	}
+}
+
+func (h *deviceClassHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	oldDC := e.ObjectOld.(*resourcev1.DeviceClass)
+	newDC := e.ObjectNew.(*resourcev1.DeviceClass)
+	if oldERN := extendedResourceName(oldDC); oldERN != "" {
+		h.r.draBackedResources.Remove(corev1.ResourceName(oldERN), oldDC.Name)
+	}
+	if newERN := extendedResourceName(newDC); newERN != "" {
+		h.r.draBackedResources.Add(corev1.ResourceName(newERN), newDC.Name)
+	}
+	h.reconcileWorkloads(ctx, q, extendedResourceName(oldDC), extendedResourceName(newDC))
+}
+
+func (h *deviceClassHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	dc := e.Object.(*resourcev1.DeviceClass)
+	if ern := extendedResourceName(dc); ern != "" {
+		h.r.draBackedResources.Remove(corev1.ResourceName(ern), dc.Name)
+		h.reconcileWorkloads(ctx, q, ern)
+	}
+}
+
+func (h *deviceClassHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func extendedResourceName(dc *resourcev1.DeviceClass) string {
+	if dc.Spec.ExtendedResourceName != nil {
+		return *dc.Spec.ExtendedResourceName
+	}
+	return ""
+}
+
+func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], resourceNames ...string) {
+	log := h.r.logger()
+
+	// Requeue only workloads that request the affected extended resources.
+	for _, name := range resourceNames {
+		if name == "" {
+			continue
+		}
+		lst := kueue.WorkloadList{}
+		err := h.r.client.List(ctx, &lst,
+			client.MatchingFields{
+				indexer.WorkloadExtendedResourceKey: name,
+				indexer.WorkloadQuotaReservedKey:    string(metav1.ConditionFalse),
+			},
+		)
+		if err != nil {
+			log.Error(err, "Could not list workloads for extended resource", "resource", name)
+			continue
+		}
+		for _, w := range lst.Items {
+			q.AddAfter(reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      w.Name,
+					Namespace: w.Namespace,
+				},
+			}, time.Second)
+		}
+	}
 }

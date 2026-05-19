@@ -54,6 +54,7 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 
 	fwk = &framework.Framework{
 		WebhookPath: util.WebhookPath,
@@ -130,7 +131,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			queues,
 			cCache,
 			controllersCfg,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, DRAMapper: draMapper},
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, DRAMapper: draMapper, DRABackedResources: dra.NewExtendedResourceCache()},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
