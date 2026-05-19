@@ -120,6 +120,10 @@ type remoteClient struct {
 	failedConnAttempts   uint
 	retryConnNextAttempt metav1.Time
 
+	// Held during setConfig. Without it, one stuck remote would stall every
+	// other cluster's reconcile via clustersReconciler.lock. See #11297.
+	setConfigLock sync.Mutex
+
 	clock clock.Clock
 
 	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
@@ -488,7 +492,9 @@ func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 	}
 }
 
-func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string) (*time.Duration, error) {
+// findOrCreateRemoteClient returns the remoteClient for clusterName, creating
+// one if absent. Only the brief map operation runs under c.lock.
+func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string) *remoteClient {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -500,6 +506,14 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 		}
 		c.remoteClients[clusterName] = client
 	}
+	return client
+}
+
+func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string) (*time.Duration, error) {
+	client := c.findOrCreateRemoteClient(clusterName, origin)
+
+	client.setConfigLock.Lock()
+	defer client.setConfigLock.Unlock()
 
 	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName)
 	clientCtx := ctrl.LoggerInto(c.rootContext, clientLog)
