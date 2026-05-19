@@ -516,42 +516,76 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		})
 	}
 }
-func TestAddAssumedUsageIncludesPodCount(t *testing.T) {
-	assumedUsage := map[tas.TopologyDomainID]resources.Requests{
-		"node-a": {
-			corev1.ResourceCPU:  1000,
-			corev1.ResourcePods: 1,
+func TestAddAssumedUsage(t *testing.T) {
+	cases := map[string]struct {
+		assumedUsage map[tas.TopologyDomainID]resources.Requests
+		assignment   *tas.TopologyAssignment
+		tasRequests  *TASPodSetRequests
+		want         map[tas.TopologyDomainID]resources.Requests
+	}{
+		"includes pod count for existing and new domains": {
+			assumedUsage: map[tas.TopologyDomainID]resources.Requests{
+				"node-a": {
+					corev1.ResourceCPU:  1000,
+					corev1.ResourcePods: 1,
+				},
+			},
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 1},
+					{Values: []string{"node-b"}, Count: 2},
+				},
+			},
+			tasRequests: &TASPodSetRequests{
+				SinglePodRequests: resources.Requests{
+					corev1.ResourceCPU:    500,
+					corev1.ResourceMemory: 2048,
+				},
+			},
+			want: map[tas.TopologyDomainID]resources.Requests{
+				"node-a": {
+					corev1.ResourceCPU:    1500,
+					corev1.ResourceMemory: 2048,
+					corev1.ResourcePods:   2,
+				},
+				"node-b": {
+					corev1.ResourceCPU:    1000,
+					corev1.ResourceMemory: 4096,
+					corev1.ResourcePods:   2,
+				},
+			},
 		},
-	}
-	assignment := &tas.TopologyAssignment{
-		Levels: []string{"hostname"},
-		Domains: []tas.TopologyDomainAssignment{
-			{Values: []string{"node-a"}, Count: 1},
-			{Values: []string{"node-b"}, Count: 2},
-		},
-	}
-	tasRequests := &TASPodSetRequests{
-		SinglePodRequests: resources.Requests{
-			corev1.ResourceCPU:    500,
-			corev1.ResourceMemory: 2048,
+		"includes pod count starting from empty assumed usage": {
+			assumedUsage: map[tas.TopologyDomainID]resources.Requests{},
+			assignment: &tas.TopologyAssignment{
+				Levels: []string{"hostname"},
+				Domains: []tas.TopologyDomainAssignment{
+					{Values: []string{"node-a"}, Count: 3},
+				},
+			},
+			tasRequests: &TASPodSetRequests{
+				SinglePodRequests: resources.Requests{
+					corev1.ResourceCPU:    250,
+					corev1.ResourceMemory: 512,
+				},
+			},
+			want: map[tas.TopologyDomainID]resources.Requests{
+				"node-a": {
+					corev1.ResourceCPU:    750,
+					corev1.ResourceMemory: 1536,
+					corev1.ResourcePods:   3,
+				},
+			},
 		},
 	}
 
-	addAssumedUsage(assumedUsage, assignment, tasRequests)
-
-	want := map[tas.TopologyDomainID]resources.Requests{
-		"node-a": {
-			corev1.ResourceCPU:    1500,
-			corev1.ResourceMemory: 2048,
-			corev1.ResourcePods:   2,
-		},
-		"node-b": {
-			corev1.ResourceCPU:    1000,
-			corev1.ResourceMemory: 4096,
-			corev1.ResourcePods:   2,
-		},
-	}
-	if diff := cmp.Diff(want, assumedUsage); diff != "" {
-		t.Errorf("addAssumedUsage() mismatch (-want +got):\n%s", diff)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			addAssumedUsage(tc.assumedUsage, tc.assignment, tc.tasRequests)
+			if diff := cmp.Diff(tc.want, tc.assumedUsage); diff != "" {
+				t.Errorf("addAssumedUsage() mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
