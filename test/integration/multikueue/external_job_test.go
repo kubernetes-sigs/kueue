@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 					multikueue.WithGCInterval(2*time.Second),
 					multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
-					multikueue.WithEventsBatchPeriod(100*time.Millisecond),
+					multikueue.WithEventsBatchPeriod(250*time.Millisecond),
 					multikueue.WithAdapters(adapters),
 					multikueue.WithDispatcherName(config.MultiKueueDispatcherModeAllAtOnce),
 				)

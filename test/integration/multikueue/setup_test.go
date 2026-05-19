@@ -1319,7 +1319,7 @@ var _ = ginkgo.Describe("Manager quota automation feature gate", ginkgo.Label("a
 				err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 					multikueue.WithGCInterval(2*time.Second),
 					multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
-					multikueue.WithEventsBatchPeriod(100*time.Millisecond),
+					multikueue.WithEventsBatchPeriod(250*time.Millisecond),
 					multikueue.WithAdapters(adapters),
 					multikueue.WithDispatcherName(config.MultiKueueDispatcherModeAllAtOnce),
 				)
@@ -1356,7 +1356,7 @@ var _ = ginkgo.Describe("Manager quota automation feature gate", ginkgo.Label("a
 				err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 					multikueue.WithGCInterval(2*time.Second),
 					multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
-					multikueue.WithEventsBatchPeriod(100*time.Millisecond),
+					multikueue.WithEventsBatchPeriod(250*time.Millisecond),
 					multikueue.WithAdapters(adapters),
 					multikueue.WithDispatcherName(config.MultiKueueDispatcherModeAllAtOnce),
 				)
