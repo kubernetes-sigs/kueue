@@ -222,7 +222,7 @@ As an admin I have three resource flavors in my cluster:
 
 I want my workloads to start as soon as possible, on whatever flavor. However, I only want to incur the cost of migration if it means landing on the "reservation" flavor.
 
-To achieve that, I set the minPreferredFlavorName to "reservation". This ensures that a workload on "spot" will not migrate to "on-demand," only to "reservation."
+To achieve that, I set the lastAcceptableFlavorName to "reservation". This ensures that a workload on "spot" will not migrate to "on-demand," only to "reservation."
 
 ```yaml
 kind: ClusterQueue
@@ -234,7 +234,7 @@ spec:
     migration:
       mode: TryPreferredFlavors
       constraints:
-        minPreferredFlavorName: "reservation"
+        lastAcceptableFlavorName: "reservation"
 ```
 
 #### Story 3: reservation + Homogenous Flavors
@@ -248,7 +248,7 @@ As an admin I have four resource flavors in my cluster:
 
 I want my workloads to start as soon as possible. I want to migrate to "reservation" if it becomes available, but I don't want to migrate between the homogeneous 2a/2b/2c flavors.
 
-By setting the minPreferredFlavorName to "Reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
+By setting the lastAcceptableFlavorName to "Reservation", Kueue will ignore available capacity in 2a if the workload is already running on 2b.
 
 ```yaml
 kind: ClusterQueue
@@ -260,7 +260,7 @@ spec:
     migration:
       mode: TryPreferredFlavors
       constraints:
-        minPreferredFlavorName: reservation
+        lastAcceptableFlavorName: reservation
 ```
 
 #### Story 4: Homogenous Flavors only
@@ -411,14 +411,14 @@ type ConcurrentAdmissionMigration struct {
 }
 
 type ConcurrentAdmissionConstraints struct {
-    // MinPreferredFlavorName defines the minimal flavor a Workload can migrate to.
+    // LastAcceptableFlavorName defines the last acceptable flavor a Workload can migrate to.
     // The order is based on the order of flavors in ClusterQueue.
     // It can only be used if the Mode is `TryPreferredFlavors` and `explicitVariants` is not specified.
-    // If the Mode is `TryPreferredFlavors` and MinPreferredFlavorName is not specified, then there's
+    // If the Mode is `TryPreferredFlavors` and LastAcceptableFlavorName is not specified, then there's
     // no constraints on what flavors a Workload can migrate to.
     //
     // +optional
-    MinPreferredFlavorName *ResourceFlavorReference `json:"minPreferredFlavorName,omitempty"`
+    LastAcceptableFlavorName *ResourceFlavorReference `json:"lastAcceptableFlavorName,omitempty"`
 }
 
 type ConcurrentAdmissionMigrationMode string
@@ -692,7 +692,7 @@ After the implementation PR is merged, add the names of the tests here.
 
 #### Alpha
 - In Alpha version the feature will be gated behind the `ConcurrentAdmission` feature gate.
-- Support for `migration.constraints.mode=TryPreferredFlavors` and `migration.constraints.minPreferredFlavorName`.
+- Support for `migration.constraints.mode=TryPreferredFlavors` and `migration.constraints.lastAcceptableFlavorName`.
 - Integration with `BestEffortFIFO` queueing strategy.
 - Support for `kueue.x-k8s.io/workload-allowed-resource-flavors` annotations.
 

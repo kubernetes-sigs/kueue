@@ -91,6 +91,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
+	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
 	return allErrs
 }
 
@@ -570,12 +571,18 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 		}
 	}
 
-	if features.Enabled(features.DRAExtendedResources) {
-		if !features.Enabled(features.DynamicResourceAllocation) {
-			allErrs = append(allErrs, field.Invalid(featureGatesPath, "DRAExtendedResources", "DRAExtendedResources requires DynamicResourceAllocation to be enabled"))
+	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
+
+	return allErrs
+}
+
+func validateDRAFeatureGateDependencies() field.ErrorList {
+	var allErrs field.ErrorList
+	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		if !features.Enabled(features.KueueDRAIntegration) {
+			allErrs = append(allErrs, field.Invalid(featureGatesPath, "KueueDRAIntegrationExtendedResource", "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled"))
 		}
 	}
-
 	return allErrs
 }
 

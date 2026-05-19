@@ -169,7 +169,7 @@ func (j *RayJob) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *RayJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayJob spec first
 	podSets, err := raycluster.BuildPodSets(j.Spec.RayClusterSpec)
 	if err != nil {
@@ -190,7 +190,7 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		expectedLen++
@@ -248,7 +248,7 @@ func (j *RayJob) Finished(ctx context.Context) (message string, success, finishe
 	return message, success, finished
 }
 
-func (j *RayJob) PodsReady(ctx context.Context) bool {
+func (j *RayJob) PodsReady(ctx context.Context, _ client.Client) bool {
 	return j.Status.RayClusterStatus.State == rayv1.Ready
 }
 

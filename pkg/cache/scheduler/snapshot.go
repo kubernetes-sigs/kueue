@@ -38,6 +38,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+type inactiveCQReason string
+
+const (
+	inactiveCQReasonNotActive         inactiveCQReason = "NotActive"
+	inactiveCQReasonHasCycle          inactiveCQReason = "HasCycle"
+	inactiveCQReasonTASUsageNotSynced inactiveCQReason = "TASUsageNotSynced"
+)
+
 type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
@@ -176,12 +184,11 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	log := ctrl.LoggerFrom(ctx)
 	cqNames := c.hm.ClusterQueues()
 	for _, cq := range cqNames {
-		if !cq.Active() || (cq.HasParent() && hierarchy.HasCycle(cq.Parent())) {
+		if reason := skipInactiveCQReason(cq); reason != "" {
+			log.V(3).Info("Skipping ClusterQueue", "clusterQueue", cq.Name, "reason", reason)
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
-		// ensure all workloads are accounted for TAS before building TAS snapshots
-		cq.ensureTASIsSynced(log)
 	}
 	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 	if features.Enabled(features.TopologyAwareScheduling) {
@@ -214,6 +221,23 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	return &snap, nil
 }
 
+// skipInactiveCQReason reports why the CQ should not be considered for
+// admitting workloads in this scheduler snapshot. If the CQ can be considered,
+// an empty reason is returned.
+func skipInactiveCQReason(cq *clusterQueue) inactiveCQReason {
+	if !cq.Active() {
+		return inactiveCQReasonNotActive
+	}
+	if cq.HasParent() && hierarchy.HasCycle(cq.Parent()) {
+		return inactiveCQReasonHasCycle
+	}
+	if features.Enabled(features.TopologyAwareScheduling) && len(cq.tasFlavors) > 0 && !cq.isTASSynced {
+		// The CQ uses a TAS flavor, but TAS usage is not synced yet.
+		return inactiveCQReasonTASUsageNotSynced
+	}
+	return ""
+}
+
 // snapshotClusterQueue creates a copy of ClusterQueue that includes
 // references to immutable objects and deep copies of changing ones.
 func (c *Cache) snapshotClusterQueue(
@@ -235,6 +259,7 @@ func (c *Cache) snapshotClusterQueue(
 		Status:                        cq.Status,
 		AdmissionChecks:               utilmaps.DeepCopySets(cq.AdmissionChecks),
 		ResourceNode:                  cq.resourceNode.Clone(),
+		ConcurrentAdmissionPolicy:     cq.ConcurrentAdmissionPolicy,
 		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
 		tasOnly:                       cq.isTASOnly(),
 		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),

@@ -151,7 +151,7 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 func (w *SparkApplicationWebhook) validateTopologyRequest(ctx context.Context, sparkApp *SparkApplication) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := sparkApp.PodSets(ctx)
+	podSets, podSetsErr := sparkApp.PodSets(ctx, nil)
 
 	if podSetsErr == nil {
 		driverPodSet := podset.FindPodSetByName(podSets, driverPodSetName)

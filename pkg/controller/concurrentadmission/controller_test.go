@@ -71,7 +71,7 @@ func TestReconcile(t *testing.T) {
 			*utiltestingapi.MakeFlavorQuotas("on-demand").Obj(),
 			*utiltestingapi.MakeFlavorQuotas("spot").Obj(),
 		).
-		MinPreferredFlavorName("reservation").
+		LastAcceptableFlavorName("reservation").
 		Obj()
 	migrationLQ := utiltestingapi.MakeLocalQueue("lq-migration", "default").ClusterQueue("cq-migration").Obj()
 
@@ -527,7 +527,7 @@ func TestReconcile(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to being below minPreferredFlavor: \"reservation\" and another Variant admitted \"default/wl-variant-spot\"",
+					Message:   "Variant Workload deactivated due to being below lastAcceptableFlavor: \"reservation\" and another Variant admitted \"default/wl-variant-spot\"",
 				},
 			},
 		},
@@ -613,7 +613,7 @@ func TestReconcile(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-spot"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to being below minPreferredFlavor: \"reservation\" and another Variant admitted \"default/wl-variant-on-demand\"",
+					Message:   "Variant Workload deactivated due to being below lastAcceptableFlavor: \"reservation\" and another Variant admitted \"default/wl-variant-on-demand\"",
 				},
 			},
 		},
@@ -700,13 +700,13 @@ func TestReconcile(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to being below minPreferredFlavor: \"reservation\" and another Variant admitted \"default/wl-variant-reservation\"",
+					Message:   "Variant Workload deactivated due to being below lastAcceptableFlavor: \"reservation\" and another Variant admitted \"default/wl-variant-reservation\"",
 				},
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-spot"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to being below minPreferredFlavor: \"reservation\" and another Variant admitted \"default/wl-variant-reservation\"",
+					Message:   "Variant Workload deactivated due to being below lastAcceptableFlavor: \"reservation\" and another Variant admitted \"default/wl-variant-reservation\"",
 				},
 			},
 		},

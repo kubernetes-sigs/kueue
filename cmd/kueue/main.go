@@ -132,9 +132,6 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
-	var visibilityServerPort int
-	flag.IntVar(&visibilityServerPort, "visibility-server-port", configapi.DefaultVisibilityBindPort, "The port the visibility server binds to.")
-
 	customLogProcessor := zaplog.WrapCore(utillogging.NewCustomLogProcessor)
 
 	zapOptions := zap.Options{
@@ -299,7 +296,7 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
 		queueOptions = append(queueOptions, qcache.WithResourceTransformations(cfg.Resources.Transformations))
 	}
-	if features.Enabled(features.DynamicResourceAllocation) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
+	if features.Enabled(features.KueueDRAIntegration) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
 		if err := dra.CreateMapperFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
 			setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
 			os.Exit(1)
@@ -373,7 +370,7 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, &cfg, kubeConfig, visibilityServerPort, parsedTLSConfig); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, &cfg, kubeConfig, configapi.DefaultVisibilityBindPort, parsedTLSConfig); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}

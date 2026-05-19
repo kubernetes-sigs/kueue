@@ -381,28 +381,28 @@ func (r *variantReconciler) deactivateVariants(
 		log.V(3).Info("No admitted variant, no need to deactivate any variant")
 		return nil
 	}
-	// deactivate Variants below minPreferredFlavor if specified
-	var minPreferredFlavor *kueue.ResourceFlavorReference
+	// deactivate Variants below lastAcceptableFlavor if specified
+	var lastAcceptableFlavor *kueue.ResourceFlavorReference
 	if cq.Spec.ConcurrentAdmissionPolicy != nil && cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil {
-		minPreferredFlavor = cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName
+		lastAcceptableFlavor = cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
 	}
-	if minPreferredFlavor != nil {
-		log.V(3).Info("Deactivating variants below minPreferredFlavor", "minPreferredFlavor", *minPreferredFlavor)
+	if lastAcceptableFlavor != nil {
+		log.V(3).Info("Deactivating variants below lastAcceptableFlavor", "lastAcceptableFlavor", *lastAcceptableFlavor)
 		for i := range variants {
 			v := &variants[i]
 			if v.Name == admittedWl.Name {
 				continue
 			}
-			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[*minPreferredFlavor] {
+			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[*lastAcceptableFlavor] {
 				log.V(2).
-					Info("Deactivating variant because it is below the minPreferredFlavor", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "minPreferredFlavor", *minPreferredFlavor)
-				if err := r.deactivateVariant(ctx, v, fmt.Sprintf("being below minPreferredFlavor: %q and another Variant admitted %q", *minPreferredFlavor, klog.KObj(admittedWl))); err != nil {
+					Info("Deactivating variant because it is below the lastAcceptableFlavor", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "lastAcceptableFlavor", *lastAcceptableFlavor)
+				if err := r.deactivateVariant(ctx, v, fmt.Sprintf("being below lastAcceptableFlavor: %q and another Variant admitted %q", *lastAcceptableFlavor, klog.KObj(admittedWl))); err != nil {
 					return err
 				}
 			}
 		}
 	}
-	// also deactivate Variants below the admitted variant regardless of minPreferredFlavor
+	// also deactivate Variants below the admitted variant regardless of lastAcceptableFlavorName
 	log.V(3).Info("Deactivating variants below the admitted variant", "admittedVariant", klog.KObj(admittedWl), "admittedFlavor", concurrentadmission.GetVariantFlavor(admittedWl))
 	for i := range variants {
 		v := &variants[i]
@@ -435,26 +435,26 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 		}
 		return nil
 	}
-	// activate all variants that are at least at the minPreferredFlavor if specificed
-	var minPreferredFlavor *kueue.ResourceFlavorReference
+	// activate all variants that are at least at the lastAcceptableFlavorName if specificed
+	var lastAcceptableFlavor *kueue.ResourceFlavorReference
 	if cq.Spec.ConcurrentAdmissionPolicy != nil && cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil {
-		minPreferredFlavor = cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName
+		lastAcceptableFlavor = cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
 	}
-	if minPreferredFlavor != nil {
+	if lastAcceptableFlavor != nil {
 		for i := range variants {
 			v := &variants[i]
-			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] <= flavorOrder[*minPreferredFlavor] &&
+			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] <= flavorOrder[*lastAcceptableFlavor] &&
 				flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {
-				// activate the variant, the smaller or equal the flavor order is to the minPreferredFlavor, the higher the priority is
-				if err := r.activateWl(ctx, v, fmt.Sprintf("being at least minPreferredFlavor: %q and higher priority than admitted Variant %q",
-					*minPreferredFlavor, klog.KObj(admittedVariant))); err != nil {
+				// activate the variant, the smaller or equal the flavor order is to the lastAcceptableFlavor, the higher the priority is
+				if err := r.activateWl(ctx, v, fmt.Sprintf("being at least lastAcceptableFlavor: %q and higher priority than admitted Variant %q",
+					*lastAcceptableFlavor, klog.KObj(admittedVariant))); err != nil {
 					return err
 				}
 			}
 		}
 		return nil
 	}
-	// no minPreferredFlavor specified, so activate all variants that are below the admitted variant in the flavor order
+	// no lastAcceptableFlavorName specified, so activate all variants that are below the admitted variant in the flavor order
 	for i := range variants {
 		v := &variants[i]
 		if flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {

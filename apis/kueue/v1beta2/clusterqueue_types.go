@@ -219,14 +219,14 @@ type ConcurrentAdmissionMigration struct {
 }
 
 type ConcurrentAdmissionConstraints struct {
-	// minPreferredFlavorName defines the minimal flavor a Workload can migrate to.
+	// lastAcceptableFlavorName defines the last acceptable flavor a Workload can migrate to.
 	// The order is based on the order of flavors in ClusterQueue.
 	// It can only be used if the Mode is `TryPreferredFlavors`.
-	// If the Mode is `TryPreferredFlavors` and MinPreferredFlavorName is not specified, then
+	// If the Mode is `TryPreferredFlavors` and LastAcceptableFlavorName is not specified, then
 	// Workload can migrate to any flavor that is more preferable than the one it was admitted to.
 	//
 	// +optional
-	MinPreferredFlavorName *ResourceFlavorReference `json:"minPreferredFlavorName,omitempty"`
+	LastAcceptableFlavorName *ResourceFlavorReference `json:"lastAcceptableFlavorName,omitempty"`
 }
 
 // +kubebuilder:validation:MaxLength=253

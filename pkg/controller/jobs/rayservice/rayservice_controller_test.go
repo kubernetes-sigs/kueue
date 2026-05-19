@@ -429,7 +429,7 @@ func TestPodSets(t *testing.T) {
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.rayService.PodSets(ctx)
+			gotPodSets, err := tc.rayService.PodSets(ctx, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -577,7 +577,7 @@ func TestPodsReady(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := tc.rayService.PodsReady(ctx)
+			got := tc.rayService.PodsReady(ctx, nil)
 			if got != tc.want {
 				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
 			}

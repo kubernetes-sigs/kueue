@@ -240,7 +240,7 @@ func ValidateTopologyRequest(ctx context.Context, job jobframework.GenericJob, r
 		return allErrs, nil
 	}
 
-	podSets, podSetsErr := jobframework.JobPodSets(ctx, job)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, job, nil)
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
 
