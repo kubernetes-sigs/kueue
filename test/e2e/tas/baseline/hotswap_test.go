@@ -31,9 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -120,7 +118,6 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 		})
 
 		ginkgo.Context("with TASReplaceNodeOnNodeTaints enabled", func() {
-		})
 
 			// In this test we use a job with SliceSize = 2 and SliceRequiredTopology = Rack
 			// Each pod requires 1 "extraResource" so the job will use both nodes from a Rack.
