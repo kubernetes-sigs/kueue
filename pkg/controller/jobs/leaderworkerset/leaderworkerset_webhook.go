@@ -219,6 +219,7 @@ func GetWorkloadName(uid types.UID, name string, groupIndex string) string {
 func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateQueueName(lws.Object())...)
+	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(lws.Object(), lws.GVK())...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(lws.Object())...)

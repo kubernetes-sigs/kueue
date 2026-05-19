@@ -155,6 +155,9 @@ func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
 		} else if int32(v) >= job.podsCount() || v <= 0 {
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, v, fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
 		}
+		if workloadslicing.Enabled(job.Object()) {
+			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, strVal, "partial admission and elastic job cannot be used together"))
+		}
 	}
 	return allErrs
 }

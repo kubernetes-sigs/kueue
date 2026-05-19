@@ -42,6 +42,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -828,6 +829,20 @@ func TestValidateCreate(t *testing.T) {
 				Annotation(kueueconstants.AdmissionGatedByAnnotation, "").
 				Obj(),
 			wantErr: nil,
+		},
+		"elastic job annotation is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
+				},
+			}.ToAggregate(),
 		},
 	}
 

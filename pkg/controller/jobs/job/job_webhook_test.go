@@ -571,6 +571,21 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
+		{
+			name: "partial admission and elastic job cannot be used together",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "2").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, "2", "partial admission and elastic job cannot be used together"),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
 	}
 
 	for _, tc := range testcases {
