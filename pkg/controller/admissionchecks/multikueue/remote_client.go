@@ -18,6 +18,7 @@ package multikueue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -54,7 +55,7 @@ type neverCachingClient struct {
 }
 
 func (c *neverCachingClient) AddCacheEventHandler(ctx context.Context, obj client.Object, handler toolscache.ResourceEventHandler) (toolscache.ResourceEventHandlerRegistration, error) {
-	return nil, nil
+	return nil, errors.New("NeverCachingClient does not support watch event handlers")
 }
 
 // NewNeverCachingClient just wraps around a client. Useful for unit tests.
