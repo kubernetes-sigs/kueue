@@ -825,19 +825,15 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 			)
 			return topLevelJob, nil
 		}
-		parentObj := GetEmptyOwnerObject(owner)
-		managed := parentObj != nil
+
+		managed, parentObj, err := GetOwnerObject(ctx, c, owner, jobObj.GetNamespace())
+		if err != nil {
+			return nil, err
+		}
 		if parentObj == nil {
-			parentObj = &metav1.PartialObjectMetadata{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: owner.APIVersion,
-					Kind:       owner.Kind,
-				},
-			}
+			return nil, ErrWorkloadOwnerNotFound
 		}
-		if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj); err != nil {
-			return nil, errors.Join(ErrWorkloadOwnerNotFound, err)
-		}
+
 		if managed && (manageJobsWithoutQueueName || QueueNameForObject(parentObj) != "") {
 			topLevelJob = parentObj
 		}

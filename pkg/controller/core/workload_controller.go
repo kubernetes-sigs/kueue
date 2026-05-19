@@ -55,6 +55,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -1356,24 +1357,33 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 func (r *WorkloadReconciler) isControllerOwnerGone(ctx context.Context, wl *kueue.Workload) (bool, error) {
 	ref := metav1.GetControllerOf(wl)
 	if ref == nil {
+		ctrl.LoggerFrom(ctx).Info("Workload has no controller reference")
 		return false, nil
 	}
-	obj := &metav1.PartialObjectMetadata{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: ref.APIVersion,
-			Kind:       ref.Kind,
-		},
-	}
-	key := client.ObjectKey{Namespace: wl.Namespace, Name: ref.Name}
-	if err := r.client.Get(ctx, key, obj); err != nil {
-		if apierrors.IsNotFound(err) {
-			return true, nil
-		}
+
+	log := ctrl.LoggerFrom(ctx).WithValues(
+		"ownerAPIVersion", ref.APIVersion,
+		"ownerKind", ref.Kind,
+		"ownerName", ref.Name,
+		"ownerUID", ref.UID,
+	)
+	ctx = ctrl.LoggerInto(ctx, log)
+
+	_, ownerObj, err := jobframework.GetOwnerObject(ctx, r.client, ref, wl.Namespace)
+	if err != nil {
+		log.Error(err, "Failed to get owner object")
 		return false, err
 	}
+
+	if ownerObj == nil {
+		// Owner object does not exist means the original owner was deleted.
+		log.Info("Owner object does not exist")
+		return true, nil
+	}
+
 	// A different UID means the original owner was deleted and a new object
 	// with the same name was created.
-	return obj.UID != ref.UID, nil
+	return ownerObj.GetUID() != ref.UID, nil
 }
 
 // admittedNotReadyWorkload returns the underlying cause and remaining time for

@@ -203,3 +203,22 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 		},
 	}
 }
+
+func GetOwnerObject(ctx context.Context, c client.Client, owner *metav1.OwnerReference, namespace string) (bool, client.Object, error) {
+	ownerObj := GetEmptyOwnerObject(owner)
+	managed := ownerObj != nil
+	if ownerObj == nil {
+		ctrl.LoggerFrom(ctx).V(3).
+			Info("Owner object is not managed by Kueue; trying to fetch it using PartialObjectMetadata")
+		ownerObj = &metav1.PartialObjectMetadata{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: owner.APIVersion,
+				Kind:       owner.Kind,
+			},
+		}
+	}
+	if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: namespace}, ownerObj); err != nil {
+		return managed, nil, client.IgnoreNotFound(err)
+	}
+	return managed, ownerObj, nil
+}
