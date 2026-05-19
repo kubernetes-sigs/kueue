@@ -371,18 +371,9 @@ func (a *acHandler) Create(ctx context.Context, event event.CreateEvent, q workq
 }
 
 func (a *acHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	oldAC, okOld := event.ObjectOld.(*kueue.AdmissionCheck)
-	newAC, okNew := event.ObjectNew.(*kueue.AdmissionCheck)
-	if !okOld || !okNew {
-		return
+	if event.ObjectNew.GetGeneration() != event.ObjectOld.GetGeneration() {
+		a.reconciler.queueEventsForAC(ctx, event.ObjectNew.GetName(), q)
 	}
-
-	if oldAC.Spec.ControllerName == newAC.Spec.ControllerName &&
-		equality.Semantic.DeepEqual(oldAC.Spec.Parameters, newAC.Spec.Parameters) {
-		return
-	}
-
-	a.reconciler.queueEventsForAC(ctx, event.ObjectNew.GetName(), q)
 }
 
 func (a *acHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -403,18 +394,9 @@ func (c *cqConfigHandler) Create(ctx context.Context, event event.CreateEvent, q
 }
 
 func (c *cqConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	oldConfig, okOld := event.ObjectOld.(*kueue.MultiKueueConfig)
-	newConfig, okNew := event.ObjectNew.(*kueue.MultiKueueConfig)
-	if !okOld || !okNew {
-		return
+	if event.ObjectOld.GetGeneration() != event.ObjectNew.GetGeneration() {
+		c.reconciler.queueEventsForMKConfig(ctx, event.ObjectNew.GetName(), q)
 	}
-
-	if equality.Semantic.DeepEqual(oldConfig.Spec.Clusters, newConfig.Spec.Clusters) &&
-		equality.Semantic.DeepEqual(oldConfig.Spec.QuotaManagement, newConfig.Spec.QuotaManagement) {
-		return
-	}
-
-	c.reconciler.queueEventsForMKConfig(ctx, event.ObjectNew.GetName(), q)
 }
 
 func (c *cqConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {

@@ -585,6 +585,7 @@ func TestCQReconciler_EventHandlers(t *testing.T) {
 				newAC := utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config2").
+					Generation(1).
 					Obj()
 				(&acHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: ac, ObjectNew: newAC}, mockQ)
 			},
@@ -611,6 +612,7 @@ func TestCQReconciler_EventHandlers(t *testing.T) {
 		"MultiKueueConfig Update (relevant)": {
 			handler: func(mockQ *mockQueue) {
 				newCfg := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj()
+				newCfg.Generation = 1
 				(&cqConfigHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: cfg, ObjectNew: newCfg}, mockQ)
 			},
 			wantReconcile: true,
