@@ -313,7 +313,7 @@ func (cw *cancelOnStopWatcher) Stop() {
 // timeout. On timeout the in-flight Watch is canceled and
 // errWatchEstablishTimeout is returned so the caller falls back to the
 // standard failedConnAttempts / retryAfter backoff in setConfig.
-func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, timeout time.Duration, origin string) (watch.Interface, error) {
+func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string, timeout time.Duration) (watch.Interface, error) {
 	type result struct {
 		w   watch.Interface
 		err error
@@ -347,7 +347,7 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 
 func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), rc.origin)
+	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1))
 	if err != nil {
 		return err
 	}

@@ -1203,7 +1203,7 @@ func TestEstablishWatch(t *testing.T) {
 			c := getClientBuilder(ctx).WithInterceptorFuncs(tc.interceptor).Build()
 
 			start := time.Now()
-			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, testTimeout, client.MatchingLabels{kueue.MultiKueueOriginLabel: "test-origin"})
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
 			elapsed := time.Since(start)
 
 			if !errors.Is(err, tc.wantErr) {
@@ -1232,7 +1232,7 @@ func TestEstablishWatch(t *testing.T) {
 			},
 		}).Build()
 
-		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, testTimeout, client.MatchingLabels{kueue.MultiKueueOriginLabel: "test-origin"})
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
 		}
@@ -1288,7 +1288,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	releaseSlow := func() { releaseOnce.Do(func() { close(slowRelease) }) }
 	t.Cleanup(releaseSlow)
 
-	gatedBuilder := func(config *clientConfig, _ client.Options) (client.WithWatch, error) {
+	gatedBuilder := func(_ context.Context, config *clientConfig, _ client.Options) (SelectivelyCachingClient, error) {
 		kubeconfig := string(config.Kubeconfig)
 		b := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
 			Watch: func(watchCtx context.Context, c client.WithWatch, obj client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
@@ -1304,7 +1304,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 				return c.Watch(watchCtx, obj, opts...)
 			},
 		})
-		return b.Build(), nil
+		return NewNeverCachingClient(b.Build()), nil
 	}
 
 	slowCluster := utiltestingapi.MakeMultiKueueCluster("cluster-slow").
