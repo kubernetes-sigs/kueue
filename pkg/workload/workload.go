@@ -1409,6 +1409,25 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 	return nil
 }
 
+// Delete removes Kueue's resource-in-use finalizer before deleting the Workload.
+// If deletion is already in progress, finalizer removal is enough for Kubernetes
+// to continue object cleanup, so Delete returns false without issuing another
+// delete request. The returned bool reports whether this call successfully
+// requested deletion.
+func Delete(ctx context.Context, c client.Client, wl *kueue.Workload) (bool, error) {
+	if err := RemoveFinalizer(ctx, c, wl); err != nil {
+		return false, err
+	}
+	if !wl.DeletionTimestamp.IsZero() {
+		log.FromContext(ctx).V(3).Info("Skipping workload delete because deletion is already in progress", "workload", klog.KObj(wl))
+		return false, nil
+	}
+	if err := c.Delete(ctx, wl); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 type flavorSet = sets.Set[kueue.ResourceFlavorReference]
 
 // AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
