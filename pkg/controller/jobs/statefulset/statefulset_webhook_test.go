@@ -49,6 +49,7 @@ import (
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	testutil "sigs.k8s.io/kueue/test/util"
 )
 
@@ -344,6 +345,19 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr:      nil,
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"elastic job annotation is rejected": {
+			sts: testingstatefulset.MakeStatefulSet("test-sts", "default").
+				Queue("queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 	}
 
@@ -1009,6 +1023,22 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr:      nil,
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"elastic job annotation is rejected on update": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "default").
+				Queue("queue").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "default").
+				Queue("queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 	}
 

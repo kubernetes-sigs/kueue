@@ -25,7 +25,7 @@ require (
 	github.com/gohugoio/hugo v0.161.1
 	github.com/golangci/golangci-lint/v2 v2.11.4
 	github.com/google/go-cmp v0.7.0
-	github.com/helm-unittest/helm-unittest v1.0.3
+	github.com/helm-unittest/helm-unittest v1.1.0
 	github.com/kubernetes-sigs/reference-docs/genref v0.28.0
 	github.com/mikefarah/yq/v4 v4.53.2
 	github.com/norwoodj/helm-docs v1.14.2
@@ -428,7 +428,7 @@ require (
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/ssgreg/nlreturn/v2 v2.2.1 // indirect
 	github.com/stbenjam/no-sprintf-host-port v0.3.1 // indirect
-	github.com/stretchr/objx v0.5.2 // indirect
+	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tdewolff/minify/v2 v2.24.13 // indirect

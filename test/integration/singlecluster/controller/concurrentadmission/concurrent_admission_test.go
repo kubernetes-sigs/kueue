@@ -222,7 +222,7 @@ var _ = ginkgo.Describe("Concurrent Admission", ginkgo.Ordered, ginkgo.ContinueO
 
 			cq = utiltestingapi.MakeClusterQueue("cq-no-migrate").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
-				MinPreferredFlavorName(flavorReservation.Name).
+				LastAcceptableFlavorName(flavorReservation.Name).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(flavorReservation.Name).Resource(corev1.ResourceCPU, "0").Obj(),
 					*utiltestingapi.MakeFlavorQuotas(flavorOnDemand.Name).Resource(corev1.ResourceCPU, "0").Obj(),

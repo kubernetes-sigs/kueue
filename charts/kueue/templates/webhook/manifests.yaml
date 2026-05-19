@@ -39,10 +39,17 @@ webhooks:
         path: /mutate-workload-codeflare-dev-v1beta2-appwrapper
     failurePolicy: Fail
     name: mappwrapper.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - workload.codeflare.dev
@@ -88,8 +95,8 @@ webhooks:
     failurePolicy: Ignore
     {{- end }}
     namespaceSelector:
-      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -119,10 +126,17 @@ webhooks:
         path: /mutate-kubeflow-org-v1-jaxjob
     failurePolicy: Fail
     name: mjaxjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -143,10 +157,17 @@ webhooks:
         path: /mutate-batch-v1-job
     failurePolicy: Fail
     name: mjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - batch
@@ -167,10 +188,17 @@ webhooks:
         path: /mutate-jobset-x-k8s-io-v1alpha2-jobset
     failurePolicy: Fail
     name: mjobset.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - jobset.x-k8s.io
@@ -191,10 +219,17 @@ webhooks:
         path: /mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset
     failurePolicy: Fail
     name: mleaderworkerset.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - leaderworkerset.x-k8s.io
@@ -216,10 +251,17 @@ webhooks:
         path: /mutate-kubeflow-org-v2beta1-mpijob
     failurePolicy: Fail
     name: mmpijob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -240,10 +282,17 @@ webhooks:
         path: /mutate-kubeflow-org-v1-paddlejob
     failurePolicy: Fail
     name: mpaddlejob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -269,8 +318,8 @@ webhooks:
     failurePolicy: Ignore
     {{- end }}
     namespaceSelector:
-      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -299,10 +348,17 @@ webhooks:
         path: /mutate-kubeflow-org-v1-pytorchjob
     failurePolicy: Fail
     name: mpytorchjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -323,10 +379,17 @@ webhooks:
         path: /mutate-ray-io-v1-raycluster
     failurePolicy: Fail
     name: mraycluster.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -347,10 +410,17 @@ webhooks:
         path: /mutate-ray-io-v1-rayjob
     failurePolicy: Fail
     name: mrayjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -371,10 +441,17 @@ webhooks:
         path: /mutate-ray-io-v1-rayservice
     failurePolicy: Fail
     name: mrayservice.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -415,6 +492,17 @@ webhooks:
         path: /mutate-sparkoperator-k8s-io-v1beta2-sparkapplication
     failurePolicy: Fail
     name: msparkapplication.kb.io
+    namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - sparkoperator.k8s.io
@@ -440,8 +528,8 @@ webhooks:
     failurePolicy: Ignore
     {{- end }}
     namespaceSelector:
-      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -471,10 +559,17 @@ webhooks:
         path: /mutate-kubeflow-org-v1-tfjob
     failurePolicy: Fail
     name: mtfjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -495,6 +590,17 @@ webhooks:
         path: /mutate-trainer-kubeflow-org-v1alpha1-trainjob
     failurePolicy: Fail
     name: mtrainjob.kb.io
+    namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - trainer.kubeflow.org
@@ -535,10 +641,17 @@ webhooks:
         path: /mutate-kubeflow-org-v1-xgboostjob
     failurePolicy: Fail
     name: mxgboostjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -572,10 +685,17 @@ webhooks:
         path: /validate-workload-codeflare-dev-v1beta2-appwrapper
     failurePolicy: Fail
     name: vappwrapper.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - workload.codeflare.dev
@@ -641,8 +761,8 @@ webhooks:
     failurePolicy: Ignore
     {{- end }}
     namespaceSelector:
-      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -671,10 +791,17 @@ webhooks:
         path: /validate-kubeflow-org-v1-jaxjob
     failurePolicy: Fail
     name: vjaxjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -695,10 +822,17 @@ webhooks:
         path: /validate-batch-v1-job
     failurePolicy: Fail
     name: vjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - batch
@@ -719,10 +853,17 @@ webhooks:
         path: /validate-jobset-x-k8s-io-v1alpha2-jobset
     failurePolicy: Fail
     name: vjobset.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - jobset.x-k8s.io
@@ -743,10 +884,17 @@ webhooks:
         path: /validate-leaderworkerset-x-k8s-io-v1-leaderworkerset
     failurePolicy: Fail
     name: vleaderworkerset.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - leaderworkerset.x-k8s.io
@@ -767,10 +915,17 @@ webhooks:
         path: /validate-kubeflow-org-v2beta1-mpijob
     failurePolicy: Fail
     name: vmpijob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -791,10 +946,17 @@ webhooks:
         path: /validate-kubeflow-org-v1-paddlejob
     failurePolicy: Fail
     name: vpaddlejob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -820,8 +982,8 @@ webhooks:
     failurePolicy: Ignore
     {{- end }}
     namespaceSelector:
-      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -850,10 +1012,17 @@ webhooks:
         path: /validate-kubeflow-org-v1-pytorchjob
     failurePolicy: Fail
     name: vpytorchjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -874,10 +1043,17 @@ webhooks:
         path: /validate-ray-io-v1-raycluster
     failurePolicy: Fail
     name: vraycluster.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -898,10 +1074,17 @@ webhooks:
         path: /validate-ray-io-v1-rayjob
     failurePolicy: Fail
     name: vrayjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -922,10 +1105,17 @@ webhooks:
         path: /validate-ray-io-v1-rayservice
     failurePolicy: Fail
     name: vrayservice.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -966,6 +1156,17 @@ webhooks:
         path: /validate-sparkoperator-k8s-io-v1beta2-sparkapplication
     failurePolicy: Fail
     name: vsparkapplication.kb.io
+    namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - sparkoperator.k8s.io
@@ -991,8 +1192,8 @@ webhooks:
     failurePolicy: Ignore
     {{- end }}
     namespaceSelector:
-      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
-        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -1021,10 +1222,17 @@ webhooks:
         path: /validate-kubeflow-org-v1-tfjob
     failurePolicy: Fail
     name: vtfjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -1045,6 +1253,17 @@ webhooks:
         path: /validate-trainer-kubeflow-org-v1alpha1-trainjob
     failurePolicy: Fail
     name: vtrainjob.kb.io
+    namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - trainer.kubeflow.org
@@ -1086,10 +1305,17 @@ webhooks:
         path: /validate-kubeflow-org-v1-xgboostjob
     failurePolicy: Fail
     name: vxgboostjob.kb.io
-    {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
-      {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-    {{- end }}
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org

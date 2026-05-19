@@ -109,6 +109,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj *appsv1.Deployment) (
 	log.V(5).Info("Validating create")
 
 	allErrs := jobframework.ValidateQueueName(deployment.Object())
+	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(deployment.Object(), deployment.GVK())...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(deployment.Object())...)
@@ -133,6 +134,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *appsv1.De
 	newQueueName := jobframework.QueueNameForObject(newDeployment.Object())
 
 	allErrs := jobframework.ValidateQueueName(newDeployment.Object())
+	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(newDeployment.Object(), newDeployment.GVK())...)
 
 	// Prevents updating the queue-name if at least one Pod is not suspended
 	// or if the queue-name has been deleted.

@@ -96,7 +96,7 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 }
 
 func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
 	// Create an admissible workload that triggers dra.NeedsDRAReconcile via HasDRA().
 	tmplName := "claim-tmpl"

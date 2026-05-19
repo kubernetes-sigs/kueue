@@ -93,6 +93,7 @@ function check_images() {
       kueueviz-backend
       kueueviz-frontend
       kueue-populator
+      priority-boost-controller
   )
 
     local charts=(

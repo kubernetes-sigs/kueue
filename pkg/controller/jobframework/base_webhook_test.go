@@ -244,6 +244,7 @@ func TestValidateOnCreate(t *testing.T) {
 				MockJobWithCustomValidation: mocks.NewMockJobWithCustomValidation(mockctrl),
 			}
 			job.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
+			job.MockGenericJob.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
 			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate(gomock.Any()).Return(tc.customValidationFailure, tc.customValidationError).AnyTimes()
 
 			w := &jobframework.BaseWebhook[*mockJob]{

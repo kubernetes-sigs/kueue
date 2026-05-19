@@ -100,7 +100,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithWorkloadCustomLabels(customLabels),
 		WithAdmissionFairSharing(cfg.AdmissionFairSharing),
 	)
-	if features.Enabled(features.DynamicResourceAllocation) {
+	if features.Enabled(features.KueueDRAIntegration) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())
 	}
 
