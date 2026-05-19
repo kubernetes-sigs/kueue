@@ -73,7 +73,7 @@ ClusterQueue's [cohort](#cohort).
 When [Concurrent Admission](/docs/concepts/concurrent_admission) is enabled for
 a ClusterQueue, the order of `.spec.resourceGroups[*].flavors` also defines
 flavor preference: the first flavor is the most preferred flavor for migration.
-Kueue can run admission checks for variants constrained to different flavors
+Kueue can concurrently pursue admission on multiple flavors independently
 concurrently.
 
 {{% alert title="Note" color="primary" %}}
