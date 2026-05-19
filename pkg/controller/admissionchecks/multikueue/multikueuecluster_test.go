@@ -1077,7 +1077,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 			},
 			wantReconcile: true,
 		},
-		"update cluster status only change does not skip reconcile": {
+		"update cluster status only change skips reconcile": {
 			invoke: func(p predicate.Predicate) bool {
 				return p.Update(event.UpdateEvent{
 					ObjectOld: baseCluster,
@@ -1087,7 +1087,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 						Obj(),
 				})
 			},
-			wantReconcile: true,
+			wantReconcile: false,
 		},
 		"update cluster deletion timestamp triggers reconcile": {
 			invoke: func(p predicate.Predicate) bool {
@@ -1098,20 +1098,22 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 			},
 			wantReconcile: true,
 		},
-		"update cluster no change does not skip reconcile": {
+		"update cluster no change skips reconcile": {
 			invoke: func(p predicate.Predicate) bool {
 				return p.Update(event.UpdateEvent{
 					ObjectOld: baseCluster,
 					ObjectNew: baseCluster.DeepCopy(),
 				})
 			},
-			wantReconcile: true,
+			wantReconcile: false,
 		},
 		"update cluster path location changed to secret triggers reconcile": {
 			invoke: func(p predicate.Predicate) bool {
+				objNew := baseCluster.DeepCopy()
+				objNew.SetGeneration(2)
 				return p.Update(event.UpdateEvent{
 					ObjectOld: baseClusterWithPath,
-					ObjectNew: baseCluster,
+					ObjectNew: objNew,
 				})
 			},
 			wantReconcile: true,
@@ -1157,4 +1159,88 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEstablishWatch(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	prev := watchEstablishTimeout
+	watchEstablishTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { watchEstablishTimeout = prev })
+
+	errBoom := errors.New("boom")
+
+	cases := map[string]struct {
+		interceptor interceptor.Funcs
+		wantErr     error
+		maxElapsed  time.Duration
+	}{
+		"hung Watch times out": {
+			interceptor: interceptor.Funcs{
+				Watch: func(ctx context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+					<-ctx.Done()
+					return nil, ctx.Err()
+				},
+			},
+			wantErr:    errWatchEstablishTimeout,
+			maxElapsed: 10 * watchEstablishTimeout,
+		},
+		"Watch error propagates": {
+			interceptor: interceptor.Funcs{
+				Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+					return nil, errBoom
+				},
+			},
+			wantErr: errBoom,
+		},
+		"success returns without waiting": {
+			maxElapsed: watchEstablishTimeout,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := getClientBuilder(ctx).WithInterceptorFuncs(tc.interceptor).Build()
+
+			start := time.Now()
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin")
+			elapsed := time.Since(start)
+
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("want err %v, got: %v", tc.wantErr, err)
+			}
+			if (err == nil) != (w != nil) {
+				t.Fatalf("watcher/err mismatch: err=%v, w=%v", err, w)
+			}
+			if w != nil {
+				w.Stop()
+			}
+			if tc.maxElapsed > 0 && elapsed >= tc.maxElapsed {
+				t.Fatalf("took %v, expected < %v", elapsed, tc.maxElapsed)
+			}
+		})
+	}
+
+	// Watch races with the timeout: returns a non-nil watcher just after
+	// time.After fires. Must Stop() it to avoid leaking the stream.
+	t.Run("racing watcher is stopped on timeout", func(t *testing.T) {
+		fw := watch.NewFake()
+		c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+				time.Sleep(2 * watchEstablishTimeout)
+				return fw, nil
+			},
+		}).Build()
+
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin")
+		if !errors.Is(err, errWatchEstablishTimeout) {
+			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
+		}
+		if w != nil {
+			t.Fatalf("want nil watcher, got: %v", w)
+		}
+		if !fw.IsStopped() {
+			t.Fatal("racing watcher was not Stop()ed; would leak")
+		}
+	})
 }

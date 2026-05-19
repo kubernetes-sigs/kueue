@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -438,10 +439,29 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 	levels := []string{"block"}
 
 	testCases := map[string]struct {
-		domains       []*domain
-		unconstrained bool
-		wantOrder     []string
+		domains                              []*domain
+		unconstrained                        bool
+		enableTASPreferredSchedulingAffinity bool
+		wantOrder                            []string
 	}{
+		"affinityScore descending: higher affinity score comes first": {
+			enableTASPreferredSchedulingAffinity: true,
+			domains: []*domain{
+				{id: "low-affinity", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"a"}},
+				{id: "high-affinity", affinityScore: 100, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"high-affinity", "low-affinity"},
+		},
+		"affinityScore ignored when feature gate is disabled": {
+			enableTASPreferredSchedulingAffinity: false,
+			domains: []*domain{
+				{id: "low-affinity", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"a"}},
+				{id: "high-affinity", affinityScore: 100, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"low-affinity", "high-affinity"},
+		},
 		"leaderState descending: domains that can host leader come first": {
 			domains: []*domain{
 				{id: "no-leader", leaderState: 0, sliceStateWithLeader: 10, stateWithLeader: 10, levelValues: []string{"a"}},
@@ -449,6 +469,15 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 			},
 			unconstrained: false,
 			wantOrder:     []string{"has-leader", "no-leader"},
+		},
+		"leader capability prioritized over preferred affinity": {
+			enableTASPreferredSchedulingAffinity: true,
+			domains: []*domain{
+				{id: "preferred-no-leader", affinityScore: 100, leaderState: 0, sliceStateWithLeader: 0, stateWithLeader: 0, levelValues: []string{"a"}},
+				{id: "non-preferred-has-leader", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"non-preferred-has-leader", "preferred-no-leader"},
 		},
 		"BestFit: sliceStateWithLeader descending": {
 			domains: []*domain{
@@ -499,10 +528,110 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "test", levels, nil)
 
 			sorted := s.sortedDomainsWithLeader(tc.domains, tc.unconstrained)
+
+			gotOrder := make([]string, len(sorted))
+			for i, d := range sorted {
+				gotOrder[i] = string(d.id)
+			}
+
+			if diff := cmp.Diff(tc.wantOrder, gotOrder); diff != "" {
+				t.Errorf("unexpected domain order (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+// TestSortedDomains verifies the sorting criteria (in order of priority):
+// 1. affinityScore - descending (when TASRespectNodeAffinityPreferred is enabled)
+// 2. sliceState - descending (BestFit) or ascending (LeastFreeCapacity)
+// 3. state - ascending (always, as tiebreaker)
+// 4. levelValues - ascending (always, as final tiebreaker)
+func TestSortedDomains(t *testing.T) {
+	levels := []string{"block"}
+
+	testCases := map[string]struct {
+		domains                              []*domain
+		unconstrained                        bool
+		enableTASPreferredSchedulingAffinity bool
+		wantOrder                            []string
+	}{
+		"affinityScore descending: higher affinity score comes first": {
+			enableTASPreferredSchedulingAffinity: true,
+			domains: []*domain{
+				{id: "low-affinity", affinityScore: 10, sliceState: 5, state: 10, levelValues: []string{"a"}},
+				{id: "high-affinity", affinityScore: 100, sliceState: 5, state: 10, levelValues: []string{"b"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"high-affinity", "low-affinity"},
+		},
+		"affinityScore ignored when feature gate is disabled": {
+			enableTASPreferredSchedulingAffinity: false,
+			domains: []*domain{
+				{id: "low-affinity", affinityScore: 10, sliceState: 5, state: 10, levelValues: []string{"a"}},
+				{id: "high-affinity", affinityScore: 100, sliceState: 5, state: 10, levelValues: []string{"b"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"low-affinity", "high-affinity"},
+		},
+		"BestFit: sliceState descending": {
+			domains: []*domain{
+				{id: "a", sliceState: 3, state: 1, levelValues: []string{"a"}},
+				{id: "b", sliceState: 1, state: 1, levelValues: []string{"b"}},
+				{id: "c", sliceState: 2, state: 1, levelValues: []string{"c"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"a", "c", "b"},
+		},
+		"LeastFreeCapacity: sliceState ascending": {
+			domains: []*domain{
+				{id: "a", sliceState: 3, state: 1, levelValues: []string{"a"}},
+				{id: "b", sliceState: 1, state: 1, levelValues: []string{"b"}},
+				{id: "c", sliceState: 2, state: 1, levelValues: []string{"c"}},
+			},
+			unconstrained: true,
+			wantOrder:     []string{"b", "c", "a"},
+		},
+		"BestFit: state ascending as tiebreaker": {
+			domains: []*domain{
+				{id: "large", sliceState: 5, state: 100, levelValues: []string{"a"}},
+				{id: "small", sliceState: 5, state: 10, levelValues: []string{"b"}},
+				{id: "medium", sliceState: 5, state: 50, levelValues: []string{"c"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"small", "medium", "large"},
+		},
+		"LeastFreeCapacity: state ascending as tiebreaker": {
+			domains: []*domain{
+				{id: "large", sliceState: 5, state: 100, levelValues: []string{"a"}},
+				{id: "small", sliceState: 5, state: 10, levelValues: []string{"b"}},
+				{id: "medium", sliceState: 5, state: 50, levelValues: []string{"c"}},
+			},
+			unconstrained: true,
+			wantOrder:     []string{"small", "medium", "large"},
+		},
+		"levelValues ascending as final tiebreaker": {
+			domains: []*domain{
+				{id: "c", sliceState: 5, state: 10, levelValues: []string{"c"}},
+				{id: "a", sliceState: 5, state: 10, levelValues: []string{"a"}},
+				{id: "b", sliceState: 5, state: 10, levelValues: []string{"b"}},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"a", "b", "c"},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "test", levels, nil)
+
+			sorted := s.sortedDomains(tc.domains, tc.unconstrained)
 
 			gotOrder := make([]string, len(sorted))
 			for i, d := range sorted {

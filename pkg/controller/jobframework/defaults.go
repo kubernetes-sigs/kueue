@@ -18,10 +18,8 @@ package jobframework
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,38 +41,6 @@ func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient clien
 		job.Suspend()
 	}
 	return nil
-}
-
-// WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
-func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
-	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
-	// Do not default suspend a job whose ancestor is already managed by Kueue
-	ancestorJob, err := FindAncestorJobManagedByKueue(ctx, k8sClient, jobObj, manageJobsWithoutQueueName)
-	if err != nil || ancestorJob != nil {
-		return false, err
-	}
-
-	// Jobs with queue names whose parents are not managed by Kueue are default suspended
-	if QueueNameForObject(jobObj) != "" {
-		return true, nil
-	}
-
-	// Logic for managing jobs without queue names.
-	if manageJobsWithoutQueueName {
-		if managedJobsNamespaceSelector != nil {
-			// Default suspend the job if the namespace selector matches
-			ns := corev1.Namespace{}
-			err := k8sClient.Get(ctx, client.ObjectKey{Name: jobObj.GetNamespace()}, &ns)
-			if err != nil {
-				return false, fmt.Errorf("failed to get namespace: %w", err)
-			}
-			return managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())), nil
-		} else {
-			// Namespace filtering is disabled; unconditionally default suspend
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string) bool) {

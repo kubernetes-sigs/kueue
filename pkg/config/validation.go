@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	apimachineryutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -90,6 +91,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
+	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
 	return allErrs
 }
 
@@ -531,7 +533,16 @@ func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.Erro
 	return allErrs
 }
 
-func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) field.ErrorList {
+func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) field.ErrorList {
+	if featureGateCLI != "" {
+		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGateCLI); err != nil {
+			return field.ErrorList{field.Invalid(featureGatesPath, featureGateCLI, err.Error())}
+		}
+	} else {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(featureGateMap); err != nil {
+			return field.ErrorList{field.Invalid(featureGatesPath, featureGateMap, err.Error())}
+		}
+	}
 	var allErrs field.ErrorList
 	if featureGateCLI != "" && featureGateMap != nil {
 		allErrs = append(allErrs, field.Invalid(featureGatesPath, featureGateMap, "feature gates for CLI and configuration cannot both specified"))
@@ -560,12 +571,18 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 		}
 	}
 
-	if features.Enabled(features.DRAExtendedResources) {
-		if !features.Enabled(features.DynamicResourceAllocation) {
-			allErrs = append(allErrs, field.Invalid(featureGatesPath, "DRAExtendedResources", "DRAExtendedResources requires DynamicResourceAllocation to be enabled"))
+	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
+
+	return allErrs
+}
+
+func validateDRAFeatureGateDependencies() field.ErrorList {
+	var allErrs field.ErrorList
+	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		if !features.Enabled(features.KueueDRAIntegration) {
+			allErrs = append(allErrs, field.Invalid(featureGatesPath, "KueueDRAIntegrationExtendedResource", "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled"))
 		}
 	}
-
 	return allErrs
 }
 

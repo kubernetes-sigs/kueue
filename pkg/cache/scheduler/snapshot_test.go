@@ -51,6 +51,7 @@ func TestSnapshot(t *testing.T) {
 		cqs          []*kueue.ClusterQueue
 		cohorts      []*kueue.Cohort
 		rfs          []*kueue.ResourceFlavor
+		topologies   []*kueue.Topology
 		wls          []*kueue.Workload
 		wantSnapshot Snapshot
 	}{
@@ -768,6 +769,90 @@ func TestSnapshot(t *testing.T) {
 				),
 			},
 		},
+		"clusterQueue with unsynced TAS usage (due to missing topology) is excluded from snapshot": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("tas-cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("tas-flavor").
+					TopologyName("missing-topology").
+					Obj(),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{},
+				),
+				InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference]("tas-cq"),
+				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+					"tas-flavor": utiltestingapi.MakeResourceFlavor("tas-flavor").
+						TopologyName("missing-topology").
+						Obj(),
+				},
+			},
+		},
+		"clusterQueue with synced TAS usage is included in snapshot": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("tas-cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("tas-flavor").
+					TopologyName("topology").
+					Obj(),
+			},
+			topologies: []*kueue.Topology{
+				utiltestingapi.MakeDefaultOneLevelTopology("topology"),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						"tas-cq": {
+							Name:                          "tas-cq",
+							AllocatableResourceGeneration: 2,
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors:          []kueue.ResourceFlavorReference{"tas-flavor"},
+								},
+							},
+							ResourceNode: resourceNode{
+								Quotas: map[resources.FlavorResource]ResourceQuota{
+									{Flavor: "tas-flavor", Resource: corev1.ResourceCPU}: {
+										Nominal: 100_000,
+									},
+								},
+								SubtreeQuota: resources.FlavorResourceQuantities{
+									{Flavor: "tas-flavor", Resource: corev1.ResourceCPU}: 100_000,
+								},
+							},
+							FlavorFungibility: defaultFlavorFungibility,
+							Preemption:        defaultPreemption,
+							FairWeight:        defaultWeight,
+							NamespaceSelector: labels.Everything(),
+							Status:            active,
+						},
+					},
+				),
+				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+					"tas-flavor": utiltestingapi.MakeResourceFlavor("tas-flavor").
+						TopologyName("topology").
+						Obj(),
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -786,6 +871,9 @@ func TestSnapshot(t *testing.T) {
 			}
 			for _, rf := range tc.rfs {
 				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			for _, topology := range tc.topologies {
+				cache.AddOrUpdateTopology(log, topology)
 			}
 			for _, wl := range tc.wls {
 				cache.AddOrUpdateWorkload(log, wl)

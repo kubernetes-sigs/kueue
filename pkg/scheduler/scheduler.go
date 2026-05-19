@@ -449,21 +449,23 @@ func (s *Scheduler) processEntry(
 
 	s.waitForPodsReadyIfBlocked(ctx, log, e)
 
+	// Copy ClusterName from old slice before admission (needed for MultiKueue).
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
-		if err := s.replaceOldWorkloadSlice(ctx, log, e, oldWorkloadSlice); err != nil {
-			return
-		}
+		e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
 	}
 
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
 		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
+			if !s.isMigrationAllowed(cq, e, log) {
+				return
+			}
 			s.issueMigration(ctx, log, e, lessFavorableSibling)
 			return
 		}
 	}
 
 	e.markNominated()
-	if err := s.admit(ctx, e, cq); err != nil {
+	if err := s.admit(ctx, e, cq, oldWorkloadSlice); err != nil {
 		e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 	}
 }
@@ -531,18 +533,14 @@ func (s *Scheduler) waitForPodsReadyIfBlocked(ctx context.Context, log logr.Logg
 	log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 }
 
-// replaceOldWorkloadSlice deactivates the old slice and finalizes its status.
-// The new slice's clusterName is copied from the old one so that MultiKueue
-// placement stays consistent across the replacement. If the subsequent admit
-// fails, the old slice may end up Finished while the new one is not admitted;
-// downstream controllers handle suspension/eviction.
-func (s *Scheduler) replaceOldWorkloadSlice(ctx context.Context, log logr.Logger, e *entry, oldWorkloadSlice *preemption.Target) error {
-	e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
+// replaceOldWorkloadSlice finishes the old slice after the new slice has been
+// admitted. Called inside the admit success path so the old slice is only
+// finished when the new one is confirmed. If this fails, the job reconciler's
+// EnsureWorkloadSlices detects both slices admitted and finishes the old one.
+func (s *Scheduler) replaceOldWorkloadSlice(ctx context.Context, log logr.Logger, e *entry, oldWorkloadSlice *preemption.Target) {
 	if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
-		log.Error(err, "Failed to replace workload slice")
-		return err
+		log.Error(err, "Failed to finish old workload slice after admitting replacement; job reconciler will handle recovery")
 	}
-	return nil
 }
 
 type entryStatus string
@@ -788,7 +786,7 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
 // Note: this does not necessarily make the workload "admitted".
-func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQueueSnapshot) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQueueSnapshot, oldWorkloadSlice *preemption.Target) error {
 	log := ctrl.LoggerFrom(ctx)
 	admission := &kueue.Admission{
 		ClusterQueue:      e.ClusterQueue,
@@ -816,6 +814,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			s.recordWorkloadAdmissionMetrics(log, newWorkload, e.Obj, admission, consideredStr)
 
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
+				s.replaceOldWorkloadSlice(ctx, log, e, oldWorkloadSlice)
+			}
 			return
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted
@@ -1144,12 +1145,12 @@ func (s *Scheduler) findAdmittedSibling(wl *workload.Info, snap *schdcache.Snaps
 		return nil
 	}
 	flavors := cq.ResourceGroups[0].Flavors
-	wlFlavorIdx, err := getFlavorIndex(wl, flavors)
+	wlFlavorIdx, err := resolveFlavorIndex(wl, flavors)
 	if err != nil {
 		return nil
 	}
 	return s.findAdmittedSiblingMatching(wl, cq, parentUID, func(sibling *workload.Info) bool {
-		siblingFlavorIdx, err := getFlavorIndex(sibling, flavors)
+		siblingFlavorIdx, err := resolveFlavorIndex(sibling, flavors)
 		if err != nil {
 			return false
 		}
@@ -1176,7 +1177,30 @@ func (s *Scheduler) findAdmittedSiblingMatching(wl *workload.Info, cq *schdcache
 	return nil
 }
 
-func getFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReference) (int, error) {
+// isMigrationAllowed checks if a Variant uses flavor equal or higher than the minimum preferred flavor defined in the migration constraints of the Concurrent Admission policy.
+// Workloads cannot migrate to a flavor that is considered less preferred than the minimum preferred flavor. If the constraint is not defined, migration is allowed by default.
+func (s *Scheduler) isMigrationAllowed(cq *schdcache.ClusterQueueSnapshot, e *entry, log klog.Logger) bool {
+	if cq.ConcurrentAdmissionPolicy == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName == nil {
+		return true
+	}
+	minPrefFlavor := *cq.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName
+	flavors := cq.ResourceGroups[0].Flavors
+	// the minPrefFlavor will always be present as it's validated with CQ webhook
+	minPrefIdx := slices.Index(flavors, minPrefFlavor)
+	wlFlavorIdx, err := resolveFlavorIndex(&e.Info, flavors)
+	if err != nil {
+		log.Error(err, "Workload migration failed")
+		return false
+	}
+	if wlFlavorIdx > minPrefIdx {
+		log.V(3).Info("Skipping migration as target flavor is below MinPreferredFlavorName", "targetFlavor", concurrentadmission.GetVariantFlavor(e.Obj), "minPreferredFlavor", minPrefFlavor)
+		e.inadmissibleMsg = "Target flavor is below MinPreferredFlavorName"
+		return false
+	}
+	return true
+}
+
+func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReference) (int, error) {
 	flavor := concurrentadmission.GetVariantFlavor(wl.Obj)
 	if flavor == "" {
 		return -1, errors.New("missing variant flavor annotation")

@@ -40,15 +40,6 @@ func (s CustomLabelStore[K]) Store(key K, newVals []string) bool {
 	return existed && !slices.Equal(old, newVals)
 }
 
-// StoreAndClear is like Store but also calls clearFn on change.
-func (s CustomLabelStore[K]) StoreAndClear(key K, newVals []string, clearFn func()) bool {
-	changed := s.Store(key, newVals)
-	if changed && clearFn != nil {
-		clearFn()
-	}
-	return changed
-}
-
 func (s CustomLabelStore[K]) Get(key K) []string {
 	vals, _ := s.m.Get(string(key))
 	return vals
@@ -115,10 +106,6 @@ func storeFor[K ~string](cl *CustomLabels, s CustomLabelStore[K], key K, labels,
 	return s.Store(key, cl.ExtractValues(labels, annotations))
 }
 
-func storeAndClearFor[K ~string](cl *CustomLabels, s CustomLabelStore[K], key K, labels, annotations map[string]string, clearFn func()) bool {
-	return s.StoreAndClear(key, cl.ExtractValues(labels, annotations), clearFn)
-}
-
 func getFor[K ~string](cl *CustomLabels, s CustomLabelStore[K], key K) []string {
 	vals := s.Get(key)
 	if vals == nil && len(cl.names) > 0 {
@@ -136,13 +123,6 @@ func (cl *CustomLabels) CQStore(key kueue.ClusterQueueReference, labels, annotat
 		return false
 	}
 	return storeFor(cl, cl.cq, key, labels, annotations)
-}
-
-func (cl *CustomLabels) CQStoreAndClear(key kueue.ClusterQueueReference, labels, annotations map[string]string, clearFn func()) bool {
-	if cl == nil {
-		return false
-	}
-	return storeAndClearFor(cl, cl.cq, key, labels, annotations, clearFn)
 }
 
 func (cl *CustomLabels) CQGet(key kueue.ClusterQueueReference) []string {
@@ -166,13 +146,6 @@ func (cl *CustomLabels) LQStore(key utilqueue.LocalQueueReference, labels, annot
 	return storeFor(cl, cl.lq, key, labels, annotations)
 }
 
-func (cl *CustomLabels) LQStoreAndClear(key utilqueue.LocalQueueReference, labels, annotations map[string]string, clearFn func()) bool {
-	if cl == nil {
-		return false
-	}
-	return storeAndClearFor(cl, cl.lq, key, labels, annotations, clearFn)
-}
-
 func (cl *CustomLabels) LQGet(key utilqueue.LocalQueueReference) []string {
 	if cl == nil {
 		return nil
@@ -192,13 +165,6 @@ func (cl *CustomLabels) CohortStore(key kueue.CohortReference, labels, annotatio
 		return false
 	}
 	return storeFor(cl, cl.cohort, key, labels, annotations)
-}
-
-func (cl *CustomLabels) CohortStoreAndClear(key kueue.CohortReference, labels, annotations map[string]string, clearFn func()) bool {
-	if cl == nil {
-		return false
-	}
-	return storeAndClearFor(cl, cl.cohort, key, labels, annotations, clearFn)
 }
 
 func (cl *CustomLabels) CohortGet(key kueue.CohortReference) []string {

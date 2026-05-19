@@ -424,7 +424,7 @@ func TestReconcile(t *testing.T) {
 	}{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        true,
+				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
@@ -453,7 +453,7 @@ func TestReconcile(t *testing.T) {
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadInadmissible,
-					Message: "DynamicResourceAllocation feature does not support use of resource claims",
+					Message: "KueueDRAIntegration feature does not support use of resource claims",
 				}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -466,7 +466,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaimTemplate should be pre-processed and queued": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        true,
+				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
 			wantDRAResourceTotal: new(int64(1)),
@@ -504,7 +504,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaimTemplate multi-pod should be pre-processed and queued": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        true,
+				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
 			wantDRAResourceTotal: new(int64(6)),
@@ -542,7 +542,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        true,
+				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
 			workload: utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
@@ -594,7 +594,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        true,
+				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
 			workload: utiltestingapi.MakeWorkload("wlMissingTemplate", "ns").
@@ -2724,6 +2724,40 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: nil,
 			wantError:    nil,
 		},
+		"should remove finalizer from owned finished workload already being deleted, object retention configured": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					LastTransitionTime: metav1.Time{
+						Time: now.Add(-2 * util.MediumTimeout),
+					},
+				}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				DeletionTimestamp(now).
+				Finalizers(kueue.ResourceInUseFinalizerName, "example.com/finalizer").
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(
+					&workloadRetentionConfig{
+						afterFinished: ptr.To(util.MediumTimeout),
+					},
+				),
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					LastTransitionTime: metav1.Time{
+						Time: now.Add(-2 * util.MediumTimeout),
+					},
+				}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				DeletionTimestamp(now).
+				Finalizers("example.com/finalizer").
+				Obj(),
+			wantError: nil,
+		},
 		"shouldn't try to delete the workload because the retention period hasn't elapsed yet, object retention configured": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
@@ -2936,7 +2970,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"should synchronize the status of preemption gates": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        false,
+				features.KueueDRAIntegration:              false,
 				features.MultiKueueOrchestratedPreemption: true,
 			},
 			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
@@ -3251,6 +3285,9 @@ func TestReconcile(t *testing.T) {
 				queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptexpectations.New())}
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache, queueOptions...)
 				reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
+				if features.Enabled(features.KueueDRAIntegration) {
+					qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
+				}
 				// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
 				reconciler.clock = fakeClock
 
@@ -3343,7 +3380,7 @@ func TestReconcile(t *testing.T) {
 				}
 
 				// For DRA tests, verify that workloads are properly queued/cached
-				if tc.featureGates[features.DynamicResourceAllocation] && testWl != nil &&
+				if tc.featureGates[features.KueueDRAIntegration] && testWl != nil &&
 					len(testWl.Spec.PodSets) > 0 &&
 					len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
 					workloadKey := client.ObjectKeyFromObject(testWl)

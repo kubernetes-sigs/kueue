@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -154,21 +153,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := config.ValidateFeatureGates(featureGates, cfg.FeatureGates).ToAggregate(); err != nil {
+	if err := config.LoadAndValidateFeatureGates(featureGates, cfg.FeatureGates).ToAggregate(); err != nil {
 		setupLog.Error(err, "conflicting feature gates detected")
 		os.Exit(1)
-	}
-
-	if featureGates != "" {
-		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGates); err != nil {
-			setupLog.Error(err, "Unable to set flag gates for known features")
-			os.Exit(1)
-		}
-	} else {
-		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(cfg.FeatureGates); err != nil {
-			setupLog.Error(err, "Unable to set flag gates for known features")
-			os.Exit(1)
-		}
 	}
 
 	// Validates the configuration after it has been loaded and feature gates have been set.
@@ -312,7 +299,7 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
 		queueOptions = append(queueOptions, qcache.WithResourceTransformations(cfg.Resources.Transformations))
 	}
-	if features.Enabled(features.DynamicResourceAllocation) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
+	if features.Enabled(features.KueueDRAIntegration) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
 		if err := dra.CreateMapperFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
 			setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
 			os.Exit(1)
@@ -366,7 +353,7 @@ func main() {
 	if roleTracker != nil {
 		roleTracker.OnElected(func() {
 			metrics.ClearGaugeMetricsForRole(roletracker.RoleFollower)
-			cCache.ResyncGaugeMetrics()
+			cCache.ResyncGaugeMetrics(setupLog)
 			queues.ResyncGaugeMetrics()
 		})
 	}
