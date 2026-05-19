@@ -44,8 +44,8 @@ type Adapter struct {
 }
 
 var (
-	_ jobframework.MultiKueueAdapter              = (*Adapter)(nil)
-	_ jobframework.MultiKueueWatcher              = (*Adapter)(nil)
+	_ jobframework.MultiKueueAdapter = (*Adapter)(nil)
+	_ jobframework.MultiKueueWatcher = (*Adapter)(nil)
 )
 
 // NewAdapter creates a new adapter for the given GVK.
