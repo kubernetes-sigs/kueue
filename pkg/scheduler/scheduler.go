@@ -1180,21 +1180,22 @@ func (s *Scheduler) findAdmittedSiblingMatching(wl *workload.Info, cq *schdcache
 // isMigrationAllowed checks if a Variant uses flavor equal or higher than the minimum preferred flavor defined in the migration constraints of the Concurrent Admission policy.
 // Workloads cannot migrate to a flavor that is considered less preferred than the minimum preferred flavor. If the constraint is not defined, migration is allowed by default.
 func (s *Scheduler) isMigrationAllowed(cq *schdcache.ClusterQueueSnapshot, e *entry, log klog.Logger) bool {
-	if cq.ConcurrentAdmissionPolicy == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName == nil {
+	if cq.ConcurrentAdmissionPolicy == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName == nil {
 		return true
 	}
-	minPrefFlavor := *cq.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName
+	lastAcceptableFlavor := *cq.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
 	flavors := cq.ResourceGroups[0].Flavors
-	// the minPrefFlavor will always be present as it's validated with CQ webhook
-	minPrefIdx := slices.Index(flavors, minPrefFlavor)
+	// the lastAcceptableFlavor will always be present as it's validated with CQ webhook
+	lastAcceptableIdx := slices.Index(flavors, lastAcceptableFlavor)
 	wlFlavorIdx, err := resolveFlavorIndex(&e.Info, flavors)
 	if err != nil {
 		log.Error(err, "Workload migration failed")
 		return false
 	}
-	if wlFlavorIdx > minPrefIdx {
-		log.V(3).Info("Skipping migration as target flavor is below MinPreferredFlavorName", "targetFlavor", concurrentadmission.GetVariantFlavor(e.Obj), "minPreferredFlavor", minPrefFlavor)
-		e.inadmissibleMsg = "Target flavor is below MinPreferredFlavorName"
+	if wlFlavorIdx > lastAcceptableIdx {
+		log.V(3).Info("Skipping migration as target flavor is below LastAcceptableFlavorName",
+			"targetFlavor", concurrentadmission.GetVariantFlavor(e.Obj), "lastAcceptableFlavor", lastAcceptableFlavor)
+		e.inadmissibleMsg = "Target flavor is below LastAcceptableFlavorName"
 		return false
 	}
 	return true
