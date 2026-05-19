@@ -1335,6 +1335,10 @@ var _ = ginkgo.Describe("Manager quota automation feature gate", ginkgo.Label("a
 		})
 	})
 
+	// This test does not test any user-observable effects
+	// (for this, we have other test cases above).
+	// Its purpose is just to verify that `cqTypeName` is indeed the value
+	// which should be checked in the "FG disabled" case just above.
 	ginkgo.When("Feature gate enabled", func() {
 		ginkgo.It("Should watch manager-side ClusterQueues", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, true)
