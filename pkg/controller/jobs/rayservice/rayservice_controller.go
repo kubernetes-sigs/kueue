@@ -162,7 +162,7 @@ func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 	}
 
 	rayClusterName := j.Status.ActiveServiceStatus.RayClusterName
-	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
+	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName, j.Spec.ManagedBy)
 	if err != nil {
 		return nil, err
 	}

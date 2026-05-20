@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -755,24 +756,36 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	// For now, new workload slices will continue to be assigned to the same cluster.
 	// In the future, we may introduce more nuanced remote workload propagation policies,
 	// supporting preferred or required placement constraints.
-	if clusterName := workload.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
-		nominatedWorkers = []string{clusterName}
-	} else if w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
-		for workerName := range group.remotes {
-			nominatedWorkers = append(nominatedWorkers, workerName)
+	if group.IsElasticWorkload() {
+		clusterName := workload.ClusterName(group.local)
+		// For scale-up: new workload slices don't have a cluster name yet.
+		// Look up the cluster from the workload being replaced.
+		if clusterName == "" {
+			clusterName = w.lookupReplacedWorkloadClusterName(ctx, group.local)
 		}
-		if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-				wl.Status.NominatedClusterNames = nominatedWorkers
-				return true, nil
-			}); err != nil {
-				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
-				return reconcile.Result{}, err
+		if clusterName != "" {
+			nominatedWorkers = []string{clusterName}
+		}
+	}
+
+	if len(nominatedWorkers) == 0 {
+		if w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
+			for workerName := range group.remotes {
+				nominatedWorkers = append(nominatedWorkers, workerName)
 			}
+			if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+				if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+					wl.Status.NominatedClusterNames = nominatedWorkers
+					return true, nil
+				}); err != nil {
+					log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
+					return reconcile.Result{}, err
+				}
+			}
+		} else {
+			// Incremental dispatcher and External dispatcher path
+			nominatedWorkers = group.local.Status.NominatedClusterNames
 		}
-	} else {
-		// Incremental dispatcher and External dispatcher path
-		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
 	log.V(4).Info("Synchronize nominated worker clusters", "dispatcherName", w.dispatcherName, "nominatedWorkerClusterNames", nominatedWorkers)
@@ -796,6 +809,32 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		}
 	}
 	return reconcile.Result{}, errors.Join(errs...)
+}
+
+// lookupReplacedWorkloadClusterName returns the ClusterName from the workload
+// that the given workload is replacing (via WorkloadSliceReplacementFor annotation).
+// This is used for elastic scale-up: new workload slices don't have a ClusterName
+// yet, but should be dispatched to the same cluster as the workload they replace.
+func (w *wlReconciler) lookupReplacedWorkloadClusterName(ctx context.Context, wl *kueue.Workload) string {
+	ref := workloadslicing.ReplacementForKey(wl)
+	if ref == nil {
+		return ""
+	}
+
+	// workload.Reference is formatted as "namespace/name"
+	parts := strings.SplitN(string(*ref), "/", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+
+	replacedWl := &kueue.Workload{}
+	refKey := types.NamespacedName{Namespace: parts[0], Name: parts[1]}
+	if err := w.client.Get(ctx, refKey, replacedWl); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to look up replaced workload for cluster name", "replacedWorkload", string(*ref))
+		return ""
+	}
+
+	return workload.ClusterName(replacedWl)
 }
 
 func (w *wlReconciler) Create(_ event.CreateEvent) bool {

@@ -458,6 +458,17 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	if wl != nil && workload.IsFinished(wl) {
+		// On a MultiKueue worker cluster during autoscaling scale-up, the old
+		// prebuilt workload (WL1-clone) is finished by the scheduler with
+		// WorkloadSliceReplaced reason when the new workload (WL2-clone) is
+		// admitted. Skip finalization: the job is still running, and the
+		// prebuilt workload label will be updated to point to the new workload.
+		if workloadslicing.Enabled(object) && workloadslicing.IsReplaced(wl.Status) {
+			log.V(3).Info("WorkloadSlice: skip finalization for replaced prebuilt workload",
+				"workload", klog.KObj(wl))
+			return ctrl.Result{}, nil
+		}
+
 		if err := r.finalizeJob(ctx, job); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -879,11 +890,34 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 
-		// Skip the in-sync check for ElasticJob workloads if the workload is a
-		// newly scaled-up replacement. This prevents premature removal of remote
-		// objects for a Job that has not yet been synced after scale-up.
-		if workloadslicing.Enabled(object) && workloadslicing.ScaledUp(wl) {
+		// Skip the in-sync check for ElasticJob workloads with prebuilt workloads.
+		// On a MultiKueue worker cluster, pod set count changes due to autoscaling
+		// are expected and should not trigger workload out-of-sync finalization.
+		// The management cluster handles workload slicing decisions.
+		if workloadslicing.Enabled(object) {
 			log.V(3).Info("WorkloadSlice: skip in-sync check in ensurePrebuiltWorkload")
+
+			// Compute and set custom annotations (e.g., podset-replica-sizes)
+			// so that the annotation reflects the actual autoscaled state on the worker.
+			if jobWithCustomAnnotations, ok := job.(JobWithCustomAnnotations); ok {
+				podSets, err := JobPodSets(ctx, job)
+				if err != nil {
+					return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
+				}
+				customAnnotations, err := jobWithCustomAnnotations.GetCustomAnnotations(ctx, r.client, podSets)
+				if err != nil {
+					return nil, fmt.Errorf("failed to get custom annotations based on pod sets from job %s: %w", job.Object().GetName(), err)
+				}
+				if newAnnotations, updated := mergeAnnotations(job, customAnnotations); updated {
+					if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
+						job.Object().SetAnnotations(newAnnotations)
+						return true, nil
+					}); err != nil {
+						return nil, fmt.Errorf("failed to update custom annotations on job %s: %w", job.Object().GetName(), err)
+					}
+				}
+			}
+
 			return wl, nil
 		}
 

@@ -30,8 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -191,6 +193,127 @@ func TestMultiKueueAdapter(t *testing.T) {
 					return errors.New("expecting false")
 				}
 				return nil
+			},
+		},
+		"sync podset-replica-sizes annotation from remote rayjob": {
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.DeepCopy(),
+			},
+			workerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"workers-group-0","count":5}]`).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"workers-group-0","count":5}]`).
+					Obj(),
+			},
+			wantWorkerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"workers-group-0","count":5}]`).
+					Obj(),
+			},
+		},
+		"sync does not patch when annotation is unchanged": {
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"workers-group-0","count":3}]`).
+					Obj(),
+			},
+			workerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"workers-group-0","count":3}]`).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"workers-group-0","count":3}]`).
+					Obj(),
+			},
+			wantWorkerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"workers-group-0","count":3}]`).
+					Obj(),
+			},
+		},
+		"sync updates prebuilt workload label on remote job when workload name changes": {
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.DeepCopy(),
+			},
+			workerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				// SyncJob is called with a new workload name (wl2) different from the label (wl1)
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, "wl2", "origin1")
+			},
+
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Obj(),
+			},
+			wantWorkerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl2").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Obj(),
+			},
+		},
+		"sync does not update prebuilt workload label when unchanged": {
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.DeepCopy(),
+			},
+			workerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Obj(),
+			},
+			wantWorkerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Obj(),
 			},
 		},
 	}

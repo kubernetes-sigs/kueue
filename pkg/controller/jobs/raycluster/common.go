@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/go-logr/logr"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -99,13 +100,27 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) 
 	return podSets, nil
 }
 
-func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client, object client.Object, enableInTreeAutoscaling *bool, rayClusterName string) ([]kueue.PodSet, error) {
+func UpdatePodSets(
+	ctx context.Context,
+	podSets []kueue.PodSet,
+	c client.Client,
+	object client.Object,
+	enableInTreeAutoscaling *bool,
+	rayClusterName string,
+	managedBy *string,
+) ([]kueue.PodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Only update podSets from RayCluster if:
 	// 1. The service is workload slicing enabled
 	// 2. AND the service has enableInTreeAutoscaling
 	if workloadslicing.Enabled(object) && ptr.Deref(enableInTreeAutoscaling, false) {
+		// On the MultiKueue management cluster, the RayCluster does not exist locally.
+		// Read pod set counts from the synced podset-replica-sizes annotation instead.
+		if ptr.Deref(managedBy, "") == kueue.MultiKueueControllerName {
+			return updatePodSetsFromAnnotation(log, podSets, object)
+		}
+
 		// If rayClusterName is set, try to fetch the RayCluster and update PodSets from it
 		if rayClusterName != "" {
 			var rayClusterObj rayv1.RayCluster
@@ -160,6 +175,35 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 					}
 				}
 			}
+		}
+	}
+
+	return podSets, nil
+}
+
+// updatePodSetsFromAnnotation updates pod set counts from the podset-replica-sizes
+// annotation on the job object. This is used on the MultiKueue management cluster
+// where the actual RayCluster does not exist, but the annotation has been synced
+// from the worker cluster to reflect the autoscaled state.
+func updatePodSetsFromAnnotation(log logr.Logger, podSets []kueue.PodSet, object client.Object) ([]kueue.PodSet, error) {
+	annotation := object.GetAnnotations()[RayClusterPodsetReplicaSizesAnnotation]
+	if annotation == "" {
+		return podSets, nil
+	}
+
+	replicaSizes, err := ParsePodSetReplicaSizes(annotation)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range podSets {
+		if count, found := replicaSizes[podSets[i].Name]; found && podSets[i].Count != count {
+			log.V(2).Info("Updated PodSet count from podset-replica-sizes annotation",
+				"rayObject", object.GetName(),
+				"podSet", podSets[i].Name,
+				"oldCount", podSets[i].Count,
+				"newCount", count)
+			podSets[i].Count = count
 		}
 	}
 
@@ -330,7 +374,7 @@ func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client
 	if workloadslicing.Enabled(jobObject) {
 		log := ctrl.LoggerFrom(ctx)
 
-		rayClusterGeneration := ""
+		rayClusterGeneration := jobObject.GetAnnotations()[RayClusterGenerationAnnotation]
 
 		var rayClusterObj rayv1.RayCluster
 		err := c.Get(ctx, types.NamespacedName{

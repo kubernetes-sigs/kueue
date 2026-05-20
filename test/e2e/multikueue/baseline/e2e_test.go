@@ -45,6 +45,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
@@ -76,6 +77,7 @@ import (
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -251,6 +253,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(client.IgnoreNotFound(k8sManagerClient.Delete(ctx, rayServiceConfigMap))).To(gomega.Succeed())
 		gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
 		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
+
+		// Clean up resources created by the RayJob autoscaling test on all clusters.
+		rayJobAutoscalingConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "rayjob-autoscaling", Namespace: managerNs.Name}}
+		gomega.Expect(client.IgnoreNotFound(k8sManagerClient.Delete(ctx, rayJobAutoscalingConfigMap))).To(gomega.Succeed())
+		gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayJobAutoscalingConfigMap.DeepCopy()))).To(gomega.Succeed())
+		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayJobAutoscalingConfigMap.DeepCopy()))).To(gomega.Succeed())
 
 		rayService := &rayv1.RayService{ObjectMeta: metav1.ObjectMeta{Name: "rayservice1", Namespace: managerNs.Name}}
 		gomega.Expect(client.IgnoreNotFound(k8sManagerClient.Delete(ctx, rayService))).To(gomega.Succeed())
@@ -1291,6 +1299,191 @@ app = HelloWorld.bind()`,
 						g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
 						g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.It("Should run a RayJob with autoscaling on worker if admitted", func() {
+				kuberayTestImage := util.GetKuberayTestImage()
+
+				configMap := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "rayjob-autoscaling",
+						Namespace: managerNs.Name,
+					},
+					Data: map[string]string{
+						"sample_code.py": `import ray
+import os
+
+ray.init()
+
+@ray.remote(num_cpus=1)
+def my_task(x, s):
+    import time
+    time.sleep(s)
+    return x * x
+
+# 3 parallel tasks with 60s sleep: triggers scale-up to 2 workers
+# (1 task on head + 2 on workers) and keeps them alive through
+# pod replacement verification.
+print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
+					},
+				}
+
+				volumes := []corev1.Volume{
+					{
+						Name: "script-volume",
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: "rayjob-autoscaling",
+								},
+							},
+						},
+					},
+				}
+				volumeMounts := []corev1.VolumeMount{
+					{
+						Name:      "script-volume",
+						MountPath: "/home/ray/samples",
+					},
+				}
+
+				rayjob := testingrayjob.MakeJob("rayjob-autoscaling", managerNs.Name).
+					Queue(managerLq.Name).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					EnableInTreeAutoscaling().
+					MaxWorkerReplicas(2).
+					WithSubmissionMode(rayv1.K8sJobMode).
+					Entrypoint("python /home/ray/samples/sample_code.py").
+					RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+					RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
+					Image(rayv1.HeadNode, kuberayTestImage).
+					Image(rayv1.WorkerNode, kuberayTestImage).
+					Volumes(rayv1.HeadNode, volumes).
+					VolumeMounts(rayv1.HeadNode, volumeMounts).
+					TerminationGracePeriodSeconds(int64(5)).
+					Obj()
+
+				ginkgo.By("Creating the ConfigMap on all clusters", func() {
+					worker1ConfigMap := configMap.DeepCopy()
+					worker2ConfigMap := configMap.DeepCopy()
+					util.MustCreate(ctx, k8sManagerClient, configMap)
+					util.MustCreate(ctx, k8sWorker1Client, worker1ConfigMap)
+					util.MustCreate(ctx, k8sWorker2Client, worker2ConfigMap)
+				})
+
+				ginkgo.By("Creating the RayJob", func() {
+					util.MustCreate(ctx, k8sManagerClient, rayjob)
+				})
+
+				createdRayJob := &rayv1.RayJob{}
+				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
+				wlLookupKey := types.NamespacedName{
+					Name: jobframework.GenerateWorkloadNameWithExtra(
+						createdRayJob.Name,
+						createdRayJob.UID,
+						rayv1.GroupVersion.WithKind("RayJob"),
+						workloadraycluster.GetWorkloadNameExtraPart(createdRayJob),
+					),
+					Namespace: managerNs.Name,
+				}
+
+				admittedWorker := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+				ginkgo.GinkgoLogr.Info(fmt.Sprintf("RayJob %s/%s is admitted in worker cluster %s", rayjob.Name, rayjob.Namespace, admittedWorker))
+
+				workerClient := kubernetesClients[admittedWorker].client
+
+				getRunningWorkerPodNames := func(g gomega.Gomega) []string {
+					pods := &corev1.PodList{}
+					g.Expect(workerClient.List(ctx, pods,
+						client.InNamespace(managerNs.Name),
+						client.MatchingLabels{
+							"ray.io/node-type": "worker",
+						},
+					)).To(gomega.Succeed())
+					var podNames []string
+					for _, pod := range pods.Items {
+						if strings.Contains(pod.Name, "workers") && pod.Status.Phase == corev1.PodRunning {
+							podNames = append(podNames, pod.Name)
+						}
+					}
+					return podNames
+				}
+
+				ginkgo.By("Checking RayJob is created in the admitted worker", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						workerRayJob := &rayv1.RayJob{}
+						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), workerRayJob)).To(gomega.Succeed())
+						g.Expect(workerRayJob.Labels).To(gomega.HaveKey(constants.PrebuiltWorkloadLabel))
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Waiting for all 2 worker pods to be running on the worker cluster", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						runningWorkers := getRunningWorkerPodNames(g)
+						g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods")
+					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				replacementWlName := ""
+				ginkgo.By("Checking RayJob autoscaling state is synced back to the manager", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						workloads := &kueue.WorkloadList{}
+						g.Expect(k8sManagerClient.List(ctx, workloads, client.InNamespace(managerNs.Name))).To(gomega.Succeed())
+						replacementWlName = ""
+						for _, wl := range workloads.Items {
+							if wl.Annotations[workloadslicing.WorkloadSliceReplacementFor] != string(workload.NewReference(managerNs.Name, wlLookupKey.Name)) {
+								continue
+							}
+							for _, podSet := range wl.Spec.PodSets {
+								if podSet.Name == kueue.NewPodSetReference("workers-group-0") && podSet.Count == 2 {
+									replacementWlName = wl.Name
+									break
+								}
+							}
+							if replacementWlName != "" {
+								break
+							}
+						}
+						g.Expect(replacementWlName).ToNot(gomega.BeEmpty())
+
+						managerRayJob := &rayv1.RayJob{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), managerRayJob)).To(gomega.Succeed())
+						g.Expect(managerRayJob.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterGenerationAnnotation))
+						g.Expect(managerRayJob.Annotations[workloadraycluster.RayClusterGenerationAnnotation]).ToNot(gomega.BeEmpty())
+						g.Expect(managerRayJob.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterPodsetReplicaSizesAnnotation))
+						podSetReplicaSizes, err := workloadraycluster.ParsePodSetReplicaSizes(managerRayJob.Annotations[workloadraycluster.RayClusterPodsetReplicaSizesAnnotation])
+						g.Expect(err).ToNot(gomega.HaveOccurred())
+						g.Expect(podSetReplicaSizes).To(gomega.HaveKeyWithValue(kueue.NewPodSetReference("workers-group-0"), int32(2)))
+					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Waiting for the RayJob to finish", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdRayJob := &rayv1.RayJob{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
+						g.Expect(createdRayJob.Status.JobStatus).To(gomega.Equal(rayv1.JobStatusSucceeded))
+					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+					util.ExpectWorkloadToFinish(ctx, k8sManagerClient, wlLookupKey)
+					util.ExpectWorkloadToFinish(ctx, k8sManagerClient, types.NamespacedName{Name: replacementWlName, Namespace: managerNs.Name})
+				})
+
+				ginkgo.By("Checking no objects are left in the worker clusters and the RayJob is completed", func() {
+					wl := &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      wlLookupKey.Name,
+							Namespace: wlLookupKey.Namespace,
+						},
+					}
+					replacementWl := &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      replacementWlName,
+							Namespace: managerNs.Name,
+						},
+					}
+					util.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
+					util.ExpectObjectToBeDeletedOnClusters(ctx, replacementWl, k8sWorker1Client, k8sWorker2Client)
+					util.ExpectObjectToBeDeletedOnClusters(ctx, rayjob, k8sWorker1Client, k8sWorker2Client)
 				})
 			})
 		})

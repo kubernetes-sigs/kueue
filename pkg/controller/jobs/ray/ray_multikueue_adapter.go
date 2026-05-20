@@ -34,6 +34,17 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
+// Duplicated here to avoid a circular import with raycluster package.
+const (
+	rayclusterPodsetReplicaSizesAnnotation = "kueue.x-k8s.io/raycluster-podset-replica-sizes"
+	rayclusterGenerationAnnotation         = "kueue.x-k8s.io/raycluster-generation"
+)
+
+var rayclusterAutoscalingAnnotations = []string{
+	rayclusterGenerationAnnotation,
+	rayclusterPodsetReplicaSizesAnnotation,
+}
+
 type objAsPtr[T any] interface {
 	metav1.Object
 	client.Object
@@ -113,12 +124,37 @@ func (a *adapter[PtrT, T]) SyncJob(
 		return err
 	}
 
-	// if the remote exists, just copy the status
+	// if the remote exists, copy the status and sync annotations
 	if err == nil {
-		return clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
+		if err := clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
 			a.copyStatus(localJob, remoteJob)
 			return true, nil
-		})
+		}); err != nil {
+			return err
+		}
+
+		// Sync Ray autoscaling annotations from remote to local so the
+		// management cluster can monitor autoscaling events on the worker.
+		if err := syncAutoscalingAnnotations(ctx, localClient, localJob, remoteJob); err != nil {
+			return err
+		}
+
+		// Update the prebuilt workload label on the remote job if the workload name
+		// has changed (e.g., due to workload slice replacement on scale-up).
+		// This allows the worker's reconciler to discover the new workload.
+		if currentLabel := remoteJob.GetLabels()[constants.PrebuiltWorkloadLabel]; currentLabel != workloadName {
+			return clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
+				labels := remoteJob.GetLabels()
+				if labels == nil {
+					labels = make(map[string]string)
+				}
+				labels[constants.PrebuiltWorkloadLabel] = workloadName
+				remoteJob.SetLabels(labels)
+				return true, nil
+			})
+		}
+
+		return nil
 	}
 
 	remoteJob = PtrT(new(T))
@@ -162,4 +198,39 @@ func (a *adapter[PtrT, T]) WorkloadKeysFor(o runtime.Object) ([]types.Namespaced
 	}
 
 	return []types.NamespacedName{{Name: prebuiltWl, Namespace: job.GetNamespace()}}, nil
+}
+
+// syncAutoscalingAnnotations syncs Ray autoscaling annotations from a remote
+// job to a local job. This allows the management cluster to monitor autoscaling
+// state changes that occur on the worker cluster.
+func syncAutoscalingAnnotations(ctx context.Context, localClient client.Client, localJob, remoteJob metav1.Object) error {
+	remoteAnnotations := remoteJob.GetAnnotations()
+	localAnnotations := localJob.GetAnnotations()
+
+	needsPatch := false
+	for _, annotationKey := range rayclusterAutoscalingAnnotations {
+		if remoteAnnotations[annotationKey] != localAnnotations[annotationKey] {
+			needsPatch = true
+			break
+		}
+	}
+	if !needsPatch {
+		return nil
+	}
+
+	return clientutil.Patch(ctx, localClient, localJob.(client.Object), func() (bool, error) {
+		annotations := localJob.GetAnnotations()
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		for _, annotationKey := range rayclusterAutoscalingAnnotations {
+			if remoteAnnotation := remoteAnnotations[annotationKey]; remoteAnnotation == "" {
+				delete(annotations, annotationKey)
+			} else {
+				annotations[annotationKey] = remoteAnnotation
+			}
+		}
+		localJob.SetAnnotations(annotations)
+		return true, nil
+	})
 }

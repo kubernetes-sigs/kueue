@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -182,7 +183,7 @@ func (j *RayJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, 
 	}
 
 	rayClusterName := j.Status.RayClusterName
-	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
+	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName, j.Spec.ManagedBy)
 	if err != nil {
 		return nil, err
 	}
@@ -245,6 +246,22 @@ func (j *RayJob) Finished(ctx context.Context) (message string, success, finishe
 	message = j.Status.Message
 	success = j.Status.JobStatus == rayv1.JobStatusSucceeded
 	finished = j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed || j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete
+	// On the MultiKueue manager cluster the kuberay-operator does not run, so
+	// JobDeploymentStatus may never transition to Complete/Failed even after
+	// the job reaches a terminal JobStatus on the worker. Fall back to
+	// JobStatus there. On the worker / single-cluster side we must keep the
+	// workload alive until JobDeploymentStatus settles, otherwise Kueue would
+	// release the workload while the kuberay-operator is still cleaning up
+	// the submitter Job — which would then get suspended as a child whose
+	// ancestor workload is finished, blocking the RayJob from ever reaching
+	// JobDeploymentStatusComplete.
+	// This is only needed when workload slicing is enabled because the
+	// multikueue adapter syncs JobDeploymentStatus back to the manager in the
+	// normal case, but with workload slicing the replacement workload flow
+	// requires early detection of job completion via JobStatus.
+	if j.Spec.ManagedBy != nil && *j.Spec.ManagedBy == kueue.MultiKueueControllerName && workloadslicing.Enabled(j.Object()) {
+		finished = finished || success || j.Status.JobStatus == rayv1.JobStatusFailed
+	}
 	return message, success, finished
 }
 

@@ -230,6 +230,7 @@ func TestUpdatePodSets(t *testing.T) {
 		object                  client.Object
 		enableInTreeAutoscaling *bool
 		rayClusterName          string
+		managedBy               *string
 		rayClusterInClient      *rayv1.RayCluster
 		wantPodSets             []kueue.PodSet
 		wantErr                 bool
@@ -353,6 +354,41 @@ func TestUpdatePodSets(t *testing.T) {
 				Obj(),
 			wantErr: true,
 		},
+		"multikueue management cluster - reads from annotation": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers-group-0", 3).Obj(),
+			},
+			object: testingrayutil.MakeCluster("raycluster", "ns").
+				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				SetAnnotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"workers-group-0","count":5}]`).
+				WithEnableAutoscaling(new(true)).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			managedBy:               ptr.To(kueue.MultiKueueControllerName),
+			rayClusterName:          "nonexistent-raycluster",
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers-group-0", 5).Obj(),
+			},
+		},
+		"multikueue management cluster - no annotation, no update": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers-group-0", 3).Obj(),
+			},
+			object: testingrayutil.MakeCluster("raycluster", "ns").
+				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				WithEnableAutoscaling(new(true)).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			managedBy:               ptr.To(kueue.MultiKueueControllerName),
+			rayClusterName:          "nonexistent-raycluster",
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers-group-0", 3).Obj(),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -372,7 +408,7 @@ func TestUpdatePodSets(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			gotPodSets, err := UpdatePodSets(t.Context(), tc.podSets, c, tc.object, tc.enableInTreeAutoscaling, tc.rayClusterName)
+			gotPodSets, err := UpdatePodSets(t.Context(), tc.podSets, c, tc.object, tc.enableInTreeAutoscaling, tc.rayClusterName, tc.managedBy)
 
 			if tc.wantErr {
 				if err == nil {
@@ -912,7 +948,7 @@ func TestUpdatePodSetsFayCluster_GetError(t *testing.T) {
 		WithEnableAutoscaling(new(true)).
 		Obj()
 
-	_, err := UpdatePodSets(t.Context(), podSets, c, object, new(true), "target-raycluster")
+	_, err := UpdatePodSets(t.Context(), podSets, c, object, new(true), "target-raycluster", nil)
 
 	if err == nil {
 		t.Error("Expected error but got none")
