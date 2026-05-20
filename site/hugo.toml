@@ -17,8 +17,8 @@ enableMissingTranslationPlaceholders = true
 disableLanguages = []
 # disable taxonomies
 disableKinds = ["taxonomy"]
-# deprecated directories
-ignoreFiles = []
+# Ignore obsolete Docsy render hook templates removed by newer Hugo versions.
+ignoreFiles = ["td-render-heading\\.html$"]
 ###############################################################################
 # Hugo - Top-level navigation (horizontal)
 ###############################################################################
@@ -53,16 +53,12 @@ ignoreFiles = []
 ###############################################################################
 # Docsy - Services configuration
 ###############################################################################
-[services]
-  [services.googleAnalytics]
-  id = "UA-135379910-1"
-
 ###############################################################################
 # Docsy - Language configuration
 ###############################################################################
 [languages]
   [languages.en]
-    languageName = "English"
+    label = "English"
     # weight used for sorting in the language menu
     weight = 1
     contentDir = "content/en"
@@ -70,7 +66,7 @@ ignoreFiles = []
     language_code = "en-US"
   [languages.zh-CN]
     title = "Kueue"
-    languageName = "简体中文"
+    label = "简体中文"
     weight = 2
     contentDir = "content/zh-CN"
     [languages.zh-CN.params]

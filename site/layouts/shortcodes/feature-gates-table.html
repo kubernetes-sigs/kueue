@@ -4,7 +4,7 @@
 {{- if not $selectedStages -}}
   {{- errorf "feature-gates-table: unsupported stage %q" $stage -}}
 {{- end -}}
-{{- $features := .Page.Site.Data.featuregates.versioned_feature_list -}}
+{{- $features := hugo.Data.featuregates.versioned_feature_list -}}
 <table class="feature-gates-table">
   <thead>
     <tr>
@@ -38,4 +38,3 @@
     {{- end -}}
   </tbody>
 </table>
-

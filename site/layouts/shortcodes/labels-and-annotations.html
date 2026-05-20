@@ -1,4 +1,4 @@
-{{ $items := sort .Page.Site.Data.labels_and_annotations "key" }}
+{{ $items := sort hugo.Data.labels_and_annotations "key" }}
 {{ range $items }}
 
 {{ printf "### %s" .key }}
