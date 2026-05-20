@@ -64,8 +64,13 @@ tags, and then generate with `hack/update-toc.sh`.
     - [E2E Test](#e2e-test)
   - [Graduation Criteria](#graduation-criteria)
     - [Alpha](#alpha)
+      - [KueueDRAIntegration (v0.14)](#kueuedraintegration-v014)
+      - [KueueDRAIntegrationExtendedResource (v0.17)](#kueuedraintegrationextendedresource-v017)
     - [Beta](#beta)
+      - [KueueDRAIntegration (v0.18)](#kueuedraintegration-v018)
+      - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource)
     - [GA](#ga)
+      - [KueueDRAIntegration](#kueuedraintegration)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -1004,24 +1009,38 @@ Use existing dra-example-driver or Kubernetes test driver for e2e testing.
 
 #### Alpha
 
-- the implementation behind the feature gate flag in alpha
+##### KueueDRAIntegration (v0.14)
+
+- ResourceClaimTemplate-based DRA quota accounting
 - support v1 API of DRA in core k8s
 - initial e2e tests for baseline scenario
-- support for Extended Resources (alpha in k8s 1.35)
+
+##### KueueDRAIntegrationExtendedResource (v0.17)
+
+- DeviceClass auto-discovery via field indexer on `extendedResourceName`
+- extended resource detection and resource translation
+- double-counting prevention with `deviceClassMappings`
 
 #### Beta
 
-- the feature gate in Beta
-- all known bugs are fixed
+##### KueueDRAIntegration (v0.18)
+
+- feature gate enabled by default
 - support integration with MultiKueue
 - e2e tests
-- TAS + DRA testing and support as a graduation requirement
+- CEL expression validation against ResourceSlice devices
+
+##### KueueDRAIntegrationExtendedResource
+
+- user adoption feedback
 - re-evaluate event-driven DeviceClass tracking for late DeviceClass creation
 - re-evaluate post-scheduling quota reconciliation for DeviceClass drift
 - re-evaluate the need for indexing of resourceSlices for CEL performance lookups
 - re-evaluate event-driven ResourceSlice tracking for late ResourceSlice creation
 
 #### GA
+
+##### KueueDRAIntegration
 
 - the feature gate in stable
 - integration with TopologyAwareScheduling
@@ -1037,6 +1056,7 @@ Use existing dra-example-driver or Kubernetes test driver for e2e testing.
 - Integration with Admission Fair Sharing: April 2026 — added integration tests and documentation
   confirming DRA logical resources work with existing `AdmissionFairSharing.ResourceWeights`
 - CEL expression validation support added: April 2026 by @kannon92
+- Promoted KueueDRAIntegration to Beta: May 2026 by @sohankunkerkar
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution
