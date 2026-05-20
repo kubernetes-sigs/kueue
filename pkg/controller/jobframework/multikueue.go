@@ -33,7 +33,7 @@ type MultiKueueAdapter interface {
 	// Copy the status from the remote job if already exists.
 	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
 	// DeleteRemoteObject deletes the Job in the worker cluster.
-	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
+	DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error
 	// IsJobManagedByKueue returns:
 	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
 	// - a reason indicating why the job is not managed by Kueue

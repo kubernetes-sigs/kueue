@@ -74,7 +74,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteStatefulSet)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	ss := appsv1.StatefulSet{}
 	ss.SetName(key.Name)
 	ss.SetNamespace(key.Namespace)
