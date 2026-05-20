@@ -19,7 +19,6 @@ package rayjob
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -29,11 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/tools/events"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -42,7 +38,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 var (
@@ -78,50 +73,15 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-type rayJobReconciler struct {
-	jr     *jobframework.JobReconciler
-	client client.Client
-}
-
 func newJob() jobframework.GenericJob {
 	return &RayJob{}
 }
 
-func setup(b *builder.Builder, c client.Client) *builder.Builder {
-	return b.Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayJob{}, handler.OnlyControllerOwner()))
-}
-
-var reconciler rayJobReconciler
-
-func NewReconciler(
-	ctx context.Context,
-	client client.Client,
-	indexer client.FieldIndexer,
-	eventRecorder events.EventRecorder,
-	opts ...jobframework.Option,
-) (jobframework.JobReconcilerInterface, error) {
-	reconciler = rayJobReconciler{
-		jr:     jobframework.NewReconciler(client, eventRecorder, opts...),
-		client: client,
-	}
-	return &reconciler, nil
-}
-
-func (r *rayJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.jr.ReconcileGenericJob(ctx, req, newJob())
-}
-
-func (r *rayJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	controllerName := strings.ToLower(newJob().GVK().Kind)
-	b := ctrl.NewControllerManagedBy(mgr).
-		For(newJob().Object()).Owns(&kueue.Workload{}).
-		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.jr.RoleTracker(), controllerName),
-		})
-	c := mgr.GetClient()
-	b = setup(b, c)
-	return b.Complete(r)
-}
+var NewReconciler = jobframework.NewGenericReconcilerFactory(newJob,
+	func(b *builder.Builder, c client.Client) *builder.Builder {
+		return b.Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayJob{}, handler.OnlyControllerOwner()))
+	},
+)
 
 type RayJob rayv1.RayJob
 
@@ -169,7 +129,7 @@ func (j *RayJob) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
+func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayJob spec first
 	podSets, err := raycluster.BuildPodSets(j.Spec.RayClusterSpec)
 	if err != nil {
@@ -182,7 +142,7 @@ func (j *RayJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, 
 	}
 
 	rayClusterName := j.Status.RayClusterName
-	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
+	podSets, err = raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
 	if err != nil {
 		return nil, err
 	}

@@ -862,12 +862,8 @@ func TestGetCustomAnnotations(t *testing.T) {
 				WithObjects(tc.rayJob, tc.rayCluster).
 				Build()
 
-			oldReconciler := reconciler
-			reconciler = rayJobReconciler{client: fakeClient}
-			t.Cleanup(func() { reconciler = oldReconciler })
-
 			job := (*RayJob)(tc.rayJob)
-			podSets, err := job.PodSets(ctx, nil)
+			podSets, err := job.PodSets(ctx, fakeClient)
 			if err != nil {
 				t.Fatalf("unexpected error from PodSets: %v", err)
 			}
