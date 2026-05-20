@@ -6,7 +6,7 @@
 [build.environment]
   HUGO_VERSION = "0.161.1"
   NODE_VERSION = "22"
-  NODE_OPTIONS= "--allow-fs-read"
+  NODE_OPTIONS= "--allow-fs-read=*"
 
 [context.production.environment]
   HUGO_ENV = "production"
