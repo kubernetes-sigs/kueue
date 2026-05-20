@@ -6,14 +6,13 @@
 [build.environment]
   HUGO_VERSION = "0.161.1"
   NODE_VERSION = "22"
-  NODE_OPTIONS = "--permission --allow-fs-read=*"
 
 [context.production.environment]
   HUGO_ENV = "production"
   HUGO_BASEURL = "https://kueue.sigs.k8s.io/"
 
 [context.deploy-preview]
-  command = "HUGO_POSTCSS_TRANSPILE=true hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"
+  command = "HUGO_POSTCSS_TRANSPILE=true NODE_OPTIONS='--permission --allow-fs-read=*' hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"
 
 [context.branch-deploy]
-  command = "HUGO_POSTCSS_TRANSPILE=true hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"
+  command = "HUGO_POSTCSS_TRANSPILE=true NODE_OPTIONS='--permission --allow-fs-read=*' hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"
