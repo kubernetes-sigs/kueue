@@ -32,6 +32,10 @@ filters:
     approvers:
       - hugo-approvers
 
+  "^netlify\\.toml$":
+    approvers:
+      - hugo-approvers
+
   # Vendor directory
   "^vendor/.*$":
     approvers:
