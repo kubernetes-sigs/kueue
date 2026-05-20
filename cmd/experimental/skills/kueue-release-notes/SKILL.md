@@ -191,6 +191,18 @@ Before proposing the final note, check:
 - Are API fields, flags, metrics, and feature gates spelled exactly as in the code?
 - Is the note concise enough to fit as a release bullet?
 
+### 8. Final proposal variants and rationale
+
+Always propose three variants:
+- Details - the release note is very detailed, sometimes leaking implementation details
+- Concise - the release note is only about user-observable impact
+- Balanced - the release note is useually only about user-observable impact, but sometimes
+  it may include key implementation decisions.
+
+In all cases the wording is concise and professional.
+
+Provide also rationale for the key decisions when formulating the release note.
+
 ## Templates
 
 ### Bugfix
