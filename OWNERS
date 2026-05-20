@@ -31,6 +31,7 @@ filters:
   "^site/hugo\\.toml$":
     approvers:
       - hugo-approvers
+      - infra-approvers
 
   "^netlify\\.toml$":
     approvers:
@@ -55,3 +56,19 @@ filters:
   "^\\.golangci.*\\.ya?ml$":
     approvers:
       - test-approvers
+
+  "Dockerfile$|\\.dockerignore$":
+    approvers:
+      - infra-approvers
+
+  "^\\.github/dependabot\\.ya?ml$":
+    approvers:
+      - infra-approvers
+
+  "^\\.cloudbuild.yaml$":
+    approvers:
+      - infra-approvers
+
+  "^\\.krew.yaml$":
+    approvers:
+      - infra-approvers
