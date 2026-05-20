@@ -127,7 +127,7 @@ func (a adapter[PtrT, T]) SyncJob(
 	return remoteClient.Create(ctx, remoteJob)
 }
 
-func (a adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (a adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	job := PtrT(new(T))
 	job.SetName(key.Name)
 	job.SetNamespace(key.Namespace)

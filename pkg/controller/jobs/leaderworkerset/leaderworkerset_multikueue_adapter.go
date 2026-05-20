@@ -81,7 +81,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return client.IgnoreAlreadyExists(remoteClient.Create(ctx, &remoteLWS))
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	lws := leaderworkersetv1.LeaderWorkerSet{}
 	lws.SetName(key.Name)
 	lws.SetNamespace(key.Namespace)

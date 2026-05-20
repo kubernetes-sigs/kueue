@@ -126,7 +126,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace})
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace})
 			},
 		},
 		"pod managedBy multikueue": {
@@ -203,19 +203,33 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*podGroupWithWl[1].DeepCopy(),
 				*podGroupWithWl[2].DeepCopy(),
 			},
+			managersPods: []corev1.Pod{
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
+			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace})
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace})
+			},
+			wantManagersPods: []corev1.Pod{
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
 			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			managerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			managerBuilder := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName)
 			managerBuilder = managerBuilder.WithLists(&corev1.PodList{Items: tc.managersPods})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersPods, func(w *corev1.Pod) client.Object { return w })...)
 			managerClient := managerBuilder.Build()
 
-			workerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			workerBuilder := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName)
 			workerBuilder = workerBuilder.WithLists(&corev1.PodList{Items: tc.workerPods})
 			workerClient := workerBuilder.Build()
 

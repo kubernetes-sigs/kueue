@@ -146,7 +146,7 @@ func (a *Adapter) copyStatusFromRemote(localObj, remoteObj *unstructured.Unstruc
 
 // DeleteRemoteObject deletes the remote object identified by the given key from the remote cluster.
 // It first attempts to retrieve the object, and if found, deletes it with background propagation policy.
-func (a *Adapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (a *Adapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(a.gvk)
 	obj.SetName(key.Name)
