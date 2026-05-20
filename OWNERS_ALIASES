@@ -20,3 +20,5 @@ aliases:
   test-approvers:
     - mbobrovskyi
     - pbundyra
+  hugo-approvers:
+    - mbobrovskyi
