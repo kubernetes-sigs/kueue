@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("PriorityBoostReconciler envtest", ginkgo.Serial, func() {
+var _ = ginkgo.Describe("PriorityBoostReconciler envtest", ginkgo.Serial, ginkgo.Ordered, func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeAll(func() {
