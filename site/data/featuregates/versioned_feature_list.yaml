@@ -459,40 +459,6 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
-  - default: false
-    lockToDefault: true
-    preRelease: Deprecated
-    version: "0.18"
-- name: KueueDRAIntegration
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.18"
-- name: KueueDRAIntegrationExtendedResource
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.18"
-- name: MultiKueueManagerQuotaAutomation
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.18"
-- name: MultiKueueIncrementalDispatcherConfig
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.18"
-- name: TASRespectNodeAffinityPreferred
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.18"
 - name: TLSOptions
   versionedSpecs:
   - default: true
