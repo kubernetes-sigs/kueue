@@ -240,7 +240,7 @@
   - default: false
     lockToDefault: false
     preRelease: Alpha
-    version: "0.19"
+    version: "0.18"
 - name: MultiKueueOrchestratedPreemption
   versionedSpecs:
   - default: false
