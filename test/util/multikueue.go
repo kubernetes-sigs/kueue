@@ -128,6 +128,8 @@ func MultiKueueRulesForManager(ctx context.Context, k8sClient client.Client) []r
 	rules := []rbacv1.PolicyRule{
 		PolicyRule(kueue.SchemeGroupVersion.Group, "workloads", resourceVerbs...),
 		PolicyRule(kueue.SchemeGroupVersion.Group, "workloads/status", "get", "patch", "update"),
+		PolicyRule(kueue.SchemeGroupVersion.Group, "clusterqueues", "get", "list", "watch"),
+		PolicyRule(kueue.SchemeGroupVersion.Group, "localqueues", "get", "list", "watch"),
 	}
 
 	for _, framework := range cfg.Integrations.Frameworks {

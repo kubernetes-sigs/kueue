@@ -39,9 +39,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -61,6 +63,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -98,19 +101,27 @@ func retryAfter(failedAttempts uint) time.Duration {
 	return (1 << (min(failedAttempts, retryMaxSteps) - 1)) * retryIncrement
 }
 
-type clientWithWatchBuilder func(config *clientConfig, options client.Options) (client.WithWatch, error)
+type clientWithWatchBuilder func(ctx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error)
 
 type clientConfig struct {
 	Kubeconfig []byte
 	RestConfig *rest.Config
 }
 
+func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
+	if c.RestConfig != nil {
+		return c.RestConfig, nil
+	}
+	return clientcmd.RESTConfigFromKubeConfig(c.Kubeconfig)
+}
+
 type remoteClient struct {
 	clusterName  string
 	localClient  client.Client
-	client       client.WithWatch
+	client       SelectivelyCachingClient
 	wlUpdateCh   chan<- event.GenericEvent
 	watchEndedCh chan<- event.GenericEvent
+	cqUpdateCh   chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
 	watchCancel  func()
 	config       *clientConfig
 	origin       string
@@ -130,13 +141,22 @@ type remoteClient struct {
 	// and creating valid kubeconfig content is not trivial.
 	// The full client creation and usage is validated in the integration and e2e tests.
 	builderOverride clientWithWatchBuilder
+
+	mu sync.RWMutex
 }
 
-func newRemoteClient(localClient client.Client, wlUpdateCh, watchEndedCh chan<- event.GenericEvent, origin, clusterName string, adapters map[string]jobframework.MultiKueueAdapter) *remoteClient {
+func newRemoteClient(
+	localClient client.Client,
+	wlUpdateCh, watchEndedCh chan<- event.GenericEvent,
+	cqUpdateCh chan<- event.TypedGenericEvent[kueue.ClusterQueueReference],
+	origin, clusterName string,
+	adapters map[string]jobframework.MultiKueueAdapter,
+) *remoteClient {
 	rc := &remoteClient{
 		clusterName:  clusterName,
 		wlUpdateCh:   wlUpdateCh,
 		watchEndedCh: watchEndedCh,
+		cqUpdateCh:   cqUpdateCh,
 		localClient:  localClient,
 		origin:       origin,
 		adapters:     adapters,
@@ -146,15 +166,35 @@ func newRemoteClient(localClient client.Client, wlUpdateCh, watchEndedCh chan<- 
 	return rc
 }
 
-func newClientWithWatch(config *clientConfig, options client.Options) (client.WithWatch, error) {
-	if config.RestConfig != nil {
-		return client.NewWithWatch(config.RestConfig, options)
-	}
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig(config.Kubeconfig)
+func newClientWithWatch(ctx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error) {
+	restConfig, err := config.toRESTConfig()
 	if err != nil {
 		return nil, err
 	}
-	return client.NewWithWatch(restConfig, options)
+
+	directClient, err := client.NewWithWatch(restConfig, options)
+	if err != nil {
+		return nil, err
+	}
+
+	if !features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+		return NewNeverCachingClient(directClient), nil
+	}
+
+	cachedKinds := sets.New(
+		kueue.GroupVersion.WithKind("ClusterQueue").GroupKind(),
+		kueue.GroupVersion.WithKind("LocalQueue").GroupKind(),
+	)
+
+	indexOpts := []CacheIndexOption{
+		{
+			Object:       &kueue.LocalQueue{},
+			Field:        indexer.QueueClusterQueueKey,
+			ExtractValue: indexer.IndexQueueClusterQueue,
+		},
+	}
+
+	return NewSelectivelyCachingClient(ctx, restConfig, directClient, options.Scheme, cachedKinds, indexOpts)
 }
 
 type workloadKueueWatcher struct{}
@@ -174,11 +214,15 @@ func (*workloadKueueWatcher) WorkloadKeysFor(o runtime.Object) ([]types.Namespac
 }
 
 func (rc *remoteClient) resetFailedConnAttempt() {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	rc.failedConnAttempts = 0
 	rc.retryConnNextAttempt = metav1.Time{}
 }
 
 func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	rc.failedConnAttempts++
 	d := retryAfter(rc.failedConnAttempts)
 	rc.retryConnNextAttempt = metav1.NewTime(rc.clock.Now().Add(d))
@@ -203,23 +247,24 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 	}
 
 	if connecting {
-		if untilNextAttempt := rc.retryConnNextAttempt.Sub(rc.clock.Now()); untilNextAttempt > 0 {
+		if untilNextAttempt := rc.getRetryConnNextAttempt().Sub(rc.clock.Now()); untilNextAttempt > 0 {
 			return &untilNextAttempt, nil
 		}
 	}
+
+	watchCtx, rc.watchCancel = context.WithCancel(watchCtx)
 
 	builder := newClientWithWatch
 	if rc.builderOverride != nil {
 		builder = rc.builderOverride
 	}
-	remoteClient, err := builder(config, client.Options{Scheme: rc.localClient.Scheme()})
+	remoteClient, err := builder(watchCtx, config, client.Options{Scheme: rc.localClient.Scheme()})
 	if err != nil {
-		return nil, err
+		return rc.increaseFailedConnAttempt(), err
 	}
 
 	rc.client = remoteClient
 
-	watchCtx, rc.watchCancel = context.WithCancel(watchCtx)
 	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
 		return rc.increaseFailedConnAttempt(), err
@@ -236,6 +281,12 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to start the watcher", "kind", kind)
 			// however let's not accept this for now.
+			return rc.increaseFailedConnAttempt(), err
+		}
+	}
+	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+		err = rc.startQueueWatchers(watchCtx)
+		if err != nil {
 			return rc.increaseFailedConnAttempt(), err
 		}
 	}
@@ -342,9 +393,97 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobfram
 	return nil
 }
 
+func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
+	_, err := rc.client.AddCacheEventHandler(ctx, &kueue.ClusterQueue{}, cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			if cq, ok := obj.(*kueue.ClusterQueue); ok {
+				rc.queueEventsForCQ(ctx, cq)
+			}
+		},
+		UpdateFunc: func(oldObj, newObj any) {
+			oldCQ, ok1 := oldObj.(*kueue.ClusterQueue)
+			newCQ, ok2 := newObj.(*kueue.ClusterQueue)
+			if ok1 && ok2 && !equality.Semantic.DeepEqual(oldCQ.Spec.ResourceGroups, newCQ.Spec.ResourceGroups) {
+				rc.queueEventsForCQ(ctx, newCQ)
+			}
+		},
+		DeleteFunc: func(obj any) {
+			if cq, err := deletedObjectState[*kueue.ClusterQueue](obj); err == nil {
+				rc.queueEventsForCQ(ctx, cq)
+			}
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("adding ClusterQueue event handler: %w", err)
+	}
+
+	_, err = rc.client.AddCacheEventHandler(ctx, &kueue.LocalQueue{}, cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			if lq, ok := obj.(*kueue.LocalQueue); ok {
+				rc.queueEventsForLQ(ctx, lq)
+			}
+		},
+		UpdateFunc: nil, // LQ -> CQ bindings are immutable.
+		DeleteFunc: func(obj any) {
+			if lq, err := deletedObjectState[*kueue.LocalQueue](obj); err == nil {
+				rc.queueEventsForLQ(ctx, lq)
+			}
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("adding LocalQueue event handler: %w", err)
+	}
+	return nil
+}
+
+func (rc *remoteClient) queueEventsForCQ(ctx context.Context, remoteCQ *kueue.ClusterQueue) {
+	log := ctrl.LoggerFrom(ctx).WithValues("remoteCQ", remoteCQ.Name)
+
+	lqList := kueue.LocalQueueList{}
+	err := rc.client.List(ctx, &lqList, client.MatchingFields{indexer.QueueClusterQueueKey: remoteCQ.Name})
+	if err != nil {
+		log.Error(err, "Failed to list remote LocalQueues from cache")
+		return
+	}
+
+	for i := range lqList.Items {
+		rc.queueEventsForLQ(ctx, &lqList.Items[i])
+	}
+}
+
+func (rc *remoteClient) queueEventsForLQ(ctx context.Context, remoteLQ *kueue.LocalQueue) {
+	log := ctrl.LoggerFrom(ctx).WithValues("remoteLQ", remoteLQ.Name)
+
+	localLQ := &kueue.LocalQueue{}
+	err := rc.localClient.Get(ctx, types.NamespacedName{Namespace: remoteLQ.Namespace, Name: remoteLQ.Name}, localLQ)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Error(err, "Failed to get local LocalQueue")
+		}
+		return
+	}
+
+	rc.cqUpdateCh <- event.TypedGenericEvent[kueue.ClusterQueueReference]{Object: localLQ.Spec.ClusterQueue}
+}
+
+func (rc *remoteClient) getFailedConnAttempts() uint {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.failedConnAttempts
+}
+
+func (rc *remoteClient) getRetryConnNextAttempt() metav1.Time {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.retryConnNextAttempt
+}
+
 func (rc *remoteClient) StopWatchers() {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	if rc.watchCancel != nil {
 		rc.watchCancel()
+		rc.watchCancel = nil
 	}
 }
 
@@ -429,6 +568,10 @@ type clustersReconciler struct {
 	// The list of remote remoteClients, indexed by the cluster name.
 	remoteClients map[string]*remoteClient
 	wlUpdateCh    chan event.GenericEvent
+	// watchEndedCh - an event chan used to request the reconciliation of the clusters for which the watch loop
+	// has ended (connection lost).
+	watchEndedCh chan event.GenericEvent
+	cqUpdateCh   chan event.TypedGenericEvent[kueue.ClusterQueueReference]
 
 	// gcInterval - time waiting between two GC runs.
 	gcInterval time.Duration
@@ -445,10 +588,6 @@ type clustersReconciler struct {
 	// and creating valid kubeconfig content is not trivial.
 	// The full client creation and usage is validated in the integration and e2e tests.
 	builderOverride clientWithWatchBuilder
-
-	// watchEndedCh - an event chan used to request the reconciliation of the clusters for which the watch loop
-	// has ended (connection lost).
-	watchEndedCh chan event.GenericEvent
 
 	fsWatcher *KubeConfigFSWatcher
 
@@ -500,7 +639,7 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 
 	client, found := c.remoteClients[clusterName]
 	if !found {
-		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, origin, clusterName, c.adapters)
+		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, c.adapters)
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
@@ -522,7 +661,7 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
 	} else if retryAfter != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.failedConnAttempts)
+		ctrl.LoggerFrom(ctx).V(2).Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.getFailedConnAttempts())
 		return retryAfter, nil
 	}
 	return nil, nil
@@ -814,9 +953,10 @@ func newClustersReconciler(
 		configNamespace:     namespace,
 		remoteClients:       make(map[string]*remoteClient),
 		wlUpdateCh:          make(chan event.GenericEvent, eventChBufferSize),
+		watchEndedCh:        make(chan event.GenericEvent, eventChBufferSize),
+		cqUpdateCh:          make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
 		gcInterval:          gcInterval,
 		origin:              origin,
-		watchEndedCh:        make(chan event.GenericEvent, eventChBufferSize),
 		fsWatcher:           fsWatcher,
 		adapters:            adapters,
 		clusterProfileCreds: cpCreds,
@@ -1045,4 +1185,21 @@ func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.
 		}
 		q.Add(req)
 	}
+}
+
+func deletedObjectState[T client.Object](obj any) (T, error) {
+	var zero T
+	typedObj, ok := obj.(T)
+	if ok {
+		return typedObj, nil
+	}
+	tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+	if !ok {
+		return zero, fmt.Errorf("unknown object type %T", obj)
+	}
+	typedObj, ok = tombstone.Obj.(T)
+	if !ok {
+		return zero, fmt.Errorf("tombstone contained object of type %T, expected %T", tombstone.Obj, zero)
+	}
+	return typedObj, nil
 }

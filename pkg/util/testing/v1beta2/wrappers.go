@@ -1589,6 +1589,11 @@ func (mkc *MultiKueueConfigWrapper) Clusters(clusters ...string) *MultiKueueConf
 	return mkc
 }
 
+func (mkc *MultiKueueConfigWrapper) QuotaManagement(mode kueue.MultiKueueConfigQuotaManagementMode) *MultiKueueConfigWrapper {
+	mkc.Spec.QuotaManagement = &mode
+	return mkc
+}
+
 type MultiKueueClusterWrapper struct {
 	kueue.MultiKueueCluster
 }

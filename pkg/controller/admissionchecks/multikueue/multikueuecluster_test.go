@@ -63,8 +63,8 @@ var (
 	errCannotWatch   = errors.New("client cannot watch")
 )
 
-func fakeClientBuilder(ctx context.Context) func(*clientConfig, client.Options) (client.WithWatch, error) {
-	return func(config *clientConfig, _ client.Options) (client.WithWatch, error) {
+func fakeClientBuilder(ctx context.Context) func(context.Context, *clientConfig, client.Options) (SelectivelyCachingClient, error) {
+	return func(builderCtx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error) {
 		kubeconfig := config.Kubeconfig
 		if strings.Contains(string(kubeconfig), "invalid") {
 			return nil, errInvalidConfig
@@ -78,7 +78,7 @@ func fakeClientBuilder(ctx context.Context) func(*clientConfig, client.Options) 
 				return client.Watch(ctx, obj, opts...)
 			},
 		})
-		return b.Build(), nil
+		return NewNeverCachingClient(b.Build()), nil
 	}
 }
 
@@ -288,7 +288,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, cancelCalled),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil), 1),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -297,6 +297,7 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRequeueAfter: 5 * time.Second,
 			wantCancelCalled: 1,
 		},
 		"update client with invalid path config": {
@@ -445,7 +446,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": setReconnectState(newTestClient(ctx, []byte("nowatch"), nil, cancelCalled), 5),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil), 1),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -454,6 +455,7 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRequeueAfter: 5 * time.Second,
 			wantCancelCalled: 1,
 		},
 		"failed due to insecure kubeconfig": {
@@ -824,12 +826,12 @@ func TestReconnectBackoff(t *testing.T) {
 
 			var buildCalls int
 			inner := fakeClientBuilder(ctx)
-			reconciler.builderOverride = func(cfg *clientConfig, opts client.Options) (client.WithWatch, error) {
+			reconciler.builderOverride = func(builderCtx context.Context, cfg *clientConfig, opts client.Options) (SelectivelyCachingClient, error) {
 				buildCalls++
-				return inner(cfg, opts)
+				return inner(builderCtx, cfg, opts)
 			}
 
-			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, defaultOrigin, "worker1", adapters)
+			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
 			rc.clock = fc
 			rc.builderOverride = reconciler.builderOverride
 			reconciler.remoteClients["worker1"] = rc
@@ -959,10 +961,10 @@ func TestRemoteClientGC(t *testing.T) {
 
 			worker1Builder := getClientBuilder(ctx)
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}, &batchv1.JobList{Items: tc.workersJobs})
-			worker1Client := worker1Builder.Build()
+			worker1Client := NewNeverCachingClient(worker1Builder.Build())
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connecting.Store(false)
 
@@ -1286,7 +1288,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	releaseSlow := func() { releaseOnce.Do(func() { close(slowRelease) }) }
 	t.Cleanup(releaseSlow)
 
-	gatedBuilder := func(config *clientConfig, _ client.Options) (client.WithWatch, error) {
+	gatedBuilder := func(_ context.Context, config *clientConfig, _ client.Options) (SelectivelyCachingClient, error) {
 		kubeconfig := string(config.Kubeconfig)
 		b := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
 			Watch: func(watchCtx context.Context, c client.WithWatch, obj client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
@@ -1302,7 +1304,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 				return c.Watch(watchCtx, obj, opts...)
 			},
 		})
-		return b.Build(), nil
+		return NewNeverCachingClient(b.Build()), nil
 	}
 
 	slowCluster := utiltestingapi.MakeMultiKueueCluster("cluster-slow").

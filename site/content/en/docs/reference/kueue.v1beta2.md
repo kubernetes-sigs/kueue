@@ -1996,6 +1996,25 @@ conditions are limited to 16 elements.</p>
 </tbody>
 </table>
 
+## `MultiKueueConfigQuotaManagementMode`     {#kueue-x-k8s-io-v1beta2-MultiKueueConfigQuotaManagementMode}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [MultiKueueConfigSpec](#kueue-x-k8s-io-v1beta2-MultiKueueConfigSpec)
+
+
+<p>MultiKueueConfigQuotaManagementMode specifies the automation mode.
+Supported modes:</p>
+<ul>
+<li><code>Manual</code>: Quota automation is manual.</li>
+<li><code>Automated</code>: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).</li>
+</ul>
+
+
+
+
 ## `MultiKueueConfigSpec`     {#kueue-x-k8s-io-v1beta2-MultiKueueConfigSpec}
     
 
@@ -2017,6 +2036,20 @@ conditions are limited to 16 elements.</p>
 </td>
 <td>
    <p>clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.</p>
+</td>
+</tr>
+<tr><td><code>quotaManagement</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-MultiKueueConfigQuotaManagementMode"><code>MultiKueueConfigQuotaManagementMode</code></a>
+</td>
+<td>
+   <p>quotaManagement specifies the management of ClusterQueue quotas
+in the manager cluster.
+Supported modes:</p>
+<ul>
+<li><code>Manual</code>: Quota automation is manual.</li>
+<li><code>Automated</code>: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+If unspecified, defaults to <code>Manual</code>.</li>
+</ul>
 </td>
 </tr>
 </tbody>
