@@ -28,6 +28,10 @@ filters:
     approvers:
       - dependency-approvers
 
+  "^site/hugo\\.toml$":
+    approvers:
+      - hugo-approvers
+
   # Vendor directory
   "^vendor/.*$":
     approvers:
