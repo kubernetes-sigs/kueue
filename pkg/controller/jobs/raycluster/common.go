@@ -234,13 +234,19 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 	return allErrors
 }
 
-func ValidateTopologyRequest(ctx context.Context, job jobframework.GenericJob, rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) (field.ErrorList, error) {
+func ValidateTopologyRequest(
+	ctx context.Context,
+	c client.Client,
+	job jobframework.GenericJob,
+	rayClusterSpec *rayv1.RayClusterSpec,
+	headGroupMetaPath, workerGroupSpecsPath *field.Path,
+) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	if rayClusterSpec == nil {
 		return allErrs, nil
 	}
 
-	podSets, podSetsErr := jobframework.JobPodSets(ctx, job, nil)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, job, c)
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
 
