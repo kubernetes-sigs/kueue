@@ -99,7 +99,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 	return nil
 }
 
-func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cfg *configapi.Configuration, tlsOpts *tlsconfig.TLS) error {
+func createVisibilityServerOptions(cfg *configapi.Configuration) *genericoptions.RecommendedOptions {
 	o := genericoptions.NewRecommendedOptions("", codecs.LegacyCodec(
 		visibilityv1beta2.SchemeGroupVersion,
 		visibilityv1beta1.SchemeGroupVersion,
@@ -123,6 +123,12 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cf
 	}
 
 	o.Admission.DisablePlugins = disabledPlugins
+	return o
+}
+
+func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cfg *configapi.Configuration, tlsOpts *tlsconfig.TLS) error {
+	o := createVisibilityServerOptions(cfg)
+
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
 	}

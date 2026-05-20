@@ -17,73 +17,180 @@ limitations under the License.
 package visibility
 
 import (
-	"net"
+	"flag"
+	"os"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
-func TestApplyVisibilityServerSecureServingOptions(t *testing.T) {
+func TestCreateVisibilityServerOptions(t *testing.T) {
+	enableInternalCertManagement := true
+	disableInternalCertManagement := false
 	bindAddress := "127.0.0.1"
-	bindPort := int32(9444)
+	bindPort := int32(8080)
 
-	tests := map[string]struct {
-		cfg         *configapi.Configuration
-		wantOptions *genericoptions.SecureServingOptionsWithLoopback
+	tests := []struct {
+		name string
+		cfg  *configapi.Configuration
+		want wantVisibilityServerOptions
 	}{
-		"default visibility server config": {
-			cfg:         &configapi.Configuration{},
-			wantOptions: wantSecureServingOptions("", int(configapi.DefaultVisibilityBindPort)),
-		},
-		"custom bind port": {
+		{
+			name: "default visibility server config",
 			cfg: &configapi.Configuration{
-				VisibilityServer: &configapi.VisibilityServerConfiguration{
-					BindPort: &bindPort,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable: &enableInternalCertManagement,
 				},
 			},
-			wantOptions: wantSecureServingOptions("", 9444),
+			want: wantVisibilityServerOptions{
+				BindAddress:   "0.0.0.0",
+				BindPort:      int(configapi.DefaultVisibilityBindPort),
+				CertDirectory: true,
+			},
 		},
-		"custom bind address": {
+		{
+			name: "custom bind address with default port",
 			cfg: &configapi.Configuration{
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable: &enableInternalCertManagement,
+				},
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
 					BindAddress: &bindAddress,
 				},
 			},
-			wantOptions: wantSecureServingOptions("127.0.0.1", int(configapi.DefaultVisibilityBindPort)),
+			want: wantVisibilityServerOptions{
+				BindAddress:   "127.0.0.1",
+				BindPort:      int(configapi.DefaultVisibilityBindPort),
+				CertDirectory: true,
+			},
 		},
-		"custom bind address and port": {
+		{
+			name: "custom bind port",
 			cfg: &configapi.Configuration{
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable: &enableInternalCertManagement,
+				},
+				VisibilityServer: &configapi.VisibilityServerConfiguration{
+					BindPort: &bindPort,
+				},
+			},
+			want: wantVisibilityServerOptions{
+				BindAddress:   "0.0.0.0",
+				BindPort:      int(bindPort),
+				CertDirectory: true,
+			},
+		},
+		{
+			name: "custom bind address",
+			cfg: &configapi.Configuration{
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable: &enableInternalCertManagement,
+				},
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
 					BindAddress: &bindAddress,
 					BindPort:    &bindPort,
 				},
 			},
-			wantOptions: wantSecureServingOptions("127.0.0.1", 9444),
+			want: wantVisibilityServerOptions{
+				BindAddress:   "127.0.0.1",
+				BindPort:      int(bindPort),
+				CertDirectory: true,
+			},
+		},
+		{
+			name: "external certificate files",
+			cfg: &configapi.Configuration{
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable: &disableInternalCertManagement,
+				},
+				VisibilityServer: &configapi.VisibilityServerConfiguration{
+					BindAddress: &bindAddress,
+					BindPort:    &bindPort,
+				},
+			},
+			want: wantVisibilityServerOptions{
+				BindAddress:   "127.0.0.1",
+				BindPort:      int(bindPort),
+				CertDirectory: false,
+			},
 		},
 	}
 
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			options := genericoptions.NewSecureServingOptions().WithLoopback()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setVisibilityServerTestGlobals(t)
 
-			applyVisibilityServerSecureServingOptions(options, tc.cfg)
+			gotOptions := createVisibilityServerOptions(tc.cfg)
+			got := collectVisibilityServerOptions(gotOptions)
 
-			if diff := cmp.Diff(tc.wantOptions, options); diff != "" {
+			if tc.want.CertDirectory {
+				tc.want.CertDirValue = certDir
+			} else {
+				tc.want.CertDirValue = "apiserver.local.config/certificates"
+				tc.want.CertFile = certDir + "/tls.crt"
+				tc.want.KeyFile = certDir + "/tls.key"
+			}
+
+			// Remove the CertDirectory boolean from comparison
+			ignoreCertDirectoryBool := cmpopts.IgnoreFields(wantVisibilityServerOptions{}, "CertDirectory")
+
+			if diff := cmp.Diff(tc.want, got, ignoreCertDirectoryBool); diff != "" {
 				t.Errorf("Unexpected options (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func wantSecureServingOptions(bindAddress string, bindPort int) *genericoptions.SecureServingOptionsWithLoopback {
-	options := genericoptions.NewSecureServingOptions().WithLoopback()
-	options.BindPort = bindPort
+type wantVisibilityServerOptions struct {
+	BindAddress   string
+	BindPort      int
+	CertDirectory bool
+	CertDirValue  string
+	CertFile      string
+	KeyFile       string
+}
 
-	if bindAddress != "" {
-		options.BindAddress = net.ParseIP(bindAddress)
+func collectVisibilityServerOptions(o *genericoptions.RecommendedOptions) wantVisibilityServerOptions {
+	return wantVisibilityServerOptions{
+		BindAddress:  o.SecureServing.BindAddress.String(),
+		BindPort:     o.SecureServing.BindPort,
+		CertDirValue: o.SecureServing.ServerCert.CertDirectory,
+		CertFile:     o.SecureServing.ServerCert.CertKey.CertFile,
+		KeyFile:      o.SecureServing.ServerCert.CertKey.KeyFile,
 	}
-	return options
+}
+
+func setVisibilityServerTestGlobals(t *testing.T) {
+	t.Helper()
+
+	oldCertDir := certDir
+	certDir = t.TempDir()
+	t.Cleanup(func() {
+		certDir = oldCertDir
+	})
+
+	kubeConfigPath := t.TempDir() + "/kubeconfig"
+	if err := os.WriteFile(kubeConfigPath, []byte("dummy kubeconfig"), 0600); err != nil {
+		t.Fatalf("Writing kubeconfig: %v", err)
+	}
+
+	kubeConfigFlag := flag.Lookup("kubeconfig")
+	if kubeConfigFlag == nil {
+		flag.String("kubeconfig", kubeConfigPath, "")
+		return
+	}
+
+	oldKubeConfigPath := kubeConfigFlag.Value.String()
+	if err := kubeConfigFlag.Value.Set(kubeConfigPath); err != nil {
+		t.Fatalf("Setting kubeconfig flag: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := kubeConfigFlag.Value.Set(oldKubeConfigPath); err != nil {
+			t.Fatalf("Restoring kubeconfig flag: %v", err)
+		}
+	})
 }
