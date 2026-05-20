@@ -18,6 +18,10 @@ limitations under the License.
 
 package v1beta2
 
+import (
+	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+)
+
 // MultiKueueConfigSpecApplyConfiguration represents a declarative configuration of the MultiKueueConfigSpec type for use
 // with apply.
 //
@@ -25,6 +29,13 @@ package v1beta2
 type MultiKueueConfigSpecApplyConfiguration struct {
 	// clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
 	Clusters []string `json:"clusters,omitempty"`
+	// quotaManagement specifies the management of ClusterQueue quotas
+	// in the manager cluster.
+	// Supported modes:
+	// - `Manual`: Quota automation is manual.
+	// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+	// If unspecified, defaults to `Manual`.
+	QuotaManagement *kueuev1beta2.MultiKueueConfigQuotaManagementMode `json:"quotaManagement,omitempty"`
 }
 
 // MultiKueueConfigSpecApplyConfiguration constructs a declarative configuration of the MultiKueueConfigSpec type for use with
@@ -40,5 +51,13 @@ func (b *MultiKueueConfigSpecApplyConfiguration) WithClusters(values ...string) 
 	for i := range values {
 		b.Clusters = append(b.Clusters, values[i])
 	}
+	return b
+}
+
+// WithQuotaManagement sets the QuotaManagement field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the QuotaManagement field is set to the value of the last call.
+func (b *MultiKueueConfigSpecApplyConfiguration) WithQuotaManagement(value kueuev1beta2.MultiKueueConfigQuotaManagementMode) *MultiKueueConfigSpecApplyConfiguration {
+	b.QuotaManagement = &value
 	return b
 }
