@@ -185,6 +185,17 @@ func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
 	return name, found
 }
 
+// SetMultiKueueMeta sets the MultiKueue origin label and the prebuilt workload label on the given object.
+func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
+	objLabels := obj.GetLabels()
+	if objLabels == nil {
+		objLabels = make(map[string]string, 2)
+	}
+	objLabels[kueue.MultiKueueOriginLabel] = origin
+	objLabels[controllerconstants.PrebuiltWorkloadLabel] = workloadName
+	obj.SetLabels(objLabels)
+}
+
 // NewWorkload creates a new Workload object with the specified name,
 // associated object, pod sets, and label keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy []string) *kueue.Workload {

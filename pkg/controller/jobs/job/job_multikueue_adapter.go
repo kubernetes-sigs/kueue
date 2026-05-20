@@ -95,12 +95,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// drop the templates cleanup labels
 	cleanLabels(&remoteJob.Spec.Template)
 
-	// add the prebuilt workload
-	if remoteJob.Labels == nil {
-		remoteJob.Labels = map[string]string{}
-	}
-	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remoteJob, workloadName, origin)
 
 	// clear the managedBy enables the batch/Job controller to take over
 	remoteJob.Spec.ManagedBy = nil
