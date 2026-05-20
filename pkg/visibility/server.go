@@ -113,14 +113,7 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cf
 		o.SecureServing.ServerCert.CertKey.KeyFile = certDir + "/tls.key"
 	}
 
-	o.SecureServing.BindPort = int(configapi.DefaultVisibilityBindPort)
-
-	if cfg.VisibilityServer != nil {
-		o.SecureServing.BindPort = int(ptr.Deref(
-			cfg.VisibilityServer.BindPort,
-			configapi.DefaultVisibilityBindPort,
-		))
-	}
+	applyVisibilityServerSecureServingOptions(o.SecureServing, cfg)
 
 	if f := flag.Lookup("kubeconfig"); f != nil {
 		kubeConfigPath := f.Value.String()
@@ -145,6 +138,20 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cf
 	}
 
 	return nil
+}
+
+func applyVisibilityServerSecureServingOptions(o *genericoptions.SecureServingOptionsWithLoopback, cfg *configapi.Configuration) {
+	o.BindPort = int(configapi.DefaultVisibilityBindPort)
+
+	if cfg.VisibilityServer != nil {
+		o.BindPort = int(ptr.Deref(
+			cfg.VisibilityServer.BindPort,
+			configapi.DefaultVisibilityBindPort,
+		))
+		if cfg.VisibilityServer.BindAddress != nil {
+			o.BindAddress = net.ParseIP(*cfg.VisibilityServer.BindAddress)
+		}
+	}
 }
 
 func newVisibilityServerConfig(kubeConfig *rest.Config) *genericapiserver.RecommendedConfig {
