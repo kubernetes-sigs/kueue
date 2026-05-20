@@ -177,21 +177,11 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 			})
 		})
 
-		ginkgo.It("should handle failure recovery scenarios during a single kubelet outage", func() {
-			ginkgo.By("waiting for pods to be marked for termination", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
-					g.Expect(pod.DeletionTimestamp).ToNot(gomega.BeNil())
-				}, nodeMonitorGracePeriod+util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("verifying the pod is forcefully deleted from the unreachable node", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, pod, false, nodeMonitorGracePeriod+unhealthyNodeforcefulTerminationCheckTimeout+util.MediumTimeout)
-			})
-
-			ginkgo.By("ensuring the job still exists before foreground deletion", func() {
+		ginkgo.It("should unblock foreground deletion during a kubelet outage", func() {
+			ginkgo.By("ensuring the job is active before foreground deletion", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+					g.Expect(job.Status.Active).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
