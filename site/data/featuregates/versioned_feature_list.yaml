@@ -234,7 +234,7 @@
   - default: false
     lockToDefault: false
     preRelease: Alpha
-    version: "0.18"
+    version: "0.19"
 - name: MultiKueueManagerQuotaAutomation
   versionedSpecs:
   - default: false
