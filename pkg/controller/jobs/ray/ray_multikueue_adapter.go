@@ -124,14 +124,8 @@ func (a *adapter[PtrT, T]) SyncJob(
 	remoteJob = PtrT(new(T))
 	a.copySpec(remoteJob, localJob)
 
-	// add the prebuilt workload
-	labels := remoteJob.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string, 2)
-	}
-	labels[constants.PrebuiltWorkloadLabel] = workloadName
-	labels[kueue.MultiKueueOriginLabel] = origin
-	remoteJob.SetLabels(labels)
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(remoteJob, workloadName, origin)
 
 	// clearing the managedBy enables the controller to take over
 	a.setManagedBy(remoteJob, nil)
