@@ -186,13 +186,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 			})
 
 			ginkgo.By("verifying the pod is forcefully deleted from the unreachable node", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(
-					ctx,
-					k8sClient,
-					pod,
-					false,
-					nodeMonitorGracePeriod+unhealthyNodeforcefulTerminationCheckTimeout+util.MediumTimeout,
-				)
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, pod, false, nodeMonitorGracePeriod+unhealthyNodeforcefulTerminationCheckTimeout+util.MediumTimeout)
 			})
 
 			ginkgo.By("ensuring the job still exists before foreground deletion", func() {
@@ -202,25 +196,11 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 			})
 
 			ginkgo.By("deleting the job with foreground propagation", func() {
-				gomega.Expect(
-					k8sClient.Delete(
-						ctx,
-						job,
-						&client.DeleteOptions{
-							PropagationPolicy: ptr.To(metav1.DeletePropagationForeground),
-						},
-					),
-				).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationForeground)})).To(gomega.Succeed())
 			})
 
 			ginkgo.By("ensuring the job is deleted", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(
-					ctx,
-					k8sClient,
-					job,
-					false,
-					unhealthyNodeforcefulTerminationCheckTimeout+util.Timeout,
-				)
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, job, false, unhealthyNodeforcefulTerminationCheckTimeout+util.Timeout)
 			})
 		})
 	})
