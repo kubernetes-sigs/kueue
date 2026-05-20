@@ -45,10 +45,6 @@
     lockToDefault: true
     preRelease: Deprecated
     version: "0.18"
-  - default: false
-    lockToDefault: true
-    preRelease: Deprecated
-    version: "0.18"
 - name: DynamicResourceAllocation
   versionedSpecs:
   - default: false
