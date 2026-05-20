@@ -177,11 +177,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 			})
 		})
 
-		ginkgo.It("should delete pods running on an unreachable node", func() {
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, pod, false, nodeMonitorGracePeriod+unhealthyNodeforcefulTerminationCheckTimeout+util.MediumTimeout)
-		})
-
-		ginkgo.It("should unblock the stuck pod's parents that are being deleted with foreground propagation", func() {
+		ginkgo.It("should handle failure recovery scenarios during a single kubelet outage", func() {
 			ginkgo.By("waiting for pods to be marked for termination", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
@@ -189,12 +185,42 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 				}, nodeMonitorGracePeriod+util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("verifying the pod is forcefully deleted from the unreachable node", func() {
+				util.ExpectObjectToBeDeletedWithTimeout(
+					ctx,
+					k8sClient,
+					pod,
+					false,
+					nodeMonitorGracePeriod+unhealthyNodeforcefulTerminationCheckTimeout+util.MediumTimeout,
+				)
+			})
+
+			ginkgo.By("ensuring the job still exists before foreground deletion", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("deleting the job with foreground propagation", func() {
-				gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationForeground)})).To(gomega.Succeed())
+				gomega.Expect(
+					k8sClient.Delete(
+						ctx,
+						job,
+						&client.DeleteOptions{
+							PropagationPolicy: ptr.To(metav1.DeletePropagationForeground),
+						},
+					),
+				).To(gomega.Succeed())
 			})
 
 			ginkgo.By("ensuring the job is deleted", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, job, false, unhealthyNodeforcefulTerminationCheckTimeout+util.Timeout)
+				util.ExpectObjectToBeDeletedWithTimeout(
+					ctx,
+					k8sClient,
+					job,
+					false,
+					unhealthyNodeforcefulTerminationCheckTimeout+util.Timeout,
+				)
 			})
 		})
 	})
