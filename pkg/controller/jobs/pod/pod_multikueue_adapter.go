@@ -30,7 +30,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -175,12 +174,8 @@ func syncLocalPodWithRemote(
 		Spec:       *localPod.Spec.DeepCopy(),
 	}
 
-	// add the prebuilt workload
-	if remotePod.Labels == nil {
-		remotePod.Labels = map[string]string{}
-	}
-	remotePod.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remotePod.Labels[kueue.MultiKueueOriginLabel] = origin
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remotePod, workloadName, origin)
 
 	if err = remoteClient.Create(ctx, &remotePod); err != nil {
 		log.Error(err, "Failed to create remote pod", "podName", remotePod.Name)
