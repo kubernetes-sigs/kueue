@@ -99,6 +99,7 @@ function check_images() {
     local charts=(
       kueue
       kueue-populator
+      kueue-priority-booster
   )
 
   echo "Images:"
