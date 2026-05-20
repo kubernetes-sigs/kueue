@@ -61,8 +61,8 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 		job = testingjob.MakeJob("test-job", ns.Name).
 			Queue("lq").
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-			RequestAndLimit(corev1.ResourceCPU, "100m").
-			RequestAndLimit(corev1.ResourceMemory, "20Mi").
+			RequestAndLimit(corev1.ResourceCPU, "1").
+			RequestAndLimit(corev1.ResourceMemory, "40Mi").
 			Parallelism(1).
 			TerminationGracePeriod(podTerminationGracePeriodSeconds).
 			PodReplacementPolicy(ptr.To(batchv1.Failed)).
@@ -106,11 +106,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 		var (
 			cq       *kueue.ClusterQueue
 			lq       *kueue.LocalQueue
-			pod      *corev1.Pod
 			nodeName string
-
-			// Unresponsive node is marked as unreachable after the grace period.
-			nodeMonitorGracePeriod = 50 * time.Second
 
 			// `podToleration` + `deletionGracePeriodSeconds` + `forcefulTerminationGracePeriod`
 			unhealthyNodeforcefulTerminationCheckTimeout = (1 + podTerminationGracePeriodSeconds + 60) * time.Second
@@ -148,8 +144,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(job.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).To(gomega.HaveLen(1))
 
-					pod = &pods.Items[0]
-					nodeName = pod.Spec.NodeName
+					nodeName = pods.Items[0].Spec.NodeName
 					g.Expect(nodeName).ToNot(gomega.BeEmpty())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
