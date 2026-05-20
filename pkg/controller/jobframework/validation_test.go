@@ -311,7 +311,7 @@ func TestValidateJobOnUpdate(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlices: true,
 			},
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("metadata.labels["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
+				field.Invalid(field.NewPath("metadata.annotations["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
 			},
 		},
 		"elastic job enabled annotation cannot be added on update": {
@@ -321,7 +321,7 @@ func TestValidateJobOnUpdate(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlices: true,
 			},
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("metadata.labels["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
+				field.Invalid(field.NewPath("metadata.annotations["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
 			},
 		},
 	}
