@@ -1755,7 +1755,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			// from group.remotes (no pre-populated nominatedWorkers needed).
 			name:                  "AllClusters legacy: gate off, inline branch nominates from group.remotes",
 			dispatcherMode:        config.MultiKueueDispatcherModeAllAtOnce,
-			allAtOnceExternalGate: ptr.To(false),
+			allAtOnceExternalGate: new(bool),
 			remotes:               map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
 			wantCreated:           []string{remoteNames[0], remoteNames[1]},
 		},
