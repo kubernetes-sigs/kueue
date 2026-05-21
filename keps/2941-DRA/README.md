@@ -655,7 +655,7 @@ The rejection is enforced in the Reconcile loop: workloads are marked with
 with a message indicating that the `DynamicResourceAllocation` feature gate is not enabled.
 
 Administrators who intentionally want to admit DRA workloads without Kueue quota
-management can disable `KueueDRARejectWorkloadsWhenDRADisabled` to restore the previous behavior.
+management can disable `KueueDRARejectWorkloadsWhenDRADisabled` and `DynamicResourceAllocation` to restore the previous behavior.
 
 The steps above are reflected in the complete configuration and workload example below:
 
