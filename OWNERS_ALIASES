@@ -20,3 +20,5 @@ aliases:
     - pbundyra
   hugo-approvers:
     - mbobrovskyi
+  infra-approvers:
+    - mbobrovskyi
