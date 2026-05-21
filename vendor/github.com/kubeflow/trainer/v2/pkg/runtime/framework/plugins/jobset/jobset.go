@@ -178,8 +178,8 @@ func (j *JobSet) checkRuntimePatchesImmutability(ctx context.Context, oldObj, ne
 	// after the update (i.e. block only when it stays fully unsuspended).
 	// This lets external controllers (e.g. Kueue) update RuntimePatches and
 	// toggle spec.suspend in a single API request.
-	oldSuspended := ptr.Equal(oldObj.Spec.Suspend, new(true))
-	newSuspended := ptr.Equal(newObj.Spec.Suspend, new(true))
+	oldSuspended := ptr.Equal(oldObj.Spec.Suspend, ptr.To(true))
+	newSuspended := ptr.Equal(newObj.Spec.Suspend, ptr.To(true))
 	if changed {
 		if !oldSuspended && !newSuspended {
 			allErrs = append(allErrs, field.Forbidden(runtimePatchesPath, "RuntimePatches can only be modified when the TrainJob is suspended before or after the update"))

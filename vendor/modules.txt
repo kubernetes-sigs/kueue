@@ -240,7 +240,7 @@ github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
 github.com/kubeflow/spark-operator/v2/api/v1beta2
 github.com/kubeflow/spark-operator/v2/pkg/common
 github.com/kubeflow/spark-operator/v2/pkg/util
-# github.com/kubeflow/trainer/v2 v2.0.0-20260512164132-81803e638df3
+# github.com/kubeflow/trainer/v2 v2.2.1-0.20260515134202-448c432a7073
 ## explicit; go 1.26.0
 github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1
 github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1
