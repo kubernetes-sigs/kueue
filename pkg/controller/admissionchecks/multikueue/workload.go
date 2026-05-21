@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -761,7 +762,9 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
-		if !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+		s1 := sets.New(nominatedWorkers...)
+		s2 := sets.New(group.local.Status.NominatedClusterNames...)
+		if !s1.Equal(s2) {
 			// ClusterName != nil indicates possibly stale cache (eviction just cleared ClusterName
 			// but the informer hasn't caught up yet). Avoid creating remote workloads without a
 			// confirmed nomination — wait for the cache to sync.
