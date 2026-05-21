@@ -17,6 +17,8 @@ limitations under the License.
 package rayjob
 
 import (
+	"fmt"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -357,5 +359,18 @@ func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
 
 func (j *JobWrapper) MaxWorkerReplicas(count int32) *JobWrapper {
 	j.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = new(count)
+	return j
+}
+
+// RayStartParam sets a Ray start param for the specified ray node type.
+func (j *JobWrapper) RayStartParam(rayType rayv1.RayNodeType, key, value string) *JobWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		j.Spec.RayClusterSpec.HeadGroupSpec.RayStartParams[key] = value
+	case rayv1.WorkerNode:
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].RayStartParams[key] = value
+	default:
+		panic(fmt.Sprintf("unsupported RayNodeType: %v", rayType))
+	}
 	return j
 }
