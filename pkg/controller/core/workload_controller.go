@@ -54,6 +54,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -206,10 +207,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
-	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
-		// manual deletion triggered by the user
-		err := workload.RemoveFinalizer(ctx, r.client, &wl)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	// Finalize the workload if deletion was triggered by the user or by Job deletion.
+	if len(wl.OwnerReferences) == 0 && (!wl.DeletionTimestamp.IsZero() || wl.Labels[controllerconsts.JobUIDLabel] != "") {
+		err := workload.Finalize(ctx, r.client, &wl, r.clock)
+		return ctrl.Result{}, err
 	}
 
 	// Finish orphaned workloads whose controller owner no longer exists.
@@ -219,12 +220,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if ownerGone, err := r.isControllerOwnerGone(ctx, &wl); err != nil {
 			return ctrl.Result{}, err
 		} else if ownerGone {
-			log.V(2).Info("Workload is orphaned, finishing to release quota")
-			if err := workload.Finish(ctx, r.client, &wl, kueue.WorkloadFinishedReasonOwnerNotFound, "The workload's owner no longer exists", r.clock); err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
-			if err := workload.RemoveFinalizer(ctx, r.client, &wl); err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
+			if err := workload.Finalize(ctx, r.client, &wl, r.clock); err != nil {
+				return ctrl.Result{}, err
 			}
 			return ctrl.Result{}, nil
 		}

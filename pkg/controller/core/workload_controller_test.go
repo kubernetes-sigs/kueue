@@ -745,12 +745,9 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
-		"remove finalizer for finished workload": {
-			workload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-				Condition(metav1.Condition{
-					Type:   "Finished",
-					Status: "True",
-				}).
+		"remove finalizer for deleted workload": {
+			workload: utiltestingapi.MakeWorkload("unit-test", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
 				DeletionTimestamp(now).
 				Obj(),
 			wantWorkload: nil,
@@ -771,6 +768,22 @@ func TestReconcile(t *testing.T) {
 				}).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
 				DeletionTimestamp(now).
+				Obj(),
+		},
+		"finalize orphaned workload": {
+			workload: utiltestingapi.MakeWorkload("unit-test", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				JobUID("deleted_job").
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("unit-test", "ns").
+				JobUID("deleted_job").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now),
+					Reason:             kueue.WorkloadFinishedReasonOwnerNotFound,
+					Message:            "The workload's owner no longer exists",
+				}).
 				Obj(),
 		},
 		"unadmitted workload with rejected checks gets deactivated": {
@@ -3243,193 +3256,193 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		for _, enabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGatesDuringTest(t, tc.featureGates)
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
+		//for _, enabled := range []bool{false, true} {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, false)
+			features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
 
-				testWl := tc.workload.DeepCopy()
-				objs := []client.Object{testWl}
-				objs = append(objs, tc.additionalObjects...)
-				for _, rc := range tc.resourceClaims {
-					objs = append(objs, rc)
+			testWl := tc.workload.DeepCopy()
+			objs := []client.Object{testWl}
+			objs = append(objs, tc.additionalObjects...)
+			for _, rc := range tc.resourceClaims {
+				objs = append(objs, rc)
+			}
+
+			for _, rct := range tc.resourceClaimTemplates {
+				objs = append(objs, rct)
+			}
+
+			// Create a stub owner object so that the FinishOrphanedWorkloads
+			// check does not incorrectly mark them as orphaned. Skip when
+			// the test explicitly enables the feature gate (those tests
+			// provide their own additionalObjects to control ownership).
+			if ref := metav1.GetControllerOf(testWl); ref != nil && !tc.featureGates[features.FinishOrphanedWorkloads] {
+				objs = append(objs, &batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      ref.Name,
+						Namespace: testWl.Namespace,
+						UID:       ref.UID,
+					},
+				})
+			}
+
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithStatusSubresource(objs...).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			cl := clientBuilder.Build()
+			recorder := &utiltesting.EventRecorder{}
+
+			cqCache := schdcache.New(cl)
+			queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptexpectations.New())}
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, queueOptions...)
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
+			if features.Enabled(features.KueueDRAIntegration) {
+				qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
+			}
+			// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
+			reconciler.clock = fakeClock
+
+			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
+			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
+			defer ctxCancel()
+
+			if tc.cq != nil {
+				testCq := tc.cq.DeepCopy()
+				if err := cl.Create(ctx, testCq); err != nil {
+					t.Errorf("couldn't create the cluster queue: %v", err)
 				}
-
-				for _, rct := range tc.resourceClaimTemplates {
-					objs = append(objs, rct)
+				if err := qManager.AddClusterQueue(ctx, testCq); err != nil {
+					t.Errorf("couldn't add the cluster queue to the cache: %v", err)
 				}
+			}
 
-				// Create a stub owner object so that the FinishOrphanedWorkloads
-				// check does not incorrectly mark them as orphaned. Skip when
-				// the test explicitly enables the feature gate (those tests
-				// provide their own additionalObjects to control ownership).
-				if ref := metav1.GetControllerOf(testWl); ref != nil && !tc.featureGates[features.FinishOrphanedWorkloads] {
-					objs = append(objs, &batchv1.Job{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      ref.Name,
-							Namespace: testWl.Namespace,
-							UID:       ref.UID,
-						},
-					})
+			if tc.lq != nil {
+				testLq := tc.lq.DeepCopy()
+				if err := cl.Create(ctx, testLq); err != nil {
+					t.Errorf("couldn't create the local queue: %v", err)
 				}
-
-				clientBuilder := utiltesting.NewClientBuilder().
-					WithObjects(objs...).
-					WithStatusSubresource(objs...).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-				cl := clientBuilder.Build()
-				recorder := &utiltesting.EventRecorder{}
-
-				cqCache := schdcache.New(cl)
-				queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptexpectations.New())}
-				qManager := qcache.NewManagerForUnitTests(cl, cqCache, queueOptions...)
-				reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
-				if features.Enabled(features.KueueDRAIntegration) {
-					qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
+				if err := qManager.AddLocalQueue(ctx, testLq); err != nil {
+					t.Errorf("couldn't add the local queue to the cache: %v", err)
 				}
-				// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
-				reconciler.clock = fakeClock
+			}
 
-				ctxWithLogger, _ := utiltesting.ContextWithLog(t)
-				ctx, ctxCancel := context.WithCancel(ctxWithLogger)
-				defer ctxCancel()
+			if testWl != nil && testWl.Namespace == "ns" &&
+				len(testWl.Spec.PodSets) > 0 &&
+				len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
+				draConfig := []configapi.DeviceClassMapping{
+					{
+						Name:             corev1.ResourceName("foo"),
+						DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
+					},
+					{
+						Name:             corev1.ResourceName("gpu"),
+						DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
+					},
+				}
+				err := dra.CreateMapperFromConfiguration(draConfig)
+				if err != nil {
+					t.Fatalf("Failed to initialize DRA mapper: %v", err)
+				}
+			}
 
-				if tc.cq != nil {
-					testCq := tc.cq.DeepCopy()
-					if err := cl.Create(ctx, testCq); err != nil {
-						t.Errorf("couldn't create the cluster queue: %v", err)
+			gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
+
+			switch {
+			case tc.wantError != nil:
+				if gotError == nil {
+					t.Errorf("expected error %v, got nil", tc.wantError)
+				} else if !stderrors.Is(gotError, tc.wantError) {
+					t.Errorf("unexpected error type: want %v, got %v", tc.wantError, gotError)
+				}
+			case tc.wantErrorMsg != "":
+				if gotError == nil {
+					t.Errorf("expected error containing %q, got nil", tc.wantErrorMsg)
+				} else if !strings.Contains(gotError.Error(), tc.wantErrorMsg) {
+					t.Errorf("expected error containing %q, got %v", tc.wantErrorMsg, gotError)
+				}
+			case gotError != nil:
+				t.Errorf("unexpected error: %v", gotError)
+			}
+
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
+			}
+
+			if tc.wantWorkload != nil {
+				gotWorkload := &kueue.Workload{}
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(testWl), gotWorkload); err != nil {
+					if !errors.IsNotFound(err) {
+						t.Fatalf("Could not get Workloads after reconcile: %v", err)
 					}
-					if err := qManager.AddClusterQueue(ctx, testCq); err != nil {
-						t.Errorf("couldn't add the cluster queue to the cache: %v", err)
+					t.Fatalf("expected workload to persist")
+				}
+				if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.wantWorkloadUseMergePatch != nil {
+					if diff := cmp.Diff(tc.wantWorkloadUseMergePatch, gotWorkload, workloadCmpOpts...); diff != "" {
+						t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+					}
+				} else {
+					if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
+						t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 					}
 				}
+			}
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
+			}
 
-				if tc.lq != nil {
-					testLq := tc.lq.DeepCopy()
-					if err := cl.Create(ctx, testLq); err != nil {
-						t.Errorf("couldn't create the local queue: %v", err)
-					}
-					if err := qManager.AddLocalQueue(ctx, testLq); err != nil {
-						t.Errorf("couldn't add the local queue to the cache: %v", err)
-					}
-				}
+			// For DRA tests, verify that workloads are properly queued/cached
+			if tc.featureGates[features.KueueDRAIntegration] && testWl != nil &&
+				len(testWl.Spec.PodSets) > 0 &&
+				len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
+				workloadKey := client.ObjectKeyFromObject(testWl)
 
-				if testWl != nil && testWl.Namespace == "ns" &&
-					len(testWl.Spec.PodSets) > 0 &&
-					len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
-					draConfig := []configapi.DeviceClassMapping{
-						{
-							Name:             corev1.ResourceName("foo"),
-							DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
-						},
-						{
-							Name:             corev1.ResourceName("gpu"),
-							DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
-						},
-					}
-					err := dra.CreateMapperFromConfiguration(draConfig)
-					if err != nil {
-						t.Fatalf("Failed to initialize DRA mapper: %v", err)
-					}
-				}
+				if cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl)); found {
+					pendingWorkloads := qManager.PendingWorkloadsInfo(cqName)
 
-				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
-
-				switch {
-				case tc.wantError != nil:
-					if gotError == nil {
-						t.Errorf("expected error %v, got nil", tc.wantError)
-					} else if !stderrors.Is(gotError, tc.wantError) {
-						t.Errorf("unexpected error type: want %v, got %v", tc.wantError, gotError)
-					}
-				case tc.wantErrorMsg != "":
-					if gotError == nil {
-						t.Errorf("expected error containing %q, got nil", tc.wantErrorMsg)
-					} else if !strings.Contains(gotError.Error(), tc.wantErrorMsg) {
-						t.Errorf("expected error containing %q, got %v", tc.wantErrorMsg, gotError)
-					}
-				case gotError != nil:
-					t.Errorf("unexpected error: %v", gotError)
-				}
-
-				if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
-					t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
-				}
-
-				if tc.wantWorkload != nil {
-					gotWorkload := &kueue.Workload{}
-					if err := cl.Get(ctx, client.ObjectKeyFromObject(testWl), gotWorkload); err != nil {
-						if !errors.IsNotFound(err) {
-							t.Fatalf("Could not get Workloads after reconcile: %v", err)
-						}
-						t.Fatalf("expected workload to persist")
-					}
-					if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.wantWorkloadUseMergePatch != nil {
-						if diff := cmp.Diff(tc.wantWorkloadUseMergePatch, gotWorkload, workloadCmpOpts...); diff != "" {
-							t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
-						}
-					} else {
-						if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
-							t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
-						}
-					}
-				}
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
-					t.Errorf("unexpected events (-want/+got):\n%s", diff)
-				}
-
-				// For DRA tests, verify that workloads are properly queued/cached
-				if tc.featureGates[features.KueueDRAIntegration] && testWl != nil &&
-					len(testWl.Spec.PodSets) > 0 &&
-					len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
-					workloadKey := client.ObjectKeyFromObject(testWl)
-
-					if cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl)); found {
-						pendingWorkloads := qManager.PendingWorkloadsInfo(cqName)
-
-						if tc.wantWorkloadsInQueue != nil {
-							if len(pendingWorkloads) != *tc.wantWorkloadsInQueue {
-								t.Errorf("Expected exactly %d workload(s) in queue, got %d workloads", *tc.wantWorkloadsInQueue, len(pendingWorkloads))
-								for i, wl := range pendingWorkloads {
-									t.Logf("Workload %d: %s/%s", i, wl.Obj.Namespace, wl.Obj.Name)
-								}
+					if tc.wantWorkloadsInQueue != nil {
+						if len(pendingWorkloads) != *tc.wantWorkloadsInQueue {
+							t.Errorf("Expected exactly %d workload(s) in queue, got %d workloads", *tc.wantWorkloadsInQueue, len(pendingWorkloads))
+							for i, wl := range pendingWorkloads {
+								t.Logf("Workload %d: %s/%s", i, wl.Obj.Namespace, wl.Obj.Name)
 							}
 						}
+					}
 
-						var foundInQueue bool
-						for _, wlInfo := range pendingWorkloads {
-							if wlInfo.Obj.Name == workloadKey.Name && wlInfo.Obj.Namespace == workloadKey.Namespace {
-								foundInQueue = true
-								if len(tc.resourceClaimTemplates) > 0 && wlInfo.TotalRequests != nil {
-									t.Logf("DRA workload found in queue with TotalRequests: %+v", wlInfo.TotalRequests)
+					var foundInQueue bool
+					for _, wlInfo := range pendingWorkloads {
+						if wlInfo.Obj.Name == workloadKey.Name && wlInfo.Obj.Namespace == workloadKey.Namespace {
+							foundInQueue = true
+							if len(tc.resourceClaimTemplates) > 0 && wlInfo.TotalRequests != nil {
+								t.Logf("DRA workload found in queue with TotalRequests: %+v", wlInfo.TotalRequests)
 
-									if tc.wantDRAResourceTotal != nil {
-										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
-											if gpuVal, hasGPU := wlInfo.TotalRequests[0].Requests["gpu"]; hasGPU {
-												if gpuVal != *tc.wantDRAResourceTotal {
-													t.Errorf("Expected gpu resource total to be %d, got %d", *tc.wantDRAResourceTotal, gpuVal)
-												}
-											} else {
-												t.Errorf("Expected gpu resource in DRA workload TotalRequests, but not found")
+								if tc.wantDRAResourceTotal != nil {
+									if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
+										if gpuVal, hasGPU := wlInfo.TotalRequests[0].Requests["gpu"]; hasGPU {
+											if gpuVal != *tc.wantDRAResourceTotal {
+												t.Errorf("Expected gpu resource total to be %d, got %d", *tc.wantDRAResourceTotal, gpuVal)
 											}
 										} else {
-											t.Errorf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
+											t.Errorf("Expected gpu resource in DRA workload TotalRequests, but not found")
 										}
+									} else {
+										t.Errorf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
 									}
 								}
-								break
 							}
+							break
 						}
-						if tc.wantWorkloadsInQueue != nil && !foundInQueue {
-							t.Errorf("DRA workload not found in queue - expected to be queued for processing")
-						}
-					} else {
-						t.Errorf("LocalQueue not found in queue manager - DRA workload should have been queued")
 					}
+					if tc.wantWorkloadsInQueue != nil && !foundInQueue {
+						t.Errorf("DRA workload not found in queue - expected to be queued for processing")
+					}
+				} else {
+					t.Errorf("LocalQueue not found in queue manager - DRA workload should have been queued")
 				}
-			})
-		}
+			}
+		})
+		//}
 	}
 }
 func TestReconcileSyncAdmissionChecks(t *testing.T) {

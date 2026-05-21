@@ -37,6 +37,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -1541,6 +1542,23 @@ func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message str
 		LastTransitionTime: metav1.NewTime(clock.Now()),
 		// ObservedGeneration is added via workload.SetConditionAndUpdate
 	}
+}
+
+func Finalize(ctx context.Context, c client.Client, wl *kueue.Workload, clock clock.Clock) error {
+	if wl.DeletionTimestamp.IsZero() {
+		ctrl.LoggerFrom(ctx).V(2).Info("Workload is orphaned, finishing to release quota")
+		if err := Finish(ctx, c, wl,
+			kueue.WorkloadFinishedReasonOwnerNotFound,
+			"The workload's owner no longer exists",
+			clock,
+		); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+	}
+	if err := RemoveFinalizer(ctx, c, wl); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	return nil
 }
 
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
