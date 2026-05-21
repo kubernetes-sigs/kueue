@@ -58,8 +58,8 @@ function e2e_docker_pull_if_needed {
         return 0
     fi
 
-    local max_retries=5
-    local retry_delay=1
+    local max_retries=7
+    local retry_delay=2
     local attempt output
     for attempt in $(seq 1 "$max_retries"); do
         if output=$(docker pull "$image" 2>&1); then
