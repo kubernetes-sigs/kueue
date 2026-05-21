@@ -3082,6 +3082,35 @@ func TestSchedulingHash(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("DRA translation producing different TotalRequests produces different hash", func(t *testing.T) {
+		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+			features.SchedulingEquivalenceHashing: true,
+		})
+		wl := utiltestingapi.MakeWorkload("wl", "ns").
+			Request("example.com/gpu", "1").Obj()
+		before := NewInfo(wl)
+		before.UpdateSchedulingHash(logr.Discard())
+
+		after := NewInfo(wl, WithPreprocessedDRAResources(
+			map[kueue.PodSetReference]corev1.ResourceList{
+				kueue.DefaultPodSetName: {
+					"gpu": resource.MustParse("1"),
+				},
+			},
+			map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		))
+		after.UpdateSchedulingHash(logr.Discard())
+
+		if diff := cmp.Diff(before.TotalRequests, after.TotalRequests); diff == "" {
+			t.Fatal("precondition failed: TotalRequests should differ after DRA translation")
+		}
+		if before.SchedulingHash == after.SchedulingHash {
+			t.Errorf("expected different hashes after DRA translation, got same %q", before.SchedulingHash)
+		}
+	})
 }
 
 func TestUsedNodes(t *testing.T) {
