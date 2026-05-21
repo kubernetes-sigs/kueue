@@ -17,6 +17,8 @@ limitations under the License.
 package raycluster
 
 import (
+	"fmt"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -292,5 +294,18 @@ func (j *ClusterWrapper) Image(rayType rayv1.RayNodeType, image string, args []s
 
 func (j *ClusterWrapper) RayVersion(rv string) *ClusterWrapper {
 	j.Spec.RayVersion = rv
+	return j
+}
+
+// RayStartParam sets a Ray start param for the specified ray node type.
+func (j *ClusterWrapper) RayStartParam(rayType rayv1.RayNodeType, key, value string) *ClusterWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		j.Spec.HeadGroupSpec.RayStartParams[key] = value
+	case rayv1.WorkerNode:
+		j.Spec.WorkerGroupSpecs[0].RayStartParams[key] = value
+	default:
+		panic(fmt.Sprintf("unsupported RayNodeType: %v", rayType))
+	}
 	return j
 }
