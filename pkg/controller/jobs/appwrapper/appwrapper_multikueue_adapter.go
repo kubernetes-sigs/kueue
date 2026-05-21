@@ -76,7 +76,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteAppWrapper)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	aw := &awv1beta2.AppWrapper{}
 	aw.SetName(key.Name)
 	aw.SetNamespace(key.Namespace)

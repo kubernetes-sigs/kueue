@@ -32,7 +32,6 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
@@ -58,7 +57,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return syncPodGroup(ctx, localClient, remoteClient, key, workloadName, origin, groupName)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	pod := corev1.Pod{}
 	err := remoteClient.Get(ctx, key, &pod)
 	if err != nil {
@@ -70,14 +69,13 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient
 	}
 
 	groupName := podGroupName(pod)
-	podGroup := &corev1.PodList{}
-	err = remoteClient.List(ctx, podGroup, client.InNamespace(key.Namespace), client.MatchingLabels{podconstants.GroupNameLabel: groupName})
+	localPodGroup, err := listLocalPods(ctx, localClient, key.Namespace, groupName)
 	if err != nil {
 		return err
 	}
 
-	for _, remotePod := range podGroup.Items {
-		if err = client.IgnoreNotFound(remoteClient.Delete(ctx, &remotePod)); err != nil {
+	for _, localPod := range localPodGroup.Items {
+		if err = client.IgnoreNotFound(remoteClient.Delete(ctx, &localPod)); err != nil {
 			return err
 		}
 	}
@@ -121,8 +119,7 @@ func isPodAPartOfGroup(p corev1.Pod) bool {
 func syncPodGroup(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin, groupName string) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	localPodGroup := &corev1.PodList{}
-	err := localClient.List(ctx, localPodGroup, client.InNamespace(key.Namespace), client.MatchingLabels{podconstants.GroupNameLabel: groupName})
+	localPodGroup, err := listLocalPods(ctx, localClient, key.Namespace, groupName)
 	if err != nil {
 		return err
 	}
@@ -134,6 +131,14 @@ func syncPodGroup(ctx context.Context, localClient client.Client, remoteClient c
 	}
 
 	return nil
+}
+
+func listLocalPods(ctx context.Context, localClient client.Client, namespace, groupName string) (*corev1.PodList, error) {
+	pods := &corev1.PodList{}
+	if err := localClient.List(ctx, pods, client.InNamespace(namespace), client.MatchingFields{PodGroupNameCacheKey: groupName}); err != nil {
+		return nil, err
+	}
+	return pods, nil
 }
 
 func syncLocalPodWithRemote(
