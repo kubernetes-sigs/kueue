@@ -20,8 +20,10 @@ import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 )
 
@@ -73,4 +75,15 @@ func sanitizeContainer(container *corev1.Container) {
 	for _, envVars := range envVarGroups.InOrder {
 		container.Env = append(container.Env, envVars[len(envVars)-1])
 	}
+}
+
+// SetMultiKueueMeta sets the MultiKueue origin label and the prebuilt workload label on the given object.
+func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
+	objLabels := obj.GetLabels()
+	if objLabels == nil {
+		objLabels = make(map[string]string, 2)
+	}
+	objLabels[kueue.MultiKueueOriginLabel] = origin
+	objLabels[controllerconstants.PrebuiltWorkloadLabel] = workloadName
+	obj.SetLabels(objLabels)
 }

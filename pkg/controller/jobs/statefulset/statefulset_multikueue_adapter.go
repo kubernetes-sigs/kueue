@@ -63,12 +63,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		Spec:       *localStatefulSet.Spec.DeepCopy(),
 	}
 
-	// add the prebuilt workload
-	if remoteStatefulSet.Labels == nil {
-		remoteStatefulSet.Labels = map[string]string{}
-	}
-	remoteStatefulSet.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteStatefulSet.Labels[kueue.MultiKueueOriginLabel] = origin
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remoteStatefulSet, workloadName, origin)
 
 	if remoteStatefulSet.Annotations == nil {
 		remoteStatefulSet.Annotations = make(map[string]string, 1)

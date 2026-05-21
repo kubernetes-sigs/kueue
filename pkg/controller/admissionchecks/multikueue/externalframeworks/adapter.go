@@ -94,14 +94,8 @@ func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Cl
 	// Apply default transformation: remove the managedBy field
 	a.removeManagedByField(remoteObj)
 
-	// Add MultiKueue labels
-	labels := remoteObj.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string)
-	}
-	labels[constants.PrebuiltWorkloadLabel] = workloadName
-	labels[kueue.MultiKueueOriginLabel] = origin
-	remoteObj.SetLabels(labels)
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(remoteObj, workloadName, origin)
 
 	// Create the object in the remote cluster
 	log.V(2).Info("Creating remote object", "gvk", a.gvk, "name", remoteObj.GetName(), "namespace", remoteObj.GetNamespace())

@@ -67,12 +67,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		Spec:       *localAppWrapper.Spec.DeepCopy(),
 	}
 
-	// add the prebuilt workload
-	if remoteAppWrapper.Labels == nil {
-		remoteAppWrapper.Labels = map[string]string{}
-	}
-	remoteAppWrapper.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteAppWrapper.Labels[kueue.MultiKueueOriginLabel] = origin
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remoteAppWrapper, workloadName, origin)
 
 	// clear the managedBy to enable the remote AppWrapper controller to take over
 	remoteAppWrapper.Spec.ManagedBy = nil
