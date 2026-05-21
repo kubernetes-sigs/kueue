@@ -136,6 +136,41 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 		})
 
 		ginkgo.When("Using single pod", func() {
+			ginkgo.It("should admit pod", func() {
+				p := testingpod.MakePod("pod", ns.Name).
+					Queue(lq.Name).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					Obj()
+				util.MustCreate(ctx, k8sClient, p)
+
+				createdPod := &corev1.Pod{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), createdPod)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Expect(createdPod.Spec.SchedulingGates).To(
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
+					"Pod should have scheduling gate",
+				)
+
+				gomega.Expect(createdPod.Labels).To(
+					gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue),
+					"Pod should have the label",
+				)
+
+				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabelKey),
+					"Pod should have finalizer")
+
+				time.Sleep(10 * time.Second)
+
+				wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(p.Name, p.UID), Namespace: ns.Name}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.It("Should reconcile the single pod with the queue name", framework.SlowSpec, func() {
 				pod := testingpod.MakePod(podName, ns.Name).
 					Queue("test-queue").
