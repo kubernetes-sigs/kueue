@@ -766,7 +766,14 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
-		if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+
+		if !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+			// ClusterName != nil indicates possibly stale cache (eviction just cleared ClusterName
+			// but the informer hasn't caught up yet). Avoid creating remote workloads without a
+			// confirmed nomination — wait for the cache to sync.
+			if group.local.Status.ClusterName != nil {
+				return reconcile.Result{}, nil
+			}
 			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				wl.Status.NominatedClusterNames = nominatedWorkers
 				return true, nil
