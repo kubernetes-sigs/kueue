@@ -21,7 +21,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta2.
 - [Topology](#kueue-x-k8s-io-v1beta2-Topology)
 - [Workload](#kueue-x-k8s-io-v1beta2-Workload)
 - [WorkloadPriorityClass](#kueue-x-k8s-io-v1beta2-WorkloadPriorityClass)
-  
+
 
 ## `AdmissionCheck`     {#kueue-x-k8s-io-v1beta2-AdmissionCheck}
     
@@ -3681,7 +3681,7 @@ This may be an empty string.</p>
 <td>
    <p>podSets is a list of sets of homogeneous pods, each described by a Pod spec
 and a count.
-There must be at least one element and at most 8.
+There must be at least one element and at most 16.
 podSets cannot be changed.</p>
 </td>
 </tr>
@@ -3876,4 +3876,3 @@ can trigger preemptions.</p>
 </tr>
 </tbody>
 </table>
-  

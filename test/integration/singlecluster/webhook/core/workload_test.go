@@ -44,7 +44,7 @@ var ns *corev1.Namespace
 
 const (
 	workloadName    = "workload-test"
-	podSetsMaxItems = 8
+	podSetsMaxItems = 16
 )
 
 var _ = ginkgo.Describe("Workload defaulting webhook", ginkgo.Ordered, func() {
@@ -140,7 +140,8 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			}
 		},
 			ginkgo.Entry("podSets count less than 1", 0, 1, true),
-			ginkgo.Entry("podSets count more than 8", podSetsMaxItems+1, 1, true),
+			ginkgo.Entry("podSets count at the maximum", podSetsMaxItems, 1, false),
+			ginkgo.Entry("podSets count more than 16", podSetsMaxItems+1, 1, true),
 			ginkgo.Entry("valid podSet, count can be 0", 3, 0, false),
 			ginkgo.Entry("valid podSet", 3, 3, false),
 		)

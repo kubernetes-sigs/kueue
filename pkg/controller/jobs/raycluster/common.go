@@ -216,9 +216,9 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 		)
 	}
 
-	// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
-	if len(rayClusterSpec.WorkerGroupSpecs) > 7 {
-		allErrors = append(allErrors, field.TooMany(rayClusterSpecPath.Child("workerGroupSpecs"), len(rayClusterSpec.WorkerGroupSpecs), 7))
+	// Should limit the worker count to max PodSets minus the cluster head.
+	if len(rayClusterSpec.WorkerGroupSpecs) > jobframework.MaxPodSets-1 {
+		allErrors = append(allErrors, field.TooMany(rayClusterSpecPath.Child("workerGroupSpecs"), len(rayClusterSpec.WorkerGroupSpecs), jobframework.MaxPodSets-1))
 	}
 
 	// None of the workerGroups should be named "head"

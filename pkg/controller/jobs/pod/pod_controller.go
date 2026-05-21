@@ -64,7 +64,7 @@ import (
 const (
 	FrameworkName                  = "pod"
 	ConditionTypeTerminationTarget = "TerminationTarget"
-	errMsgIncorrectGroupRoleCount  = "pod group can't include more than 8 roles"
+	errMsgIncorrectGroupRoleCount  = "pod group can't include more than 16 roles"
 )
 
 // Event reasons used by the pod controller
@@ -1129,7 +1129,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		}
 		return nil, err
 	}
-	if len(podSets) > 8 {
+	if len(podSets) > jobframework.MaxPodSets {
 		return nil, jobframework.UnretryableError(errMsgIncorrectGroupRoleCount)
 	}
 
