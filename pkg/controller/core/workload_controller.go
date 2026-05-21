@@ -265,10 +265,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		log.V(2).Info("Deleting workload because it has finished and the retention period has elapsed", "retention", *r.workloadRetention.afterFinished)
-		if err := r.client.Delete(ctx, &wl); err != nil {
+
+		// Finished Workloads should no longer need Kueue's resource-in-use finalizer.
+		// However, WorkloadSlices and other paths can mark a Workload as Finished without
+		// going through the job finalization path that normally removes it. Remove only
+		// Kueue's finalizer before deleting; otherwise Kubernetes may only set
+		// deletionTimestamp and the Workload can remain stuck until the finalizer is removed.
+		deleteRequested, err := workload.Delete(ctx, r.client, &wl)
+		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
-		r.recorder.Eventf(&wl, nil, corev1.EventTypeNormal, "Deleted", "Deleted", "Deleted finished workload due to elapsed retention")
+		if deleteRequested {
+			r.recorder.Eventf(&wl, nil, corev1.EventTypeNormal, "Deleted", "Deleted", "Deleted finished workload due to elapsed retention")
+		}
+
 		return ctrl.Result{}, nil
 	}
 
@@ -288,7 +298,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
 			err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-				updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now())
+				updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, "KueueDRAIntegration feature does not support use of resource claims", r.clock.Now())
 				if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false) {
 					updated = true
 				}
@@ -323,7 +333,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// Process Extended Resources backed by DRA (new path)
 		var extendedResources map[kueue.PodSetReference]corev1.ResourceList
 		var replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
-		if features.Enabled(features.DRAExtendedResources) {
+		if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 			var extFieldErrs field.ErrorList
 			extendedResources, replacedExtendedResources, extFieldErrs = dra.ResolveExtendedResourceQuota(ctx, r.client, &wl)
 			if len(extFieldErrs) > 0 {

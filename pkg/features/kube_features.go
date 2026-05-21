@@ -175,7 +175,10 @@ const (
 	// owner: @alaypatel07
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
 	//
-	// Enable quota accounting for Dynamic Resource Allocation (DRA) devices in workloads
+	// Enable quota accounting for Dynamic Resource Allocation (DRA) devices in workloads.
+	KueueDRAIntegration featuregate.Feature = "KueueDRAIntegration"
+
+	// Deprecated: planned to be removed in 0.19. Use KueueDRAIntegration instead.
 	DynamicResourceAllocation featuregate.Feature = "DynamicResourceAllocation"
 
 	// owner: @sohankunkerkar
@@ -183,6 +186,9 @@ const (
 	//
 	// Enable extended resources support for DRA. Allows workloads to request DRA devices
 	// via standard resources.requests using DeviceClass extendedResourceName.
+	KueueDRAIntegrationExtendedResource featuregate.Feature = "KueueDRAIntegrationExtendedResource"
+
+	// Deprecated: planned to be removed in 0.19. Use KueueDRAIntegrationExtendedResource instead.
 	DRAExtendedResources featuregate.Feature = "DRAExtendedResources"
 
 	// owner: @MaysaMacedo
@@ -382,6 +388,26 @@ const (
 
 	// Enable recording of WorkloadCreationLatency metric.
 	MetricForWorkloadCreationLatency featuregate.Feature = "MetricForWorkloadCreationLatency"
+
+	// owner: @j-skiba
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10902
+	// Enable evaluation of preferredDuringSchedulingIgnoredDuringExecution node affinities during scheduling in TAS.
+	// The preferred affinity will take precedence over the placement policy (eg. BestFit , LeastFreeCapacity).
+	TASRespectNodeAffinityPreferred featuregate.Feature = "TASRespectNodeAffinityPreferred"
+
+	// owner: @olekzabl
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation
+	//
+	// Enables MultiKueue manager quota automation support.
+	MultiKueueManagerQuotaAutomation featuregate.Feature = "MultiKueueManagerQuotaAutomation"
+
+	// owner: @ivnovakov
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10032
+	//
+	// WorkloadIdentifierAnnotations makes Kueue read and write the workload identifiers
+	// (pod-group-name and prebuilt-workload-name) via annotations. When the gate is
+	// disabled, the label-based identifiers are used instead.
+	WorkloadIdentifierAnnotations featuregate.Feature = "WorkloadIdentifierAnnotations"
 )
 
 func init() {
@@ -484,11 +510,19 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASBalancedPlacement: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
+	KueueDRAIntegration: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
 	DynamicResourceAllocation: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.19
+	},
+	KueueDRAIntegrationExtendedResource: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	DRAExtendedResources: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.19
 	},
 	MultiKueueAdaptersForCustomJobs: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
@@ -591,6 +625,15 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MetricForWorkloadCreationLatency: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
+	},
+	TASRespectNodeAffinityPreferred: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MultiKueueManagerQuotaAutomation: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	WorkloadIdentifierAnnotations: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

@@ -73,7 +73,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 	})
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
 
 		managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-dra-")
 		worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)

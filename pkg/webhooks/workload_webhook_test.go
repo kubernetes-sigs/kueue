@@ -408,6 +408,16 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "valid.com/gate,invalid gate.com/controller", ""),
 			},
 		},
+		"partial admission and elastic job cannot be used together": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("main", 10).SetMinimumCount(5).Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("podSets"), 1, ""),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {

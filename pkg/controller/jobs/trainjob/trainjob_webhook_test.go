@@ -77,7 +77,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"with prebuilt workload": {
 			clusterTrainingRuntime: testCtr,
-			trainJob:               testTrainJob.Clone().Queue("local-queue").Label(controllerconstants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			trainJob:               testTrainJob.Clone().Queue("local-queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr:                nil,
 		},
 		"valid topology request in RuntimePatch": {
@@ -167,9 +167,9 @@ func TestValidateCreate(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			webhook := &TrainJobWebhook{}
 			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme)
 			kClient := clientBuilder.WithObjects(tc.trainJob, tc.clusterTrainingRuntime).Build()
+			webhook := &TrainJobWebhook{client: kClient}
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)

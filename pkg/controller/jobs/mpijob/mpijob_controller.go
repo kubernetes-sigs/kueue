@@ -109,7 +109,7 @@ func (j *MPIJob) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s,%s=%s", kfmpi.JobNameLabel, j.Name, kfmpi.OperatorNameLabel, kfmpi.OperatorName)
 }
 
-func (j *MPIJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *MPIJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	replicaTypes := orderedReplicaTypes(&j.Spec)
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, mpiReplicaType := range replicaTypes {
@@ -131,7 +131,7 @@ func (j *MPIJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
 	j.Spec.RunPolicy.Suspend = new(false)
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 
@@ -191,7 +191,7 @@ func (j *MPIJob) PriorityClass() string {
 	return ""
 }
 
-func (j *MPIJob) PodsReady(ctx context.Context) bool {
+func (j *MPIJob) PodsReady(ctx context.Context, _ client.Client) bool {
 	for _, c := range j.Status.Conditions {
 		if c.Type == kfmpi.JobRunning && c.Status == corev1.ConditionTrue {
 			return true

@@ -268,7 +268,7 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 		}
 	}
 	// Index DeviceClasses by extendedResourceName for fast lookup during extended resource translation.
-	if features.Enabled(features.DRAExtendedResources) {
+	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		if err := indexer.IndexField(ctx, &resourceapi.DeviceClass{}, DeviceClassExtendedResourceNameIndex, IndexDeviceClassExtendedResourceName); err != nil {
 			return fmt.Errorf("setting index on extendedResourceName for DeviceClass: %w", err)
 		}

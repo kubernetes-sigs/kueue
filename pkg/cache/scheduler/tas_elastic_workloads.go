@@ -82,14 +82,8 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	deltaRequest.Count = deltaCount
 	deltaRequest.PreviousAssignment = nil
 
-	// Previous pods consume capacity
-	prevAssumedUsage := utiltas.ComputeUsagePerDomain(prevAssignment, workers.SinglePodRequests)
-	for domainID, usage := range prevAssumedUsage {
-		if assumedUsage[domainID] == nil {
-			assumedUsage[domainID] = resources.Requests{}
-		}
-		assumedUsage[domainID].Add(usage)
-	}
+	// Previous pods consume capacity.
+	addAssumedUsage(assumedUsage, prevAssignment, &workers)
 
 	deltaAssignments, reason := s.findTopologyAssignment(deltaRequest, leader, assumedUsage, opts.simulateEmpty, "")
 	if reason != "" {

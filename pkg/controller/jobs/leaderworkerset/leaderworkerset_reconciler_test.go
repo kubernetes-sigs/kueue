@@ -403,6 +403,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with required topology annotation": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
 				Size(3).
@@ -649,6 +650,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should update prebuilt workload if queue-name label is set": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
 				Queue("queue").
@@ -710,6 +712,7 @@ func TestReconciler(t *testing.T) {
 			wantEvents: nil,
 		},
 		"should update prebuilt workload if queue-name label is updated": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
 				Queue("queue").
@@ -1117,6 +1120,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should finalize pods if leaderworkerset is deleted": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: nil,
 			statefulSets: []appsv1.StatefulSet{
 				*statefulset.MakeStatefulSet(testSTS, testNS).
@@ -1147,6 +1151,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should finalize pods if statefulSet is deleted": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets:    nil,
 			workloads: []kueue.Workload{
@@ -1207,6 +1212,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should finalize succeeded pod": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
 				*statefulset.MakeStatefulSet(testSTS, testNS).
@@ -1273,6 +1279,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should finalize failed pod": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
 				*statefulset.MakeStatefulSet(testSTS, testNS).
@@ -1349,6 +1356,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should finalize deleted pod": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
 				*statefulset.MakeStatefulSet(testSTS, testNS).
@@ -1411,6 +1419,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: nil,
 		},
 		"shouldn't set default values with managed-by-kueue label": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
 				*statefulset.MakeStatefulSet(testSTS, testNS).
@@ -1476,6 +1485,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't set default values without group index label": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
 				*statefulset.MakeStatefulSet(testSTS, testNS).
@@ -1539,6 +1549,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should set default values even if queue-name changed and workload has quota reservation": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Queue("queue").Obj(),
 			statefulSets: []appsv1.StatefulSet{
 				*statefulset.MakeStatefulSet(testSTS, testNS).
@@ -1622,6 +1633,7 @@ func TestReconciler(t *testing.T) {
 		},
 		// Leader pod doesn't have a leaderworkerset.sigs.k8s.io/leader-name annotation.
 		"should set default values (worker template, leader pod)": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
 				*statefulset.MakeStatefulSet(testSTS, testNS).
@@ -1691,6 +1703,7 @@ func TestReconciler(t *testing.T) {
 		},
 		// Worker pod has a leaderworkerset.sigs.k8s.io/leader-name annotation.
 		"should set default values (worker template, worker pod)": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
 				*statefulset.MakeStatefulSet(testSTS, testNS).
@@ -1762,6 +1775,7 @@ func TestReconciler(t *testing.T) {
 		},
 		// Leader pod doesn't have a leaderworkerset.sigs.k8s.io/leader-name annotation.
 		"should set default values (leader+worker template, leader pod)": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).
 				LeaderTemplate(corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
@@ -1865,6 +1879,7 @@ func TestReconciler(t *testing.T) {
 		},
 		// Worker pod has a leaderworkerset.sigs.k8s.io/leader-name annotation.
 		"should set default values (leader+worker template, worker pod)": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).
 				LeaderTemplate(corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
@@ -1969,6 +1984,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should set default values using origin UID in MultiKueue scenario": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).
 				Label(kueue.MultiKueueOriginLabel, "origin1").
 				Annotation(kueue.MultiKueueOriginUIDAnnotation, "origin-uid").

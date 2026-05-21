@@ -26,12 +26,14 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -58,8 +60,10 @@ func TestMultiKueueAdapter(t *testing.T) {
 		wantError           error
 		wantManagersRayJobs []rayv1.RayJob
 		wantWorkerRayJobs   []rayv1.RayJob
+		featureGates        map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote rayjob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.DeepCopy(),
 			},
@@ -78,6 +82,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote rayjob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.DeepCopy(),
 			},
@@ -106,6 +111,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote while local rayjob is suspended": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
 					Suspend(true).
@@ -138,6 +144,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"remote rayjob is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
@@ -145,10 +152,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace})
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace})
 			},
 		},
 		"job with wrong managedBy is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
 					ManagedBy("some-other-controller").
@@ -168,6 +176,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 
 		"job managedBy multikueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
 					ManagedBy(kueue.MultiKueueControllerName).
@@ -186,6 +195,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"missing job is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
@@ -193,9 +203,28 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 		},
+		"sync creates missing remote rayjob, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.DeepCopy(),
+			},
+			wantWorkerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadAnnotation("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			managerBuilder = managerBuilder.WithLists(&rayv1.RayJobList{Items: tc.managersRayJobs})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersRayJobs, func(w *rayv1.RayJob) client.Object { return w })...)

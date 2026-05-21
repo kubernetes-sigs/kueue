@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,8 +63,8 @@ var (
 	errCannotWatch   = errors.New("client cannot watch")
 )
 
-func fakeClientBuilder(ctx context.Context) func(*clientConfig, client.Options) (client.WithWatch, error) {
-	return func(config *clientConfig, _ client.Options) (client.WithWatch, error) {
+func fakeClientBuilder(ctx context.Context) func(context.Context, *clientConfig, client.Options) (SelectivelyCachingClient, error) {
+	return func(builderCtx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error) {
 		kubeconfig := config.Kubeconfig
 		if strings.Contains(string(kubeconfig), "invalid") {
 			return nil, errInvalidConfig
@@ -77,7 +78,7 @@ func fakeClientBuilder(ctx context.Context) func(*clientConfig, client.Options) 
 				return client.Watch(ctx, obj, opts...)
 			},
 		})
-		return b.Build(), nil
+		return NewNeverCachingClient(b.Build()), nil
 	}
 }
 
@@ -287,7 +288,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, cancelCalled),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil), 1),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -296,6 +297,7 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRequeueAfter: 5 * time.Second,
 			wantCancelCalled: 1,
 		},
 		"update client with invalid path config": {
@@ -444,7 +446,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": setReconnectState(newTestClient(ctx, []byte("nowatch"), nil, cancelCalled), 5),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil), 1),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -453,6 +455,7 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRequeueAfter: 5 * time.Second,
 			wantCancelCalled: 1,
 		},
 		"failed due to insecure kubeconfig": {
@@ -823,12 +826,12 @@ func TestReconnectBackoff(t *testing.T) {
 
 			var buildCalls int
 			inner := fakeClientBuilder(ctx)
-			reconciler.builderOverride = func(cfg *clientConfig, opts client.Options) (client.WithWatch, error) {
+			reconciler.builderOverride = func(builderCtx context.Context, cfg *clientConfig, opts client.Options) (SelectivelyCachingClient, error) {
 				buildCalls++
-				return inner(cfg, opts)
+				return inner(builderCtx, cfg, opts)
 			}
 
-			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, defaultOrigin, "worker1", adapters)
+			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
 			rc.clock = fc
 			rc.builderOverride = reconciler.builderOverride
 			reconciler.remoteClients["worker1"] = rc
@@ -958,10 +961,10 @@ func TestRemoteClientGC(t *testing.T) {
 
 			worker1Builder := getClientBuilder(ctx)
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}, &batchv1.JobList{Items: tc.workersJobs})
-			worker1Client := worker1Builder.Build()
+			worker1Client := NewNeverCachingClient(worker1Builder.Build())
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connecting.Store(false)
 
@@ -1158,5 +1161,200 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 				t.Errorf("unexpected reconcile decision: want %v, got %v", tc.wantReconcile, got)
 			}
 		})
+	}
+}
+
+func TestEstablishWatch(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	const testTimeout = 100 * time.Millisecond
+	errBoom := errors.New("boom")
+
+	cases := map[string]struct {
+		interceptor interceptor.Funcs
+		wantErr     error
+		maxElapsed  time.Duration
+	}{
+		"hung Watch times out": {
+			interceptor: interceptor.Funcs{
+				Watch: func(ctx context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+					<-ctx.Done()
+					return nil, ctx.Err()
+				},
+			},
+			wantErr:    errWatchEstablishTimeout,
+			maxElapsed: 10 * testTimeout,
+		},
+		"Watch error propagates": {
+			interceptor: interceptor.Funcs{
+				Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+					return nil, errBoom
+				},
+			},
+			wantErr: errBoom,
+		},
+		"success returns without waiting": {
+			maxElapsed: testTimeout,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := getClientBuilder(ctx).WithInterceptorFuncs(tc.interceptor).Build()
+
+			start := time.Now()
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
+			elapsed := time.Since(start)
+
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("want err %v, got: %v", tc.wantErr, err)
+			}
+			if (err == nil) != (w != nil) {
+				t.Fatalf("watcher/err mismatch: err=%v, w=%v", err, w)
+			}
+			if w != nil {
+				w.Stop()
+			}
+			if tc.maxElapsed > 0 && elapsed >= tc.maxElapsed {
+				t.Fatalf("took %v, expected < %v", elapsed, tc.maxElapsed)
+			}
+		})
+	}
+
+	// Watch races with the timeout: returns a non-nil watcher just after
+	// time.After fires. Must Stop() it to avoid leaking the stream.
+	t.Run("racing watcher is stopped on timeout", func(t *testing.T) {
+		fw := watch.NewFake()
+		c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+				time.Sleep(2 * testTimeout)
+				return fw, nil
+			},
+		}).Build()
+
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
+		if !errors.Is(err, errWatchEstablishTimeout) {
+			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
+		}
+		if w != nil {
+			t.Fatalf("want nil watcher, got: %v", w)
+		}
+		if !fw.IsStopped() {
+			t.Fatal("racing watcher was not Stop()ed; would leak")
+		}
+	})
+}
+
+// Pins the schedule produced by establishBackoff: 1m, 2m, 4m, 8m, 10m, 10m, ...
+// The helper itself is tested in pkg/util/wait; this is a guard against
+// accidental changes to the initial/cap/factor wiring.
+func TestEstablishBackoffSchedule(t *testing.T) {
+	cases := map[string]struct {
+		failedAttempts uint
+		want           time.Duration
+	}{
+		"first attempt is initial":  {failedAttempts: 0, want: 1 * time.Minute},
+		"one failure doubles":       {failedAttempts: 1, want: 2 * time.Minute},
+		"two failures":              {failedAttempts: 2, want: 4 * time.Minute},
+		"three failures":            {failedAttempts: 3, want: 8 * time.Minute},
+		"four failures hits cap":    {failedAttempts: 4, want: maxEstablishTimeout},
+		"many failures stay at cap": {failedAttempts: 20, want: maxEstablishTimeout},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := establishBackoff.WaitTime(int(tc.failedAttempts) + 1)
+			if got != tc.want {
+				t.Fatalf("WaitTime(%d) = %v, want %v", tc.failedAttempts+1, got, tc.want)
+			}
+		})
+	}
+}
+
+// Regression for #11297. A remote stuck inside Watch must not stop
+// reconciles of other clusters.
+func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
+	// stuckWatchTimeout is the per-phase budget for the test: how long we
+	// wait for the slow watch to be reached, for the fast reconcile to
+	// finish, and for the slow goroutine to clean up after release. Generous
+	// enough to survive a loaded CI runner.
+	const stuckWatchTimeout = 5 * time.Second
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	slowReached := make(chan struct{})
+	slowRelease := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseSlow := func() { releaseOnce.Do(func() { close(slowRelease) }) }
+	t.Cleanup(releaseSlow)
+
+	gatedBuilder := func(_ context.Context, config *clientConfig, _ client.Options) (SelectivelyCachingClient, error) {
+		kubeconfig := string(config.Kubeconfig)
+		b := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(watchCtx context.Context, c client.WithWatch, obj client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
+				if strings.Contains(kubeconfig, "slow-user") {
+					close(slowReached)
+					select {
+					case <-slowRelease:
+						return nil, errors.New("released")
+					case <-watchCtx.Done():
+						return nil, watchCtx.Err()
+					}
+				}
+				return c.Watch(watchCtx, obj, opts...)
+			},
+		})
+		return NewNeverCachingClient(b.Build()), nil
+	}
+
+	slowCluster := utiltestingapi.MakeMultiKueueCluster("cluster-slow").
+		KubeConfig(kueue.SecretLocationType, "secret-slow").Generation(1).Obj()
+	fastCluster := utiltestingapi.MakeMultiKueueCluster("cluster-fast").
+		KubeConfig(kueue.SecretLocationType, "secret-fast").Generation(1).Obj()
+	slowSecret := makeTestSecret("secret-slow", testKubeconfig("slow-user"))
+	fastSecret := makeTestSecret("secret-fast", testKubeconfig("fast-user"))
+
+	localClient := getClientBuilder(ctx).
+		WithLists(&kueue.MultiKueueClusterList{Items: []kueue.MultiKueueCluster{*slowCluster, *fastCluster}}).
+		WithLists(&corev1.SecretList{Items: []corev1.Secret{slowSecret, fastSecret}}).
+		WithStatusSubresource(slowCluster, fastCluster).
+		Build()
+
+	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileCreds{}, nil)
+	reconciler.rootContext = ctx
+	reconciler.builderOverride = gatedBuilder
+
+	slowDone := make(chan struct{})
+	go func() {
+		defer close(slowDone)
+		_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-slow"}})
+	}()
+
+	select {
+	case <-slowReached:
+	case <-time.After(stuckWatchTimeout):
+		t.Fatal("slow cluster's reconcile did not reach the Watch call in time")
+	}
+
+	fastDone := make(chan error, 1)
+	go func() {
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-fast"}})
+		fastDone <- err
+	}()
+
+	select {
+	case err := <-fastDone:
+		if err != nil {
+			t.Fatalf("cluster-fast reconcile returned err: %v", err)
+		}
+	case <-time.After(stuckWatchTimeout):
+		t.Fatal("cluster-fast reconcile was blocked by cluster-slow (head-of-line)")
+	}
+
+	releaseSlow()
+	select {
+	case <-slowDone:
+	case <-time.After(stuckWatchTimeout):
+		t.Fatal("slow goroutine did not exit after release")
 	}
 }

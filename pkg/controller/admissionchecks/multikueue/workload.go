@@ -82,6 +82,7 @@ var _ reconcile.Reconciler = (*wlReconciler)(nil)
 
 type wlGroup struct {
 	local         *kueue.Workload
+	localClient   client.Client
 	remotes       map[string]*kueue.Workload
 	remoteClients map[string]*remoteClient
 	acName        kueue.AdmissionCheckReference
@@ -132,7 +133,7 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
-	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.remoteClients[cluster].client, g.controllerKey); err != nil {
+	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.localClient, g.remoteClients[cluster].client, g.controllerKey); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 
@@ -302,6 +303,7 @@ func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acN
 
 	grp := wlGroup{
 		local:         local,
+		localClient:   w.client,
 		remotes:       make(map[string]*kueue.Workload, len(rClients)),
 		remoteClients: rClients,
 		acName:        acName,

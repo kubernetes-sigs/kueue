@@ -210,7 +210,7 @@ func (j *Job) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", batchv1.JobNameLabel, j.Name)
 }
 
-func (j *Job) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
+func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.ReclaimablePod, error) {
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	if parallelism == 1 || j.Status.Succeeded == 0 {
 		return nil, nil
@@ -247,7 +247,7 @@ func cleanLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 	return pt
 }
 
-func (j *Job) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *Job) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	podSet := kueue.PodSet{
 		Name:     kueue.DefaultPodSetName,
 		Template: *cleanLabels(j.Spec.Template.DeepCopy()),
@@ -268,7 +268,7 @@ func (j *Job) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	}, nil
 }
 
-func (j *Job) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *Job) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
 	j.Spec.Suspend = new(false)
 	if len(podSetsInfo) != 1 {
 		return podset.BadPodSetsInfoLenError(1, len(podSetsInfo))
@@ -319,7 +319,7 @@ func (j *Job) Finished(ctx context.Context) (message string, success, finished b
 	return "", true, false
 }
 
-func (j *Job) PodsReady(ctx context.Context) bool {
+func (j *Job) PodsReady(ctx context.Context, _ client.Client) bool {
 	ready := ptr.Deref(j.Status.Ready, 0)
 	uncountedTerminatedSucceeded := 0
 	if j.Status.UncountedTerminatedPods != nil {

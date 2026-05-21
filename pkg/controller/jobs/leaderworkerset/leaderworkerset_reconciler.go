@@ -28,7 +28,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -454,19 +453,11 @@ func (r *Reconciler) deleteWorkload(ctx context.Context, wl *kueue.Workload) err
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
 	log.V(3).Info("Delete LeaderWorkerSet Workload")
 
-	// Remove the finalizer before deleting to ensure prompt cleanup,
-	// consistent with how the job framework reconciler deletes workloads.
-	if err := workload.RemoveFinalizer(ctx, r.client, wl); err != nil && !apierrors.IsNotFound(err) {
-		log.Error(err, "Failed to remove finalizer")
-		return err
-	}
-	err := r.client.Delete(ctx, wl)
+	_, err := workload.Delete(ctx, r.client, wl)
 	if err != nil {
 		log.Error(err, "Failed to delete workload")
-		return err
 	}
-
-	return nil
+	return err
 }
 
 func (r *Reconciler) reconcilePods(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, statefulSets []appsv1.StatefulSet, pods []corev1.Pod) error {
@@ -488,7 +479,7 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 	log := ctrl.LoggerFrom(ctx).WithValues(
 		"pod", klog.KObj(pod),
 		"podRevision", pod.Labels[appsv1.ControllerRevisionHashLabelKey],
-		"group", pod.Labels[podconstants.GroupNameLabel])
+		"group", podcontroller.GetPodGroupName(pod))
 	if sts != nil {
 		log = log.WithValues(
 			"statefulset", klog.KObj(sts),
@@ -541,9 +532,13 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 
 	wlName := GetWorkloadName(GetOwnerUID(lws), lws.Name, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
 
+	if pod.Annotations == nil {
+		pod.Annotations = make(map[string]string)
+	}
+
 	pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-	pod.Labels[podconstants.GroupNameLabel] = wlName
-	pod.Labels[controllerconstants.PrebuiltWorkloadLabel] = wlName
+	podcontroller.SetPodGroupName(pod, wlName)
+	jobframework.SetPrebuiltWorkloadName(pod, wlName)
 	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
 	pod.Annotations[podconstants.RoleHashAnnotation] = string(kueue.DefaultPodSetName)
 

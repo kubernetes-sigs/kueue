@@ -90,7 +90,7 @@ func (t *TrainJobWrapper) TrainerNumNodes(numNodes int32) *TrainJobWrapper {
 // Label sets a Trainjob annotation key and value
 func (t *TrainJobWrapper) Annotation(key, value string) *TrainJobWrapper {
 	if t.Annotations == nil {
-		t.Annotations = make(map[string]string)
+		t.Annotations = make(map[string]string, 1)
 	}
 	t.Annotations[key] = value
 	return t
@@ -141,6 +141,11 @@ func (t *TrainJobWrapper) Queue(queue string) *TrainJobWrapper {
 // PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the TrainJob.
 func (t *TrainJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *TrainJobWrapper {
 	return t.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *TrainJobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *TrainJobWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // ManagedBy sets the managedby field of the TrainJob.

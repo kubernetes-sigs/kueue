@@ -287,12 +287,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err = r.ignoreUnretryableError(log, err)
 	}()
 
-	dropFinalizers := false
-	if cJob, isComposable := job.(ComposableJob); isComposable {
-		dropFinalizers, err = cJob.Load(ctx, r.client, &req.NamespacedName)
-	} else {
-		err = r.client.Get(ctx, req.NamespacedName, object)
-		dropFinalizers = apierrors.IsNotFound(err) || !object.GetDeletionTimestamp().IsZero()
+	shouldFinalize, err := r.loadJob(ctx, &req.NamespacedName, job)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if jws, implements := job.(JobWithSkip); implements {
@@ -301,42 +298,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	if dropFinalizers {
-		// Remove workload finalizer
-		workloads := &kueue.WorkloadList{}
-
-		if cJob, isComposable := job.(ComposableJob); isComposable {
-			var err error
-			workloads, err = cJob.ListChildWorkloads(ctx, r.client, req.NamespacedName)
-			if err != nil {
-				log.Error(err, "Removing finalizer")
-				return ctrl.Result{}, err
-			}
-		} else {
-			if err := r.client.List(ctx, workloads, client.InNamespace(req.Namespace), OwnerReferenceIndexFieldMatcher(job.GVK(), req.Name)); err != nil {
-				log.Error(err, "Unable to list child workloads")
-				return ctrl.Result{}, err
-			}
-		}
-		for i := range workloads.Items {
-			err := workload.RemoveFinalizer(ctx, r.client, &workloads.Items[i])
-			if client.IgnoreNotFound(err) != nil {
-				log.Error(err, "Removing finalizer")
-				return ctrl.Result{}, err
-			}
-		}
-
-		// Remove job finalizer
-		if !object.GetDeletionTimestamp().IsZero() {
-			if err = r.finalizeJob(ctx, job); err != nil {
-				return ctrl.Result{}, err
-			}
+	if shouldFinalize {
+		if err := r.finalize(ctx, req.NamespacedName, job); err != nil {
+			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
-	}
-
-	if err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if features.Enabled(features.ManagedJobsNamespaceSelectorAlwaysRespected) {
@@ -524,7 +490,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 4. update reclaimable counts if implemented by the job
 	if jobRecl, implementsReclaimable := job.(JobWithReclaimablePods); implementsReclaimable && features.Enabled(features.ReclaimablePods) {
-		reclPods, err := jobRecl.ReclaimablePods(ctx)
+		reclPods, err := jobRecl.ReclaimablePods(ctx, r.client)
 		if err != nil {
 			log.Error(err, "Getting reclaimable pods")
 			return ctrl.Result{}, err
@@ -546,7 +512,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// handle a job when waitForPodsReady is enabled, and it is the main job
 	if r.waitForPodsReady {
 		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
-		condition := generatePodsReadyCondition(ctx, job, wl, r.clock)
+		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock)
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
 			log.V(3).Info("Updating the PodsReady condition", "reason", condition.Reason, "status", condition.Status)
 			err := workload.SetConditionAndUpdate(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
@@ -655,6 +621,79 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// For elastic jobs, pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+// loadJob retrieves and loads the specified job resource into memory.
+// Returns true if the job should be finalized and an error if loading fails.
+func (r *JobReconciler) loadJob(ctx context.Context, key *types.NamespacedName, job GenericJob) (bool, error) {
+	if cJob, isComposable := job.(ComposableJob); isComposable {
+		return cJob.Load(ctx, r.client, key)
+	}
+	obj := job.Object()
+	if err := r.client.Get(ctx, *key, obj); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return !obj.GetDeletionTimestamp().IsZero(), nil
+}
+
+// finalize removes finalizers from workloads and the job itself,
+// ensuring proper cleanup during object deletion.
+func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob) error {
+	// Remove workloads finalizer
+	if err := r.finalizeWorkloads(ctx, key, job); client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	// Remove job finalizer
+	if !job.Object().GetDeletionTimestamp().IsZero() {
+		if err := r.finalizeJob(ctx, job); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// getWorkloads retrieves a list of workloads associated with the specified job.
+func (r *JobReconciler) getWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob) ([]kueue.Workload, error) {
+	log := ctrl.LoggerFrom(ctx)
+	workloads := &kueue.WorkloadList{}
+
+	var err error
+	if cJob, isComposable := job.(ComposableJob); isComposable {
+		workloads, err = cJob.ListChildWorkloads(ctx, r.client, key)
+	} else {
+		err = r.client.List(ctx, workloads,
+			client.InNamespace(key.Namespace),
+			OwnerReferenceIndexFieldMatcher(job.GVK(), key.Name),
+		)
+	}
+	if err != nil {
+		log.Error(err, "Unable to list child workloads")
+		return nil, err
+	}
+
+	return workloads.Items, nil
+}
+
+// finalizeWorkloads removes finalizers from workloads associated with the specified job.
+func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob) error {
+	log := ctrl.LoggerFrom(ctx)
+	workloads, err := r.getWorkloads(ctx, key, job)
+	if err != nil {
+		return err
+	}
+	for i := range workloads {
+		wl := &workloads[i]
+		if err := workload.RemoveFinalizer(ctx, r.client, wl); client.IgnoreNotFound(err) != nil {
+			log.Error(err, "Removing finalizer")
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *JobReconciler) handleQueueNameChange(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
@@ -854,9 +893,9 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	if prebuiltWorkloadName, usePrebuiltWorkload := PrebuiltWorkloadFor(job); usePrebuiltWorkload {
+	if prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object()); prebuiltWorkload != "" {
 		wl := &kueue.Workload{}
-		err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkloadName, Namespace: object.GetNamespace()}, wl)
+		err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkload, Namespace: object.GetNamespace()}, wl)
 		if err != nil {
 			return nil, client.IgnoreNotFound(err)
 		}
@@ -895,7 +934,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 	// If workload slicing is enabled for this job, use the slice-based processing path.
 	if WorkloadSliceEnabled(job) {
-		podSets, err := JobPodSets(ctx, job)
+		podSets, err := JobPodSets(ctx, job, r.client)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
 		}
@@ -981,16 +1020,11 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	existedWls := 0
 	for _, wl := range toDelete {
 		wlKey := workload.Key(wl)
-		err := workload.RemoveFinalizer(ctx, r.client, wl)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("failed to remove workload finalizer for: %w", err)
-		}
-
-		err = r.client.Delete(ctx, wl)
+		deleteRequested, err := workload.Delete(ctx, r.client, wl)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("deleting not matching workload: %w", err)
 		}
-		if err == nil {
+		if deleteRequested {
 			existedWls++
 			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonDeletedWorkload, "DeletedWorkload",
 				"Deleted not matching Workload: %v", wlKey)
@@ -1217,7 +1251,7 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false, nil
 	}
 
-	getPodSets, err := JobPodSets(ctx, job)
+	getPodSets, err := JobPodSets(ctx, job, c)
 	if err != nil {
 		return false, err
 	}
@@ -1292,7 +1326,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 		}
 	} else {
 		if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
-			return true, job.RunWithPodSetsInfo(ctx, info)
+			return true, job.RunWithPodSetsInfo(ctx, r.client, info)
 		}); err != nil {
 			return err
 		}
@@ -1392,7 +1426,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	log := ctrl.LoggerFrom(ctx)
 	object := job.Object()
 
-	podSets, err := JobPodSets(ctx, job)
+	podSets, err := JobPodSets(ctx, job, c)
 	if err != nil {
 		return nil, err
 	}
@@ -1583,8 +1617,8 @@ func assignQueueLabels(ctx context.Context, labels map[string]string, wl *kueue.
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	_, usePrebuiltWorkload := PrebuiltWorkloadFor(job)
-	if usePrebuiltWorkload {
+	prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object())
+	if prebuiltWorkload != "" {
 		// Stop the job if not already suspended
 		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
 			return stopErr
@@ -1599,7 +1633,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 		return nil
 	}
 
-	if usePrebuiltWorkload {
+	if prebuiltWorkload != "" {
 		return ErrPrebuiltWorkloadNotFound
 	}
 
@@ -1631,7 +1665,7 @@ func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error
 	return err
 }
 
-func generatePodsReadyCondition(ctx context.Context, job GenericJob, wl *kueue.Workload, clock clock.Clock) metav1.Condition {
+func generatePodsReadyCondition(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload, clock clock.Clock) metav1.Condition {
 	log := ctrl.LoggerFrom(ctx)
 	const (
 		notReadyMsg           = "Not all pods are ready or succeeded"
@@ -1648,7 +1682,7 @@ func generatePodsReadyCondition(ctx context.Context, job GenericJob, wl *kueue.W
 	}
 
 	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
-	podsReady := job.PodsReady(ctx)
+	podsReady := job.PodsReady(ctx, c)
 	log.V(3).Info("Generating PodsReady condition",
 		"Current PodsReady condition", podsReadyCond,
 		"Pods are ready", podsReady)

@@ -169,6 +169,22 @@
     [Plain Pods](/docs/tasks/run/plain_pods/).
   description: |
     The label key indicates the name of the group of Pods that should be admitted together.
+  note: |
+    This label is always allowed, including when the WorkloadIdentifierAnnotations feature is enabled.
+    When the feature is enabled, we use the annotation value by default;
+    if the annotation is absent, we fall back to this label.
+
+- key: kueue.x-k8s.io/pod-group-name
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-group-name: "my-pod-group-name"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The annotation key indicates the name of the group of Pods that should be admitted together.
+  note: |
+    This annotation is allowed only when the WorkloadIdentifierAnnotations feature is enabled.
+    When enabled, we use the value of Pod group name from the annotation by default;
+    if it is not present, we fall back to the label.
 
 - key: kueue.x-k8s.io/pod-group-pod-index
   type: Label
@@ -337,11 +353,31 @@
     Kueue-managed Jobs.
   description: |
     The label key of the job holds the name of the pre-built workload to be used.
-    The intended use of prebuilt workload is to create the Job once the workload
-    is created. In other scenarios the behavior is undefined.
+    The intended use of prebuilt workload is to create the Job once the workload is created.
+    In other scenarios the behavior is undefined.
   note: |
     When using `kueue.x-k8s.io/pod-group-name`, the prebuilt workload name
     and the Pod group name should be the same.
+
+    This label is always allowed, including when the WorkloadIdentifierAnnotations feature is enabled.
+    When the feature is enabled, we use the annotation value by default;
+    if the annotation is absent, we fall back to this label.
+
+- key: kueue.x-k8s.io/prebuilt-workload-name
+  type: Annotation
+  example: '`kueue.x-k8s.io/prebuilt-workload-name: "my-prebuilt-workload-name"`'
+  used_on: |
+    Kueue-managed Jobs.
+  description: |
+    The annotation key of the job holds the name of the pre-built workload to be used.
+    The intended use of prebuilt workload is to create the Job once the workload is created.
+    In other scenarios the behavior is undefined.
+  note: |
+    When using `kueue.x-k8s.io/pod-group-name`, the prebuilt workload name and the Pod group name should be the same.
+    
+    This annotation is allowed only when the WorkloadIdentifierAnnotations feature is enabled.
+    When enabled, we use the value of pre-built workload from the annotation by default;
+    if it is not present, we fall back to the label.
 
 - key: kueue.x-k8s.io/priority-boost
   type: Annotation

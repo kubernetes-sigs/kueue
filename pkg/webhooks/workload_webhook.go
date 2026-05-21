@@ -116,6 +116,10 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
 
+	if variableCountPodSets > 0 && workloadslicing.Enabled(obj) {
+		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "partial admission and elastic job cannot be used together"))
+	}
+
 	statusPath := field.NewPath("status")
 	if workload.HasQuotaReservation(obj) {
 		allErrs = append(allErrs, validateAdmission(obj, statusPath.Child("admission"))...)

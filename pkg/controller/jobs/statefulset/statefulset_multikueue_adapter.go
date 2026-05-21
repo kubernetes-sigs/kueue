@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 )
@@ -63,12 +62,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		Spec:       *localStatefulSet.Spec.DeepCopy(),
 	}
 
-	// add the prebuilt workload
-	if remoteStatefulSet.Labels == nil {
-		remoteStatefulSet.Labels = map[string]string{}
-	}
-	remoteStatefulSet.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteStatefulSet.Labels[kueue.MultiKueueOriginLabel] = origin
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remoteStatefulSet, workloadName, origin)
 
 	if remoteStatefulSet.Annotations == nil {
 		remoteStatefulSet.Annotations = make(map[string]string, 1)
@@ -78,7 +73,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteStatefulSet)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	ss := appsv1.StatefulSet{}
 	ss.SetName(key.Name)
 	ss.SetNamespace(key.Namespace)
@@ -105,10 +100,10 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		return nil, errors.New("not a statefulset")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := statefulSet.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(statefulSet)
+	if prebuiltWorkload == "" {
 		return nil, fmt.Errorf("no prebuilt workload found for statefulset: %s", klog.KObj(statefulSet))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWl, Namespace: statefulSet.Namespace}}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: statefulSet.Namespace}}, nil
 }

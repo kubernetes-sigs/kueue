@@ -43,6 +43,7 @@ import (
 	"k8s.io/client-go/rest"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -66,6 +67,12 @@ type ManagerOption func(*manager.Options)
 func WithNewClient(c client.NewClientFunc) ManagerOption {
 	return func(o *manager.Options) {
 		o.NewClient = c
+	}
+}
+
+func WithNewCache(c cache.NewCacheFunc) ManagerOption {
+	return func(o *manager.Options) {
+		o.NewCache = c
 	}
 }
 

@@ -108,6 +108,7 @@ func TestWlReconcile(t *testing.T) {
 		wantWorker2Jobs      []batchv1.Job
 	}{
 		"deleted regular workload is removed from the cache": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobBuilder.DeepCopy()},
 			managersDeletedWorkloads: []*kueue.Workload{
@@ -120,6 +121,7 @@ func TestWlReconcile(t *testing.T) {
 			wantManagersJobs: []batchv1.Job{*baseJobBuilder.DeepCopy()},
 		},
 		"deleted MultiKueue workload is deleted from cache - the worker will be deleted by GC": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersDeletedWorkloads: []*kueue.Workload{
@@ -143,9 +145,11 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"missing workload": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "missing workload",
 		},
 		"missing workload (in deleted workload cache)": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersDeletedWorkloads: []*kueue.Workload{
 				baseWorkloadBuilder.Clone().
@@ -168,6 +172,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"missing workload (in deleted workload cache), no remote objects": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersDeletedWorkloads: []*kueue.Workload{
 				baseWorkloadBuilder.Clone().
@@ -178,6 +183,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"unmanaged wl (no ac) is ignored": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.DeepCopy(),
@@ -187,6 +193,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"unmanaged wl (no parent) is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -200,6 +207,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"unmanaged wl (owned by pod) is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -215,6 +223,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"unmanaged wl (job not managed by multikueue) is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{
 				*baseJobBuilder.DeepCopy(),
@@ -236,6 +245,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"failing to read from a worker": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
@@ -257,6 +267,7 @@ func TestWlReconcile(t *testing.T) {
 			wantError: errFake,
 		},
 		"reconnecting clients are skipped": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
@@ -279,6 +290,7 @@ func TestWlReconcile(t *testing.T) {
 			wantError: nil,
 		},
 		"wl without reservation, clears the workload objects": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
@@ -301,6 +313,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"wl with reservation, creates remote workloads, worker2 fails": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
@@ -330,6 +343,7 @@ func TestWlReconcile(t *testing.T) {
 			wantError: errFake,
 		},
 		"wl with reservation, creates missing workloads": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
@@ -368,6 +382,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl with reservation but not admitted - other workers not deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -415,6 +430,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl admitted - other workers deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -485,6 +501,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"handle workload evicted on manager cluster": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -564,6 +581,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"handle workload evicted on worker cluster": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -651,6 +669,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl is finished, the local workload and Job are marked completed ": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -715,6 +734,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"the local Job is marked finished, the remote objects are removed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -768,6 +788,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"the local workload admission check Ready if the remote WorkerLostTimeout is not exceeded": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
@@ -796,6 +817,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"the local workload's admission check is set to Retry if the WorkerLostTimeout is exceeded": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
@@ -824,6 +846,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"worker reconnects after the local workload is requeued, remote objects are deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
@@ -1532,18 +1555,18 @@ func TestWlReconcile(t *testing.T) {
 				adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 				cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil)
 
-				worker1Client := getClientBuilder(ctx).
+				worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
 					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
 					WithStatusSubresource(&kueue.Workload{}).
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
-					Build()
+					Build())
 
-				w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
+				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 				w1remoteClient.client = worker1Client
 				w1remoteClient.connecting.Store(false)
 				cRec.remoteClients["worker1"] = w1remoteClient
 
-				var worker2Client client.WithWatch
+				var worker2Client SelectivelyCachingClient
 				if tc.useSecondWorker {
 					worker2Builder := getClientBuilder(ctx)
 					worker2Builder = worker2Builder.WithLists(&kueue.WorkloadList{Items: tc.worker2Workloads}, &batchv1.JobList{Items: tc.worker2Jobs})
@@ -1568,9 +1591,8 @@ func TestWlReconcile(t *testing.T) {
 							return c.Delete(ctx, obj, opts...)
 						},
 					})
-					worker2Client = worker2Builder.Build()
-
-					w2remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
+					worker2Client = NewNeverCachingClient(worker2Builder.Build())
+					w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 					w2remoteClient.client = worker2Client
 					if !tc.worker2Reconnecting {
 						w2remoteClient.connecting.Store(false)
@@ -1776,10 +1798,9 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				},
 				)
 			}
-
 			remoteClients := make(map[string]*remoteClient, len(tt.remotes))
 			for remote, builder := range remoteClientBuilders {
-				remoteClients[remote] = &remoteClient{client: builder.Build(), origin: remote}
+				remoteClients[remote] = &remoteClient{client: NewNeverCachingClient(builder.Build()), origin: remote}
 			}
 
 			if tt.cond != nil {
