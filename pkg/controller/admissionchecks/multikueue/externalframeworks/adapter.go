@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -216,11 +215,10 @@ func (a *Adapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, err
 		return nil, fmt.Errorf("unexpected GVK: expected %s, got %s for object %s", a.gvk, objGVK, klog.KObj(unstructuredObj))
 	}
 
-	labels := unstructuredObj.GetLabels()
-	prebuiltWl, hasPrebuiltWorkload := labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(unstructuredObj)
+	if prebuiltWorkload == "" {
 		return nil, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(unstructuredObj))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWl, Namespace: unstructuredObj.GetNamespace()}}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: unstructuredObj.GetNamespace()}}, nil
 }

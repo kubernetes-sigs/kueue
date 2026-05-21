@@ -51,6 +51,9 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
+	if ginkgo.Label("feature:workloadidentifierannotations").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
+		util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+	}
 	if ginkgo.Label("feature:managejobswithoutqueuename").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
 		util.WaitForJobSetAvailability(ctx, k8sClient)
 		util.WaitForAppWrapperAvailability(ctx, k8sClient)

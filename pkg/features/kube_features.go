@@ -400,6 +400,14 @@ const (
 	//
 	// Enables MultiKueue manager quota automation support.
 	MultiKueueManagerQuotaAutomation featuregate.Feature = "MultiKueueManagerQuotaAutomation"
+
+	// owner: @ivnovakov
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10032
+	//
+	// WorkloadIdentifierAnnotations makes Kueue read and write the workload identifiers
+	// (pod-group-name and prebuilt-workload-name) via annotations. When the gate is
+	// disabled, the label-based identifiers are used instead.
+	WorkloadIdentifierAnnotations featuregate.Feature = "WorkloadIdentifierAnnotations"
 )
 
 func init() {
@@ -623,6 +631,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MultiKueueManagerQuotaAutomation: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	WorkloadIdentifierAnnotations: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

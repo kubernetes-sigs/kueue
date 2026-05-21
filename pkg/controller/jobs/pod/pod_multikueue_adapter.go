@@ -30,7 +30,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -49,11 +48,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		return err
 	}
 
-	if !isPodAPartOfGroup(localPod) {
+	groupName := GetPodGroupName(&localPod)
+	if groupName == "" {
 		return syncLocalPodWithRemote(ctx, localClient, remoteClient, &localPod, workloadName, origin, &log)
 	}
 
-	groupName := podGroupName(localPod)
 	return syncPodGroup(ctx, localClient, remoteClient, key, workloadName, origin, groupName)
 }
 
@@ -64,11 +63,11 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, localClient 
 		return client.IgnoreNotFound(err)
 	}
 
-	if !isPodAPartOfGroup(pod) {
+	groupName := GetPodGroupName(&pod)
+	if groupName == "" {
 		return client.IgnoreNotFound(remoteClient.Delete(ctx, &pod))
 	}
 
-	groupName := podGroupName(pod)
 	localPodGroup, err := listLocalPods(ctx, localClient, key.Namespace, groupName)
 	if err != nil {
 		return err
@@ -103,17 +102,12 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		return nil, errors.New("not a pod")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := pod.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(pod)
+	if prebuiltWorkload == "" {
 		return nil, fmt.Errorf("no prebuilt workload found for pod: %s", klog.KObj(pod))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWl, Namespace: pod.Namespace}}, nil
-}
-
-// isPodAPartOfGroup checks if a pod belongs to a group by verifying the presence of a group name label.
-func isPodAPartOfGroup(p corev1.Pod) bool {
-	return podGroupName(p) != ""
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: pod.Namespace}}, nil
 }
 
 func syncPodGroup(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin, groupName string) error {

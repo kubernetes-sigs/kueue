@@ -121,6 +121,15 @@ func (j *JobSetWrapper) Label(k, v string) *JobSetWrapper {
 	return j
 }
 
+// Annotation sets an annotation to the JobSet.
+func (j *JobSetWrapper) Annotation(k, v string) *JobSetWrapper {
+	if j.ObjectMeta.Annotations == nil {
+		j.ObjectMeta.Annotations = make(map[string]string, 1)
+	}
+	j.ObjectMeta.Annotations[k] = v
+	return j
+}
+
 // Annotations sets annotations to the JobSet.
 func (j *JobSetWrapper) Annotations(annotations map[string]string) *JobSetWrapper {
 	j.ObjectMeta.Annotations = annotations
@@ -141,6 +150,11 @@ func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
 // PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the JobSet.
 func (j *JobSetWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JobSetWrapper {
 	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the JobSet.
+func (j *JobSetWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *JobSetWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Request adds a resource request to the first container of the target replicatedJob.

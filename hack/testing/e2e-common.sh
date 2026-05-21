@@ -169,7 +169,7 @@ if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKG
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
 fi
 
-if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export LEADERWORKERSET_MANIFEST="https://github.com/kubernetes-sigs/lws/releases/download/${LEADERWORKERSET_VERSION}/manifests.yaml"
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
@@ -461,7 +461,7 @@ function prepare_docker_images {
             e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
         fi
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${LEADERWORKERSET_IMAGE}"
     fi
     if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
@@ -521,7 +521,7 @@ function kind_load {
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         install_mpi "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_lws "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then

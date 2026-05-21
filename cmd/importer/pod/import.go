@@ -115,6 +115,9 @@ func checkError(err error) (retry, reload bool, timeout time.Duration) {
 }
 
 func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string, addLabels map[string]string) error {
+	if p.Labels == nil {
+		p.Labels = make(map[string]string)
+	}
 	p.Labels[controllerconstants.QueueLabel] = queue
 	p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 	maps.Copy(p.Labels, addLabels)

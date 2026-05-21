@@ -92,8 +92,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	}
 
 	podList := &corev1.PodList{}
-	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{
-		podconstants.GroupNameLabel: wlName,
+	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingFields{
+		podcontroller.PodGroupNameCacheKey: wlName,
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -128,7 +128,7 @@ func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, p
 			log.V(3).Info(
 				"Finalizing pod in group",
 				"pod", klog.KObj(pod),
-				"group", pod.Labels[podconstants.GroupNameLabel],
+				"group", podcontroller.GetPodGroupName(pod),
 			)
 			return true, nil
 		}
@@ -151,6 +151,9 @@ func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet
 			return nil
 		}
 		return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+			if pod.Labels == nil {
+				pod.Labels = make(map[string]string, 1)
+			}
 			pod.Labels[controllerconstants.QueueLabel] = queueName
 			return true, nil
 		}))

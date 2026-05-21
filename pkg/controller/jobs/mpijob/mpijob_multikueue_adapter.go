@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -111,10 +110,10 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		return nil, errors.New("not a mpijob")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := job.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
+	if prebuiltWorkload == "" {
 		return nil, fmt.Errorf("no prebuilt workload found for mpijob: %s", klog.KObj(job))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWl, Namespace: job.Namespace}}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.Namespace}}, nil
 }
