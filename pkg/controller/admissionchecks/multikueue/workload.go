@@ -759,7 +759,12 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	// supporting preferred or required placement constraints.
 	if clusterName := workload.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
 		nominatedWorkers = []string{clusterName}
-	} else if w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
+	} else if !features.Enabled(features.MultiKueueAllAtOnceExternal) && w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
+		// Legacy inline AllAtOnce nomination path. Kept under feature gate so
+		// operators can roll back to the pre-#10937 behavior if the dedicated
+		// AllAtOnceDispatcherReconciler controller misbehaves. When the
+		// MultiKueueAllAtOnceExternal gate goes GA, this branch (and the
+		// surrounding gate check) can be removed.
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
@@ -773,7 +778,9 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			}
 		}
 	} else {
-		// Incremental dispatcher and External dispatcher path
+		// A dispatcher placed outside this file (AllAtOnce when MultiKueueAllAtOnceExternal=true,
+		// Incremental, or External) is responsible for populating
+		// Status.NominatedClusterNames; the synchronizer just reads it.
 		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
@@ -790,6 +797,18 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 				}
 			}
 		} else if remoteWl != nil {
+			// Preserve a remote workload that is currently Evicted: reconcileGroup
+			// needs it (with WorkloadEvicted=True) to call SyncJob and
+			// propagate the remote job's termination back to the manager Job.
+			// Deleting it here breaks the eviction-recovery flow because
+			// bestMatchByCondition(WorkloadEvicted) becomes nil, SyncJob is no
+			// longer called, and the manager Job's Status.Active is never updated.
+			// The remote will be cleaned up later, once the local workload is
+			// re-admitted (or finishes / loses its quota reservation).
+			if workload.IsEvicted(remoteWl) {
+				log.V(3).Info("Preserving evicted remote workload to allow eviction-recovery sync", "remote", rem)
+				continue
+			}
 			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
 				log.V(2).Error(err, "removing non-nominated remote object", "remote", rem)
 				errs = append(errs, err)

@@ -321,6 +321,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
 			useSecondWorker:      true,
@@ -351,6 +352,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
 			worker1Workloads: []kueue.Workload{
@@ -389,6 +391,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -1135,6 +1138,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -1178,6 +1182,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -1283,6 +1288,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -1372,6 +1378,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -1461,6 +1468,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -1717,28 +1725,41 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name             string
-		dispatcherMode   string
-		remotes          map[string]*kueue.Workload
-		nominatedWorkers []string
-		cond             *metav1.Condition
-		createErr        error
-		wantCreated      []string
-		wantErr          bool
+		name                  string
+		dispatcherMode        string
+		allAtOnceExternalGate *bool // nil = use default; otherwise overrides MultiKueueAllAtOnceExternal for this case
+		remotes               map[string]*kueue.Workload
+		nominatedWorkers      []string
+		cond                  *metav1.Condition
+		createErr             error
+		wantCreated           []string
+		wantErr               bool
 	}{
 		{
-			name:           "AllClusters: clone to all remotes, nominates all",
-			dispatcherMode: config.MultiKueueDispatcherModeAllAtOnce,
-			remotes:        map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
-			wantCreated:    []string{remoteNames[0], remoteNames[1]},
+			name:             "AllClusters: clone to all remotes, nominates all",
+			dispatcherMode:   config.MultiKueueDispatcherModeAllAtOnce,
+			remotes:          map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
+			nominatedWorkers: []string{remoteNames[0], remoteNames[1]},
+			wantCreated:      []string{remoteNames[0], remoteNames[1]},
 		},
 		{
-			name:           "AllClusters: workloads already created on remotes, do not create again",
-			dispatcherMode: config.MultiKueueDispatcherModeAllAtOnce,
-			remotes:        map[string]*kueue.Workload{remoteNames[0]: {}, remoteNames[1]: {}},
-			wantCreated:    nil,
+			name:             "AllClusters: workloads already created on remotes, do not create again",
+			dispatcherMode:   config.MultiKueueDispatcherModeAllAtOnce,
+			remotes:          map[string]*kueue.Workload{remoteNames[0]: {}, remoteNames[1]: {}},
+			nominatedWorkers: []string{remoteNames[0], remoteNames[1]},
+			wantCreated:      nil,
 		},
-		// Incremental dispatcher tests were moved to a separate file.
+		{
+			// Legacy inline AllAtOnce path: with the feature gate disabled,
+			// nominateAndSynchronizeWorkers itself populates NominatedClusterNames
+			// from group.remotes (no pre-populated nominatedWorkers needed).
+			name:                  "AllClusters legacy: gate off, inline branch nominates from group.remotes",
+			dispatcherMode:        config.MultiKueueDispatcherModeAllAtOnce,
+			allAtOnceExternalGate: new(bool),
+			remotes:               map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
+			wantCreated:           []string{remoteNames[0], remoteNames[1]},
+		},
+		// Incremental and AllAtOnce dispatcher unit tests live in pkg/controller/workloaddispatcher.
 		{
 			name:           "External controller: no nominated workers, nothing created",
 			dispatcherMode: externalMultiKueueDispatcherController,
@@ -1763,6 +1784,9 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.allAtOnceExternalGate != nil {
+				features.SetFeatureGateDuringTest(t, features.MultiKueueAllAtOnceExternal, *tt.allAtOnceExternalGate)
+			}
 			fakeClock := testingclock.NewFakeClock(now)
 
 			local := &kueue.Workload{

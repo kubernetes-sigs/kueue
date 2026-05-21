@@ -44,6 +44,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -183,6 +184,15 @@ func managerAndMultiKueueSetup(
 		multikueue.WithAdapters(adapters),
 		multikueue.WithDispatcherName(dispatcherName),
 	)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	configuration := &config.Configuration{
+		MultiKueue: &config.MultiKueue{
+			DispatcherName: &dispatcherName,
+		},
+	}
+	mgr.GetScheme().Default(configuration)
+	_, err = workloaddispatcher.SetupControllers(mgr, configuration, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
