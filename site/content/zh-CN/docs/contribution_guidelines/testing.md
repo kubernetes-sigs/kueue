@@ -391,7 +391,7 @@ func TestValidateClusterQueue(t *testing.T) {
 E2E_MODE=dev GINKGO_ARGS="--label-filter=feature:prometheus" make kind-image-build test-e2e-baseline
 ```
 
-更多详情，请参阅 [Setup Dev Monitoring](/zh-CN/docs/tasks/dev/setup_dev_monitoring)。
+更多详情，请参阅 [Setup Dev Monitoring](/docs/tasks/dev/setup_dev_monitoring)。
 
 ### 另请参阅 {#see-also}
 - [Kubernetes 测试指南](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/testing.md)
