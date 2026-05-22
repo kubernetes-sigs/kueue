@@ -64,6 +64,12 @@ func parsePodSetReplicaCount(annotationValue, groupName string) (int32, error) {
 	return 0, fmt.Errorf("group %q not found in annotation", groupName)
 }
 
+const (
+	// objectStoreMemory is the Ray object store memory (bytes) set on each node
+	// to avoid Ray auto-sizing it too large for the constrained test environment.
+	objectStoreMemory = "100000000"
+)
+
 var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:kuberay"), func() {
 	var (
 		ns                 *corev1.Namespace
@@ -122,7 +128,9 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -216,7 +224,9 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python /home/ray/samples/sample_code.py").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -225,10 +235,10 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 							Image: kuberayTestImage,
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("200m"),
+									corev1.ResourceCPU: resource.MustParse("400m"),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("200m"),
+									corev1.ResourceCPU: resource.MustParse("400m"),
 								},
 							},
 						},
@@ -437,7 +447,9 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python /home/ray/samples/sample_code.py").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -446,10 +458,10 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 							Image: kuberayTestImage,
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("200m"),
+									corev1.ResourceCPU: resource.MustParse("400m"),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("200m"),
+									corev1.ResourceCPU: resource.MustParse("400m"),
 								},
 							},
 						},
@@ -587,7 +599,9 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			Suspend(true).
 			Queue(localQueueName).
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
 			Obj()
@@ -690,7 +704,7 @@ app = HelloWorld.bind()`,
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).
-			RayStartParam(rayv1.HeadNode, "object-store-memory", "100000000").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
 			WithServeConfigV2(serveConfigV2).
 			Env(rayv1.HeadNode, env).
 			Env(rayv1.WorkerNode, env).
