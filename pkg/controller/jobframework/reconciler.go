@@ -276,12 +276,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err = r.ignoreUnretryableError(log, err)
 	}()
 
-	dropFinalizers := false
-	if cJob, isComposable := job.(ComposableJob); isComposable {
-		dropFinalizers, err = cJob.Load(ctx, r.client, &req.NamespacedName)
-	} else {
-		err = r.client.Get(ctx, req.NamespacedName, object)
-		dropFinalizers = apierrors.IsNotFound(err) || !object.GetDeletionTimestamp().IsZero()
+	shouldFinalize, err := r.loadJob(ctx, &req.NamespacedName, job)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if jws, implements := job.(JobWithSkip); implements {
@@ -290,42 +287,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	if dropFinalizers {
-		// Remove workload finalizer
-		workloads := &kueue.WorkloadList{}
-
-		if cJob, isComposable := job.(ComposableJob); isComposable {
-			var err error
-			workloads, err = cJob.ListChildWorkloads(ctx, r.client, req.NamespacedName)
-			if err != nil {
-				log.Error(err, "Removing finalizer")
-				return ctrl.Result{}, err
-			}
-		} else {
-			if err := r.client.List(ctx, workloads, client.InNamespace(req.Namespace), OwnerReferenceIndexFieldMatcher(job.GVK(), req.Name)); err != nil {
-				log.Error(err, "Unable to list child workloads")
-				return ctrl.Result{}, err
-			}
-		}
-		for i := range workloads.Items {
-			err := workload.RemoveFinalizer(ctx, r.client, &workloads.Items[i])
-			if client.IgnoreNotFound(err) != nil {
-				log.Error(err, "Removing finalizer")
-				return ctrl.Result{}, err
-			}
-		}
-
-		// Remove job finalizer
-		if !object.GetDeletionTimestamp().IsZero() {
-			if err = r.finalizeJob(ctx, job); err != nil {
-				return ctrl.Result{}, err
-			}
+	if shouldFinalize {
+		if err := r.finalize(ctx, req.NamespacedName, job); err != nil {
+			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
-	}
-
-	if err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if features.Enabled(features.ManagedJobsNamespaceSelectorAlwaysRespected) {
@@ -645,6 +611,79 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// For elastic jobs, pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+// loadJob retrieves and loads the specified job resource into memory.
+// Returns true if the job should be finalized and an error if loading fails.
+func (r *JobReconciler) loadJob(ctx context.Context, key *types.NamespacedName, job GenericJob) (bool, error) {
+	if cJob, isComposable := job.(ComposableJob); isComposable {
+		return cJob.Load(ctx, r.client, key)
+	}
+	obj := job.Object()
+	if err := r.client.Get(ctx, *key, obj); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return !obj.GetDeletionTimestamp().IsZero(), nil
+}
+
+// finalize removes finalizers from workloads and the job itself,
+// ensuring proper cleanup during object deletion.
+func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob) error {
+	// Remove workloads finalizer
+	if err := r.finalizeWorkloads(ctx, key, job); client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	// Remove job finalizer
+	if !job.Object().GetDeletionTimestamp().IsZero() {
+		if err := r.finalizeJob(ctx, job); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// getWorkloads retrieves a list of workloads associated with the specified job.
+func (r *JobReconciler) getWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob) ([]kueue.Workload, error) {
+	log := ctrl.LoggerFrom(ctx)
+	workloads := &kueue.WorkloadList{}
+
+	var err error
+	if cJob, isComposable := job.(ComposableJob); isComposable {
+		workloads, err = cJob.ListChildWorkloads(ctx, r.client, key)
+	} else {
+		err = r.client.List(ctx, workloads,
+			client.InNamespace(key.Namespace),
+			OwnerReferenceIndexFieldMatcher(job.GVK(), key.Name),
+		)
+	}
+	if err != nil {
+		log.Error(err, "Unable to list child workloads")
+		return nil, err
+	}
+
+	return workloads.Items, nil
+}
+
+// finalizeWorkloads removes finalizers from workloads associated with the specified job.
+func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob) error {
+	log := ctrl.LoggerFrom(ctx)
+	workloads, err := r.getWorkloads(ctx, key, job)
+	if err != nil {
+		return err
+	}
+	for i := range workloads {
+		wl := &workloads[i]
+		if err := workload.RemoveFinalizer(ctx, r.client, wl); client.IgnoreNotFound(err) != nil {
+			log.Error(err, "Removing finalizer")
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *JobReconciler) handleQueueNameChange(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
