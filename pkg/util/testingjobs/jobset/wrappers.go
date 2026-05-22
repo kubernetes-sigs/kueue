@@ -223,6 +223,14 @@ func (j *JobSetWrapper) ManagedBy(c string) *JobSetWrapper {
 	return j
 }
 
+// TerminationGracePeriod sets the termination grace period for all replicated jobs.
+func (j *JobSetWrapper) TerminationGracePeriod(seconds int64) *JobSetWrapper {
+	for i := range j.Spec.ReplicatedJobs {
+		j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
+	}
+	return j
+}
+
 // OwnerReference adds a ownerReference to the default container.
 func (j *JobSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobSetWrapper {
 	utiltesting.AppendOwnerReference(j, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
