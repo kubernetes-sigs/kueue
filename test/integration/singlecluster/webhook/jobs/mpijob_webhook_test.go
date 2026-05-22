@@ -27,29 +27,22 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("MPIJob Webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("MPIJob Webhook", func() {
 	var ns *corev1.Namespace
-	ginkgo.BeforeAll(func() {
+
+	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(mpijob.SetupMPIJobWebhook))
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "mpi-")
 	})
-	ginkgo.AfterAll(func() {
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 
-	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
-		ginkgo.BeforeEach(func() {
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "mpi-")
-		})
-
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		})
-
-		ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {
-			job := testingjob.MakeMPIJob("job", ns.Name).Queue("indexed_job").Obj()
-			err := k8sClient.Create(ctx, job)
-			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
-		})
+	ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {
+		job := testingjob.MakeMPIJob("job", ns.Name).Queue("indexed_job").Obj()
+		err := k8sClient.Create(ctx, job)
+		gomega.Expect(err).Should(gomega.HaveOccurred())
+		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 	})
 })
