@@ -236,6 +236,10 @@ func (p *Preemptor) IssuePreemptions(
 			preemptionErrors.Add(1)
 			return
 		}
+		// ARTIFICIAL RACE CONDITION TRIGGER: Trigger job1 admission patch and wait for it
+		close(schdcache.E2EPreemptionIssued)
+		schdcache.E2EPreemptionIssued = nil
+
 		preemptorEffPri, preemptorBase, preemptorBoost := priorityInfo(log, preemptor.Obj)
 		targetEffPri, targetBase, targetBoost := priorityInfo(log, target.WorkloadInfo.Obj)
 		log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "preemptorUID", string(preemptor.Obj.UID),

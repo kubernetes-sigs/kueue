@@ -284,6 +284,9 @@ func (s *Scheduler) reportSkippedPreemptions(p map[kueue.ClusterQueueReference]i
 }
 
 func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
+	if schdcache.E2EPreemptionIssued == nil && schdcache.E2EPreemptionDone != nil {
+		<-schdcache.E2EPreemptionDone
+	}
 	s.schedulingCycle++
 	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx), s.roleTracker).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
@@ -807,6 +810,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 				log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
 				wl.Status.UnhealthyNodes = nil
 			}
+			<-schdcache.E2EPreemptionIssued
 			return true, nil
 		}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch())
 		if err == nil {
@@ -817,6 +821,8 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
 				s.replaceOldWorkloadSlice(ctx, log, e, oldWorkloadSlice)
 			}
+			close(schdcache.E2EPreemptionDone)
+			schdcache.E2EPreemptionDone = nil
 			return
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted
