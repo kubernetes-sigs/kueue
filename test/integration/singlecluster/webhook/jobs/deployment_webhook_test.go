@@ -33,13 +33,13 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Deployment Webhook", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Deployment Webhook", func() {
 	var (
 		ns         *corev1.Namespace
 		deployment *appsv1.Deployment
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
@@ -50,16 +50,11 @@ var _ = ginkgo.Describe("Deployment Webhook", ginkgo.Ordered, ginkgo.ContinueOnF
 			deploymentcontroller.SetupWebhook,
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 		))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deployment-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("the queue-name label is set", func() {
