@@ -44,18 +44,14 @@ import (
 var _ = ginkgo.Describe("RayCluster Webhook", func() {
 	var ns *corev1.Namespace
 
-	ginkgo.When("With manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerSetup(raycluster.SetupRayClusterWebhook))
-		})
+	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
+			fwk.StartManager(ctx, cfg, managerSetup(raycluster.SetupRayClusterWebhook))
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		})
-		ginkgo.AfterAll(func() {
 			fwk.StopManager(ctx)
 		})
 
@@ -67,8 +63,8 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 		})
 	})
 
-	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-		ginkgo.BeforeAll(func() {
+	ginkgo.When("With manageJobsWithoutQueueName enabled", func() {
+		ginkgo.BeforeEach(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
 				reconciler, err := raycluster.NewReconciler(
 					ctx,
@@ -106,15 +102,11 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 
 				return nil
 			}, jobframework.WithManageJobsWithoutQueueName(true), jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		})
-		ginkgo.BeforeEach(func() {
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		})
-		ginkgo.AfterAll(func() {
 			fwk.StopManager(ctx)
 		})
 
