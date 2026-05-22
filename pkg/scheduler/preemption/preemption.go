@@ -184,6 +184,11 @@ func preemptionMessage(preemptor *kueue.Workload, reason, preemptorPath, preempt
 	)
 }
 
+func (p *Preemptor) SatisfyPreemptionExpectation(log logr.Logger, wl *kueue.Workload) {
+	targetKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
+	p.preemptionExpectations.ObservedUID(log, targetKey, wl.UID)
+}
+
 // IssuePreemptions marks the target workloads as evicted.
 func (p *Preemptor) IssuePreemptions(
 	ctx context.Context,
