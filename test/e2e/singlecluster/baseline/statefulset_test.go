@@ -249,6 +249,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(0).
 				Queue(lq.Name).
+				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Create StatefulSet", func() {
 				util.MustCreate(ctx, k8sClient, statefulSet)
@@ -348,6 +349,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Replicas(3).
 				Queue(fmt.Sprintf("%s-invalid", localQueueName)).
+				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Create StatefulSet", func() {
 				util.MustCreate(ctx, k8sClient, statefulSet)

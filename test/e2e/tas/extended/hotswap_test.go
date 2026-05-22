@@ -144,6 +144,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				).
 				RequestAndLimit(replicatedJobName, extraResource, "1").
 				RequestAndLimit(replicatedJobName, corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
 
@@ -223,6 +224,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				).
 				RequestAndLimit(replicatedJobName, extraResource, "1").
 				RequestAndLimit(replicatedJobName, corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
 

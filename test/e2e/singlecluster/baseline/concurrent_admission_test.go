@@ -98,6 +98,7 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "20Mi").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, job)
 
@@ -158,6 +159,7 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "20Mi").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, job)
 
