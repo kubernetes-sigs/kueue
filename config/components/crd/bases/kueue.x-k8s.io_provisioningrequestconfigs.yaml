@@ -11,6 +11,8 @@ spec:
     kind: ProvisioningRequestConfig
     listKind: ProvisioningRequestConfigList
     plural: provisioningrequestconfigs
+    shortNames:
+    - prc
     singular: provisioningrequestconfig
   scope: Cluster
   versions:

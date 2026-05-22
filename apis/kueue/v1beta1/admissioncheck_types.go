@@ -105,7 +105,7 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:deprecatedversion:warning="This version is deprecated. Use v1beta2 instead."
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={ac}
 
 // AdmissionCheck is the Schema for the admissionchecks API
 type AdmissionCheck struct {

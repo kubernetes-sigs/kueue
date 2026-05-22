@@ -138,7 +138,7 @@ type TopologyLevel struct {
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={topo}
 
 // Topology is the Schema for the topology API
 type Topology struct {
