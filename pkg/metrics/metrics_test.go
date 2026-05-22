@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -195,6 +196,7 @@ func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.WorkloadMetrics, true)
 	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1", "ns1", "wl1", nil, nil)
 	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1", "ns1", "wl2", nil, nil)
 	ReportPreemption("cluster_queue1", "InCohortFairSharing", "cluster_queue1", "ns1", "wl3", nil, nil)
@@ -206,28 +208,29 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InCohortReclamation")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InCohortReclaimWhileBorrowing")
 
-	expectFilteredMetricsCount(t, WorkloadPreemptionsCount, 4, "namespace", "ns1", "cluster_queue", "cluster_queue1")
-	expectFilteredMetricsCount(t, WorkloadPreemptionsCount, 1, "namespace", "ns1", "workload", "wl1", "reason", "InClusterQueue")
-	expectFilteredMetricsCount(t, WorkloadPreemptionsCount, 1, "namespace", "ns1", "workload", "wl2", "reason", "InCohortReclamation")
-	expectFilteredMetricsCount(t, WorkloadPreemptionsCount, 1, "namespace", "ns1", "workload", "wl3", "reason", "InCohortFairSharing")
-	expectFilteredMetricsCount(t, WorkloadPreemptionsCount, 1, "namespace", "ns1", "workload", "wl4", "reason", "InCohortReclaimWhileBorrowing")
+	expectFilteredMetricsCount(t, WorkloadPreemptionsTotal, 4, "namespace", "ns1", "cluster_queue", "cluster_queue1")
+	expectFilteredMetricsCount(t, WorkloadPreemptionsTotal, 1, "namespace", "ns1", "workload", "wl1", "reason", "InClusterQueue")
+	expectFilteredMetricsCount(t, WorkloadPreemptionsTotal, 1, "namespace", "ns1", "workload", "wl2", "reason", "InCohortReclamation")
+	expectFilteredMetricsCount(t, WorkloadPreemptionsTotal, 1, "namespace", "ns1", "workload", "wl3", "reason", "InCohortFairSharing")
+	expectFilteredMetricsCount(t, WorkloadPreemptionsTotal, 1, "namespace", "ns1", "workload", "wl4", "reason", "InCohortReclaimWhileBorrowing")
 
 	ClearWorkloadPreemptionMetrics("ns1", "wl1")
-	expectFilteredMetricsCount(t, WorkloadPreemptionsCount, 0, "namespace", "ns1", "workload", "wl1")
-	expectFilteredMetricsCount(t, WorkloadPreemptionsCount, 3, "namespace", "ns1", "cluster_queue", "cluster_queue1")
+	expectFilteredMetricsCount(t, WorkloadPreemptionsTotal, 0, "namespace", "ns1", "workload", "wl1")
+	expectFilteredMetricsCount(t, WorkloadPreemptionsTotal, 3, "namespace", "ns1", "cluster_queue", "cluster_queue1")
 
 	ClearClusterQueueMetrics("cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
 }
 
-func TestWorkloadPreemptionsCountAccumulates(t *testing.T) {
-	// Preempt the same workload three times; the gauge value must accumulate.
+func TestWorkloadPreemptionsTotalAccumulates(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.WorkloadMetrics, true)
+	// Preempt the same workload three times; the counter value must accumulate.
 	ReportPreemption("cq1", "InClusterQueue", "cq1", "ns-acc", "wl-acc", nil, nil)
 	ReportPreemption("cq1", "InClusterQueue", "cq1", "ns-acc", "wl-acc", nil, nil)
 	ReportPreemption("cq1", "InClusterQueue", "cq1", "ns-acc", "wl-acc", nil, nil)
 
 	// One series, value == 3.
-	pts := metrics.CollectFilteredGaugeVec(WorkloadPreemptionsCount, prometheus.Labels{
+	pts := metrics.CollectFilteredGaugeVec(WorkloadPreemptionsTotal, prometheus.Labels{
 		"namespace": "ns-acc", "workload": "wl-acc", "reason": "InClusterQueue",
 	})
 	if len(pts) != 1 {
@@ -238,7 +241,7 @@ func TestWorkloadPreemptionsCountAccumulates(t *testing.T) {
 	}
 
 	ClearWorkloadPreemptionMetrics("ns-acc", "wl-acc")
-	expectFilteredMetricsCount(t, WorkloadPreemptionsCount, 0, "namespace", "ns-acc", "workload", "wl-acc")
+	expectFilteredMetricsCount(t, WorkloadPreemptionsTotal, 0, "namespace", "ns-acc", "workload", "wl-acc")
 	ClearClusterQueueMetrics("cq1")
 }
 

@@ -256,7 +256,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
 	if finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
-		metrics.ClearWorkloadPreemptionMetrics(wl.Namespace, wl.Name)
 		if r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
 			return ctrl.Result{}, nil
 		}
@@ -270,6 +269,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		log.V(2).Info("Deleting workload because it has finished and the retention period has elapsed", "retention", *r.workloadRetention.afterFinished)
+		metrics.ClearWorkloadPreemptionMetrics(wl.Namespace, wl.Name)
 
 		// Finished Workloads should no longer need Kueue's resource-in-use finalizer.
 		// However, WorkloadSlices and other paths can mark a Workload as Finished without

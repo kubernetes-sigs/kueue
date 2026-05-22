@@ -189,8 +189,8 @@ var (
 	PreemptedWorkloadsTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=workload
-	// +metricsdoc:labels=namespace="the namespace of the preempted workload",workload="the name of the preempted workload",cluster_queue="the ClusterQueue of the preempted workload",reason="eviction or preemption reason"
-	WorkloadPreemptionsCount *prometheus.GaugeVec
+	// +metricsdoc:labels=namespace="the namespace of the preempted workload",workload="the name of the preempted workload",cluster_queue="the ClusterQueue of the preempted workload",reason="eviction or preemption reason",replica_role="one of `leader`, `follower`, or `standalone`"
+	WorkloadPreemptionsTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the evicted workload's ClusterQueue from status.admission on the workload before quota was released (only present when the metric records a sample)",reason="eviction or preemption reason (same values as evicted_workloads_total)",replica_role="one of `leader`, `follower`, or `standalone`"
@@ -663,19 +663,18 @@ The label 'reason' can have the following values:
 		}, append([]string{"preempting_cluster_queue", "reason", "replica_role"}, extraLabels...),
 	)
 
-	WorkloadPreemptionsCount = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
+	WorkloadPreemptionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
-			Name:      "workload_preemptions",
-			Help: `The cumulative number of times each workload has been preempted.
+			Name:      "workload_preemptions_total",
+			Help: `The number of times each workload has been preempted.
 The label 'reason' can have the following values:
 - "InClusterQueue" means that the workload was preempted by a workload in the same ClusterQueue.
 - "InCohortReclamation" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota.
 - "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort Fair Sharing.
 - "InCohortReclaimWhileBorrowing" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota while borrowing.
-Uses a Gauge (rather than a Counter) so that the time series can be deleted when the workload finishes or is removed, keeping cardinality bounded.
-This gauge is deleted when the workload is completed or deleted.`,
-		}, []string{"namespace", "workload", "cluster_queue", "reason"},
+This counter is deleted when the workload is completed or deleted.`,
+		}, append([]string{"namespace", "workload", "cluster_queue", "reason", "replica_role"}, extraLabels...),
 	)
 
 	WorkloadEvictionLatencySeconds = prometheus.NewHistogramVec(
@@ -1061,11 +1060,16 @@ func ReportPreemption(
 ) {
 	labels := append([]string{string(preemptingCqName), preemptingReason, roletracker.GetRole(tracker)}, customLabelValues...)
 	PreemptedWorkloadsTotal.WithLabelValues(labels...).Inc()
-	WorkloadPreemptionsCount.WithLabelValues(targetNamespace, targetWorkloadName, string(targetCqName), preemptingReason).Inc()
+	if features.Enabled(features.WorkloadMetrics) {
+		wlLabels := append([]string{targetNamespace, targetWorkloadName, string(targetCqName), preemptingReason, roletracker.GetRole(tracker)}, customLabelValues...)
+		WorkloadPreemptionsTotal.WithLabelValues(wlLabels...).Inc()
+	}
 }
 
 func ClearWorkloadPreemptionMetrics(namespace, workloadName string) {
-	WorkloadPreemptionsCount.DeletePartialMatch(prometheus.Labels{"namespace": namespace, "workload": workloadName})
+	if features.Enabled(features.WorkloadMetrics) {
+		WorkloadPreemptionsTotal.DeletePartialMatch(prometheus.Labels{"namespace": namespace, "workload": workloadName})
+	}
 }
 
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
@@ -1398,7 +1402,6 @@ func Register() {
 		EvictedWorkloadsTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
-		WorkloadPreemptionsCount,
 		WorkloadEvictionLatencySeconds,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
@@ -1420,6 +1423,9 @@ func Register() {
 	)
 	if features.Enabled(features.MetricForWorkloadCreationLatency) {
 		metrics.Registry.MustRegister(WorkloadCreationLatency)
+	}
+	if features.Enabled(features.WorkloadMetrics) {
+		metrics.Registry.MustRegister(WorkloadPreemptionsTotal)
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
