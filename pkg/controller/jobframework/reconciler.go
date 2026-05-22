@@ -854,9 +854,9 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	if prebuiltWorkloadName, usePrebuiltWorkload := PrebuiltWorkloadFor(job); usePrebuiltWorkload {
+	if prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object()); prebuiltWorkload != "" {
 		wl := &kueue.Workload{}
-		err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkloadName, Namespace: object.GetNamespace()}, wl)
+		err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkload, Namespace: object.GetNamespace()}, wl)
 		if err != nil {
 			return nil, client.IgnoreNotFound(err)
 		}
@@ -1572,8 +1572,8 @@ func assignQueueLabels(ctx context.Context, labels map[string]string, wl *kueue.
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	_, usePrebuiltWorkload := PrebuiltWorkloadFor(job)
-	if usePrebuiltWorkload {
+	prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object())
+	if prebuiltWorkload != "" {
 		// Stop the job if not already suspended
 		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
 			return stopErr
@@ -1588,7 +1588,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 		return nil
 	}
 
-	if usePrebuiltWorkload {
+	if prebuiltWorkload != "" {
 		return ErrPrebuiltWorkloadNotFound
 	}
 

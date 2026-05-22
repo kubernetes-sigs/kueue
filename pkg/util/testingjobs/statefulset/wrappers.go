@@ -88,7 +88,7 @@ func (ss *StatefulSetWrapper) Obj() *appsv1.StatefulSet {
 // Annotation sets the annotation of the StatefulSet
 func (ss *StatefulSetWrapper) Annotation(k, v string) *StatefulSetWrapper {
 	if ss.Annotations == nil {
-		ss.Annotations = make(map[string]string)
+		ss.Annotations = make(map[string]string, 1)
 	}
 	ss.Annotations[k] = v
 	return ss
@@ -111,6 +111,11 @@ func (ss *StatefulSetWrapper) Queue(q string) *StatefulSetWrapper {
 // PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the StatefulSet
 func (ss *StatefulSetWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *StatefulSetWrapper {
 	return ss.Label(controllerconstants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the StatefulSet
+func (ss *StatefulSetWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *StatefulSetWrapper {
+	return ss.Annotation(controllerconstants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Name updated the name of the StatefulSet

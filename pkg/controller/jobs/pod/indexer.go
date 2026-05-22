@@ -19,8 +19,6 @@ package pod
 import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
 const (
@@ -33,8 +31,8 @@ func IndexPodGroupName(o client.Object) []string {
 		return nil
 	}
 
-	if labelValue, exists := pod.GetLabels()[podconstants.GroupNameLabel]; exists {
-		return []string{labelValue}
+	if groupName := GetPodGroupName(pod); groupName != "" {
+		return []string{groupName}
 	}
 	return nil
 }

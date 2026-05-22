@@ -66,7 +66,7 @@ func (n *NodeWrapper) Label(k, v string) *NodeWrapper {
 // Annotation adds an annotation to the Node
 func (n *NodeWrapper) Annotation(k, v string) *NodeWrapper {
 	if n.Annotations == nil {
-		n.Annotations = make(map[string]string)
+		n.Annotations = make(map[string]string, 1)
 	}
 	n.Annotations[k] = v
 	return n

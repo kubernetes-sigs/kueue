@@ -136,6 +136,7 @@ func TestValidateCreate(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 	}{
 		"invalid unmanaged": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(false).
 				Obj(),
@@ -143,6 +144,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 
 		"invalid managed - no cluster selector and no RayClusterSpec": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				RayClusterSpec(nil).
 				Obj(),
@@ -151,12 +153,14 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid unmanaged - local queue default": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(false).
 				Obj(),
 			wantErr: nil,
 		},
 		"invalid managed - by config": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(false).
 				Obj(),
@@ -166,6 +170,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid managed - by queue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				ShutdownAfterJobFinishes(false).
 				Obj(),
@@ -174,6 +179,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid managed - has cluster selector and RayClusterSpec": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				ClusterSelector(map[string]string{
 					"k1": "v1",
@@ -192,6 +198,7 @@ func TestValidateCreate(t *testing.T) {
 			wantErr:      nil,
 		},
 		"invalid managed - too many worker groups": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				WithWorkerGroups(bigWorkerGroup...).
 				Obj(),
@@ -200,6 +207,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"worker group uses head name": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				WithWorkerGroups(rayv1.WorkerGroupSpec{
 					GroupName: headGroupPodSetName,
@@ -587,6 +595,13 @@ func TestValidateCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"valid with prebuilt workload annotation, WorkloadIdentifierAnnotations enabled": {
+			job: testingrayutil.MakeJob("rayjob", "ns").
+				Queue("queue").
+				PrebuiltWorkloadAnnotation("wl1").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
 	}
 

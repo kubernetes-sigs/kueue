@@ -114,6 +114,11 @@ func (j *ServiceWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *Service
 	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
 }
 
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *ServiceWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *ServiceWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
+}
+
 // Request adds a resource request to the default container.
 func (j *ServiceWrapper) Request(rayType rayv1.RayNodeType, r corev1.ResourceName, v string) *ServiceWrapper {
 	switch rayType {
@@ -221,7 +226,7 @@ func (j *ServiceWrapper) Label(key, value string) *ServiceWrapper {
 // Annotation sets the annotation key and value
 func (j *ServiceWrapper) Annotation(key, value string) *ServiceWrapper {
 	if j.Annotations == nil {
-		j.Annotations = make(map[string]string)
+		j.Annotations = make(map[string]string, 1)
 	}
 	j.Annotations[key] = value
 	return j

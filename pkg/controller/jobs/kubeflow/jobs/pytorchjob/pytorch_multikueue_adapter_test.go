@@ -27,12 +27,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	kfutiltesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
@@ -60,8 +62,10 @@ func TestMultiKueueAdapter(t *testing.T) {
 		wantError               error
 		wantManagersPyTorchJobs []kftraining.PyTorchJob
 		wantWorkerPyTorchJobs   []kftraining.PyTorchJob
+		featureGates            map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote pytorchjob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPyTorchJobs: []kftraining.PyTorchJob{
 				*pyTorchJobBuilder.DeepCopy(),
 			},
@@ -80,6 +84,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote pytorchjob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPyTorchJobs: []kftraining.PyTorchJob{
 				*pyTorchJobBuilder.DeepCopy(),
 			},
@@ -108,6 +113,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote while local pytorchjob is suspended": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPyTorchJobs: []kftraining.PyTorchJob{
 				*pyTorchJobBuilder.Clone().
 					Suspend(true).
@@ -140,6 +146,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"remote pytorchjob is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerPyTorchJobs: []kftraining.PyTorchJob{
 				*pyTorchJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
@@ -151,6 +158,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"missing job is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "pytorchjob1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
@@ -159,6 +167,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"job with wrong managedBy is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPyTorchJobs: []kftraining.PyTorchJob{
 				*pyTorchJobBuilder.DeepCopy(),
 			},
@@ -173,6 +182,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"job managedBy multikueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPyTorchJobs: []kftraining.PyTorchJob{
 				*pyTorchJobManagedByKueueBuilder.DeepCopy(),
 			},
@@ -186,9 +196,28 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*pyTorchJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
+		"sync creates missing remote pytorchjob, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersPyTorchJobs: []kftraining.PyTorchJob{
+				*pyTorchJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "pytorchjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersPyTorchJobs: []kftraining.PyTorchJob{
+				*pyTorchJobBuilder.DeepCopy(),
+			},
+			wantWorkerPyTorchJobs: []kftraining.PyTorchJob{
+				*pyTorchJobBuilder.Clone().
+					PrebuiltWorkloadAnnotation("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder(kftraining.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			managerBuilder = managerBuilder.WithLists(&kftraining.PyTorchJobList{Items: tc.managersPyTorchJobs})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersPyTorchJobs, func(w *kftraining.PyTorchJob) client.Object { return w })...)

@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -117,10 +116,10 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		return nil, errors.New("not a trainjob")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := trainJob.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(trainJob)
+	if prebuiltWorkload == "" {
 		return nil, fmt.Errorf("no prebuilt workload found for trainjob: %s", klog.KObj(trainJob))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWl, Namespace: trainJob.Namespace}}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: trainJob.Namespace}}, nil
 }

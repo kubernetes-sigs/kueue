@@ -181,6 +181,11 @@ func (j *PyTorchJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *PyTo
 	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
 }
 
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *PyTorchJobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *PyTorchJobWrapper {
+	return j.SetAnnotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
+}
+
 // Request adds a resource request to the default container.
 func (j *PyTorchJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *PyTorchJobWrapper {
 	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
@@ -254,6 +259,9 @@ func (j *PyTorchJobWrapper) SetTypeMeta() *PyTorchJobWrapper {
 
 // SetAnnotation sets an annotation on the job.
 func (j *PyTorchJobWrapper) SetAnnotation(key, content string) *PyTorchJobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string, 1)
+	}
 	j.Annotations[key] = content
 	return j
 }

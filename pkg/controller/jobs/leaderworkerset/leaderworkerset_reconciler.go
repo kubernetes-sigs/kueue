@@ -464,7 +464,7 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 	log := ctrl.LoggerFrom(ctx).WithValues(
 		"pod", klog.KObj(pod),
 		"podRevision", pod.Labels[appsv1.ControllerRevisionHashLabelKey],
-		"group", pod.Labels[podconstants.GroupNameLabel])
+		"group", podcontroller.GetPodGroupName(pod))
 	if sts != nil {
 		log = log.WithValues(
 			"statefulset", klog.KObj(sts),
@@ -523,10 +523,14 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 
 	wlName := GetWorkloadName(GetOwnerUID(lws), lws.Name, pod.Labels[leaderworkersetv1.GroupIndexLabelKey])
 
+	if pod.Annotations == nil {
+		pod.Annotations = make(map[string]string)
+	}
+
 	pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 	pod.Labels[controllerconstants.QueueLabel] = string(queueName)
-	pod.Labels[podconstants.GroupNameLabel] = wlName
-	pod.Labels[controllerconstants.PrebuiltWorkloadLabel] = wlName
+	podcontroller.SetPodGroupName(pod, wlName)
+	jobframework.SetPrebuiltWorkloadName(pod, wlName)
 	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
 	pod.Annotations[podconstants.RoleHashAnnotation] = string(kueue.DefaultPodSetName)
 
