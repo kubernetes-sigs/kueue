@@ -293,6 +293,26 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		})
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
+	if workload.Status(&wl) == workload.StatusPending &&
+		!features.Enabled(features.KueueDRAIntegration) &&
+		features.Enabled(features.KueueDRARejectWorkloadsWhenDRADisabled) &&
+		workload.HasDRA(&wl) {
+		log.V(3).Info("Rejecting workload that uses DRA resources because KueueDRAIntegration feature gate is disabled")
+		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible,
+				"Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				r.clock.Now())
+			if workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible,
+				"Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled", false) {
+				updated = true
+			}
+			return updated, nil
+		})
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA rejection: %w", err)
+		}
+		return ctrl.Result{}, nil
+	}
 	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl) {
 		workload.AdjustResources(ctx, r.client, &wl)
 		if workload.HasResourceClaim(&wl) {
@@ -1203,9 +1223,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			}
 		})
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		if dra.NeedsDRAReconcile(e.ObjectNew) {
+		switch {
+		case dra.NeedsDRAReconcile(e.ObjectNew):
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
-		} else {
+		default:
 			if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
@@ -1242,9 +1263,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// AddOrUpdateWorkload is only called once. When moving it to the main
 			// reconciler, we would execute it on every run, which might mess up the state.
 			if immediate {
-				if dra.NeedsDRAReconcile(e.ObjectNew) {
+				switch {
+				case dra.NeedsDRAReconcile(e.ObjectNew):
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
-				} else {
+				default:
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
 					}
