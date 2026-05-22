@@ -517,6 +517,9 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	}
 	metrics.ReportAdmittedActiveWorkloads(c.Name, c.admittedWorkloadsCount, c.customMetricLabelValues, c.roleTracker)
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), c.customMetricLabelValues, c.roleTracker)
+	for fr, q := range c.AdmittedUsage {
+		metrics.ReportFlavorAdmittedActiveWorkloads(c.Name, fr, q, c.customMetricLabelValues, c.roleTracker)
+	}
 }
 
 func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
