@@ -19,6 +19,7 @@ package pod
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -142,7 +143,7 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 				UID(fmt.Sprintf("test-uid-%d", i)).
 				Queue("user-queue").
 				GroupNameLabel("test-group").
-				GroupTotalCount(fmt.Sprintf("%d", roleCount)).
+				GroupTotalCount(strconv.Itoa(roleCount)).
 				Annotation(podconstants.RoleHashAnnotation, fmt.Sprintf("role-%02d", i)).
 				Image("", nil).
 				Obj()
