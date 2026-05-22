@@ -8,9 +8,22 @@ metadata:
 
 # Skill: Kueue Release Notes
 
+## When to use this skill
+
 Use this skill when writing or reviewing a Kueue release note for a pull request.
 
 The goal is to produce a concise, professional release note describing the user-observable change rather than only the implementation detail.
+
+## Output
+
+Final output is three release-note variants plus rationale for key decisions:
+
+- **Detailed**: one or two sentences with enough context to explain the user-visible scenario.
+- **Concise**: the shortest accurate release-note bullet.
+- **Balanced**: the recommended version, balancing clarity and brevity.
+- **Rationale**: briefly explain the prefix, framing, user-observable impact, and any formatting or mitigation decisions.
+
+If the user asks for only one version, provide the **Balanced** variant.
 
 ## Critical rule for breaking changes
 
@@ -30,7 +43,7 @@ ACTION REQUIRED: If <affected scenario>, <mitigation before upgrading>. <Optiona
 
 ## Process
 
-### 1. Read the PR context
+### 1. Read the PR and classify the change
 
 Read the PR description, linked issue, release-note text, and relevant changed files.
 
@@ -45,31 +58,9 @@ Identify:
 
 Do not rely only on the PR title. PR titles often describe the implementation, while release notes should describe the user-visible effect.
 
-### 2. Choose a narrow prefix
+### 2. Apply general principles
 
-Start the note with a prefix that narrows the scope.
-
-Prefer the smallest accurate user-facing area, for example:
-
-- `MultiKueue:`
-- `TAS:`
-- `Helm:`
-- `KueueViz:`
-- `Observability:`
-- `Scheduling:`
-- `VisibilityOnDemand:`
-- `LeaderWorkerSet:`
-- `ElasticJobsViaWorkloadSlices:`
-- `<integration name>:` such as `JobSet:`, `StatefulSet:`, or `RayJob:`
-
-Use a combined prefix when the change is intentionally scoped to two areas, for example:
-
-- `LeaderWorkerSet & StatefulSet:`
-- `Helm and manifests:`
-
-Avoid broad prefixes such as `Kueue:` unless the change truly affects the whole project or no narrower area applies.
-
-### 3. Focus on user-observable behavior
+#### Focus on user-observable behavior
 
 Describe what changes for users, operators, or integrators.
 
@@ -93,7 +84,29 @@ Avoid release notes that only say what code changed, such as:
 
 If an implementation detail is important to understand the user-visible behavior, include it briefly after the scenario.
 
-### 4. Frame bugfixes as bugfixes
+#### Keep it concise and professional
+
+Default to one bullet with one or two sentences.
+
+Use:
+
+- past tense for fixes: `Fixed`, `Improved`, `Removed`;
+- active voice;
+- code formatting for fields, flags, metrics, feature gates, resource names, and configuration keys;
+- precise nouns such as `Workload`, `ClusterQueue`, `LocalQueue`, `MultiKueueCluster`, `AdmissionCheck`, `namespaceSelector`.
+
+Avoid:
+
+- vague correctness claims such as “fixed handling” without describing the expected behavior;
+- “various” or “some”;
+- excessive implementation details;
+- blame-oriented wording;
+- speculative impact;
+- very long lists of changed files or internal functions.
+
+### 3. Apply type-specific framing
+
+#### Bugfix
 
 For bugfixes, make the broken scenario clear.
 
@@ -127,7 +140,19 @@ MultiKueue: Changed remote watch establishment to use per-cluster locking.
 
 That implementation detail can be included only if it explains the user-visible outcome.
 
-### 5. Handle observability changes explicitly
+#### Feature or enhancement
+
+For features and enhancements, describe the new capability and why users or operators benefit from it.
+
+Preferred shape:
+
+```text
+<Prefix>: Added <capability>, allowing users to <user-visible outcome>.
+```
+
+If the feature is gated, mention the feature gate or configuration field only when users need it to use the capability.
+
+#### Observability
 
 Logs, metrics, events, and visibility endpoints are user-facing for operators.
 
@@ -143,7 +168,7 @@ Observability: Fixed `kueue_cohort_subtree_quota` and `kueue_cohort_subtree_reso
 Observability: Improved FairSharing strategy-evaluation logs by including DRS share values at verbosity level V(4).
 ```
 
-### 6. Handle breaking changes
+#### Breaking change
 
 Follow the critical breaking-change rule near the top of this skill.
 
@@ -158,27 +183,43 @@ Example mitigation details may include:
 - whether a workaround is discouraged;
 - what behavior users should expect after applying the mitigation.
 
-### 7. Keep it concise and professional
+#### Removal of deprecated option
 
-Default to one bullet with one or two sentences.
+For deprecated option removals, name the removed option and its replacement.
 
-Use:
+Preferred shape:
 
-- past tense for fixes: `Fixed`, `Improved`, `Removed`;
-- active voice;
-- code formatting for fields, flags, metrics, feature gates, resource names, and configuration keys;
-- precise nouns such as `Workload`, `ClusterQueue`, `LocalQueue`, `MultiKueueCluster`, `AdmissionCheck`, `namespaceSelector`.
+```text
+<Prefix>: Removed the deprecated `<flag-or-field>` option. Use `<replacement>` instead.
+```
 
-Avoid:
+Include a breaking-change mitigation when users must update their configuration before upgrading.
 
-- vague correctness claims such as “fixed handling” without describing the expected behavior;
-- “various” or “some”;
-- excessive implementation details;
-- blame-oriented wording;
-- speculative impact;
-- very long lists of changed files or internal functions.
+### 4. Choose a narrow prefix
 
-### 8. Validate accuracy before finalizing
+Start the note with a prefix that narrows the scope.
+
+Prefer the smallest accurate user-facing area, for example:
+
+- `MultiKueue:`
+- `TAS:`
+- `Helm:`
+- `KueueViz:`
+- `Observability:`
+- `Scheduling:`
+- `VisibilityOnDemand:`
+- `LeaderWorkerSet:`
+- `ElasticJobsViaWorkloadSlices:`
+- `<integration name>:` such as `JobSet:`, `StatefulSet:`, or `RayJob:`
+
+Use a combined prefix when the change is intentionally scoped to two areas, for example:
+
+- `LeaderWorkerSet & StatefulSet:`
+- `Helm and manifests:`
+
+Avoid broad prefixes such as `Kueue:` unless the change truly affects the whole project or no narrower area applies.
+
+### 5. Validate accuracy before finalizing
 
 Before proposing the final note, check:
 
@@ -191,17 +232,22 @@ Before proposing the final note, check:
 - Are API fields, flags, metrics, and feature gates spelled exactly as in the code?
 - Is the note concise enough to fit as a release bullet?
 
-### 8. Final proposal variants and rationale
+### 6. Propose the variants and rationale
 
-Always propose three variants:
-- Details - the release note is very detailed, sometimes leaking implementation details
-- Concise - the release note is only about user-observable impact
-- Balanced - the release note is useually only about user-observable impact, but sometimes
-  it may include key implementation decisions.
+Provide the final answer in this order:
 
-In all cases the wording is concise and professional.
+1. **Detailed**
+2. **Concise**
+3. **Balanced**
+4. **Rationale**
 
-Provide also rationale for the key decisions when formulating the release note.
+The rationale should expand on the key decisions, especially:
+
+- why the prefix is the narrowest accurate scope;
+- why the change is framed as a bugfix, feature, observability improvement, breaking change, cleanup, or documentation-only change;
+- what user-observable behavior the note highlights;
+- whether mitigation is needed;
+- why the recommended version is the best balance of clarity and brevity.
 
 ## Templates
 
