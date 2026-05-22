@@ -61,6 +61,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.13"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: ElasticJobsViaWorkloadSlicesWithTAS
   versionedSpecs:
   - default: false
