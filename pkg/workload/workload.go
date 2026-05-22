@@ -329,13 +329,16 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	podSetShapes := make([]map[string]any, 0, len(wl.Spec.PodSets))
 	for i, ps := range wl.Spec.PodSets {
 		effectiveCount := ps.Count
+		var effectiveRequests resources.Requests
 		if i < len(totalRequests) {
 			effectiveCount = totalRequests[i].Count
+			effectiveRequests = totalRequests[i].Requests
 		}
 		podSetShapes = append(podSetShapes, map[string]any{
 			"name":            ps.Name,
 			"spec":            utilpod.SpecShape(&ps.Template.Spec),
 			"count":           effectiveCount,
+			"requests":        effectiveRequests,
 			"minCount":        ps.MinCount,
 			"topologyRequest": ps.TopologyRequest,
 		})
