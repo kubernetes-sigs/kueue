@@ -261,6 +261,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, createdJob)
 
@@ -388,6 +389,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob1)
 
@@ -408,6 +410,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob2)
 
@@ -429,6 +432,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, blockerJob)
 
@@ -450,6 +454,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, higherJob1)
 
@@ -458,6 +463,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, higherJob2)
 		})

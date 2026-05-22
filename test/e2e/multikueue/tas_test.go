@@ -545,6 +545,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "1500m").
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
 			Obj()
 		util.MustCreate(ctx, k8sManagerClient, job)
 
@@ -595,6 +596,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "500m").
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
 			Obj()
 		util.MustCreate(ctx, k8sManagerClient, job)
 

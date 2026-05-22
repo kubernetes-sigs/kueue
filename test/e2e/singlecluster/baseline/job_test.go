@@ -55,6 +55,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			RequestAndLimit(corev1.ResourceMemory, "20Mi").
+			TerminationGracePeriod(1).
 			Obj()
 		jobKey = client.ObjectKeyFromObject(sampleJob)
 	})
@@ -322,6 +323,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 					PriorityClass(highPriorityClass.Name).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					NodeSelector("instance-type", "on-demand"). // target the same flavor to cause preemption
+					TerminationGracePeriod(1).
 					Obj()
 				util.MustCreate(ctx, k8sClient, job)
 
@@ -359,6 +361,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 					WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					NodeSelector("instance-type", "on-demand"). // target the same flavor to cause preemption
+					TerminationGracePeriod(1).
 					Obj()
 				util.MustCreate(ctx, k8sClient, job)
 
@@ -434,6 +437,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 					WorkloadPriorityClass(midPriority).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
+					TerminationGracePeriod(1).
 					Obj()
 				util.MustCreate(ctx, k8sClient, sampleJob)
 			})
@@ -477,6 +481,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 					WorkloadPriorityClass(lowPriority).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
+					TerminationGracePeriod(1).
 					Obj()
 				util.MustCreate(ctx, k8sClient, sampleJob2)
 			})
@@ -536,6 +541,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			lowJob := testingjob.MakeJob("low", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Parallelism(1).
 				NodeSelector("instance-type", "on-demand").
 				Containers(
@@ -575,6 +581,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				PriorityClass(highPriorityClass.Name).
 				Request(corev1.ResourceCPU, "1").
 				NodeSelector("instance-type", "on-demand").
+				TerminationGracePeriod(1).
 				Obj()
 
 			ginkgo.By("Creating a high-priority job", func() {
@@ -641,6 +648,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
 					RequestAndLimit(corev1.ResourceCPU, "2").
+					TerminationGracePeriod(1).
 					Obj()
 				util.MustCreate(ctx, k8sClient, sampleJob)
 			})

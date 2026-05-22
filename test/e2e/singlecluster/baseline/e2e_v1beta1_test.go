@@ -46,6 +46,7 @@ var _ = ginkgo.Describe("Kueue v1beta1", ginkgo.Label("area:singlecluster", "fea
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			RequestAndLimit(corev1.ResourceMemory, "20Mi").
+			TerminationGracePeriod(1).
 			Obj()
 		jobKey = client.ObjectKeyFromObject(sampleJob)
 	})

@@ -182,6 +182,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "gpu-template").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, job)
 
@@ -282,6 +283,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "missing-rct").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, job)
 
@@ -325,6 +327,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "worker1-only-rct").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, job)
 
@@ -401,6 +404,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "multi-pod-gpu-template").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, job)
 
