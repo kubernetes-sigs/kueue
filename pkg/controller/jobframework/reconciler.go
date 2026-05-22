@@ -687,7 +687,7 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 		if features.Enabled(features.FinishOrphanedWorkloads) && controllerutil.HasControllerReference(wl) {
 			log.V(2).Info("Workload is orphaned; finishing to release quota")
 			err := workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOwnerNotFound,
-				"The workload's owner no longer exists", r.clock)
+				"The workload's owner no longer exists", r.clock, r.roleTracker)
 			if err != nil {
 				if client.IgnoreNotFound(err) != nil {
 					log.Error(err, "Finishing orphaned workload")
