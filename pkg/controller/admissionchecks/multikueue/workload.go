@@ -505,6 +505,14 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	return w.nominateAndSynchronizeWorkers(ctx, group)
 }
 
+// nominatedClusterSetsEqual reports whether stored and current contain the same set of cluster names,
+// independent of order.
+func nominatedClusterSetsEqual(stored, current []string) bool {
+	slices.Sort(stored)
+	slices.Sort(current)
+	return slices.Equal(stored, current)
+}
+
 func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
@@ -527,7 +535,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
 
-		if !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
 			// ClusterName != nil indicates possibly stale cache (eviction just cleared ClusterName
 			// but the informer hasn't caught up yet). Avoid creating remote workloads without a
 			// confirmed nomination — wait for the cache to sync.
