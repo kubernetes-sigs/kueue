@@ -134,6 +134,7 @@ var _ = ginkgo.Describe("DRA", func() {
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "large-gpu-template").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, job)
 

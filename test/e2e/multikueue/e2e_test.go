@@ -655,6 +655,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				).
 				RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "100m").
 				RequestAndLimit("replicated-job-1", corev1.ResourceMemory, "100M").
+				TerminationGracePeriod(1).
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
@@ -1088,6 +1089,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(extraResourceGPUHighCost, "2").
 				RequestAndLimit(extraResourceGPULowCost, "1").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
 
@@ -1121,6 +1123,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(extraResourceGPUHighCost, "1").
 				RequestAndLimit(extraResourceGPULowCost, "2").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
@@ -1178,6 +1181,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(extraResourceGPUHighCost, "1").
 				RequestAndLimit(extraResourceGPULowCost, "2").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
 
@@ -1219,6 +1223,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(extraResourceGPUHighCost, "1").
 				RequestAndLimit(extraResourceGPULowCost, "2").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
@@ -1290,6 +1295,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(extraResourceGPUHighCost, "2").
 				RequestAndLimit(extraResourceGPULowCost, "1").
+				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Creating the first job", func() {
 				util.MustCreate(ctx, k8sManagerClient, job1)
@@ -1323,6 +1329,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(extraResourceGPUHighCost, "1").
 				RequestAndLimit(extraResourceGPULowCost, "2").
+				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Creating the second job", func() {
 				util.MustCreate(ctx, k8sManagerClient, job2)
