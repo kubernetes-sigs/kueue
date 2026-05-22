@@ -26,7 +26,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -286,7 +285,7 @@ func TestPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.rayCluster.PodSets(ctx)
+			gotPodSets, err := tc.rayCluster.PodSets(ctx, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -371,7 +370,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(clusterQueueName).
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -425,7 +424,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(clusterQueueName).
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -489,7 +488,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
 					Generation(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -525,7 +524,7 @@ func TestReconciler(t *testing.T) {
 							}).
 							Obj(),
 					).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
 					Generation(1).
 					PastAdmittedTime(1).
 					Condition(metav1.Condition{
@@ -609,7 +608,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(clusterQueueName).
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -663,7 +662,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(clusterQueueName).
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("head").
 									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
@@ -723,7 +722,7 @@ func TestReconciler(t *testing.T) {
 						t.Fatalf("Could not create workload: %v", err)
 					}
 				}
-				recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+				recorder := &utiltesting.EventRecorder{}
 				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, append(tc.reconcilerOptions, jobframework.WithClock(fakeClock))...)
 				if err != nil {
 					t.Errorf("Error creating the reconciler: %v", err)

@@ -58,6 +58,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
@@ -1381,6 +1382,43 @@ func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWor
 		g.Expect(newWorkload).ShouldNot(gomega.BeNil())
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("No replacement workload slice found for old workload", oldWorkload))
 	return newWorkload
+}
+
+// ExpectWorkloadSliceAdmittedBeforeOldFinished watches workload events and asserts
+// that the old workload slice is not marked Finished before the new slice is Admitted.
+// The watcher must be started before the scale-up that triggers the replacement.
+func ExpectWorkloadSliceAdmittedBeforeOldFinished(watcher watch.Interface, oldWorkloadName string, timeout time.Duration) {
+	ginkgo.GinkgoHelper()
+	oldSliceFinished := false
+	newSliceAdmitted := false
+	timeoutCh := time.After(timeout)
+	for !newSliceAdmitted {
+		select {
+		case evt, ok := <-watcher.ResultChan():
+			gomega.Expect(ok).Should(gomega.BeTrue(), "watch channel closed unexpectedly")
+			if evt.Type == watch.Error {
+				status, _ := evt.Object.(*metav1.Status)
+				gomega.Expect(evt.Type).ShouldNot(gomega.Equal(watch.Error), fmt.Sprintf("watch error: %v", status))
+			}
+			if evt.Type != watch.Modified {
+				continue
+			}
+			wl, isWorkload := evt.Object.(*kueue.Workload)
+			gomega.Expect(isWorkload).Should(gomega.BeTrue())
+
+			if wl.Name == oldWorkloadName && workload.IsFinished(wl) {
+				oldSliceFinished = true
+			}
+			if wl.Name != oldWorkloadName && workload.IsAdmitted(wl) {
+				gomega.Expect(oldSliceFinished).Should(gomega.BeFalse(),
+					"old workload slice was finished before new slice was admitted")
+				newSliceAdmitted = true
+			}
+		case <-timeoutCh:
+			gomega.Expect(newSliceAdmitted).Should(gomega.BeTrue(),
+				"timed out waiting for new workload slice to be admitted")
+		}
+	}
 }
 
 func ExpectJobToBeRunning(ctx context.Context, c client.Client, job *batchv1.Job) {

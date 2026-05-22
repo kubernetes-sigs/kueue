@@ -58,6 +58,7 @@ var (
 	labelsPath                     = field.NewPath("metadata", "labels")
 	annotationsPath                = field.NewPath("metadata", "annotations")
 	admissionGatedByAnnotationPath = annotationsPath.Key(kueueconstants.AdmissionGatedByAnnotation)
+	prebuiltWorkloadAnnotationPath = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
 	prebuiltWorkloadLabelPath      = labelsPath.Key(constants.PrebuiltWorkloadLabel)
 	queueNameLabelPath             = labelsPath.Key(constants.QueueLabel)
 	maxExecTimeLabelPath           = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
@@ -195,6 +196,37 @@ func TestValidateCreate(t *testing.T) {
 				Indexed(true).
 				Obj(),
 			wantValidationErrs: nil,
+		},
+		{
+			name: "invalid prebuilt workload annotation, WorkloadIdentifierAnnotations enabled",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				PrebuiltWorkloadAnnotation("workload name").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(prebuiltWorkloadAnnotationPath, "workload name", testutil.InvalidRFC1123Message),
+			},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		{
+			name: "valid prebuilt workload annotation, WorkloadIdentifierAnnotations enabled",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				PrebuiltWorkloadAnnotation("workload-name").
+				Indexed(true).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		{
+			name: "different prebuilt workload label and annotation, label ignored, WorkloadIdentifierAnnotations enabled",
+			job: testingutil.MakeJob("job", "default").
+				PrebuiltWorkloadLabel("workload-label").
+				PrebuiltWorkloadAnnotation("workload-annotation").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
 		{
 			name: "invalid maximum execution time",
@@ -571,6 +603,21 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
+		{
+			name: "partial admission and elastic job cannot be used together",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "2").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, "2", "partial admission and elastic job cannot be used together"),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -753,6 +800,32 @@ func TestValidateUpdate(t *testing.T) {
 				PrebuiltWorkloadLabel("new-workload").
 				Obj(),
 			wantValidationErrs: apivalidation.ValidateImmutableField("new-workload", "old-workload", prebuiltWorkloadLabelPath),
+		},
+		{
+			name: "immutable prebuilt workload annotation, WorkloadIdentifierAnnotations enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				SetAnnotation(constants.PrebuiltWorkloadAnnotation, "old-workload").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				SetAnnotation(constants.PrebuiltWorkloadAnnotation, "new-workload").
+				Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField("new-workload", "old-workload", prebuiltWorkloadAnnotationPath),
+			featureGates:       map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		{
+			name: "migrate from label to annotation, WorkloadIdentifierAnnotations enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				PrebuiltWorkloadLabel("workload-name").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				PrebuiltWorkloadAnnotation("workload-name").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
 		{
 			name: "immutable queue name not suspend",

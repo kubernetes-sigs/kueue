@@ -22,6 +22,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ClusterQueue status condition types.
+const (
+	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
+	// can be borrowed by other ClusterQueues in the same cohort.
+	ClusterQueueActive string = "Active"
+	// MultiKueueManagerQuotaAutomation indicates that this ClusterQueue is a
+	// MultiKueue manager queue and its quota is automatically managed.
+	MultiKueueManagerQuotaAutomation string = "MultiKueueManagerQuotaAutomation"
+)
+
 // ClusterQueue Active condition reasons.
 const (
 	ClusterQueueActiveReasonTerminating                              = "Terminating"
@@ -219,14 +229,14 @@ type ConcurrentAdmissionMigration struct {
 }
 
 type ConcurrentAdmissionConstraints struct {
-	// minPreferredFlavorName defines the minimal flavor a Workload can migrate to.
+	// lastAcceptableFlavorName defines the last acceptable flavor a Workload can migrate to.
 	// The order is based on the order of flavors in ClusterQueue.
 	// It can only be used if the Mode is `TryPreferredFlavors`.
-	// If the Mode is `TryPreferredFlavors` and MinPreferredFlavorName is not specified, then
+	// If the Mode is `TryPreferredFlavors` and LastAcceptableFlavorName is not specified, then
 	// Workload can migrate to any flavor that is more preferable than the one it was admitted to.
 	//
 	// +optional
-	MinPreferredFlavorName *ResourceFlavorReference `json:"minPreferredFlavorName,omitempty"`
+	LastAcceptableFlavorName *ResourceFlavorReference `json:"lastAcceptableFlavorName,omitempty"`
 }
 
 // +kubebuilder:validation:MaxLength=253
@@ -413,12 +423,6 @@ type ResourceUsage struct {
 	// +optional
 	Borrowed resource.Quantity `json:"borrowed,omitempty"`
 }
-
-const (
-	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
-	// can be borrowed by other ClusterQueues in the same cohort.
-	ClusterQueueActive string = "Active"
-)
 
 type PreemptionPolicy string
 

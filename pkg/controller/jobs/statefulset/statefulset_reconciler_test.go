@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -527,6 +527,10 @@ func TestReconciler(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 			indexer := utiltesting.AsIndexer(clientBuilder)
+			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName)
+			if err != nil {
+				t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
+			}
 
 			objs := make([]client.Object, 0, len(tc.pods)+len(tc.workloads)+1)
 			if tc.statefulSet != nil {
@@ -543,7 +547,7 @@ func TestReconciler(t *testing.T) {
 
 			kClient := clientBuilder.WithObjects(objs...).Build()
 
-			reconciler, err := NewReconciler(ctx, kClient, indexer, record.NewFakeRecorder(10))
+			reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)
 			}

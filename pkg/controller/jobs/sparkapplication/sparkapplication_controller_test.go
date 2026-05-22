@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -231,7 +230,7 @@ func TestPodSets(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			kSparkApp := (*SparkApplication)(tc.sparkApp)
-			got, err := kSparkApp.PodSets(ctx)
+			got, err := kSparkApp.PodSets(ctx, nil)
 
 			if err != nil {
 				t.Fatalf("PodSets() returned error: %v", err)
@@ -368,7 +367,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			kSparkApp := (*SparkApplication)(tc.sparkApp)
-			err := kSparkApp.RunWithPodSetsInfo(ctx, tc.podsetsInfo)
+			err := kSparkApp.RunWithPodSetsInfo(ctx, nil, tc.podsetsInfo)
 			if tc.wantErr {
 				if err == nil {
 					t.Errorf("expected RunWithPodSetsInfo() to fail")
@@ -579,7 +578,7 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)

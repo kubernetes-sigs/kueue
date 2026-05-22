@@ -226,13 +226,13 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 				Obj(),
 		}
 		admissions := []*kueue.Admission{
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "2").Obj()).Obj(),
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "3").Obj()).Obj(),
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj(),
 		}
@@ -408,13 +408,13 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 				Obj(),
 		}
 		admissions := []*kueue.Admission{
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "2").Obj()).Obj(),
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "3").Obj()).Obj(),
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj(),
 		}

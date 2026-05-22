@@ -67,3 +67,8 @@ func Convert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in *
 	}
 	return autoConvert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in, out, s)
 }
+
+func Convert_v1beta2_MultiKueueConfigSpec_To_v1beta1_MultiKueueConfigSpec(in *v1beta2.MultiKueueConfigSpec, out *MultiKueueConfigSpec, s conversionapi.Scope) error {
+	// Copy all fields except the unsupported QuotaManagement.
+	return autoConvert_v1beta2_MultiKueueConfigSpec_To_v1beta1_MultiKueueConfigSpec(in, out, s)
+}

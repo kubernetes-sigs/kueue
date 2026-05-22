@@ -65,8 +65,10 @@ func TestMultiKueueAdapter(t *testing.T) {
 		wantError        error
 		wantManagersJobs []batchv1.Job
 		wantWorkerJobs   []batchv1.Job
+		featureGates     map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote job": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
@@ -85,6 +87,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync intermediate status from remote job": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
@@ -111,6 +114,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"skip to sync intermediate status from remote suspended job": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().
 					Suspend(true).
@@ -142,6 +146,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync final status from remote job": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
@@ -170,6 +175,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"remote job is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
@@ -178,10 +184,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace})
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace})
 			},
 		},
 		"missing job is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
@@ -190,6 +197,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"job with wrong managedBy is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
 				*baseJobBuilder.DeepCopy(),
 			},
@@ -204,6 +212,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"job managedBy multikueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
@@ -217,9 +226,28 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
+		"sync creates missing remote job, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.DeepCopy(),
+			},
+			wantWorkerJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadAnnotation("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			managerBuilder = managerBuilder.WithLists(&batchv1.JobList{Items: tc.managersJobs})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
@@ -319,6 +347,9 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			},
 		},
 		"RemoteJobNotFound": {
+			fields: fields{
+				featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					ManagedBy("parent").Obj()).Build(),

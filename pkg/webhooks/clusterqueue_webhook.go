@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
@@ -244,6 +245,18 @@ func validateConcurrentAdmissionPolicy(cq *kueue.ClusterQueue, path *field.Path)
 	if len(cq.Spec.ResourceGroups) == 1 && len(cq.Spec.ResourceGroups[0].Flavors) > 16 {
 		allErrs = append(allErrs, field.Invalid(path.Child("resourceGroups").Index(0).Child("flavors"), len(cq.Spec.ResourceGroups[0].Flavors),
 			"cannot have more than 16 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined"))
+	}
+
+	if cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil && cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName != nil {
+		lastAcceptableFlavor := *cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
+		validFlavors := utilqueue.AllFlavors(cq.Spec.ResourceGroups)
+		if !validFlavors.Has(lastAcceptableFlavor) {
+			allowedFlavors := utilslices.Map(validFlavors.UnsortedList(), func(f *kueue.ResourceFlavorReference) string { return string(*f) })
+			allErrs = append(allErrs, field.Invalid(
+				path.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("lastAcceptableFlavorName"),
+				lastAcceptableFlavor,
+				fmt.Sprintf("must be one of the flavors defined in the ClusterQueue: %v", allowedFlavors)))
+		}
 	}
 
 	if cq.Spec.QueueingStrategy == kueue.StrictFIFO {

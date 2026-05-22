@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -78,7 +77,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"with prebuilt workload": {
 			clusterTrainingRuntime: testCtr,
-			trainJob:               testTrainJob.Clone().Queue("local-queue").Label(controllerconstants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			trainJob:               testTrainJob.Clone().Queue("local-queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr:                nil,
 		},
 		"valid topology request in RuntimePatch": {
@@ -168,14 +167,14 @@ func TestValidateCreate(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			webhook := &TrainJobWebhook{}
 			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme)
 			kClient := clientBuilder.WithObjects(tc.trainJob, tc.clusterTrainingRuntime).Build()
+			webhook := &TrainJobWebhook{client: kClient}
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			_, _ = NewReconciler(ctx, kClient, indexer, recorder)
 			_, gotErr := webhook.ValidateCreate(ctx, tc.trainJob)
 

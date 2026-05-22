@@ -125,7 +125,10 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 				if b.Annotations[WorkloadSliceReplacementFor] == string(workload.Key(&a)) {
 					return -1
 				}
-				return 1
+				if a.Annotations[WorkloadSliceReplacementFor] == string(workload.Key(&b)) {
+					return 1
+				}
+				return 0
 			},
 		)
 	})
@@ -217,7 +220,7 @@ func EnsureWorkloadSlices(
 
 		// Finish the old workload slice if:
 		// a. It lost its quota reservation, or
-		// b. It was explicitly evicted, or
+		// b. It was explicitly evicted (preemption, timeout, admin action), or
 		// c. The new workload has been admitted (has quota reservation) AND has a replacement
 		//    annotation pointing to the old workload. This handles the case where the scheduler
 		//    admitted the new slice but failed to finish the old slice.

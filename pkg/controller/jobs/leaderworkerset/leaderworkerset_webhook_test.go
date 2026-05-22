@@ -42,6 +42,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -829,6 +830,20 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"elastic job annotation is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
+				},
+			}.ToAggregate(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -1313,38 +1328,6 @@ func TestValidateUpdate(t *testing.T) {
 					Field: workerTemplatePath.Child("spec", "initContainers").Index(0).Child("resources", "requests").String(),
 				},
 			}.ToAggregate(),
-		},
-		"change nodeSelector": {
-			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				LeaderTemplate(corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						NodeSelector: map[string]string{},
-					},
-				}).
-				WorkerTemplate(corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						NodeSelector: map[string]string{},
-					},
-				}).
-				Queue("test-queue").
-				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				Obj(),
-			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				LeaderTemplate(corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						NodeSelector: map[string]string{"test": "test"},
-					},
-				}).
-				WorkerTemplate(corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						NodeSelector: map[string]string{"test": "test"},
-					},
-				}).
-				Queue("test-queue").
-				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				Obj(),
 		},
 		"set valid topology request": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").

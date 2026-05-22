@@ -27,12 +27,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	kfutiltesting "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
@@ -60,8 +62,10 @@ func TestMultiKueueAdapter(t *testing.T) {
 		wantError          error
 		wantManagersTFJobs []kftraining.TFJob
 		wantWorkerTFJobs   []kftraining.TFJob
+		featureGates       map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote tfjob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersTFJobs: []kftraining.TFJob{
 				*tfJobBuilder.DeepCopy(),
 			},
@@ -80,6 +84,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote tfjob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersTFJobs: []kftraining.TFJob{
 				*tfJobBuilder.DeepCopy(),
 			},
@@ -108,6 +113,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote while local tfjob is suspended": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersTFJobs: []kftraining.TFJob{
 				*tfJobBuilder.Clone().
 					Suspend(true).
@@ -140,6 +146,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"remote tfjob is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerTFJobs: []kftraining.TFJob{
 				*tfJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
@@ -147,10 +154,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace})
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace})
 			},
 		},
 		"missing job is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
@@ -159,6 +167,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"job with wrong managedBy is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersTFJobs: []kftraining.TFJob{
 				*tfJobBuilder.DeepCopy(),
 			},
@@ -173,6 +182,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"job managedBy multikueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersTFJobs: []kftraining.TFJob{
 				*tfJobManagedByKueueBuilder.DeepCopy(),
 			},
@@ -186,9 +196,28 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*tfJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
+		"sync creates missing remote tfjob, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersTFJobs: []kftraining.TFJob{
+				*tfJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersTFJobs: []kftraining.TFJob{
+				*tfJobBuilder.DeepCopy(),
+			},
+			wantWorkerTFJobs: []kftraining.TFJob{
+				*tfJobBuilder.Clone().
+					PrebuiltWorkloadAnnotation("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder(kftraining.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			managerBuilder = managerBuilder.WithLists(&kftraining.TFJobList{Items: tc.managersTFJobs})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersTFJobs, func(w *kftraining.TFJob) client.Object { return w })...)

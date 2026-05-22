@@ -424,7 +424,7 @@ func TestReconcile(t *testing.T) {
 	}{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        true,
+				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
@@ -453,7 +453,7 @@ func TestReconcile(t *testing.T) {
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadInadmissible,
-					Message: "DynamicResourceAllocation feature does not support use of resource claims",
+					Message: "KueueDRAIntegration feature does not support use of resource claims",
 				}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -464,9 +464,85 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantEvents: nil,
 		},
+		"reconcile DRA ResourceClaimTemplate rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                    false,
+				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
+				features.MultiKueueOrchestratedPreemption:       false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpus", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
+		"reconcile DRA ResourceClaim rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                    false,
+				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
+				features.MultiKueueOrchestratedPreemption:       false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaim("gpu", "rc1").
+					Obj()).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpus", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaim("gpu", "rc1").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
 		"reconcile DRA ResourceClaimTemplate should be pre-processed and queued": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        true,
+				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
 			wantDRAResourceTotal: new(int64(1)),
@@ -504,7 +580,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaimTemplate multi-pod should be pre-processed and queued": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        true,
+				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
 			wantDRAResourceTotal: new(int64(6)),
@@ -542,7 +618,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        true,
+				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
 			workload: utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
@@ -594,7 +670,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        true,
+				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
 			workload: utiltestingapi.MakeWorkload("wlMissingTemplate", "ns").
@@ -2351,10 +2427,16 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was deleted": {
-			cq: utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionChecks("check").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj(), now).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2363,7 +2445,11 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltestingapi.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2392,11 +2478,17 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was Hold": {
-			cq: utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionChecks("check").Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj(), now).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2405,7 +2497,11 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltestingapi.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2437,7 +2533,11 @@ func TestReconcile(t *testing.T) {
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj(), now).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2446,7 +2546,11 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltestingapi.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2475,11 +2579,17 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was Hold": {
-			cq: utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("check").StopPolicy(kueue.Hold).Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionChecks("check").StopPolicy(kueue.Hold).Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj(), now).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2488,7 +2598,11 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltestingapi.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2685,6 +2799,40 @@ func TestReconcile(t *testing.T) {
 			},
 			wantWorkload: nil,
 			wantError:    nil,
+		},
+		"should remove finalizer from owned finished workload already being deleted, object retention configured": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					LastTransitionTime: metav1.Time{
+						Time: now.Add(-2 * util.MediumTimeout),
+					},
+				}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				DeletionTimestamp(now).
+				Finalizers(kueue.ResourceInUseFinalizerName, "example.com/finalizer").
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(
+					&workloadRetentionConfig{
+						afterFinished: ptr.To(util.MediumTimeout),
+					},
+				),
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					LastTransitionTime: metav1.Time{
+						Time: now.Add(-2 * util.MediumTimeout),
+					},
+				}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				DeletionTimestamp(now).
+				Finalizers("example.com/finalizer").
+				Obj(),
+			wantError: nil,
 		},
 		"shouldn't try to delete the workload because the retention period hasn't elapsed yet, object retention configured": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2898,7 +3046,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"should synchronize the status of preemption gates": {
 			featureGates: map[featuregate.Feature]bool{
-				features.DynamicResourceAllocation:        false,
+				features.KueueDRAIntegration:              false,
 				features.MultiKueueOrchestratedPreemption: true,
 			},
 			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
@@ -3213,6 +3361,9 @@ func TestReconcile(t *testing.T) {
 				queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptexpectations.New())}
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache, queueOptions...)
 				reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
+				if features.Enabled(features.KueueDRAIntegration) {
+					qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
+				}
 				// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
 				reconciler.clock = fakeClock
 
@@ -3305,7 +3456,7 @@ func TestReconcile(t *testing.T) {
 				}
 
 				// For DRA tests, verify that workloads are properly queued/cached
-				if tc.featureGates[features.DynamicResourceAllocation] && testWl != nil &&
+				if tc.featureGates[features.KueueDRAIntegration] && testWl != nil &&
 					len(testWl.Spec.PodSets) > 0 &&
 					len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
 					workloadKey := client.ObjectKeyFromObject(testWl)
@@ -3400,30 +3551,6 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj(),
 			).Obj(),
 			wantChecks: []kueue.AdmissionCheckState{
-				{
-					Name:  "ac2",
-					State: kueue.CheckStatePending,
-				},
-			},
-		},
-		"add all cq checks to wl with empty assignment": {
-			wl: *utiltestingapi.MakeWorkload("wl", "ns").Admission(&kueue.Admission{
-				ClusterQueue:      "cq",
-				PodSetAssignments: []kueue.PodSetAssignment{},
-			}).Obj(),
-			cq: *utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(),
-					*utiltestingapi.MakeFlavorQuotas("flavor2").Obj(),
-				).AdmissionCheckStrategy(
-				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
-				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj(),
-			).Obj(),
-			wantChecks: []kueue.AdmissionCheckState{
-				{
-					Name:  "ac1",
-					State: kueue.CheckStatePending,
-				},
 				{
 					Name:  "ac2",
 					State: kueue.CheckStatePending,

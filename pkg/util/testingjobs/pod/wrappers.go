@@ -94,6 +94,16 @@ func (p *PodWrapper) MakePodGroupWrappers(count int) []*PodWrapper {
 	return pods
 }
 
+func (p *PodWrapper) MakePodGroupWrappersWithWorkloadAnnotations(count int) []*PodWrapper {
+	var pods []*PodWrapper
+	for i := range count {
+		pod := p.Clone().GroupNameAnnotation(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
+		pod.Pod.Name += fmt.Sprintf("-%d", i)
+		pods = append(pods, pod)
+	}
+	return pods
+}
+
 // MakeIndexedGroup returns multiple indexed pods that form a pod group, based on the original wrapper.
 func (p *PodWrapper) MakeIndexedGroup(count int) []*corev1.Pod {
 	var pods []*corev1.Pod
@@ -126,6 +136,10 @@ func (p *PodWrapper) PrebuiltWorkloadLabel(name string) *PodWrapper {
 	return p.Label(controllerconsts.PrebuiltWorkloadLabel, name)
 }
 
+func (p *PodWrapper) PrebuiltWorkloadAnnotation(name string) *PodWrapper {
+	return p.Annotation(controllerconsts.PrebuiltWorkloadAnnotation, name)
+}
+
 // PriorityClass updates the priority class name of the Pod
 func (p *PodWrapper) PriorityClass(pc string) *PodWrapper {
 	p.Spec.PriorityClassName = pc
@@ -149,6 +163,11 @@ func (p *PodWrapper) GroupNameLabel(g string) *PodWrapper {
 	return p.Label(podconstants.GroupNameLabel, g)
 }
 
+// GroupNameAnnotation updates GroupNameAnnotation of the Pod
+func (p *PodWrapper) GroupNameAnnotation(g string) *PodWrapper {
+	return p.Annotation(podconstants.GroupNameAnnotation, g)
+}
+
 // GroupTotalCount updates the pod.GroupTotalCountAnnotation of the Pod
 func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
 	return p.Annotation(podconstants.GroupTotalCountAnnotation, gtc)
@@ -169,6 +188,9 @@ func (p *PodWrapper) Label(k, v string) *PodWrapper {
 }
 
 func (p *PodWrapper) Annotation(key, content string) *PodWrapper {
+	if p.Annotations == nil {
+		p.Annotations = make(map[string]string, 1)
+	}
 	p.Annotations[key] = content
 	return p
 }
@@ -228,6 +250,68 @@ func (p *PodWrapper) NodeSelector(k, v string) *PodWrapper {
 
 	p.Spec.NodeSelector[k] = v
 	return p
+}
+
+func (p *PodWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelectorTerms []corev1.NodeSelectorTerm) *PodWrapper {
+	if p.Spec.Affinity == nil {
+		p.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Spec.Affinity.NodeAffinity == nil {
+		p.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	if p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{}
+	}
+	p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = append(
+		p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms,
+		nodeSelectorTerms...,
+	)
+	return p
+}
+
+func (p *PodWrapper) PreferredDuringSchedulingIgnoredDuringExecution(preferredSchedulingTerms []corev1.PreferredSchedulingTerm) *PodWrapper {
+	if p.Spec.Affinity == nil {
+		p.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Spec.Affinity.NodeAffinity == nil {
+		p.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	p.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = append(
+		p.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution,
+		preferredSchedulingTerms...,
+	)
+	return p
+}
+
+func (p *PodWrapper) RequiredNodeSelectorRequirement(key string, op corev1.NodeSelectorOperator, values ...string) *PodWrapper {
+	return p.RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+		{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      key,
+					Operator: op,
+					Values:   values,
+				},
+			},
+		},
+	})
+}
+
+func (p *PodWrapper) PreferredNodeSelectorRequirement(weight int32, key string, op corev1.NodeSelectorOperator, values ...string) *PodWrapper {
+	return p.PreferredDuringSchedulingIgnoredDuringExecution([]corev1.PreferredSchedulingTerm{
+		{
+			Weight: weight,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      key,
+						Operator: op,
+						Values:   values,
+					},
+				},
+			},
+		},
+	})
 }
 
 // NodeName sets a node name to the Pod.

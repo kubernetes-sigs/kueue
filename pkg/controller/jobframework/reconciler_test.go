@@ -331,7 +331,7 @@ func TestReconcileGenericJob(t *testing.T) {
 		"MultiKueue worker pod label is propagated to PodTemplate if workload has Multikueue origin label": {
 			req: baseReq,
 			job: baseJob.Clone().Label(kueue.MultiKueueOriginLabel, "origin").
-				Label(constants.PrebuiltWorkloadLabel, "job-test-job-1").
+				PrebuiltWorkloadLabel("job-test-job-1").
 				Obj(),
 			podSets: basePodSets,
 			objs: []client.Object{
@@ -421,9 +421,9 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
 			mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
 			mgj.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
-			mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), tc.wantPodSets).Return(nil).AnyTimes()
+			mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).AnyTimes()
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-			mgj.EXPECT().PodSets(gomock.Any()).Return(tc.podSets, nil).AnyTimes()
+			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
 			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
 				WithObjects(utiltesting.MakeNamespace(tc.req.Namespace)).
@@ -534,7 +534,7 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			mgj.MockGenericJob.EXPECT().GVK().Return(testGVK).AnyTimes()
 			mgj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
 			mgj.MockGenericJob.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-			mgj.MockGenericJob.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
+			mgj.MockGenericJob.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(basePodSets, nil).AnyTimes()
 			mgj.MockJobWithCustomWorkloadActivation.EXPECT().IsWorkloadActive().Return(tc.jobActive).MaxTimes(1)
 
 			if _, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, mgj); err != nil {

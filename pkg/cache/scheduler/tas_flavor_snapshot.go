@@ -86,6 +86,10 @@ type domain struct {
 	// levelValues stores the mapping from domain ID back to the
 	// ordered list of values
 	levelValues []string
+
+	// affinityScore is the sum of weights of all preferred affinity terms that match the node.
+	// For non-leaf domains, it is the sum of affinity scores of all children.
+	affinityScore int64
 }
 
 // leafDomain extends the domain with information for the lowest-level domain.
@@ -438,6 +442,7 @@ type topologyAssignmentPodRequirements struct {
 	tolerations               []corev1.Toleration
 	selector                  labels.Selector
 	affinitySelector          *nodeaffinity.NodeSelector
+	preferredSchedulingTerms  *nodeaffinity.PreferredSchedulingTerms
 	requiredReplacementDomain utiltas.TopologyDomainID
 	simulateEmpty             bool
 }
@@ -656,12 +661,15 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 }
 
 func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, ta *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
-	for _, domain := range ta.Domains {
-		domainID := utiltas.DomainID(domain.Values)
+	addUsagePerDomain(assumedUsage, utiltas.ComputeUsagePerDomain(ta, tr.SinglePodRequests))
+}
+
+func addUsagePerDomain(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, usagePerDomain map[utiltas.TopologyDomainID]resources.Requests) {
+	for domainID, usage := range usagePerDomain {
 		if assumedUsage[domainID] == nil {
 			assumedUsage[domainID] = resources.Requests{}
 		}
-		assumedUsage[domainID].Add(tr.SinglePodRequests.ScaledUp(int64(domain.Count)))
+		assumedUsage[domainID].Add(usage)
 	}
 }
 
@@ -894,6 +902,16 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			}
 			requirements.affinitySelector = affinitySelector
 		}
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) {
+			preferredAffinity := info.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+			if len(preferredAffinity) > 0 {
+				prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
+				if err != nil {
+					return nil, fmt.Sprintf("invalid preferred node affinity terms: %v, reason: %s", preferredAffinity, err)
+				}
+				requirements.preferredSchedulingTerms = prefTerms
+			}
+		}
 	}
 
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
@@ -911,7 +929,8 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		if useBalancedPlacement {
 			currFitDomain, fitLevelIdx, reason = applyBalancedPlacementAlgorithm(s, &state.topologyAssignmentParameters, bestThreshold, currFitDomain)
 			if len(reason) > 0 {
-				return nil, reason
+				s.log.V(3).Info("Balanced placement algorithm failed, falling back to Best Fit", "reason", reason)
+				useBalancedPlacement = false
 			}
 		}
 	}
@@ -1214,10 +1233,11 @@ func findBestFitDomainForSlices(domains []*domain, sliceCount int32, leaderCount
 type domainState func(d *domain) int32
 
 func findBestFitDomainBy(domains []*domain, needed int32, state domainState) *domain {
-	bestDomain := domains[0]
+	candidates := topAffinityTierDomains(domains)
+	bestDomain := candidates[0]
 	bestDomainState := state(bestDomain)
 
-	for _, domain := range domains {
+	for _, domain := range candidates {
 		domainState := state(domain)
 
 		if domainState >= needed && domainState < bestDomainState {
@@ -1270,6 +1290,15 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 	}
 	if topDomain.sliceStateWithLeader < sliceCount || topDomain.leaderState < state.leaderCount {
 		if state.required {
+			// Scan remaining domains to support preferred affinity before failing
+			if features.Enabled(features.TASRespectNodeAffinityPreferred) {
+				for i := 1; i < len(sortedDomain); i++ {
+					d := sortedDomain[i]
+					if d.sliceStateWithLeader >= sliceCount && d.leaderState >= state.leaderCount {
+						return searchLevelIdx, []*domain{findBestFitDomainForSlices(sortedDomain[i:], sliceCount, state.leaderCount)}, ""
+					}
+				}
+			}
 			return 0, nil, notFitReason(topDomain.sliceState, sliceCount)
 		}
 		if searchLevelIdx > 0 && !state.unconstrained {
@@ -1318,6 +1347,26 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		return searchLevelIdx, results, ""
 	}
 	return searchLevelIdx, []*domain{topDomain}, ""
+}
+
+// topAffinityTierDomains truncates the candidate list to include only the domains
+// sharing the highest affinity score present in the slice.
+//
+// Since candidates are already sorted by affinity score descending, this helper scans
+// consecutive matches from the beginning and truncates the slice as soon as the score drops.
+// This prevents the capacity-focused BestFit algorithm from optimizing across affinity tiers,
+// guaranteeing that affinity scores take absolute precedence over capacity minimization.
+func topAffinityTierDomains(candidates []*domain) []*domain {
+	if !features.Enabled(features.TASRespectNodeAffinityPreferred) || len(candidates) == 0 {
+		return candidates
+	}
+	score := candidates[0].affinityScore
+	for i, c := range candidates {
+		if c.affinityScore != score {
+			return candidates[:i]
+		}
+	}
+	return candidates
 }
 
 func useBestFitAlgorithm(unconstrained bool) bool {
@@ -1516,6 +1565,10 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 			return cmp.Compare(b.leaderState, a.leaderState)
 		}
 
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) && a.affinityScore != b.affinityScore {
+			return cmp.Compare(b.affinityScore, a.affinityScore)
+		}
+
 		if a.sliceStateWithLeader != b.sliceStateWithLeader {
 			if isLeastFreeCapacity {
 				// Start from the domain with the least amount of free resources.
@@ -1545,6 +1598,10 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) && a.affinityScore != b.affinityScore {
+			return cmp.Compare(b.affinityScore, a.affinityScore)
+		}
+
 		if a.sliceState != b.sliceState {
 			if isLeastFreeCapacity {
 				// Start from the domain with the least amount of free resources.
@@ -1574,7 +1631,9 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		domain.sliceState = 0
 		domain.sliceStateWithLeader = 0
 		domain.leaderState = 0
+		domain.affinityScore = 0
 	}
+
 	for _, leaf := range s.leaves {
 		state.stats.TotalNodes++
 		// Gather node level information only when the node is the lowest level of the topology
@@ -1603,14 +1662,20 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 			}
 
 			// 3. Check Node against Affinity Node Selector
-			if requirements.affinitySelector != nil && !requirements.affinitySelector.Match(leaf.node.toNode()) {
+			nodeObj := leaf.node.toNode()
+			if requirements.affinitySelector != nil && !requirements.affinitySelector.Match(nodeObj) {
 				s.log.V(5).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
 				state.stats.Affinity++
 				continue
 			}
+
+			// 4. Calculate Affinity Score
+			if features.Enabled(features.TASRespectNodeAffinityPreferred) && requirements.preferredSchedulingTerms != nil {
+				leaf.affinityScore += requirements.preferredSchedulingTerms.Score(nodeObj)
+			}
 		}
 
-		// 4. While correcting the topologyAssignment with a failed node
+		// 5. While correcting the topologyAssignment with a failed node
 		// check if the leaf belongs to the required domain
 		if !belongsToRequiredDomain(leaf, requirements.requiredReplacementDomain) {
 			state.stats.TopologyDomain++
@@ -1672,6 +1737,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	minStateWithLeaderDifference := int32(math.MaxInt32)
 	minSliceStateWithLeaderDifference := int32(math.MaxInt32)
 	leaderState := int32(0)
+	affinityScore := int64(0)
 
 	// When multi-layer constraints exist, children at a constrained level
 	// can only contribute pods in multiples of the inner slice size.
@@ -1698,6 +1764,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 			minSliceStateWithLeaderDifference = min(child.sliceState-child.sliceStateWithLeader, minSliceStateWithLeaderDifference)
 		}
 		leaderState = max(child.leaderState, leaderState)
+		affinityScore += child.affinityScore
 	}
 	domain.state = childrenCapacity
 	sliceStateWithLeader := int32(0)
@@ -1708,7 +1775,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 		domain.stateWithLeader = 0
 	}
 	domain.leaderState = leaderState
-
+	domain.affinityScore = affinityScore
 	if level == sliceLevelIdx {
 		// initialize the sliceState for the requested slice level.
 		sliceCapacity = domain.state / sliceSize

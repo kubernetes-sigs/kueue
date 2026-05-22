@@ -54,7 +54,7 @@ func (j *KubeflowJob) Suspend() {
 	j.KFJobControl.RunPolicy().Suspend = new(true)
 }
 
-func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
 	j.KFJobControl.RunPolicy().Suspend = new(false)
 	orderedReplicaTypes := j.OrderedReplicaTypes()
 
@@ -99,7 +99,7 @@ func (j *KubeflowJob) Finished(ctx context.Context) (message string, success, fi
 	return "", true, false
 }
 
-func (j *KubeflowJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *KubeflowJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	replicaTypes := j.OrderedReplicaTypes()
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, replicaType := range replicaTypes {
@@ -130,7 +130,7 @@ func (j *KubeflowJob) IsActive() bool {
 	return false
 }
 
-func (j *KubeflowJob) PodsReady(ctx context.Context) bool {
+func (j *KubeflowJob) PodsReady(ctx context.Context, _ client.Client) bool {
 	for _, c := range j.KFJobControl.JobStatus().Conditions {
 		if c.Type == kftraining.JobRunning && c.Status == corev1.ConditionTrue {
 			return true
@@ -187,7 +187,7 @@ func (j *KubeflowJob) ValidateOnCreate(ctx context.Context) (field.ErrorList, er
 		return nil, nil
 	}
 
-	podSets, podSetsErr := jobframework.JobPodSets(ctx, j)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, j, nil)
 
 	var allErrs field.ErrorList
 	replicaTypes := j.OrderedReplicaTypes()

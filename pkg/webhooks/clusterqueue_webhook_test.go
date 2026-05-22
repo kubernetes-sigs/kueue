@@ -443,6 +443,28 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   "must have exactly one ResourceGroup when ConcurrentAdmissionPolicy is defined",
 			wantBadValue: "0",
 		},
+		{
+			name: "ConcurrentAdmissionPolicy with valid LastAcceptableFlavorName",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				LastAcceptableFlavorName("flavor1").
+				Obj(),
+		},
+		{
+			name: "ConcurrentAdmissionPolicy with invalid LastAcceptableFlavorName",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				LastAcceptableFlavorName("non-existent-flavor").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					specPath.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("lastAcceptableFlavorName"),
+					kueue.ResourceFlavorReference("non-existent-flavor"),
+					"must be one of the flavors defined in the ClusterQueue: [flavor1]"),
+			},
+			wantDetail:   "must be one of the flavors defined in the ClusterQueue: [flavor1]",
+			wantBadValue: "non-existent-flavor",
+		},
 	}
 
 	for _, tc := range testcases {

@@ -165,7 +165,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 			})
 
 			ginkgo.By("checking the Trainjob is unsuspended when workload is assigned", func() {
-				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 					kueue.PodSetAssignment{
 						Name: createdWorkload.Spec.PodSets[0].Name,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -245,7 +245,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 					kueue.PodSetAssignment{
 						Name: createdWorkload.Spec.PodSets[0].Name,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -353,7 +353,7 @@ var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with q
 			Obj()
 
 		util.MustCreate(ctx, k8sClient, testTr)
-		util.MustCreate(ctx, k8sClient, trainJob)
+		util.MustCreateWithRetry(ctx, k8sClient, trainJob)
 		createdTrainJob := &kftrainerapi.TrainJob{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}, createdTrainJob)).Should(gomega.Succeed())
@@ -452,7 +452,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 			Obj()
 
 		util.MustCreate(ctx, k8sClient, testTr)
-		util.MustCreate(ctx, k8sClient, trainJob)
+		util.MustCreateWithRetry(ctx, k8sClient, trainJob)
 		createdTrainJob := &kftrainerapi.TrainJob{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}, createdTrainJob)).Should(gomega.Succeed())
@@ -504,7 +504,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 			Obj()
 
 		util.MustCreate(ctx, k8sClient, testTr1)
-		util.MustCreate(ctx, k8sClient, trainJob1)
+		util.MustCreateWithRetry(ctx, k8sClient, trainJob1)
 		ginkgo.By("checking the first trainjob starts", func() {
 			createdTrainJob1 := &kftrainerapi.TrainJob{}
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -543,7 +543,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 			Obj()
 
 		util.MustCreate(ctx, k8sClient, testTr2)
-		util.MustCreate(ctx, k8sClient, trainJob2)
+		util.MustCreateWithRetry(ctx, k8sClient, trainJob2)
 		ginkgo.By("checking a second no-fit trainjob does not start", func() {
 			createdTrainJob2 := &kftrainerapi.TrainJob{}
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -693,7 +693,7 @@ var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", gink
 
 		ginkgo.By("creating a TrainJob", func() {
 			util.MustCreate(ctx, k8sClient, testTr)
-			util.MustCreate(ctx, k8sClient, trainJob)
+			util.MustCreateWithRetry(ctx, k8sClient, trainJob)
 		})
 
 		wl := &kueue.Workload{}

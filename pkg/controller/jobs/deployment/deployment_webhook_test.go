@@ -38,6 +38,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	testutil "sigs.k8s.io/kueue/test/util"
 )
 
@@ -338,6 +339,19 @@ func TestValidateCreate(t *testing.T) {
 			wantErr:      nil,
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
+		"elastic job annotation is rejected on create": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -596,6 +610,22 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr:      nil,
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"elastic job annotation is rejected on update": {
+			oldDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 	}
 

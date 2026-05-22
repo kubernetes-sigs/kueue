@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -133,9 +132,6 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
-	var visibilityServerPort int
-	flag.IntVar(&visibilityServerPort, "visibility-server-port", configapi.DefaultVisibilityBindPort, "The port the visibility server binds to.")
-
 	customLogProcessor := zaplog.WrapCore(utillogging.NewCustomLogProcessor)
 
 	zapOptions := zap.Options{
@@ -154,21 +150,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := config.ValidateFeatureGates(featureGates, cfg.FeatureGates).ToAggregate(); err != nil {
+	if err := config.LoadAndValidateFeatureGates(featureGates, cfg.FeatureGates).ToAggregate(); err != nil {
 		setupLog.Error(err, "conflicting feature gates detected")
 		os.Exit(1)
-	}
-
-	if featureGates != "" {
-		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGates); err != nil {
-			setupLog.Error(err, "Unable to set flag gates for known features")
-			os.Exit(1)
-		}
-	} else {
-		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(cfg.FeatureGates); err != nil {
-			setupLog.Error(err, "Unable to set flag gates for known features")
-			os.Exit(1)
-		}
 	}
 
 	// Validates the configuration after it has been loaded and feature gates have been set.
@@ -312,7 +296,7 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
 		queueOptions = append(queueOptions, qcache.WithResourceTransformations(cfg.Resources.Transformations))
 	}
-	if features.Enabled(features.DynamicResourceAllocation) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
+	if features.Enabled(features.KueueDRAIntegration) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
 		if err := dra.CreateMapperFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
 			setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
 			os.Exit(1)
@@ -366,7 +350,7 @@ func main() {
 	if roleTracker != nil {
 		roleTracker.OnElected(func() {
 			metrics.ClearGaugeMetricsForRole(roletracker.RoleFollower)
-			cCache.ResyncGaugeMetrics()
+			cCache.ResyncGaugeMetrics(setupLog)
 			queues.ResyncGaugeMetrics()
 		})
 	}
@@ -386,7 +370,7 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, &cfg, kubeConfig, visibilityServerPort, parsedTLSConfig); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, &cfg, kubeConfig, parsedTLSConfig); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}
@@ -452,7 +436,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
 		setupLog.Info("Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
 	} else {
-		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), roleTracker)
+		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-provisioning-request-controller"), roleTracker)
 		if err != nil {
 			return fmt.Errorf("could not create the provisioning controller: %w", err)
 		}
@@ -580,7 +564,7 @@ func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Ma
 		queues,
 		cCache,
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.AdmissionName),
+		mgr.GetEventRecorder(constants.AdmissionName),
 		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 		scheduler.WithFairSharing(cfg.FairSharing),
 		scheduler.WithAdmissionFairSharing(cfg.AdmissionFairSharing),

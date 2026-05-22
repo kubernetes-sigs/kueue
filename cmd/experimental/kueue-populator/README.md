@@ -41,7 +41,7 @@ You can also install the `kueue-populator` using the provided Helm chart.
 
 ```bash
 helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
-  --version 0.17.2 \
+  --version 0.17.3 \
   --namespace kueue-system \
   --create-namespace \
   --wait
@@ -68,18 +68,23 @@ To deploy the `kueue-populator` using a locally built image into a Kind cluster:
     ```
     
 ## Configuration
-The `kueue-populator` supports the following command-line flags:
+The `kueue-populator` reads its configuration from the file passed to `--config`.
+If `--config` is omitted, default values are used.
+Logging is configured with standard Zap flags, such as `--zap-log-level`.
 
-*   `--local-queue-name`: The name of the `LocalQueue` to create by default in selected namespaces. Defaults to `"default"`.
-*   `--zap-log-level`: Sets the logging verbosity level for the Zap logger (e.g., `info`, `debug`, `error`).
+The configuration supports the following fields:
 
-To set these flags, modify the `args` list in the `Deployment` manifest (`config/manager/manager.yaml`) or use a Kustomize patch. For example:
+*   `localQueueName`: The name of the `LocalQueue` to create by default in selected namespaces. Defaults to `"default"`.
+*   `localQueueNameMode`: How to derive LocalQueue names. Use `Static` for `localQueueName` or `AsClusterQueue` to use each `ClusterQueue` name.
+*   `managedJobsNamespaceSelector`: Namespace selector used by the populator. The Helm chart populates it from Kueue's manager configuration unless an explicit populator selector is configured.
+
+Example:
 
 ```yaml
-      containers:
-      - args:
-        - "--zap-log-level=2"
-        - "--local-queue-name=my-custom-queue"
+localQueueName: my-custom-queue
+managedJobsNamespaceSelector:
+  matchLabels:
+    team: ml
 ```
 
 ## Testing

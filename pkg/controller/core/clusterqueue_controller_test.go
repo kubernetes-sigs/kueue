@@ -344,7 +344,7 @@ func workloadForReservation(cqName string, reservation []kueue.FlavorUsage) *kue
 	}
 	return utiltestingapi.MakeWorkload("test-wl", "").
 		ReserveQuotaAt(
-			utiltestingapi.MakeAdmission(cqName).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cqName)).
 				PodSets(psa.Obj()).Obj(),
 			now,
 		).

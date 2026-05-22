@@ -22,6 +22,7 @@ metadata:
   name: '{{ include "kueue.fullname" . }}-localqueue-editor-role'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
+    rbac.kueue.x-k8s.io/role: "localqueue-editor"
     rbac.kueue.x-k8s.io/batch-admin: "true"
 rules:
   - apiGroups:

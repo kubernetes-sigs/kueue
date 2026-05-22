@@ -1,8 +1,5 @@
 # Large-Scale Performance Test - Expected Performance Ranges
 #
-# NOTE: These thresholds are conservative placeholders and must be calibrated
-# from actual trial runs before being used to gate CI.
-#
 # Calibration procedure (mirrors baseline/rangespec.yaml):
 #   1. Run `make run-large-scale-performance-scheduler` at least 5 times
 #   2. Collect the cmdStats WallMs from artifacts/run-large-scale-performance-scheduler/minimalkueue.stats.yaml
@@ -10,20 +7,20 @@
 #   4. Set maxWallMs = mean × 1.20 (rounded up to nearest 1000ms)
 #   5. Set wlClassesMaxAvgTimeToAdmissionMs = mean × 1.20 (rounded up to nearest 1000ms)
 #   6. Set clusterQueueClassesMinUsage = mean − 7% (rounded down to 0.1%)
+#
+# Calibrated from 19 successful periodic runs of
+# periodic-kueue-test-large-scale-scheduling-perf-main.
 
 cmd:
-  # Target: 20 minutes. 50k workloads (1000 CQs × 50/queue), same runtimeMs as original config.
-  # Replace after calibration.
-  maxWallMs: 1_200_000
+  # mean=1179411ms, stdev=13280ms; mean×1.2 rounded up to nearest 1000ms
+  maxWallMs: 1_416_000
 
 clusterQueueClassesMinUsage:
-  # Placeholder: same as baseline. Replace after calibration.
-  cq: 33 #%
+  # mean=38.64%, mean-7% rounded down to 0.1%
+  cq: 31.6 #%
 
 wlClassesMaxAvgTimeToAdmissionMs:
-  # Placeholder values — scaled proportionally from original 60k config.
-  # Fewer CQs reduces scheduler complexity; more wl/queue increases local pressure.
-  # Replace after calibration.
-  large: 150_000
-  medium: 500_000
-  small: 1_500_000
+  # mean×1.2 rounded up to nearest 1000ms
+  large: 119_000   # mean=98803ms
+  medium: 308_000  # mean=256413ms
+  small: 841_000   # mean=700379ms

@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -35,6 +34,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
@@ -507,9 +507,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Verifying pods on management cluster remain gated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					pods := &corev1.PodList{}
-					g.Expect(k8sManagerClient.List(ctx, pods, client.InNamespace(managerNs.Name), client.MatchingLabels{
-						podconstants.GroupNameLabel: workloadstatefulset.GetWorkloadName(statefulset.UID, statefulset.Name),
-					})).To(gomega.Succeed())
+					g.Expect(k8sManagerClient.List(ctx, pods, client.InNamespace(managerNs.Name),
+						client.MatchingLabels(statefulset.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 					g.Expect(pods.Items).ToNot(gomega.BeEmpty())
 					for _, pod := range pods.Items {
 						g.Expect(utilpod.HasGate(&pod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
@@ -1391,7 +1390,7 @@ app = HelloWorld.bind()`,
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(managerWl)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed(), assertWlMsg("Workload not admitted in manager", managerWl))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload not admitted in manager", wlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
 			ginkgo.By("Checking that the workload is created on worker1", func() {
@@ -1399,13 +1398,13 @@ app = HelloWorld.bind()`,
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed(), assertWlMsg("Workload not admitted in worker1", workerWorkload))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload not admitted in worker1", wlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
 			ginkgo.By("Checking that the workload is not created on worker2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed(), assertWlMsg("Workload present in worker2", workerWorkload))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload present in worker2", wlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
 			ginkgo.By("Switching worker cluster queues' resources to enforce re-admission on the worker2", func() {
@@ -1440,7 +1439,7 @@ app = HelloWorld.bind()`,
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlKey, managerWl)).To(gomega.Succeed())
 					g.Expect(managerWl.Status.ClusterName).To(gomega.HaveValue(gomega.Equal(workerCluster2.Name)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed(), assertWlMsg("Workload not Admitted in worker2", managerWl))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload not Admitted in worker2", wlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
 			ginkgo.By("Checking that the workload is created in worker2", func() {
@@ -1448,13 +1447,13 @@ app = HelloWorld.bind()`,
 					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed(), assertWlMsg("Workload not Admitted in worker2", workerWorkload))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload not Admitted in worker2", wlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
 			ginkgo.By("Checking that the workload is not created in worker1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(utiltesting.BeNotFoundError())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed(), assertWlMsg("Workload present in worker1", workerWorkload))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload present in worker1", wlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 		})
 
@@ -1643,7 +1642,7 @@ app = HelloWorld.bind()`,
 					admittedJob := &batchv1.Job{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(highJob), admittedJob)).To(gomega.Succeed())
 					g.Expect(admittedJob.Status.Active).To(gomega.Equal(int32(1)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the low-priority workload is dispatched again after backoff", func() {
@@ -1911,6 +1910,80 @@ app = HelloWorld.bind()`,
 			})
 		})
 	})
+
+	ginkgo.Context("MultiKueue Manager Quota Automation", func() {
+		ginkgo.BeforeEach(func() {
+			ginkgo.By("Setting manager ClusterQueue quotas to zeroes", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					cq := &kueue.ClusterQueue{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
+					cq.Spec.ResourceGroups[0].Flavors[0].Resources = []kueue.ResourceQuota{
+						{Name: corev1.ResourceCPU, NominalQuota: resource.MustParse("0")},
+						{Name: corev1.ResourceMemory, NominalQuota: resource.MustParse("0")},
+						{Name: corev1.ResourceEphemeralStorage, NominalQuota: resource.MustParse("0")},
+						{Name: extraResourceGPUHighCost, NominalQuota: resource.MustParse("0")},
+						{Name: extraResourceGPULowCost, NominalQuota: resource.MustParse("0")},
+					}
+					g.Expect(k8sManagerClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Enabling QuotaAutomation in MultiKueueConfig", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					cfg := &kueue.MultiKueueConfig{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(multiKueueConfig), cfg)).To(gomega.Succeed())
+					cfg.Spec.QuotaManagement = ptr.To(kueue.QuotaManagementAutomated)
+					g.Expect(k8sManagerClient.Update(ctx, cfg)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should automatically aggregate quotas from active worker ClusterQueues", func() {
+			ginkgo.By("Verifying the MultiKueueManagerQuotaAutomation status condition transitions to true", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					cq := &kueue.ClusterQueue{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
+
+					cond := apimeta.FindStatusCondition(cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
+					g.Expect(cond).NotTo(gomega.BeNil())
+					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+					g.Expect(cond.Reason).To(gomega.Equal("QuotaAutomated"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying that the nominal resource quotas are automatically aggregated on the manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					cq := &kueue.ClusterQueue{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
+
+					g.Expect(cq.Spec.ResourceGroups).To(gomega.HaveLen(1))
+					g.Expect(cq.Spec.ResourceGroups[0].Flavors).To(gomega.HaveLen(1))
+					g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources).To(gomega.ConsistOf(
+						kueue.ResourceQuota{
+							Name:         corev1.ResourceCPU,
+							NominalQuota: resource.MustParse("3200m"),
+						},
+						kueue.ResourceQuota{
+							Name:         corev1.ResourceMemory,
+							NominalQuota: resource.MustParse("5G"),
+						},
+						kueue.ResourceQuota{
+							Name:         corev1.ResourceEphemeralStorage,
+							NominalQuota: resource.MustParse("20G"),
+						},
+						kueue.ResourceQuota{
+							Name:         extraResourceGPUHighCost,
+							NominalQuota: resource.MustParse("3"),
+						},
+						kueue.ResourceQuota{
+							Name:         extraResourceGPULowCost,
+							NominalQuota: resource.MustParse("3"),
+						},
+					))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
 })
 
 func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, client client.Client, wlLookupKey types.NamespacedName, acName string) string {
@@ -1990,26 +2063,4 @@ func expectJobToBeCreatedAndManagedBy(ctx context.Context, c client.Client, job 
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 		g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.Equal(managedBy))
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
-}
-
-func assertWlMsg(msg string, wl *kueue.Workload) func() string {
-	return func() string {
-		wlKey := client.ObjectKeyFromObject(wl)
-		return strings.Join([]string{
-			util.AssertMsg(msg, wl)(),
-			util.AssertMsg("Manager", getWorkload(k8sManagerClient, wlKey))(),
-			util.AssertMsg("Worker1", getWorkload(k8sWorker1Client, wlKey))(),
-			util.AssertMsg("Worker2", getWorkload(k8sWorker2Client, wlKey))(),
-		}, "\n")
-	}
-}
-
-func getWorkload(c client.Client, wlKey client.ObjectKey) *kueue.Workload {
-	wl := &kueue.Workload{}
-	err := c.Get(ctx, wlKey, wl)
-	if err != nil {
-		gomega.Expect(client.IgnoreNotFound(err)).NotTo(gomega.HaveOccurred())
-		return nil
-	}
-	return wl
 }

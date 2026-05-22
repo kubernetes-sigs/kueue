@@ -53,7 +53,7 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
 
 	fwk = &framework.Framework{
 		WebhookPath: util.WebhookPath,
@@ -132,7 +132,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			queues,
 			cCache,
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor("kueue-admission"),
+			mgr.GetEventRecorder("kueue-admission"),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)
 		err = mgr.Add(sched)

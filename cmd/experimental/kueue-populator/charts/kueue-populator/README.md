@@ -8,7 +8,7 @@ This Helm chart installs the Kueue Populator, a component designed to automatica
 -   Installs Kueue (via subchart dependency).
 -   Creates a default `ResourceFlavor` named `tas-gpu-default`.
 -   Creates a default `ClusterQueue` (name configurable).
--   The populator then creates a default `LocalQueue` (name configurable) in namespaces matching the selector, pointing to the default ClusterQueue.
+-   The populator then creates a default `LocalQueue` (name configurable) in namespaces matching Kueue's `managedJobsNamespaceSelector`, pointing to the default ClusterQueue.
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ You can install the chart directly from the OCI registry:
 
 ```bash
 helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
-  --version 0.17.2 \
+  --version 0.17.3 \
   --namespace kueue-system \
   --create-namespace \
   --wait
@@ -112,7 +112,7 @@ kueuePopulator:
 
 ```bash
 helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
-  --version 0.17.2 \
+  --version 0.17.3 \
   --namespace kueue-system \
   --create-namespace \
   --wait \
@@ -125,7 +125,7 @@ For simple configuration you may also use the minimalistic command:
 
 ```bash
 helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
-  --version 0.17.2 \
+  --version 0.17.3 \
   --namespace kueue-system \
   --create-namespace \
   --wait \
@@ -149,7 +149,8 @@ The following table lists the configurable parameters under the `kueuePopulator`
 | `config.clusterQueue.resources`                    | list     | (see values.yaml) | Resources to configure in the default ResourceFlavor and ClusterQueue                                      |
 | `config.topology.levels`                           | list     | `[]`              | Optional list of node labels for Topology Aware Scheduling levels. Enables Topology creation.            |
 | `config.resourceFlavor.nodeLabels`                 | object   | `{}`              | Node labels to associate with the default ResourceFlavor.                                                  |
-| `config.managedJobsNamespaceSelector`              | object   | (see values.yaml) | Label selector to filter namespaces where the default LocalQueue will be created. Excludes system namespaces. |
+| `config.managedJobsNamespaceSelector`              | object   | unset             | Optional selector to override Kueue's `managedJobsNamespaceSelector` for the populator.                   |
+| `kueue.managerConfig.controllerManagerConfigYaml`  | string   | (see Kueue chart) | Kueue controller manager configuration. The chart copies `managedJobsNamespaceSelector` from this config into the populator config. |
 
 ### Kueue Subchart Configuration
 
@@ -157,7 +158,7 @@ This chart includes the official `kueue` chart as a dependency. You can configur
 
 -   `kueue.enabled: false`: Disables the subchart installation by default. Set to `true` to install Kueue.
 -   `kueue.controllerManager.featureGates`: Enables `TopologyAwareScheduling`.
--   `kueue.managerConfig.controllerManagerConfigYaml`: Provides minimal necessary overrides for `apiVersion` and `managedJobsNamespaceSelector` to ensure compatibility and safe hook execution.
+-   `kueue.managerConfig.controllerManagerConfigYaml`: Provides Kueue's controller manager configuration. The chart copies its `managedJobsNamespaceSelector` into the populator config unless `kueuePopulator.config.managedJobsNamespaceSelector` is set explicitly.
 
 See the [Kueue chart README](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md) for all possible Kueue configuration options.
 

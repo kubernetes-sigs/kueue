@@ -28,7 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -60,7 +60,7 @@ type Preemptor struct {
 	clock clock.Clock
 
 	client   client.Client
-	recorder record.EventRecorder
+	recorder events.EventRecorder
 
 	workloadOrdering  workload.Ordering
 	enableFairSharing bool
@@ -86,7 +86,7 @@ type preemptionCtx struct {
 func New(
 	cl client.Client,
 	workloadOrdering workload.Ordering,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 	fs *config.FairSharing,
 	enabledAfs bool,
 	clock clock.Clock,
@@ -243,10 +243,10 @@ func (p *Preemptor) IssuePreemptions(
 			"preemptorPath", preemptorPath, "preempteePath", preempteePath,
 			"preemptorEffectivePriority", preemptorEffPri, "preemptorBoost", preemptorBoost,
 			"targetEffectivePriority", targetEffPri, "targetBoost", targetBoost)
-		p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message+
-			fmt.Sprintf("; preemptor effective priority: %d (base: %d, boost: %d); preemptee effective priority: %d (base: %d, boost: %d)",
+		p.recorder.Eventf(target.WorkloadInfo.Obj, nil, corev1.EventTypeNormal, "Preempted", "Preempted",
+			message+fmt.Sprintf("; preemptor effective priority: %d (base: %d, boost: %d); preemptee effective priority: %d (base: %d, boost: %d)",
 				preemptorEffPri, preemptorBase, preemptorBoost, targetEffPri, targetBase, targetBoost))
-		p.recorder.Eventf(preemptor.Obj, corev1.EventTypeNormal, "PreemptedWorkload",
+		p.recorder.Eventf(preemptor.Obj, nil, corev1.EventTypeNormal, "PreemptedWorkload", "PreemptedWorkload",
 			"Preempted workload %s (UID: %s) in ClusterQueue %s; preemptor effective priority: %d (base: %d, boost: %d); preemptee effective priority: %d (base: %d, boost: %d)",
 			klog.KObj(target.WorkloadInfo.Obj), target.WorkloadInfo.Obj.UID, target.WorkloadInfo.ClusterQueue,
 			preemptorEffPri, preemptorBase, preemptorBoost, targetEffPri, targetBase, targetBoost)
@@ -416,11 +416,13 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 			candWl := candCQ.PopWorkload()
 			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
 			passed := strategy(preemptorNewShare, targetOldShare, targetNewShare)
-			if logV := preemptionCtx.log.V(6); logV.Enabled() {
+			if logV := preemptionCtx.log.V(4); logV.Enabled() {
 				logV.Info("Evaluating FairSharing strategy",
-					"preemptorNewShare", preemptorNewShare,
-					"targetOldShare", targetOldShare,
-					"targetNewShare", targetNewShare,
+					"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
+					"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
+					"targetWorkload", klog.KObj(candWl.Obj),
+					"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
+					"targetNewShare", schdcache.DRS(targetNewShare).PreciseWeightedShare(),
 					"strategyPassed", passed)
 			}
 			if passed {
@@ -450,17 +452,19 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		passed := fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{})
-		if logV := preemptionCtx.log.V(6); logV.Enabled() {
+		// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
+		candWl := candCQ.PopWorkload()
+		if logV := preemptionCtx.log.V(4); logV.Enabled() {
 			logV.Info("Evaluating FairSharing strategy",
-				"preemptorNewShare", preemptorNewShare,
-				"targetOldShare", targetOldShare,
+				"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
+				"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
+				"targetWorkload", klog.KObj(candWl.Obj),
+				"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
 				"strategyPassed", passed)
 		}
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
 		if passed {
-			// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
-			candWl := candCQ.PopWorkload()
 			preemptionCtx.snapshot.RemoveWorkload(candWl)
 			targets = append(targets, &Target{
 				WorkloadInfo: candWl,

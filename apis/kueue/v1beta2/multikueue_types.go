@@ -155,7 +155,28 @@ type MultiKueueConfigSpec struct {
 	// +kubebuilder:validation:items:MaxLength=256
 	// +required
 	Clusters []string `json:"clusters,omitempty,omitzero"`
+
+	// quotaManagement specifies the management of ClusterQueue quotas
+	// in the manager cluster.
+	// Supported modes:
+	// - `Manual`: Quota automation is manual.
+	// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+	// If unspecified, defaults to `Manual`.
+	// +optional
+	QuotaManagement *MultiKueueConfigQuotaManagementMode `json:"quotaManagement,omitempty"`
 }
+
+// MultiKueueConfigQuotaManagementMode specifies the automation mode.
+// Supported modes:
+// - `Manual`: Quota automation is manual.
+// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+// +kubebuilder:validation:Enum=Manual;Automated
+type MultiKueueConfigQuotaManagementMode string
+
+const (
+	QuotaManagementManual    MultiKueueConfigQuotaManagementMode = "Manual"
+	QuotaManagementAutomated MultiKueueConfigQuotaManagementMode = "Automated"
+)
 
 // +genclient
 // +genclient:nonNamespaced

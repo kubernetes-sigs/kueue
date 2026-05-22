@@ -29,21 +29,16 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("PaddleJob Webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("PaddleJob Webhook", func() {
 	var ns *corev1.Namespace
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(paddlejob.SetupPaddleJobWebhook))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(paddlejob.SetupPaddleJobWebhook))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "paddle-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("with TopologyAwareScheduling", func() {

@@ -25,6 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/utils/ptr"
+
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 // The following resources calculations are inspired on
@@ -75,7 +77,7 @@ func (r Requests) Divide(f int64) {
 
 func (r Requests) Mul(f int64) {
 	for k := range r {
-		r[k] *= f
+		r[k] = utilmath.SaturatingMul(r[k], f)
 	}
 }
 
@@ -103,7 +105,7 @@ func (r Requests) ToResourceList() corev1.ResourceList {
 // It's milli-units for CPU and absolute units for everything else.
 func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 	if name == corev1.ResourceCPU {
-		return q.MilliValue()
+		return utilmath.SafeMilliValue(q)
 	}
 	return q.Value()
 }

@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -108,7 +107,7 @@ func TestPodsReady(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			jobSet := (JobSet)(tc.jobSet)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := jobSet.PodsReady(ctx)
+			got := jobSet.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -192,7 +191,7 @@ func TestReclaimablePods(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			jobSet := (*JobSet)(tc.jobSet)
-			got, err := jobSet.ReclaimablePods(ctx)
+			got, err := jobSet.ReclaimablePods(ctx, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %s", err)
 			}
@@ -346,7 +345,7 @@ func TestPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.jobSet.PodSets(ctx)
+			gotPodSets, err := tc.jobSet.PodSets(ctx, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %s", err)
 			}
@@ -573,7 +572,7 @@ func TestReconciler(t *testing.T) {
 			}
 			objs := append(tc.priorityClasses, tc.job, testNamespace)
 			kClient := clientBuilder.WithObjects(objs...).Build()
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)

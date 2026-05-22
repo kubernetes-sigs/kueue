@@ -57,7 +57,33 @@ function e2e_docker_pull_if_needed {
         echo "Image '$image' already cached locally; skipping pull (E2E_MODE=dev, E2E_SKIP_IMAGE_RELOAD=true)"
         return 0
     fi
-    docker pull "$image"
+
+    local max_retries=7
+    local retry_delay=2
+    local attempt output
+    for attempt in $(seq 1 "$max_retries"); do
+        if output=$(docker pull "$image" 2>&1); then
+            echo "$output"
+            return 0
+        fi
+        echo "$output"
+
+        if echo "$output" | grep -qiE 'manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device'; then
+            echo "ERROR: docker pull '$image' failed with a non-retriable error."
+            return 1
+        fi
+
+        if [ "$attempt" -eq "$max_retries" ]; then
+            break
+        fi
+
+        echo "WARNING: docker pull '$image' failed (attempt $attempt/$max_retries). Retrying in ${retry_delay}s..."
+        sleep "$retry_delay"
+        retry_delay=$((retry_delay * 2))
+    done
+
+    echo "ERROR: Failed to pull '$image' after $max_retries attempts."
+    return 1
 }
 
 function e2e_deployment_exists {
@@ -143,7 +169,7 @@ if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKG
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
 fi
 
-if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export LEADERWORKERSET_MANIFEST="https://github.com/kubernetes-sigs/lws/releases/download/${LEADERWORKERSET_VERSION}/manifests.yaml"
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
@@ -230,13 +256,23 @@ function cluster_collect_artifacts {
     local name=$1
     local kubeconfig=${2:-}
 
+    if ! kind_cluster_exists "$name"; then
+        echo "Skipping artifact collection for '$name': cluster does not exist."
+        return 0
+    fi
+
+    $KIND export logs "$ARTIFACTS" --name "$name" || true
+
     local -a kubectl_args=()
     if [[ -n "${kubeconfig}" ]]; then
         kubectl_args=(--kubeconfig="${kubeconfig}")
     fi
 
-    kubectl config ${kubectl_args[@]+"${kubectl_args[@]}"} use-context "kind-${name}" || true
-    $KIND export logs "$ARTIFACTS" --name "$name" || true
+    if ! kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} version --request-timeout=30s >/dev/null 2>&1; then
+        echo "Skipping pod descriptions for '$name': API server is not reachable."
+        return 0
+    fi
+
     kubectl describe pods ${kubectl_args[@]+"${kubectl_args[@]}"} -n kueue-system > "$ARTIFACTS/${name}-kueue-system-pods.log" || true
     kubectl describe pods ${kubectl_args[@]+"${kubectl_args[@]}"} > "$ARTIFACTS/${name}-default-pods.log" || true
 }
@@ -368,12 +404,17 @@ function cluster_create {
         cat "$kind_config"
     fi
 
-    $KIND create cluster --name "$cluster" --image "$E2E_KIND_VERSION" --config "$kind_config" --kubeconfig="$kubeconfig" --wait 1m -v 5  > "$ARTIFACTS/$cluster-create.log" 2>&1 \
-    ||  { echo "unable to start the $cluster cluster "; cat "$ARTIFACTS/$cluster-create.log" ; }
+    if ! $KIND create cluster --name "$cluster" --image "$E2E_KIND_VERSION" \
+            --config "$kind_config" --kubeconfig="$kubeconfig" --wait 5m -v 5 \
+            > "$ARTIFACTS/$cluster-create.log" 2>&1; then
+        echo "ERROR: Unable to create kind cluster '$cluster'." >&2
+        cat "$ARTIFACTS/$cluster-create.log" >&2
+        return 1
+    fi
 
     kubectl config --kubeconfig="$kubeconfig" use-context "kind-$cluster"
     # wait for nodes to become ready before loading images or deploying components
-    kubectl wait --kubeconfig="$kubeconfig" --for=condition=Ready node --all --timeout=300s
+    kubectl wait --kubeconfig="$kubeconfig" --for=condition=Ready node --all --timeout=5m
     kubectl get nodes --kubeconfig="$kubeconfig" > "$ARTIFACTS/$cluster-nodes.log" || true
     kubectl describe pods --kubeconfig="$kubeconfig" -n kube-system > "$ARTIFACTS/$cluster-system-pods.log" || true
 }
@@ -420,7 +461,7 @@ function prepare_docker_images {
             e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
         fi
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${LEADERWORKERSET_IMAGE}"
     fi
     if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
@@ -480,7 +521,7 @@ function kind_load {
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         install_mpi "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_lws "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then

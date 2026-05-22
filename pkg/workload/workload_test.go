@@ -177,6 +177,24 @@ func TestNewInfo(t *testing.T) {
 				features.ReclaimablePods: false,
 			},
 		},
+		"prevent int overflow in total requests": {
+			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2147483647).
+					Request(corev1.ResourceCPU, "4300000").
+					Obj()).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  kueue.DefaultPodSetName,
+						Count: 2147483647,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 9223372036854775807,
+						},
+					},
+				},
+			},
+		},
 		"admitted": {
 			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
@@ -1252,16 +1270,6 @@ func TestAdmissionChecksForWorkload(t *testing.T) {
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac3", "ac4", "ac6"),
 		},
-		"All checks returned when workload has an empty assignment": {
-			wl: utiltestingapi.MakeWorkload("wl", "ns").
-				ReserveQuotaAt(
-					utiltestingapi.MakeAdmission("cq").
-						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).
-						Obj(),
-					now,
-				).Obj(),
-			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2", "ac3", "ac4", "ac5", "ac6"),
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1669,7 +1677,7 @@ func TestNeedsSecondPass(t *testing.T) {
 }
 
 func TestWithPreprocessedDRAResources(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
 	cases := map[string]struct {
 		workload     kueue.Workload
@@ -1790,7 +1798,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 }
 
 func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
 	cases := map[string]struct {
 		workload                  kueue.Workload

@@ -32,7 +32,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -605,7 +605,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
 		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		setRes.Requests = resources.NewRequests(effectiveRequests)
-		if features.Enabled(features.DynamicResourceAllocation) && info.preprocessedDRAResources != nil {
+		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
 			// First, remove extended resources that were converted to DRA logical resources
 			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {
 				for extRes := range replacedRes {
@@ -1550,6 +1550,25 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 	return nil
 }
 
+// Delete removes Kueue's resource-in-use finalizer before deleting the Workload.
+// If deletion is already in progress, finalizer removal is enough for Kubernetes
+// to continue object cleanup, so Delete returns false without issuing another
+// delete request. The returned bool reports whether this call successfully
+// requested deletion.
+func Delete(ctx context.Context, c client.Client, wl *kueue.Workload) (bool, error) {
+	if err := RemoveFinalizer(ctx, c, wl); err != nil {
+		return false, err
+	}
+	if !wl.DeletionTimestamp.IsZero() {
+		log.FromContext(ctx).V(3).Info("Skipping workload delete because deletion is already in progress", "workload", klog.KObj(wl))
+		return false, nil
+	}
+	if err := c.Delete(ctx, wl); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 type flavorSet = sets.Set[kueue.ResourceFlavorReference]
 
 // AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
@@ -1581,23 +1600,11 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 	return checksForAllFlavors
 }
 
-func admissionChecksForAdmission(log logr.Logger, acs AdmissionChecks, admission kueue.Admission) sets.Set[kueue.AdmissionCheckReference] {
+func admissionChecksForAdmission(_ logr.Logger, acs AdmissionChecks, admission kueue.Admission) sets.Set[kueue.AdmissionCheckReference] {
 	admissionFlavors := findAdmissionFlavors(admission)
-	if len(admissionFlavors) > 0 {
-		return filterChecks(acs, func(acFlavors flavorSet) bool {
-			return admissionFlavors.Intersection(acFlavors).Len() > 0
-		})
-	}
-
-	// Some tests allow for admissions not to be assigned any flavors.
-	// To ensure those tests work as before: flavorless Admissions are assigned/expected to fulfill all Admission Checks.
-	// Issue to address the matter further: https://github.com/kubernetes-sigs/kueue/issues/10316
-	log.V(3).Info(
-		"Admission has no Flavors; assigning all checks",
-		"AdmissionChecks",
-		acs,
-	)
-	return sets.KeySet(acs)
+	return filterChecks(acs, func(acFlavors flavorSet) bool {
+		return admissionFlavors.Intersection(acFlavors).Len() > 0
+	})
 }
 
 func filterChecks(acs AdmissionChecks, fsPredicate func(flavorSet) bool) sets.Set[kueue.AdmissionCheckReference] {
@@ -1658,7 +1665,7 @@ func EvictWithRetryOnConflictForPatch() EvictOption {
 func Evict(
 	ctx context.Context,
 	c client.Client,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 	wl *kueue.Workload,
 	reason, msg string,
 	underlyingCause kueue.EvictionUnderlyingCause,
@@ -1796,7 +1803,7 @@ func closeAllPreemptionGates(w *kueue.Workload, now time.Time) {
 	}
 }
 
-func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference,
+func reportEvictedWorkload(recorder events.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference,
 	reason, message string, underlyingCause kueue.EvictionUnderlyingCause, exposeLqMetrics bool,
 	tracker *roletracker.RoleTracker, cl *metrics.CustomLabels,
 ) {
@@ -1821,7 +1828,7 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
 		eventReason = ReasonWithCause(eventReason, string(underlyingCause))
 	}
-	recorder.Event(wl, corev1.EventTypeNormal, eventReason, message)
+	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, eventReason, message)
 }
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {

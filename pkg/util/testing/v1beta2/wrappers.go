@@ -149,7 +149,7 @@ func (w *WorkloadWrapper) Active(a bool) *WorkloadWrapper {
 
 // SimpleReserveQuota reserves the quota for all the requested resources in one flavor.
 // It assumes one podset with one container.
-func (w *WorkloadWrapper) SimpleReserveQuota(cq, flavor string, now time.Time) *WorkloadWrapper {
+func (w *WorkloadWrapper) SimpleReserveQuota(cq kueue.ClusterQueueReference, flavor string, now time.Time) *WorkloadWrapper {
 	admission := MakeAdmission(cq, w.Spec.PodSets[0].Name)
 	resReq := make(corev1.ResourceList)
 	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
@@ -634,6 +634,51 @@ func (p *PodSetWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelec
 	return p
 }
 
+func (p *PodSetWrapper) PreferredDuringSchedulingIgnoredDuringExecution(preferredSchedulingTerms []corev1.PreferredSchedulingTerm) *PodSetWrapper {
+	if p.Template.Spec.Affinity == nil {
+		p.Template.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity == nil {
+		p.Template.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	p.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = append(
+		p.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution,
+		preferredSchedulingTerms...,
+	)
+	return p
+}
+
+func (p *PodSetWrapper) RequiredNodeSelectorRequirement(key string, op corev1.NodeSelectorOperator, values ...string) *PodSetWrapper {
+	return p.RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+		{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      key,
+					Operator: op,
+					Values:   values,
+				},
+			},
+		},
+	})
+}
+
+func (p *PodSetWrapper) PreferredNodeSelectorRequirement(weight int32, key string, op corev1.NodeSelectorOperator, values ...string) *PodSetWrapper {
+	return p.PreferredDuringSchedulingIgnoredDuringExecution([]corev1.PreferredSchedulingTerm{
+		{
+			Weight: weight,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      key,
+						Operator: op,
+						Values:   values,
+					},
+				},
+			},
+		},
+	})
+}
+
 func (p *PodSetWrapper) NodeName(name string) *PodSetWrapper {
 	p.Template.Spec.NodeName = name
 	return p
@@ -690,9 +735,9 @@ func (p *PodSetWrapper) ResourceClaim(claimName, resourceClaimName string) *PodS
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
-func MakeAdmission(cq string, podSetNames ...kueue.PodSetReference) *AdmissionWrapper {
+func MakeAdmission(cq kueue.ClusterQueueReference, podSetNames ...kueue.PodSetReference) *AdmissionWrapper {
 	wrap := &AdmissionWrapper{kueue.Admission{
-		ClusterQueue: kueue.ClusterQueueReference(cq),
+		ClusterQueue: cq,
 	}}
 
 	if len(podSetNames) == 0 {
@@ -931,14 +976,14 @@ func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdm
 	return c
 }
 
-func (c *ClusterQueueWrapper) MinPreferredFlavorName(name string) *ClusterQueueWrapper {
+func (c *ClusterQueueWrapper) LastAcceptableFlavorName(name string) *ClusterQueueWrapper {
 	if c.Spec.ConcurrentAdmissionPolicy == nil {
 		c = c.ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors)
 	}
 	if c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints == nil {
 		c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints = &kueue.ConcurrentAdmissionConstraints{}
 	}
-	c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.MinPreferredFlavorName = new(kueue.ResourceFlavorReference(name))
+	c.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName = new(kueue.ResourceFlavorReference(name))
 	return c
 }
 
@@ -1541,6 +1586,11 @@ func (mkc *MultiKueueConfigWrapper) Obj() *kueue.MultiKueueConfig {
 
 func (mkc *MultiKueueConfigWrapper) Clusters(clusters ...string) *MultiKueueConfigWrapper {
 	mkc.Spec.Clusters = append(mkc.Spec.Clusters, clusters...)
+	return mkc
+}
+
+func (mkc *MultiKueueConfigWrapper) QuotaManagement(mode kueue.MultiKueueConfigQuotaManagementMode) *MultiKueueConfigWrapper {
+	mkc.Spec.QuotaManagement = &mode
 	return mkc
 }
 

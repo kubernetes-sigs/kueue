@@ -229,16 +229,16 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 			ginkgo.By("Set workloads quota reservation")
 			admissions := []*kueue.Admission{
-				utiltestingapi.MakeAdmission(clusterQueue.Name).
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, flavorOnDemand, "2").Assignment(resourceGPU, flavorModelA, "2").Obj()).Obj(),
-				utiltestingapi.MakeAdmission(clusterQueue.Name).
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, flavorOnDemand, "3").Assignment(resourceGPU, flavorModelA, "3").Obj()).Obj(),
-				utiltestingapi.MakeAdmission(clusterQueue.Name).
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Assignment(resourceGPU, flavorModelB, "1").Obj()).Obj(),
-				utiltestingapi.MakeAdmission(clusterQueue.Name).
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, flavorSpot, "1").Assignment(resourceGPU, flavorModelB, "1").Obj()).Obj(),
 				utiltestingapi.MakeAdmission("other").
@@ -501,7 +501,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			})
 
 			ginkgo.By("Admitting the workload", func() {
-				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 					kueue.PodSetAssignment{
 						Name: "driver",
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -955,7 +955,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			})
 
 			ginkgo.By("Admitting the workload", func() {
-				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
 					kueue.PodSetAssignment{
 						Name: "workers",
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1061,7 +1061,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				resourceGPU,
 				kueue.ResourceFlavorReference(flavor.Name),
 			).Obj()
-			cqAdmission := utiltestingapi.MakeAdmission(cq.Name).PodSets(podSetAssignment).Obj()
+			cqAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).PodSets(podSetAssignment).Obj()
 			util.SetQuotaReservation(ctx, k8sClient, key, cqAdmission)
 
 			ginkgo.By("Set admission check ready")
@@ -1098,7 +1098,12 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			ginkgo.By("Setting quota reservation")
 			wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
-			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), utiltestingapi.MakeAdmission(cq.Name).Obj())
+			podSetAssignment := utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(
+				resourceGPU,
+				kueue.ResourceFlavorReference(flavor.Name),
+			).Obj()
+			cqAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).PodSets(podSetAssignment).Obj()
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), cqAdmission)
 
 			ginkgo.By("Delete clusterQueue")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
@@ -1117,7 +1122,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				resourceGPU,
 				kueue.ResourceFlavorReference(flavor.Name),
 			).Obj()
-			cqAdmission := utiltestingapi.MakeAdmission(cq.Name).PodSets(podSetAssignment).Obj()
+			cqAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).PodSets(podSetAssignment).Obj()
 			util.SetQuotaReservation(ctx, k8sClient, key, cqAdmission)
 
 			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)

@@ -135,11 +135,13 @@ func TestValidateCreate(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 	}{
 		"invalid unmanaged": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").
 				Obj(),
 			wantErr: nil,
 		},
 		"invalid managed - has auto scaler": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				WithEnableAutoscaling(new(true)).
 				Obj(),
@@ -152,6 +154,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid managed - too many worker groups": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				WithWorkerGroups(bigWorkerGroup...).
 				Obj(),
@@ -160,6 +163,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"worker group uses head name": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				WithWorkerGroups(rayv1.WorkerGroupSpec{
 					GroupName: headGroupPodSetName,
@@ -548,6 +552,13 @@ func TestValidateCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"valid with prebuilt workload annotation, WorkloadIdentifierAnnotations enabled": {
+			job: testingrayutil.MakeCluster("raycluster", "ns").
+				Queue("queue").
+				PrebuiltWorkloadAnnotation("wl1").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
 	}
 

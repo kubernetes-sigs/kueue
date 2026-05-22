@@ -30,7 +30,6 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -66,12 +65,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
 
-	// add the prebuilt workload
-	if remoteJob.Labels == nil {
-		remoteJob.Labels = map[string]string{}
-	}
-	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remoteJob, workloadName, origin)
 
 	// clear the managedBy enables the JobSet controller to take over
 	remoteJob.Spec.ManagedBy = nil
@@ -79,7 +74,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	job := jobset.JobSet{}
 	job.SetName(key.Name)
 	job.SetNamespace(key.Namespace)
@@ -115,10 +110,10 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		return nil, errors.New("not a jobset")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := jobSet.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(jobSet)
+	if prebuiltWorkload == "" {
 		return nil, fmt.Errorf("no prebuilt workload found for jobset: %s", klog.KObj(jobSet))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWl, Namespace: jobSet.Namespace}}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: jobSet.Namespace}}, nil
 }

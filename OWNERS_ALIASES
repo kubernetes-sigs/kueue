@@ -22,5 +22,13 @@ aliases:
     - pbundyra
   agent-approvers:
     - amy
+    - kannon92
+    - pbundyra
   agent-reviewers:
     - amy
+    - kannon92
+    - pbundyra
+  hugo-approvers:
+    - mbobrovskyi
+  infra-approvers:
+    - mbobrovskyi

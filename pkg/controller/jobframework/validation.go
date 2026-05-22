@@ -31,6 +31,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -45,11 +46,22 @@ import (
 )
 
 var (
-	labelsPath                    = field.NewPath("metadata", "labels")
-	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
-	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
-	supportedPrebuiltWlJobGVKs    = sets.New(
+	metaPath                       = field.NewPath("metadata")
+	labelsPath                     = metaPath.Child("labels")
+	annotationsPath                = metaPath.Child("annotations")
+	queueNameLabelPath             = labelsPath.Key(constants.QueueLabel)
+	maxExecTimeLabelPath           = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
+	workloadPriorityClassNamePath  = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	prebuiltWorkloadLabelPath      = labelsPath.Key(constants.PrebuiltWorkloadLabel)
+	prebuiltWorkloadAnnotationPath = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
+	elasticJobAnnotationPath       = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
+	supportedElasticJobGVKs        = sets.New(
+		batchv1.SchemeGroupVersion.WithKind("Job").String(),
+		rayv1.GroupVersion.WithKind("RayCluster").String(),
+		rayv1.GroupVersion.WithKind("RayJob").String(),
+		rayv1.GroupVersion.WithKind("RayService").String(),
+	)
+	supportedPrebuiltWlJobGVKs = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
 		jobset.SchemeGroupVersion.WithKind("JobSet").String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.TFJobKind).String(),
@@ -71,6 +83,7 @@ func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 	allErrs := ValidateQueueName(job.Object())
 	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
+	allErrs = append(allErrs, ValidateElasticJobAnnotation(job.Object(), job.GVK())...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(job.Object())...)
@@ -96,16 +109,27 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(strin
 
 func validateCreateForPrebuiltWorkload(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, ValidateLabelAsCRDName(job.Object(), constants.PrebuiltWorkloadLabel)...)
+	allErrs = append(allErrs, ValidatePrebuiltWorkloadName(job.Object())...)
 
 	// this rule should be relaxed when its confirmed that running with a prebuilt wl is fully supported by each integration
-	if _, hasPrebuilt := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]; hasPrebuilt {
+	if PrebuiltWorkloadNameFor(job.Object()) != "" {
 		gvk := job.GVK().String()
 		if !supportedPrebuiltWlJobGVKs.Has(gvk) {
-			allErrs = append(allErrs, field.Forbidden(labelsPath.Key(constants.PrebuiltWorkloadLabel), fmt.Sprintf("Is not supported for %q", gvk)))
+			allErrs = append(allErrs, field.Forbidden(GetPrebuiltWorkloadPath(job.Object()), fmt.Sprintf("Is not supported for %q", gvk)))
 		}
 	}
 	return allErrs
+}
+
+// ValidateElasticJobAnnotation rejects the elastic-job annotation on unsupported frameworks.
+func ValidateElasticJobAnnotation(obj client.Object, gvk schema.GroupVersionKind) field.ErrorList {
+	if !workloadslicing.Enabled(obj) {
+		return nil
+	}
+	if !supportedElasticJobGVKs.Has(gvk.String()) {
+		return field.ErrorList{field.Forbidden(elasticJobAnnotationPath, fmt.Sprintf("elastic job is not supported for %q", gvk))}
+	}
+	return nil
 }
 
 func ValidateLabelAsCRDName(obj client.Object, crdNameLabel string) field.ErrorList {
@@ -116,6 +140,24 @@ func ValidateLabelAsCRDName(obj client.Object, crdNameLabel string) field.ErrorL
 		}
 	}
 	return allErrs
+}
+
+func ValidateAnnotationAsCRDName(obj client.Object, crdNameAnnotation string) field.ErrorList {
+	var allErrs field.ErrorList
+	if value, exists := obj.GetAnnotations()[crdNameAnnotation]; exists {
+		if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
+			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(crdNameAnnotation), value, strings.Join(errs, ",")))
+		}
+	}
+	return allErrs
+}
+
+func ValidatePrebuiltWorkloadName(obj client.Object) field.ErrorList {
+	prebuiltAnnotation := obj.GetAnnotations()[constants.PrebuiltWorkloadAnnotation]
+	if features.Enabled(features.WorkloadIdentifierAnnotations) && prebuiltAnnotation != "" {
+		return ValidateAnnotationAsCRDName(obj, constants.PrebuiltWorkloadAnnotation)
+	}
+	return ValidateLabelAsCRDName(obj, constants.PrebuiltWorkloadLabel)
 }
 
 func ValidateQueueName(obj client.Object) field.ErrorList {
@@ -141,9 +183,9 @@ func validateUpdateForPrebuiltWorkload(oldJob, newJob GenericJob) field.ErrorLis
 		return validateCreateForPrebuiltWorkload(newJob)
 	}
 
-	oldWlName, _ := PrebuiltWorkloadFor(oldJob)
-	newWlName, _ := PrebuiltWorkloadFor(newJob)
-	return apivalidation.ValidateImmutableField(newWlName, oldWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))
+	oldWlName := PrebuiltWorkloadNameFor(oldJob.Object())
+	newWlName := PrebuiltWorkloadNameFor(newJob.Object())
+	return apivalidation.ValidateImmutableField(newWlName, oldWlName, GetPrebuiltWorkloadPath(newJob.Object()))
 }
 
 func validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
@@ -154,11 +196,11 @@ func validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) fi
 //
 // It compares the boolean returned by workloadslicing.Enabled for the old and new Job objects.
 // If the value changed, it returns a field.ErrorList with a single field.Invalid pointing at
-// labels[workloadslicing.EnabledAnnotationKey] and using apivalidation.FieldImmutableErrorMsg.
+// annotations[workloadslicing.EnabledAnnotationKey] and using apivalidation.FieldImmutableErrorMsg.
 // If the value did not change, // it returns nil.
 func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.ErrorList {
 	if oldEnabled, newEnabled := workloadslicing.Enabled(oldJob.Object()), workloadslicing.Enabled(newJob.Object()); oldEnabled != newEnabled {
-		return field.ErrorList{field.Invalid(labelsPath.Key(workloadslicing.EnabledAnnotationKey), newEnabled, apivalidation.FieldImmutableErrorMsg)}
+		return field.ErrorList{field.Invalid(elasticJobAnnotationPath, newEnabled, apivalidation.FieldImmutableErrorMsg)}
 	}
 	return nil
 }
@@ -207,11 +249,7 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 // ValidateImmutablePodGroupPodSpec function is used for serving workloads to ensure no changes are allowed
 // to the PodSpec except fields that required for role-hash generation.
 func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
-	return validateImmutablePodGroupPodSpecPath(
-		ignoreNodeSelector(utilpod.SpecShape(newPodSpec)),
-		ignoreNodeSelector(utilpod.SpecShape(oldPodSpec)),
-		fieldPath,
-	)
+	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
 }
 
 func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fieldPath *field.Path) field.ErrorList {
@@ -247,11 +285,14 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fie
 	return allErrs
 }
 
-func ignoreNodeSelector(shape map[string]any) map[string]any {
-	shape["nodeSelector"] = nil
-	return shape
-}
-
 func IsWorkloadPriorityClassNameEmpty(obj client.Object) bool {
 	return WorkloadPriorityClassName(obj) == ""
+}
+
+func GetPrebuiltWorkloadPath(obj client.Object) *field.Path {
+	prebuiltWorkloadAnnotation := obj.GetAnnotations()[constants.PrebuiltWorkloadAnnotation]
+	if features.Enabled(features.WorkloadIdentifierAnnotations) && prebuiltWorkloadAnnotation != "" {
+		return prebuiltWorkloadAnnotationPath
+	}
+	return prebuiltWorkloadLabelPath
 }

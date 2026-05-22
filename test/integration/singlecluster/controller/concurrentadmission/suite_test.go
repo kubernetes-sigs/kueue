@@ -49,7 +49,7 @@ var (
 )
 
 func TestSchedulerWithConcurrentAdmission(t *testing.T) {
-	util.RunSuite(t, "MultiKueue with Scheduler Suite")
+	util.RunSuite(t, "Concurrent Admission Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -93,7 +93,7 @@ func managerAndSchedulerSetup(configuration *configapi.Configuration) framework.
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		schedOpts := []scheduler.Option{scheduler.WithPreemptionExpectations(preemptionExpectations)}
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), schedOpts...)
+		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), schedOpts...)
 
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

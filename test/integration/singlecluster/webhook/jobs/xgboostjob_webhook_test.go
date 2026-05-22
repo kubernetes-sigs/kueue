@@ -29,21 +29,16 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("XGBoostJob Webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("XGBoostJob Webhook", func() {
 	var ns *corev1.Namespace
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(xgboostjob.SetupXGBoostJobWebhook))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(xgboostjob.SetupXGBoostJobWebhook))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "xgboost-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("with TopologyAwareScheduling", func() {

@@ -6,6 +6,12 @@ description: >
   Quota management for workloads using Kubernetes Dynamic Resource Allocation (DRA).
 ---
 
+{{% alert title="Warning" color="warning" %}}
+In Kueue 0.18, the DRA feature gates were renamed to avoid conflicts with upstream
+Kubernetes feature gates: `DynamicResourceAllocation` is now `KueueDRAIntegration`,
+and `DRAExtendedResources` is now `KueueDRAIntegrationExtendedResource`.
+{{% /alert %}}
+
 ## Dynamic Resource Allocation
 
 [Dynamic Resource Allocation (DRA)](https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/)
@@ -45,7 +51,7 @@ When a Pod references a `ResourceClaimTemplate`, Kueue reads the
 to charge quota against. The number of units charged is determined by the
 `count` field in the device request (default 1).
 
-Only the `ExactCount` allocation mode is supported. CEL selectors and the
+Only the `ExactCount` allocation mode is supported. The
 `All` allocation mode are not supported in alpha.
 
 For setup instructions, see
@@ -57,11 +63,11 @@ For setup instructions, see
 
 When a Pod requests an extended resource backed by DRA (e.g.,
 `nvidia.com/gpu: 1`), the kube-scheduler auto-creates a `ResourceClaim`.
-Without the `DRAExtendedResources` feature gate enabled, Kueue would charge
+Without the `KueueDRAIntegrationExtendedResource` feature gate enabled, Kueue would charge
 quota for both the `resources.requests` entry **and** the auto-created claim,
 double counting the same device.
 
-With `DRAExtendedResources` enabled, Kueue detects the matching `DeviceClass`,
+With `KueueDRAIntegrationExtendedResource` enabled, Kueue detects the matching `DeviceClass`,
 uses `extendedResourceName` as the quota key, and drops the auto-created claim
 from accounting. No `deviceClassMappings` configuration is needed — the
 mapping is discovered from the `DeviceClass` automatically.
@@ -69,8 +75,8 @@ mapping is discovered from the `DeviceClass` automatically.
 {{% alert title="Note" color="info" %}}
 The extended resource path additionally requires the Kubernetes
 `DRAExtendedResource` feature gate on kube-apiserver and kube-scheduler
-(alpha in Kubernetes 1.34), in addition to Kueue's `DynamicResourceAllocation`
-and `DRAExtendedResources` feature gates.
+(alpha in Kubernetes 1.34), in addition to Kueue's `KueueDRAIntegration`
+and `KueueDRAIntegrationExtendedResource` feature gates.
 {{% /alert %}}
 
 ## Path separation
@@ -123,9 +129,6 @@ The following limitations apply to the alpha release:
 - **ExactCount allocation mode only**: Only device requests using `exactly`
   are supported. `FirstAvailable` device selection and the `All` allocation
   mode are not supported.
-- **No CEL selectors**: Device requests with CEL selectors in the
-  `ResourceClaimTemplate` are not supported. The device class name is used
-  directly for quota mapping.
 - **No device constraints or config**: Device `constraints` (MatchAttribute)
   and per-request `config` are not supported.
 - **No AdminAccess**: Device requests with `adminAccess: true` are not

@@ -152,7 +152,7 @@ func (r *ClusterQueueReconciler) logger() logr.Logger {
 }
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/finalizers,verbs=update
@@ -168,15 +168,10 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	log.V(2).Info("Reconcile ClusterQueue")
 
 	if features.Enabled(features.CustomMetricLabels) {
-		r.customLabels.CQStoreAndClear(kueue.ClusterQueueReference(cqObj.Name),
+		r.customLabels.CQStore(
+			kueue.ClusterQueueReference(cqObj.Name),
 			cqObj.GetLabels(), cqObj.GetAnnotations(),
-			func() {
-				cqRef := kueue.ClusterQueueReference(cqObj.Name)
-				metrics.ClearClusterQueueMetrics(cqRef)
-				metrics.ClearClusterQueueMetricsOnLabelChange(cqRef)
-				metrics.ClearCacheMetrics(cqObj.Name)
-				metrics.ClearClusterQueueResourceMetrics(cqObj.Name)
-			})
+		)
 	}
 
 	if cqObj.DeletionTimestamp.IsZero() {
@@ -382,22 +377,16 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 
 	var labelsUpdated bool
 	if features.Enabled(features.CustomMetricLabels) {
-		labelsUpdated = r.customLabels.CQStoreAndClear(
+		labelsUpdated = r.customLabels.CQStore(
 			kueue.ClusterQueueReference(e.ObjectNew.GetName()),
 			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
-			func() {
-				cqRef := kueue.ClusterQueueReference(e.ObjectNew.Name)
-				metrics.ClearClusterQueueMetrics(cqRef)
-				metrics.ClearClusterQueueMetricsOnLabelChange(cqRef)
-				metrics.ClearCacheMetrics(e.ObjectNew.Name)
-				metrics.ClearClusterQueueResourceMetrics(e.ObjectNew.Name)
-			})
+		)
 	}
 
 	if err := r.cache.UpdateClusterQueue(log, e.ObjectNew); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
-	if err := r.qManager.UpdateClusterQueue(context.Background(), e.ObjectNew, specUpdated, labelsUpdated); err != nil {
+	if err := r.qManager.UpdateClusterQueue(context.Background(), e.ObjectNew, specUpdated); err != nil {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
 	}
 
@@ -407,8 +396,11 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 		r.cache.RecordCohortMetrics(log, e.ObjectOld.Spec.CohortName)
 	}
 
-	if r.reportResourceMetrics {
+	if r.reportResourceMetrics && !labelsUpdated {
 		r.updateResourceMetrics(log, e.ObjectOld, e.ObjectNew)
+	}
+	if labelsUpdated {
+		r.resyncClusterQueueGaugeMetrics(e.ObjectNew)
 	}
 	return true
 }
@@ -427,6 +419,16 @@ func (r *ClusterQueueReconciler) updateResourceMetrics(log logr.Logger, oldCq, n
 		r.cache.ClearClusterQueueOldResourceMetrics(log, oldCq)
 	}
 	r.cache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(newCq.Name))
+}
+
+func (r *ClusterQueueReconciler) resyncClusterQueueGaugeMetrics(cq *kueue.ClusterQueue) {
+	cqRef := kueue.ClusterQueueReference(cq.Name)
+	metrics.ClearClusterQueueMetrics(cqRef)
+	metrics.ClearClusterQueueMetricsOnLabelChange(cqRef)
+	metrics.ClearCacheMetrics(cq.Name)
+	metrics.ClearClusterQueueResourceMetrics(cq.Name)
+	r.qManager.ResyncClusterQueueGaugeMetrics(cqRef)
+	r.cache.ResyncClusterQueueGaugeMetrics(cqRef)
 }
 
 // cqNamespaceHandler handles namespace update events.
