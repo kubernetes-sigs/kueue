@@ -670,7 +670,10 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 
 	if len(nsKey) == 1 {
 		if err := c.Get(ctx, *key, &p.pod); err != nil {
-			return apierrors.IsNotFound(err), err
+			if client.IgnoreNotFound(err) != nil {
+				return false, err
+			}
+			return true, nil
 		}
 		p.isFound = true
 
