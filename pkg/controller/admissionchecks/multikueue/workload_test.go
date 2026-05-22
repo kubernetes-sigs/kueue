@@ -2026,6 +2026,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 		dispatcherMode   string
 		remotes          map[string]*kueue.Workload
 		nominatedWorkers []string
+		localClusterName *string
 		cond             *metav1.Condition
 		createErr        error
 		wantCreated      []string
@@ -2042,6 +2043,13 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			dispatcherMode: config.MultiKueueDispatcherModeAllAtOnce,
 			remotes:        map[string]*kueue.Workload{remoteNames[0]: {}, remoteNames[1]: {}},
 			wantCreated:    nil,
+		},
+		{
+			name:             "AllClusters: stale cache ClusterName set, nominations not confirmed — no remote workloads created",
+			dispatcherMode:   config.MultiKueueDispatcherModeAllAtOnce,
+			remotes:          map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
+			localClusterName: ptr.To(remoteNames[0]),
+			wantCreated:      nil,
 		},
 		// Incremental dispatcher tests were moved to a separate file.
 		{
@@ -2075,6 +2083,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				Status: kueue.WorkloadStatus{
 					Conditions:            make([]metav1.Condition, 0, 1),
 					NominatedClusterNames: tt.nominatedWorkers,
+					ClusterName:           tt.localClusterName,
 				},
 			}
 
