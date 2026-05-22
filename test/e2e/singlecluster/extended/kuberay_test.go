@@ -867,7 +867,7 @@ app = HelloWorld.bind()`,
 		rayService := testingrayservice.MakeService("rayservice-autoscale", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
-			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "800m").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).
