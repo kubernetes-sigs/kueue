@@ -240,6 +240,22 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - ray.io
+  resources:
+  - rayservices
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ray.io
+  resources:
+  - rayservices/status
+  verbs:
+  - get
+- apiGroups:
   - workload.codeflare.dev
   resources:
   - appwrappers
