@@ -51,7 +51,7 @@ const (
 	flavorCPUArchB = "arch-b"
 )
 
-var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clusterqueue", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clusterqueue", "area:core"), func() {
 	var (
 		ns               *corev1.Namespace
 		emptyUsedFlavors = []kueue.FlavorUsage{
@@ -82,21 +82,15 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 		}
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-clusterqueue-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Reconciling clusterQueue usage status", func() {
@@ -1091,7 +1085,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 	})
 })
 
-var _ = ginkgo.Describe("ClusterQueue controller with RoleTracker", ginkgo.Label("controller:clusterqueue", "area:core"), ginkgo.Ordered, ginkgo.Serial, func() {
+var _ = ginkgo.Describe("ClusterQueue controller with RoleTracker", ginkgo.Label("controller:clusterqueue", "area:core"), func() {
 	var (
 		electedChan   chan struct{}
 		trackerCancel context.CancelFunc
