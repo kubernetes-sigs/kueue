@@ -170,7 +170,8 @@ Observability: Improved FairSharing strategy-evaluation logs by including DRS sh
 
 #### Breaking change
 
-Follow the critical breaking-change rule near the top of this skill.
+Follow the [critical breaking-change rule](#critical-rule-for-breaking-changes) near
+the top of this skill.
 
 The mitigation must tell affected users exactly what to change before upgrading.
 
@@ -221,7 +222,8 @@ Avoid broad prefixes such as `Kueue:` unless the change truly affects the whole 
 
 ### 5. Validate accuracy before finalizing
 
-Before proposing the final note, check:
+Before proposing the final note, use this checklist as a starting point and add any
+PR-specific checks needed for accuracy:
 
 - Does the prefix describe the narrowest accurate scope?
 - Does the note describe a user-visible change?
