@@ -45,6 +45,7 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Workloads](#workloads)
     - [DRA-Specific Workload Processing](#dra-specific-workload-processing)
     - [Workload Processing Flow](#workload-processing-flow)
+    - [Workload Rejection When DRA Is Disabled](#workload-rejection-when-dra-is-disabled)
   - [Extended Resources](#extended-resources)
     - [Configuration](#configuration)
     - [Path Separation](#path-separation)
@@ -286,6 +287,12 @@ resubmission of the workload once ResourceSlices changes. Evaluating this for be
 
 ### Risks and Mitigations
 
+**Silent quota bypass when DRA is disabled**: When the `DynamicResourceAllocation` feature
+gate is disabled, DRA workloads are admitted without any device resource accounting, allowing
+unlimited GPU consumption outside Kueue's control. The `KueueDRARejectWorkloadsWhenDRADisabled` feature gate
+(default: enabled, Beta) mitigates this by rejecting DRA workloads when the DRA feature is off.
+See [Workload Rejection When DRA Is Disabled](#workload-rejection-when-dra-is-disabled).
+
 With DRAAdminAccess and DRAPrioritizedLists (both beta, default enabled in K8s 1.35), there is a
 risk that effective tallying of resources will not be available until after allocation of these
 resources by kube-scheduler.
@@ -323,12 +330,18 @@ In order to mitigate this risk, Kueue can take the following approach:
 
 ## Design Details
 
-Two feature gates control DRA support in Kueue:
+Three feature gates control DRA support in Kueue:
 - `DynamicResourceAllocation`: gates ResourceClaimTemplate-based DRA quota accounting.
   Uses `deviceClassMappings` for DeviceClass-to-quota-resource mapping.
 - `DRAExtendedResources`: gates extended resources support, including DeviceClass
   auto-discovery via `extendedResourceName`. Does not use `deviceClassMappings`.
   Requires `DynamicResourceAllocation` to also be enabled.
+- `KueueDRARejectWorkloadsWhenDRADisabled` (default: enabled, Beta since v0.18): rejects workloads that
+  use DRA resources (ResourceClaimTemplates or ResourceClaims) when the
+  `DynamicResourceAllocation` feature gate is disabled. Without this gate, DRA workloads
+  submitted while `DynamicResourceAllocation` is off are silently admitted with zero
+  device resource usage, bypassing quota enforcement entirely. See
+  [Workload Rejection When DRA Is Disabled](#workload-rejection-when-dra-is-disabled).
 
 The following sections will explain the design in detail.
 
@@ -623,6 +636,26 @@ When the `DRAExtendedResources` gate is also enabled, workloads with extended re
 `resources.requests` follow a separate resolution path through the ExtendedResourceCache.
 See [Extended Resources](#extended-resources) for details. Both paths can be active simultaneously
 for workloads that use both ResourceClaimTemplates and extended resources.
+
+#### Workload Rejection When DRA Is Disabled
+
+When the `DynamicResourceAllocation` feature gate is disabled, the DRA processing pipeline
+is skipped entirely. Without additional safeguards, workloads that reference
+ResourceClaimTemplates or ResourceClaims are silently admitted based on CPU/memory only,
+with zero device resource usage recorded. This allows unlimited DRA workloads to bypass
+quota enforcement, since the Kubernetes DRA scheduler still allocates devices directly.
+
+The `KueueDRARejectWorkloadsWhenDRADisabled` feature gate (default: enabled, Beta) closes this gap. When
+enabled and `DynamicResourceAllocation` is disabled, Kueue detects workloads with DRA
+resources (via `HasDRA()` which checks for `ResourceClaimTemplateName` or
+`ResourceClaimName` in any PodSet) and rejects them as inadmissible.
+
+The rejection is enforced in the Reconcile loop: workloads are marked with
+`WorkloadQuotaReserved=False` (reason: `WorkloadInadmissible`) and `WorkloadRequeued=False`,
+with a message indicating that the `DynamicResourceAllocation` feature gate is not enabled.
+
+Administrators who intentionally want to admit DRA workloads without Kueue quota
+management can disable `KueueDRARejectWorkloadsWhenDRADisabled` and `DynamicResourceAllocation` to restore the previous behavior.
 
 The steps above are reflected in the complete configuration and workload example below:
 
@@ -1000,6 +1033,9 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
 - Late DeviceClass creation: Testing workload inadmissibility when DeviceClass does not exist
 - CEL validation: Testing CEL compilation errors, evaluation against ResourceSlice devices, and rejection
   of workloads with unsatisfiable CEL selectors
+- DRA disabled rejection: Testing that workloads with ResourceClaimTemplates or ResourceClaims are
+  rejected as inadmissible when `DynamicResourceAllocation` is off and `KueueDRARejectWorkloadsWhenDRADisabled` is on,
+  and that non-DRA workloads are still admitted normally
 
 #### E2E Test
 
@@ -1057,6 +1093,9 @@ Use existing dra-example-driver or Kubernetes test driver for e2e testing.
   confirming DRA logical resources work with existing `AdmissionFairSharing.ResourceWeights`
 - CEL expression validation support added: April 2026 by @kannon92
 - Promoted KueueDRAIntegration to Beta: May 2026 by @sohankunkerkar
+- `KueueDRARejectWorkloadsWhenDRADisabled` feature gate added: May 2026 by @kannon92 — rejects DRA workloads
+  when the `DynamicResourceAllocation` feature gate is disabled to prevent silent quota bypass
+  (see [#10504](https://github.com/kubernetes-sigs/kueue/issues/10504))
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution

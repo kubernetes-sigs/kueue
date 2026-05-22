@@ -43,7 +43,7 @@ import (
 // was marked inadmissible, requeuing depends on the next QueueInadmissibleWorkloads event.
 func NeedsDRAReconcile(wl *kueue.Workload) bool {
 	if !features.Enabled(features.KueueDRAIntegration) {
-		return false
+		return features.Enabled(features.KueueDRARejectWorkloadsWhenDRADisabled) && workload.HasDRA(wl)
 	}
 	if workload.HasDRA(wl) {
 		return true

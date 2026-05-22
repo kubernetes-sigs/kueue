@@ -177,3 +177,6 @@ ignoreFiles = []
   [[module.imports]]
     path = "github.com/google/docsy"
     disable = false
+
+[security.node.permissions]
+  allowRead = ["*"]

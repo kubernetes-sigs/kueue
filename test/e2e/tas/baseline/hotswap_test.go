@@ -141,6 +141,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					PodAnnotation(kueue.PodSetSliceSizeAnnotation, "2").
 					CompletionMode(batchv1.IndexedCompletion).
 					BackoffLimit(1).
+					TerminationGracePeriod(1).
 					Obj()
 
 				util.MustCreate(ctx, k8sClient, sampleJob)
@@ -230,6 +231,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						Effect:            corev1.TaintEffectNoExecute,
 						TolerationSeconds: &tolerationSeconds,
 					}).
+					TerminationGracePeriod(1).
 					Obj()
 
 				util.MustCreate(ctx, k8sClient, sampleJob)
@@ -319,6 +321,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					CompletionMode(batchv1.IndexedCompletion).
 					BackoffLimit(1).
 					SchedulingGate(artificialGate).
+					TerminationGracePeriod(1).
 					Obj()
 
 				util.MustCreate(ctx, k8sClient, sampleJob)
@@ -455,6 +458,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 					CompletionMode(batchv1.IndexedCompletion).
 					BackoffLimit(1).
+					TerminationGracePeriod(1).
 					Obj()
 
 				util.MustCreate(ctx, k8sClient, sampleJob)

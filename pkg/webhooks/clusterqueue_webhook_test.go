@@ -451,6 +451,26 @@ func TestValidateClusterQueue(t *testing.T) {
 				Obj(),
 		},
 		{
+			name: "ConcurrentAdmissionPolicy constraints with RetainFirstAdmission mode is forbidden",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionRetainFirstAdmission).
+				LastAcceptableFlavorName("flavor1").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(specPath.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints"), ""),
+			},
+			wantDetail: `may only be set when migration.mode is "TryPreferredFlavors" (got "RetainFirstAdmission")`,
+		},
+		{
+			name: "ConcurrentAdmissionPolicy constraints with empty migration mode is allowed",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				ConcurrentAdmissionPolicy("").
+				LastAcceptableFlavorName("flavor1").
+				Obj(),
+		},
+		{
 			name: "ConcurrentAdmissionPolicy with invalid LastAcceptableFlavorName",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).

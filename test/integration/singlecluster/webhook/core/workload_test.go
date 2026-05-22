@@ -47,19 +47,14 @@ const (
 	podSetsMaxItems = 10
 )
 
-var _ = ginkgo.Describe("Workload defaulting webhook", ginkgo.Ordered, func() {
-	var _ = ginkgo.BeforeEach(func() {
+var _ = ginkgo.Describe("Workload defaulting webhook", func() {
+	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
-	var _ = ginkgo.AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 
@@ -109,18 +104,14 @@ var _ = ginkgo.Describe("Workload defaulting webhook", ginkgo.Ordered, func() {
 	})
 })
 
-var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
-	var _ = ginkgo.BeforeEach(func() {
+var _ = ginkgo.Describe("Workload validating webhook", func() {
+	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
-	var _ = ginkgo.AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 	now := time.Now().Truncate(time.Second)
@@ -1283,18 +1274,14 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 	})
 })
 
-var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher AllAtOnce", ginkgo.Ordered, func() {
-	var _ = ginkgo.BeforeEach(func() {
+var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher AllAtOnce", func() {
+	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
-	var _ = ginkgo.AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 	ginkgo.Context("When updating a Workload", func() {
@@ -1392,17 +1379,13 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 	})
 })
 
-var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Incremental", ginkgo.Ordered, func() {
-	var _ = ginkgo.BeforeEach(func() {
+var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Incremental", func() {
+	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
-	var _ = ginkgo.AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 	ginkgo.Context("When updating a Workload", func() {
@@ -1537,13 +1520,14 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 	})
 })
 
-var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("TopologyAssignment validation", func() {
 	var (
 		wl        *kueue.Workload
 		twoLevels = []string{"block", "rack"}
 	)
 
 	var _ = ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 		wl = utiltestingapi.MakeWorkload("wl", ns.Name).
 			Queue(kueue.LocalQueueName("lq1")).
@@ -1559,13 +1543,6 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 
 	var _ = ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 
@@ -1702,19 +1679,14 @@ var _ = ginkgo.Describe("TopologyAssignment validation", ginkgo.Ordered, func() 
 	)
 })
 
-var _ = ginkgo.Describe("Workload v1beta1 CEL validation", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Workload v1beta1 CEL validation", func() {
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-v1beta1-cel-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 

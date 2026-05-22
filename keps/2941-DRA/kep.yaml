@@ -37,6 +37,7 @@ milestone:
 feature-gates:
   - name: KueueDRAIntegration
   - name: KueueDRAIntegrationExtendedResource
+  - name: KueueDRARejectWorkloadsWhenDRADisabled
 disable-supported: true
 
 # The following PRR answers are required at beta release
