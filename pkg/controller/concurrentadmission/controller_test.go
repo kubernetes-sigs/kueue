@@ -85,6 +85,16 @@ func TestReconcile(t *testing.T) {
 		Obj()
 	migrationLQNoConstraint := utiltestingapi.MakeLocalQueue("lq-migration-no-constraint", "default").ClusterQueue("cq-migration-no-constraint").Obj()
 
+	retainFirstAdmissionCQ := utiltestingapi.MakeClusterQueue("cq-hold").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("reservation").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("on-demand").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("spot").Obj(),
+		).
+		ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionRetainFirstAdmission).
+		Obj()
+	retainFirstAdmissionLQ := utiltestingapi.MakeLocalQueue("lq-hold", "default").ClusterQueue("cq-hold").Obj()
+
 	testCases := map[string]struct {
 		parentWorkload       *kueue.Workload
 		variantWorkloads     []kueue.Workload
@@ -966,6 +976,99 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"RetainFirstAdmission, variant admitted on spot, deactivate reservation and on-demand": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-hold").
+				Request(corev1.ResourceCPU, "1").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-reservation", "default").
+					Queue("lq-hold").
+					AllowedFlavors("reservation").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-hold").
+					AllowedFlavors("on-demand").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-hold").
+					AllowedFlavors("spot").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					SimpleReserveQuota("cq-hold", "spot", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-hold").
+				Request(corev1.ResourceCPU, "1").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Admission(utiltestingapi.MakeAdmission("cq-hold", "main").
+					PodSets(kueue.PodSetAssignment{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "spot",
+						},
+						Count:         ptr.To[int32](1),
+						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+					}).Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Admitted",
+					Message: "The variant wl-variant-spot is admitted",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionTrue,
+					Reason:  "QuotaReserved",
+					Message: "Quota reserved in ClusterQueue cq-hold",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-reservation", "default").
+					Queue("lq-hold").
+					AllowedFlavors("reservation").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Active(false).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-hold").
+					AllowedFlavors("on-demand").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Active(false).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-hold").
+					AllowedFlavors("spot").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					SimpleReserveQuota("cq-hold", "spot", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-reservation"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Variant Workload deactivated due to RetainFirstAdmission: another Variant \"default/wl-variant-spot\" is admitted",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Variant Workload deactivated due to RetainFirstAdmission: another Variant \"default/wl-variant-spot\" is admitted",
+				},
+			},
+		},
 		"parent marked finished, mark all variants finished": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
@@ -1341,8 +1444,8 @@ func TestReconcile(t *testing.T) {
 			qManager := qcache.NewManagerForUnitTests(cl, nil, qcache.WithPreemptionExpectations(preemptionExpectations))
 			roleTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 
-			cqs := []*kueue.ClusterQueue{defaultCQ.DeepCopy(), migrationCQ.DeepCopy(), migrationCQNoConstraint.DeepCopy()}
-			lqs := []*kueue.LocalQueue{defaultLQ.DeepCopy(), migrationLQ.DeepCopy(), migrationLQNoConstraint.DeepCopy()}
+			cqs := []*kueue.ClusterQueue{defaultCQ.DeepCopy(), migrationCQ.DeepCopy(), migrationCQNoConstraint.DeepCopy(), retainFirstAdmissionCQ.DeepCopy()}
+			lqs := []*kueue.LocalQueue{defaultLQ.DeepCopy(), migrationLQ.DeepCopy(), migrationLQNoConstraint.DeepCopy(), retainFirstAdmissionLQ.DeepCopy()}
 
 			for _, cq := range cqs {
 				if err := cl.Create(t.Context(), cq); err != nil {

@@ -266,7 +266,7 @@ spec:
 #### Story 4: Homogenous Flavors only
 As an admin, I have three homogeneous resource flavors (1a, 1b, 1c). I want my workloads to start as soon as possible on any flavor and stop pursuing other variants once the job is accommodated.
 
-To achieve that, I use the `HoldFirstAdmission` mode.
+To achieve that, I use the `RetainFirstAdmission` mode.
 
 ```yaml
 kind: ClusterQueue
@@ -276,7 +276,7 @@ spec:
   ...
   concurrentAdmissionPolicy:
     migration:
-      mode: HoldFirstAdmission
+      mode: RetainFirstAdmission
 ```
 
 #### Story 5: Delaying Variant creation
@@ -425,7 +425,7 @@ type ConcurrentAdmissionMigrationMode string
 
 const (
     // Do not allow any kind of migration
-    HoldFirstAdmission ConcurrentAdmissionMigrationMode = "HoldFirstAdmission"
+    RetainFirstAdmission ConcurrentAdmissionMigrationMode = "RetainFirstAdmission"
 
     // Allow upgrades
     TryPreferredFlavors ConcurrentAdmissionMigrationMode = "TryPreferredFlavors"
@@ -698,7 +698,7 @@ After the implementation PR is merged, add the names of the tests here.
 
 #### Beta
 
-- Support for `migration.constraints.mode=HoldFirstAdmission` and `migration.constraints.MinTargetExplicitVariant`.
+- Support for `migration.constraints.mode=RetainFirstAdmission` and `migration.constraints.MinTargetExplicitVariant`.
 - Introduction of `AdmissionConstraints` field.
 - Introduction of `ExplicitVariants` functionality.
 - Revisit extending `ExplicitVariants` API with some additional fields.
