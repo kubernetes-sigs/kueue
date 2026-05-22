@@ -15,7 +15,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.3
 	github.com/onsi/gomega v1.40.0
 	github.com/open-policy-agent/cert-controller v0.16.0
-	github.com/project-codeflare/appwrapper v1.2.1
+	github.com/project-codeflare/appwrapper v1.2.2
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.67.5
@@ -39,7 +39,7 @@ require (
 	k8s.io/kube-openapi v0.0.0-20260127142750-a19766b6e2d4
 	k8s.io/kubectl v0.35.5
 	k8s.io/metrics v0.35.5
-	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2
+	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2
 	sigs.k8s.io/cluster-inventory-api v0.0.0-20251028164203-2e3fabb46733
 	sigs.k8s.io/controller-runtime v0.23.3
 	sigs.k8s.io/dra-example-driver v0.2.1
