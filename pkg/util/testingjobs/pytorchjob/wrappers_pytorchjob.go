@@ -272,8 +272,7 @@ func (j *PyTorchJobWrapper) ManagedBy(c string) *PyTorchJobWrapper {
 	return j
 }
 
-func (j *PyTorchJobWrapper) TerminationGracePeriodSeconds(seconds int64) *PyTorchJobWrapper {
-	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
-	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
+func (j *PyTorchJobWrapper) TerminationGracePeriod(replicaType kftraining.ReplicaType, seconds int64) *PyTorchJobWrapper {
+	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	return j
 }

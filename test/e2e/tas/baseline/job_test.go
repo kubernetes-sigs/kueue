@@ -236,6 +236,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
 
@@ -292,6 +293,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Indexed(true).
 				RequestAndLimit(extraResource, "1").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
 
