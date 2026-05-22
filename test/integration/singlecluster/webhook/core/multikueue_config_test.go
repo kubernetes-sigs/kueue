@@ -35,11 +35,11 @@ const (
 	multiKueueConfigClusterMaxLength = 256
 )
 
-var _ = ginkgo.Describe("MultiKueueConfig Webhook", ginkgo.Ordered, func() {
-	ginkgo.BeforeAll(func() {
+var _ = ginkgo.Describe("MultiKueueConfig Webhook", func() {
+	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
 	})
-	ginkgo.AfterAll(func() {
+	ginkgo.AfterEach(func() {
 		fwk.StopManager(ctx)
 	})
 	ginkgo.When("Creating a MultiKueueConfig", func() {
