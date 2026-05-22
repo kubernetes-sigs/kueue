@@ -22,9 +22,10 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 - [Kubernetes Contributor Guide](https://git.k8s.io/community/contributors/guide) - Main contributor documentation, or you can just jump directly to the [contributing section](https://git.k8s.io/community/contributors/guide#contributing)
 - [Contributor Cheat Sheet](https://git.k8s.io/community/contributors/guide/contributor-cheatsheet) - Common resources for existing developers
 - [AI Tool Usage Policy](https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance) - 🤖 Guidelines for using AI tools when contributing.
-- [Development]({{< relref "/community/contribution_guidelines/development.md" >}})
-- [Running and debugging tests]({{< relref "/community/contribution_guidelines/testing.md" >}})
-- [Website contributions]({{< relref "/community/contribution_guidelines/website.md" >}})
+- [Coding Guidelines]({{< relref "/community/contribution_guidelines/coding_guidelines.md" >}}) - Coding conventions and patterns for Kueue product and test code
+- [Development]({{< relref "/community/contribution_guidelines/development.md" >}}) - Kueue development
+- [Running and debugging tests]({{< relref "/community/contribution_guidelines/testing.md" >}}) - How to run and debug Kueue tests
+- [Website contributions]({{< relref "/community/contribution_guidelines/website.md" >}}) - Kueue website development
 
 ## Mentorship
 
