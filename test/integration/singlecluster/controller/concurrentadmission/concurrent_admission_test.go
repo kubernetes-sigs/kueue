@@ -34,25 +34,19 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Concurrent Admission", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Concurrent Admission", func() {
 	var (
 		ns *corev1.Namespace
 	)
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConcurrentAdmission, true)
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(&configapi.Configuration{}))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "concurrent-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(&configapi.Configuration{}))
-	})
-
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 
