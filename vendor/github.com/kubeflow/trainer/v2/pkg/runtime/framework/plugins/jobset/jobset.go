@@ -174,10 +174,15 @@ func (j *JobSet) checkRuntimePatchesImmutability(ctx context.Context, oldObj, ne
 
 	jobSet := &jobsetv1alpha2.JobSet{}
 	changed := !equality.Semantic.DeepEqual(oldObj.Spec.RuntimePatches, newObj.Spec.RuntimePatches)
-	suspended := ptr.Equal(newObj.Spec.Suspend, ptr.To(true))
+	// Allow modifying RuntimePatches if the TrainJob is suspended before or
+	// after the update (i.e. block only when it stays fully unsuspended).
+	// This lets external controllers (e.g. Kueue) update RuntimePatches and
+	// toggle spec.suspend in a single API request.
+	oldSuspended := ptr.Equal(oldObj.Spec.Suspend, new(true))
+	newSuspended := ptr.Equal(newObj.Spec.Suspend, new(true))
 	if changed {
-		if !suspended {
-			allErrs = append(allErrs, field.Forbidden(runtimePatchesPath, "RuntimePatches can only be modified when the TrainJob is suspended"))
+		if !oldSuspended && !newSuspended {
+			allErrs = append(allErrs, field.Forbidden(runtimePatchesPath, "RuntimePatches can only be modified when the TrainJob is suspended before or after the update"))
 		} else if err := j.client.Get(ctx, client.ObjectKeyFromObject(newObj), jobSet); client.IgnoreNotFound(err) != nil {
 			allErrs = append(allErrs, field.InternalError(runtimePatchesPath, err))
 		} else {

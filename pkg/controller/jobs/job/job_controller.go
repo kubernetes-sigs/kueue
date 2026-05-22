@@ -141,6 +141,7 @@ var _ jobframework.GenericJob = (*Job)(nil)
 var _ jobframework.JobWithReclaimablePods = (*Job)(nil)
 var _ jobframework.JobWithCustomStop = (*Job)(nil)
 var _ jobframework.JobWithManagedBy = (*Job)(nil)
+var _ jobframework.JobWithPreStartHook = (*Job)(nil)
 
 func (j *Job) Object() client.Object {
 	return (*batchv1.Job)(j)
@@ -160,6 +161,29 @@ func (j *Job) IsActive() bool {
 
 func (j *Job) Suspend() {
 	j.Spec.Suspend = new(true)
+}
+
+// PreStart ensures the JobSuspended status condition is set before the job is
+// unsuspended. K8s 1.36+ requires this condition to allow pod template mutations
+// on suspended jobs. In envtest the K8s Job controller doesn't run, and in
+// production there can be a race, so Kueue sets it defensively.
+func (j *Job) PreStart(ctx context.Context, c client.Client) error {
+	if j.Spec.Suspend == nil || !*j.Spec.Suspend {
+		return nil
+	}
+	for _, cond := range j.Status.Conditions {
+		if cond.Type == batchv1.JobSuspended && cond.Status == corev1.ConditionTrue {
+			return nil
+		}
+	}
+	j.Status.Conditions = append(j.Status.Conditions, batchv1.JobCondition{
+		Type:               batchv1.JobSuspended,
+		Status:             corev1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "Suspended",
+		Message:            "Job suspended",
+	})
+	return c.Status().Update(ctx, j.Object())
 }
 
 func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {

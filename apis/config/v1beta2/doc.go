@@ -16,5 +16,6 @@ limitations under the License.
 
 // +kubebuilder:object:generate=true
 // +groupName=config.kueue.x-k8s.io
+// +k8s:defaulter-gen=TypeMeta
 
 package v1beta2

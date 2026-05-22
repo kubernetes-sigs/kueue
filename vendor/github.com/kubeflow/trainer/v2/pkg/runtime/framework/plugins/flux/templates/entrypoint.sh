@@ -69,7 +69,7 @@ chown -R ${fluxuid} ${curvepath}
 
 # Generate host resources
 hosts=$(cat ${configroot}/etc/flux/system/hostlist)
-flux R encode --hosts=${hosts} --local > /tmp/R
+flux R encode --hosts=${hosts} %s > /tmp/R
 mv /tmp/R ${configroot}/etc/flux/system/R
 
 # Put the state directory in /var/lib on shared view

@@ -525,6 +525,7 @@ var (
 	jobCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(batchv1.Job{}, "TypeMeta", "ObjectMeta.OwnerReferences", "ObjectMeta.ResourceVersion", "ObjectMeta.Annotations"),
+		cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime"),
 	}
 	workloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
@@ -1084,6 +1085,7 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue, Reason: "Suspended", Message: "Job suspended"}).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
 				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
@@ -1117,6 +1119,7 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue, Reason: "Suspended", Message: "Job suspended"}).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj(),
 			workloads: []kueue.Workload{
@@ -1147,6 +1150,7 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue, Reason: "Suspended", Message: "Job suspended"}).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
 				Obj(),
@@ -1263,6 +1267,7 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue, Reason: "Suspended", Message: "Job suspended"}).
 				PodLabel("ac-key", "ac-value").
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
@@ -2592,6 +2597,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue, Reason: "Suspended", Message: "Job suspended"}).
 				NodeSelector("provisioning", "spot").
 				Obj(),
 			workloads: []kueue.Workload{
@@ -2644,6 +2650,7 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue, Reason: "Suspended", Message: "Job suspended"}).
 				PodAnnotation("annotation-key1", "common-value").
 				PodAnnotation("annotation-key2", "only-in-check1").
 				PodLabel("label-key1", "common-value").
@@ -2761,6 +2768,7 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue, Reason: "Suspended", Message: "Job suspended"}).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
 				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
@@ -2864,6 +2872,7 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(false).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue, Reason: "Suspended", Message: "Job suspended"}).
 				Parallelism(8).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).

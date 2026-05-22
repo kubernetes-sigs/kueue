@@ -187,6 +187,14 @@ type JobWithManagedBy interface {
 	SetManagedBy(*string)
 }
 
+// JobWithPreStartHook interface should be implemented by generic jobs
+// that need to perform actions before the job is unsuspended.
+// For batch/v1 Jobs, this is used to ensure the JobSuspended status condition
+// is set, which K8s 1.36+ requires before allowing pod template mutations.
+type JobWithPreStartHook interface {
+	PreStart(ctx context.Context, c client.Client) error
+}
+
 // JobWithCustomAnnotations is an optional interface that should be implemented
 // by generic jobs when custom annotations need to be updated in the API server
 // after changes occur.
