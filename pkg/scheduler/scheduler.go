@@ -810,6 +810,10 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			return true, nil
 		}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch())
 		if err == nil {
+			// Make sure the preemption expectation for an assumed workload is satisfied.
+			// See: https://github.com/kubernetes-sigs/kueue/issues/11480
+			s.preemptor.SatisfyPreemptionExpectation(log, newWorkload)
+
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(log, newWorkload, e.Obj, admission, consideredStr)
 
