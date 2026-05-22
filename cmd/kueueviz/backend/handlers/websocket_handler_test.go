@@ -36,10 +36,21 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var closedChan = func() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
 type alwaysDone struct{}
 
-func (alwaysDone) Name() string          { return "mock" }
-func (alwaysDone) Done() <-chan struct{} { ch := make(chan struct{}); close(ch); return ch }
+func (alwaysDone) Name() string {
+	return "mock"
+}
+
+func (alwaysDone) Done() <-chan struct{} {
+	return closedChan
+}
 
 type mockResourceEventHandlerRegistration struct{}
 

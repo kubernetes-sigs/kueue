@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -62,9 +63,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		if fromObject(&localJob).IsSuspended() && !fromObject(&localJob).IsActive() {
-			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-			log.V(2).Info("Skipping the sync since the local job is still suspended")
+		if shouldSkipSyncForSuspendedLocalJob(log, &localJob, &remoteJob) {
 			return nil
 		}
 
@@ -101,6 +100,42 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	remoteJob.Spec.ManagedBy = nil
 
 	return remoteClient.Create(ctx, &remoteJob)
+}
+
+func shouldSkipSyncForSuspendedLocalJob(log logr.Logger, localJob, remoteJob *batchv1.Job) bool {
+	localJobInfo := fromObject(localJob)
+
+	if !localJobInfo.IsSuspended() {
+		// do not skip any syncs if the local Job is unsuspnded
+		return false
+	}
+	if hasSuspendedJobCondition(remoteJob) {
+		// sync of the JobSuspended=True condition cannot be skipped for a job which
+		// has suspend=true.
+		return false
+	}
+	if localJobInfo.IsActive() {
+		return false
+	}
+	log.V(2).Info("Skipping the sync when the localJob has suspend=true, active=0, and remote isn't setting JobSuspended=true")
+	return true
+}
+
+func hasSuspendedJobCondition(job *batchv1.Job) bool {
+	condition := findConditionByType(job, batchv1.JobSuspended)
+	return condition != nil && condition.Status == corev1.ConditionTrue
+}
+
+func findConditionByType(job *batchv1.Job, conditionType batchv1.JobConditionType) *batchv1.JobCondition {
+	if job == nil {
+		return nil
+	}
+	for i := range job.Status.Conditions {
+		if job.Status.Conditions[i].Type == conditionType {
+			return &job.Status.Conditions[i]
+		}
+	}
+	return nil
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {

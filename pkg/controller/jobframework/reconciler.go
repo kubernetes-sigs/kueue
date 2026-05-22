@@ -1302,13 +1302,6 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	if err != nil {
 		return err
 	}
-
-	if jps, ok := job.(JobWithPreStartHook); ok {
-		if err := jps.PreStart(ctx, r.client); err != nil {
-			return err
-		}
-	}
-
 	msg := fmt.Sprintf("Admitted by clusterQueue %v", wl.Status.Admission.ClusterQueue)
 
 	log := ctrl.LoggerFrom(ctx)

@@ -73,6 +73,8 @@ type cluster struct {
 	client client.Client
 	ctx    context.Context
 	fwk    *framework.Framework
+
+	miniJobConroller util.MiniJobController
 }
 
 func (c *cluster) kubeConfigBytes() ([]byte, error) {
@@ -81,6 +83,7 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 
 func (c *cluster) StopAndTeardown() {
 	c.fwk.StopManager(c.ctx)
+	c.miniJobConroller.Stop()
 	c.fwk.Teardown()
 }
 
@@ -120,6 +123,8 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 	mu.Lock()
 	c.cfg = c.fwk.Init()
 	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
+	c.miniJobConroller = util.NewMiniJobController(c.ctx, c.client)
+	c.miniJobConroller.Start()
 	mu.Unlock()
 
 	// skip the manager setup if setup func is not provided
