@@ -35,7 +35,14 @@ TEST_LOG_LEVEL ?= -3
 INTEGRATION_NPROCS ?= 4
 INTEGRATION_NPROCS_MULTIKUEUE ?= 3
 # Folder where the integration tests are located.
+ifdef INTEGRATION_TOTAL_SHARDS
+INTEGRATION_TARGET := $(shell ./hack/testing/shard-integration-tests.sh $(INTEGRATION_SHARD_INDEX) $(INTEGRATION_TOTAL_SHARDS))
+ifeq ($(INTEGRATION_TARGET),)
+$(error Aborting execution due to invalid sharding parameters (INTEGRATION_SHARD_INDEX / INTEGRATION_TOTAL_SHARDS))
+endif
+else
 INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
+endif
 INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
