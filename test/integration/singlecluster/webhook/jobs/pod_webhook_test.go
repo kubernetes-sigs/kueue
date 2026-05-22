@@ -36,13 +36,12 @@ import (
 var _ = ginkgo.Describe("Pod Webhook", func() {
 	var ns *corev1.Namespace
 
-	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-		ginkgo.BeforeAll(func() {
+	ginkgo.When("with manageJobsWithoutQueueName disabled", func() {
+		ginkgo.BeforeEach(func() {
 			discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
 			err = serverVersionFetcher.FetchServerVersion()
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			nsSelector := &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -62,15 +61,11 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 			))
-		})
-		ginkgo.BeforeEach(func() {
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		})
-		ginkgo.AfterAll(func() {
 			fwk.StopManager(ctx)
 		})
 
@@ -167,8 +162,8 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 		})
 	})
 
-	ginkgo.When("with manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-		ginkgo.BeforeAll(func() {
+	ginkgo.When("with manageJobsWithoutQueueName enabled", func() {
+		ginkgo.BeforeEach(func() {
 			discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
@@ -192,15 +187,11 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 			))
-		})
-		ginkgo.BeforeEach(func() {
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		})
-		ginkgo.AfterAll(func() {
 			fwk.StopManager(ctx)
 		})
 
