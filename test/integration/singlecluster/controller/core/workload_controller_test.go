@@ -41,7 +41,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload", "area:core"), func() {
 	var (
 		ns                           *corev1.Namespace
 		updatedQueueWorkload         kueue.Workload
@@ -54,15 +54,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		updatedWorkloadPriorityClass *kueue.WorkloadPriorityClass
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 	})
 
@@ -70,6 +63,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		clusterQueue = nil
 		localQueue = nil
 		updatedQueueWorkload = kueue.Workload{}
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("the queue is not defined in the workload", func() {
@@ -640,7 +634,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 	})
 })
 
-var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Workload controller interaction with scheduler", func() {
 	var (
 		ns           *corev1.Namespace
 		clusterQueue *kueue.ClusterQueue
@@ -661,14 +655,6 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 		startManager()
 	}
 
-	ginkgo.BeforeAll(func() {
-		startManager()
-	})
-
-	ginkgo.AfterAll(func() {
-		stopManager()
-	})
-
 	ginkgo.When("workload's runtime class is changed", func() {
 		var flavor *kueue.ResourceFlavor
 		var runtimeClass *nodev1.RuntimeClass
@@ -676,6 +662,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 		const runtimeClassName = "test-kueue-class"
 
 		ginkgo.BeforeEach(func() {
+			startManager()
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			util.MustCreate(ctx, k8sClient, flavor)
@@ -695,6 +682,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, runtimeClass, true)
+			stopManager()
 		})
 
 		ginkgo.It("should not temporarily admit an inactive workload after changing the runtime class", framework.SlowSpec, func() {
@@ -850,7 +838,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", ginkgo
 	})
 })
 
-var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 	ginkgo.When("manager is setup with tiny retention period", func() {
 		var (
 			ns              *corev1.Namespace
@@ -860,7 +848,8 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			flavor          *kueue.ResourceFlavor
 		)
 
-		ginkgo.BeforeAll(func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			fwk.StartManager(
 				ctx, cfg,
 				managerAndControllerSetup(
@@ -875,14 +864,6 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 					},
 				),
 			)
-		})
-
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
-		})
-
-		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
@@ -899,6 +880,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("should delete the workload after retention period elapses", framework.SlowSpec, func() {
@@ -977,16 +959,9 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			startManager()
 		}
 
-		ginkgo.BeforeAll(func() {
-			startManager()
-		})
-
-		ginkgo.AfterAll(func() {
-			stopManager()
-		})
-
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
+			startManager()
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
@@ -1003,6 +978,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			stopManager()
 		})
 
 		ginkgo.It("should not delete the workload before retention period elapses", framework.SlowSpec, func() {
