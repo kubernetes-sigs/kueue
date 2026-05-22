@@ -34,11 +34,11 @@ GINKGO_ARGS="--focus=Scheduler" make test-integration
 GINKGO_ARGS="--focus='Creating a Pod requesting TAS'" make test-e2e-baseline
 
 # Filter integration tests by label
-INTEGRATION_FILTERS="--label-filter=controller:workload" make test-integration
-INTEGRATION_FILTERS="--label-filter=area:jobs" make test-integration
+LABEL_FILTER="controller:workload" make test-integration
+LABEL_FILTER="area:jobs" make test-integration
 
 # Filter e2e tests by label
-GINKGO_ARGS="--label-filter=feature:jobset" make test-e2e-extended
+LABEL_FILTER="feature:jobset" make test-e2e-extended
 
 # Run only a specific integration test directory
 INTEGRATION_TARGET='test/integration/singlecluster/scheduler' make test-integration
@@ -215,29 +215,29 @@ Integration tests are labeled by controller, job type, feature, and area to enab
 **Examples:**
 ```shell
 # Run only LocalQueue tests
-INTEGRATION_FILTERS="--label-filter=controller:localqueue" make test-integration
+LABEL_FILTER="controller:localqueue" make test-integration
 
 # Run all job tests
-INTEGRATION_FILTERS="--label-filter=area:jobs" make test-integration
+LABEL_FILTER="area:jobs" make test-integration
 
 # Run PyTorch job tests
-INTEGRATION_FILTERS="--label-filter=job:pytorch" make test-integration
+LABEL_FILTER="job:pytorch" make test-integration
 
 # Run all tests except slow
-INTEGRATION_FILTERS="--label-filter=!slow" make test-integration
+LABEL_FILTER="!slow" make test-integration
 
 # Run core tests except slow
-INTEGRATION_FILTERS="--label-filter=area:core && !slow" make test-integration
+LABEL_FILTER="area:core && !slow" make test-integration
 
 # Run TAS-related tests
-INTEGRATION_FILTERS="--label-filter=feature:tas" make test-integration
+LABEL_FILTER="feature:tas" make test-integration
 
 # Run FairSharing tests
-INTEGRATION_FILTERS="--label-filter=feature:fairsharing" make test-integration
+LABEL_FILTER="feature:fairsharing" make test-integration
 ```
 
 ### Use label filters for e2e singlecluster tests
-SingleCluster tests are labeled by feature and area. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
+SingleCluster tests are labeled by feature and area. You can use `LABEL_FILTER` to run specific tests:
 
 **Label Taxonomy:**
 - Features: `appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1,ha`
@@ -245,17 +245,17 @@ SingleCluster tests are labeled by feature and area. You can use `GINKGO_ARGS` w
 **Examples:**
 ```shell
 # Run only appwrapper tests
-GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
+LABEL_FILTER="feature:appwrapper" make test-e2e-extended
 
 # Run only deployment tests with helm
-GINKGO_ARGS="--label-filter=feature:deployment" make test-e2e-baseline-helm
+LABEL_FILTER="feature:deployment" make test-e2e-baseline-helm
 
 # Run only jobset and trainjob tests with helm
-GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e-extended
+LABEL_FILTER="feature:jobset,feature:trainjob" make test-e2e-extended
 ```
 
 ### Use label filters for e2e sequential tests
-Sequential tests (Baseline and Extended) are labeled by feature. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
+Sequential tests (Baseline and Extended) are labeled by feature. You can use `LABEL_FILTER` to run specific tests:
 
 **Label Taxonomy (Baseline):**
 - Features: `admissionfairsharing, certs, failurerecoverypolicy, localqueuemetrics, objectretentionpolicies, podintegrationautoenablement, reconcile, visibility, waitforpodsready`
@@ -266,10 +266,10 @@ Sequential tests (Baseline and Extended) are labeled by feature. You can use `GI
 **Examples:**
 ```shell
 # Run only admissionfairsharing tests (Baseline)
-GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequential-baseline
+LABEL_FILTER="feature:admissionfairsharing" make test-e2e-sequential-baseline
 
 # Run only spark tests (Extended)
-GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
+LABEL_FILTER="feature:spark" make test-e2e-sequential-extended
 ```
 
 ### Use Ginkgo --focus arg
