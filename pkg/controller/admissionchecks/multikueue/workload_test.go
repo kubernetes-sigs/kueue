@@ -97,6 +97,7 @@ func TestWlReconcile(t *testing.T) {
 		worker2Jobs          []batchv1.Job
 
 		wantError             error
+		wantResult            *reconcile.Result
 		wantEvents            []utiltesting.EventRecord
 		wantManagersWorkloads []kueue.Workload
 		wantManagersJobs      []batchv1.Job
@@ -170,6 +171,32 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
+		},
+		"missing workload (in deleted workload cache), reconnecting worker, GC handles cleanup": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersDeletedWorkloads: []*kueue.Workload{
+				baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			useSecondWorker:     true,
+			worker2Reconnecting: true,
+			worker2OnGetError:   errFake,
 		},
 		"missing workload (in deleted workload cache), no remote objects": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -287,7 +314,42 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					Obj(),
 			},
-			wantError: nil,
+			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout},
+			wantError:  nil,
+		},
+		"wl without reservation, reconnecting worker with remote workload, requeues for cleanup": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+			useSecondWorker:     true,
+			worker2Reconnecting: true,
+			worker2OnGetError:   errFake,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout},
+			wantError:  nil,
 		},
 		"wl without reservation, clears the workload objects": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -1611,9 +1673,14 @@ func TestWlReconcile(t *testing.T) {
 					})
 				}
 
-				_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
+				gotResult, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
 				if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("unexpected error (-want/+got):\n%s", diff)
+				}
+				if tc.wantResult != nil {
+					if diff := cmp.Diff(*tc.wantResult, gotResult); diff != "" {
+						t.Errorf("unexpected result (-want/+got):\n%s", diff)
+					}
 				}
 
 				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
@@ -1695,6 +1762,110 @@ func TestWlReconcile(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(now)
+
+	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
+
+	managerWl := *baseWorkloadBuilder.Clone().
+		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+		Obj()
+	remoteWl := *baseWorkloadBuilder.Clone().
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		Obj()
+
+	managerBuilder := getClientBuilder(ctx).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{managerWl}}, &batchv1.JobList{Items: []batchv1.Job{*baseJobBuilder.DeepCopy()}}).
+		WithStatusSubresource(&managerWl).
+		WithObjects(
+			utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").Obj(),
+			utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
+				Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+				Obj(),
+		)
+	managerClient := managerBuilder.Build()
+
+	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil)
+
+	w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	w1remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+		Build())
+	w1remoteClient.connecting.Store(false)
+	cRec.remoteClients["worker1"] = w1remoteClient
+
+	worker2Client := NewNeverCachingClient(getClientBuilder(ctx).
+		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{remoteWl}}).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+		Build())
+	w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	w2remoteClient.client = worker2Client
+	w2remoteClient.connecting.Store(true)
+	cRec.remoteClients["worker2"] = w2remoteClient
+
+	helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
+	recorder := &utiltesting.EventRecorder{}
+	reconciler := newWlReconciler(
+		managerClient,
+		helper,
+		cRec,
+		defaultOrigin,
+		recorder,
+		defaultWorkerLostTimeout,
+		time.Second,
+		adapters,
+		config.MultiKueueDispatcherModeAllAtOnce,
+		nil,
+		WithClock(t, fakeClock),
+	)
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}}
+
+	// Step 1: worker2 is reconnecting — reconcile should requeue and NOT delete worker2's workload.
+	result, err := reconciler.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error on first reconcile: %v", err)
+	}
+	if result.RequeueAfter != defaultWorkerLostTimeout {
+		t.Fatalf("expected RequeueAfter=%v, got %v", defaultWorkerLostTimeout, result.RequeueAfter)
+	}
+
+	wl2 := &kueue.Workload{}
+	if err := worker2Client.Get(ctx, req.NamespacedName, wl2); err != nil {
+		t.Fatalf("worker2 workload should still exist after first reconcile, got error: %v", err)
+	}
+
+	// Step 2: worker2 finishes reconnecting — reconcile should clean up the orphaned workload.
+	w2remoteClient.connecting.Store(false)
+
+	result, err = reconciler.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error on second reconcile: %v", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Fatalf("expected no RequeueAfter on second reconcile, got %v", result.RequeueAfter)
+	}
+
+	err = worker2Client.Get(ctx, req.NamespacedName, wl2)
+	if client.IgnoreNotFound(err) != nil {
+		t.Fatalf("unexpected error checking worker2 workload: %v", err)
+	}
+	if err == nil {
+		t.Fatal("worker2 workload should have been deleted after second reconcile")
 	}
 }
 
