@@ -89,7 +89,7 @@ func (j *JobWrapper) GeneratedName(name string) *JobWrapper {
 
 // DeletionTimestamp sets the deletionTimestamp.
 func (j *JobWrapper) DeletionTimestamp(t time.Time) *JobWrapper {
-	j.ObjectMeta.DeletionTimestamp = new(metav1.NewTime(t))
+	j.ObjectMeta.DeletionTimestamp = ptr.To(metav1.NewTime(t))
 	return j
 }
 
