@@ -90,7 +90,8 @@ function kueue_deploy {
 }
 
 trap cleanup EXIT
-startup 
+build_kind_node_image
+startup
 prepare_docker_images
 for job in $(jobs -p); do 
     wait "$job" || { echo "Cluster creation failed!"; exit 1; } 
