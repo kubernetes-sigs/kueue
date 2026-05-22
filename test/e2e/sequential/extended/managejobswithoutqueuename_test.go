@@ -425,6 +425,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			ginkgo.By("creating a pod without a queue name", func() {
 				testPod = testingpod.MakePod("test-pod", ns.Name).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
 					Obj()
 				util.MustCreate(ctx, k8sClient, testPod)
 			})
@@ -478,6 +479,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "2Gi").
 					Replicas(2).
+					TerminationGracePeriod(1).
 					Obj()
 				util.MustCreate(ctx, k8sClient, testDeploy)
 			})

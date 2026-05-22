@@ -99,6 +99,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feat
 					Completions(3).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
+					TerminationGracePeriod(1).
 					Obj()
 				util.MustCreate(ctx, k8sClient, job)
 			}
