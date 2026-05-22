@@ -136,6 +136,7 @@ var _ = ginkgo.Describe("DRA", func() {
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "large-gpu-template").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, job)
 
@@ -341,6 +342,7 @@ var _ = ginkgo.Describe("DRA", func() {
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "unmatchable-cel-template").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, unmatchableJob)
 
@@ -545,6 +547,7 @@ var _ = ginkgo.Describe("DRA", func() {
 				// Extended resources require both requests AND limits
 				RequestAndLimit(corev1.ResourceName(extendedResourceName), "10"). // Exceeds quota of 4
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, job)
 

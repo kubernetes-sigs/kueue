@@ -121,7 +121,7 @@ var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.
 			lwsName := strings.Repeat("a", 52)
 			lws := leaderworkersettesting.MakeLeaderWorkerSet(lwsName, ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				Size(3).Replicas(1).Queue(lq.Name).Obj()
+				Size(3).Replicas(1).Queue(lq.Name).TerminationGracePeriod(1).Obj()
 
 			ginkgo.By("create a LeaderWorkerSet", func() {
 				util.MustCreate(ctx, k8sClient, lws)

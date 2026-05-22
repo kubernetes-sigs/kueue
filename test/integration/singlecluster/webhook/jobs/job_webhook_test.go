@@ -22,6 +22,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/discovery"
 	"k8s.io/utils/ptr"
 
@@ -34,32 +35,33 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", ginkgo.Ordered, func() {
-	var ns *corev1.Namespace
-	ginkgo.BeforeAll(func() {
+var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", func() {
+	var (
+		ns          *corev1.Namespace
+		unmanagedNs *corev1.Namespace
+	)
+	ginkgo.BeforeEach(func() {
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
 		err = serverVersionFetcher.FetchServerVersion()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		unmanagedNsName := "unmanaged-ns-" + rand.String(8)
 		fwk.StartManager(ctx, cfg, managerSetup(
 			job.SetupWebhook,
 			jobframework.WithManageJobsWithoutQueueName(true),
-			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns")),
+			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding(unmanagedNsName)),
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 		))
-		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
-		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
-	})
-	ginkgo.BeforeEach(func() {
+		unmanagedNs = utiltesting.MakeNamespace(unmanagedNsName)
+		util.MustCreate(ctx, k8sClient, unmanagedNs)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "job-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-	ginkgo.AfterAll(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, unmanagedNs)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 
@@ -83,7 +85,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 	})
 
 	ginkgo.It("Should not suspend a Job with no queue name specified in an unmanaged namespace", func() {
-		job := testingjob.MakeJob("job-without-queue-name-unmanaged", "unmanaged-ns").Suspend(false).Obj()
+		job := testingjob.MakeJob("job-without-queue-name-unmanaged", unmanagedNs.Name).Suspend(false).Obj()
 		util.MustCreate(ctx, k8sClient, job)
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
@@ -108,18 +110,14 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 	})
 })
 
-var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", func() {
 	var ns *corev1.Namespace
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(job.SetupWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
-	})
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(job.SetupWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "job-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 

@@ -243,3 +243,6 @@ ignoreFiles = []
     [[module.imports.mounts]]
       source = "static"
       target = "static"
+
+[security.node.permissions]
+  allowRead = ["*"]

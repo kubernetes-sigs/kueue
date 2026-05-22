@@ -464,6 +464,82 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantEvents: nil,
 		},
+		"reconcile DRA ResourceClaimTemplate rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                    false,
+				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
+				features.MultiKueueOrchestratedPreemption:       false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpus", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
+		"reconcile DRA ResourceClaim rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                    false,
+				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
+				features.MultiKueueOrchestratedPreemption:       false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaim("gpu", "rc1").
+					Obj()).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpus", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaim("gpu", "rc1").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
 		"reconcile DRA ResourceClaimTemplate should be pre-processed and queued": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              true,

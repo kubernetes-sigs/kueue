@@ -468,6 +468,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 						Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 						RequestAndLimit(corev1.ResourceCPU, "2").
 						PriorityClass(jobCase.priority).
+						TerminationGracePeriod(1).
 						Obj()
 					util.MustCreate(ctx, k8sClient, job)
 				}

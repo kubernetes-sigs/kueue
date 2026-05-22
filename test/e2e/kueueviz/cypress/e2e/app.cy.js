@@ -10,7 +10,7 @@ describe('Kueue Dashboard', () => {
 
   it('should navigate to resource-flavors and verify table content', () => {
     // Check for the link to resource-flavors
-    cy.get('a[href="/resource-flavors"]').should('exist')
+    cy.get('a[href="/resource-flavors"]:visible').should('exist')
       .click()
 
     // Verify the table structure and content
@@ -61,7 +61,7 @@ describe('Kueue Dashboard', () => {
     cy.get('a[href="/cohort/ai-for-humanity-foundation"]').should('exist')
 
     // Navigate to /cohorts
-    cy.get('a[href="/cohorts"]').should('exist')
+    cy.get('a[href="/cohorts"]:visible').should('exist')
       .click()
 
     // Verify the table and its content
@@ -108,7 +108,7 @@ describe('Kueue Dashboard', () => {
     ];
 
     links.forEach(link => {
-      cy.get(`a[href="${link}"]`).should('exist').click();
+      cy.get(`a[href="${link}"]:visible`).should('exist').click();
     });
   })
 

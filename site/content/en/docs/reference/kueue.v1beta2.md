@@ -1317,6 +1317,7 @@ Workload can migrate to any flavor that is more preferable than the one it was a
 The possible values are:</p>
 <ul>
 <li><code>TryPreferredFlavors</code> (default): a Workload will try to migrate to the preferred flavor after it's admitted and running.</li>
+<li><code>RetainFirstAdmission</code>: a Workload, once admitted to a flavor, will stick to a flavor and will not be migrated.</li>
 </ul>
 </td>
 </tr>
