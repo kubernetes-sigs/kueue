@@ -43,6 +43,23 @@ export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
+function build_kind_node_image {
+    if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then
+        echo "Skipping kind node image build for non-standard image: $E2E_KIND_VERSION"
+        return 0
+    fi
+
+    E2E_KIND_VERSION="kueue/kind-node:v${KIND_VERSION}"
+
+    if [[ "${E2E_MODE}" == "dev" ]] && docker image inspect "$E2E_KIND_VERSION" &>/dev/null; then
+        echo "Reusing existing node image: $E2E_KIND_VERSION (E2E_MODE=dev)"
+        return 0
+    fi
+
+    echo "Building kind node image: $E2E_KIND_VERSION (K8s v$KIND_VERSION)"
+    $KIND build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
+}
+
 function e2e_is_truthy {
     case "${1:-}" in
         1|true|TRUE|True|yes|YES|Yes|y|Y|on|ON|On) return 0 ;;
