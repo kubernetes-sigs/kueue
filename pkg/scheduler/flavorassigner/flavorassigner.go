@@ -202,10 +202,10 @@ func (a *Assignment) Message() string {
 	return builder.String()
 }
 
-func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
+func (a *Assignment) ToAPI(log logr.Logger) []kueue.PodSetAssignment {
 	psFlavors := make([]kueue.PodSetAssignment, len(a.PodSets))
 	for i := range psFlavors {
-		psFlavors[i] = a.PodSets[i].toAPI()
+		psFlavors[i] = a.PodSets[i].toAPI(log)
 	}
 	return psFlavors
 }
@@ -383,7 +383,7 @@ func (psa *PodSetAssignment) error(err error) {
 
 type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
 
-func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
+func (psa *PodSetAssignment) toAPI(log logr.Logger) kueue.PodSetAssignment {
 	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(psa.Flavors))
 	// Only include resources with assigned flavors (filters out zero-quantity requests for undefined resources).
 	resourceUsage := make(corev1.ResourceList, len(psa.Flavors))
@@ -396,7 +396,7 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 		Flavors:                flavors,
 		ResourceUsage:          resourceUsage,
 		Count:                  new(psa.Count),
-		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment),
+		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment, tas.WithLogger(log)),
 		DelayedTopologyRequest: psa.DelayedTopologyRequest,
 	}
 }

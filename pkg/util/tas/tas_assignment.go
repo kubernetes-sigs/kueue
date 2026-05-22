@@ -17,13 +17,17 @@ limitations under the License.
 package tas
 
 import (
+	"encoding/json"
 	"iter"
 	"slices"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
@@ -36,6 +40,32 @@ type TopologyDomainAssignment struct {
 	Values []string
 	Count  int32
 }
+
+type v1Beta2FromOptions struct {
+	logger logr.Logger
+}
+
+// V1Beta2FromOption configures V1Beta2From.
+type V1Beta2FromOption func(*v1Beta2FromOptions)
+
+// WithLogger configures the logger used while selecting the v1beta2 encoding.
+func WithLogger(logger logr.Logger) V1Beta2FromOption {
+	return func(options *v1Beta2FromOptions) {
+		options.logger = logger
+	}
+}
+
+const (
+	// maxTopologyAssignmentJSONBytes is a conservative serialized-size budget
+	// for choosing the single-slice fast path.
+	maxTopologyAssignmentJSONBytes = 1_500_000
+
+	// maxDomainsPerTopologyAssignmentSlice mirrors the v1beta2 Roots and Individual pod count MaxItems limit.
+	maxDomainsPerTopologyAssignmentSlice = 100_000
+
+	// maxTopologyAssignmentSlices mirrors the v1beta2 TopologyAssignment Slices MaxItems limit.
+	maxTopologyAssignmentSlices = 1_000
+)
 
 func valueAtIndex(values kueue.TopologyAssignmentSliceLevelValues, idx int) string {
 	if univ := values.Universal; univ != nil {
@@ -196,66 +226,270 @@ func fillSingleCompactSliceValues(
 	}
 }
 
-// singleCompactSliceEncoding translates a v1beta1 TopologyAssignment
-// to a v1beta2 counterpart consisting of a single slice,
-// in which the "compressing options" (Prefix, Suffix,
-// Universal values for placement labels as well as Pod counts)
-// are used as much as possible.
-func singleCompactSliceEncoding(ta *TopologyAssignment) *kueue.TopologyAssignment {
-	n := len(ta.Domains)
-	if n == 0 {
-		return &kueue.TopologyAssignment{
-			Levels: ta.Levels,
-			Slices: []kueue.TopologyAssignmentSlice{},
-		}
-	}
-
-	levelCount := len(ta.Levels)
-	slice := &kueue.TopologyAssignmentSlice{
+// compactSliceEncoding translates a group of topology domains to a single
+// v1beta2 TopologyAssignmentSlice, in which the "compressing options" (Prefix,
+// Suffix, Universal values for placement labels as well as Pod counts) are used
+// as much as possible.
+func compactSliceEncoding(levels []string, domains []TopologyDomainAssignment) kueue.TopologyAssignmentSlice {
+	n := len(domains)
+	slice := kueue.TopologyAssignmentSlice{
 		DomainCount:    int32(n),
-		ValuesPerLevel: make([]kueue.TopologyAssignmentSliceLevelValues, levelCount),
+		ValuesPerLevel: make([]kueue.TopologyAssignmentSliceLevelValues, len(levels)),
 	}
 
-	for i := range levelCount {
+	for levelIdx := range levels {
 		levelValuesProvider := func() iter.Seq[string] {
 			return func(yield func(string) bool) {
-				for j := range n {
-					if !yield(ta.Domains[j].Values[i]) {
+				for _, domain := range domains {
+					if !yield(domain.Values[levelIdx]) {
 						return
 					}
 				}
 			}
 		}
-		fillSingleCompactSliceValues(&slice.ValuesPerLevel[i], levelValuesProvider)
+		fillSingleCompactSliceValues(&slice.ValuesPerLevel[levelIdx], levelValuesProvider)
 	}
 
+	firstPodCount := domains[0].Count
 	podCounts := make([]int32, 0, n)
 	samePodCounts := true
-	for i := range n {
-		podCounts = append(podCounts, ta.Domains[i].Count)
-		if i > 0 && ta.Domains[i].Count != ta.Domains[i-1].Count {
+	for _, domain := range domains {
+		podCounts = append(podCounts, domain.Count)
+		if domain.Count != firstPodCount {
 			samePodCounts = false
 		}
 	}
 	if samePodCounts {
-		slice.PodCounts.Universal = &podCounts[0]
+		slice.PodCounts.Universal = &firstPodCount
 	} else {
 		slice.PodCounts.Individual = podCounts
 	}
-	return &kueue.TopologyAssignment{
-		Levels: ta.Levels,
-		Slices: []kueue.TopologyAssignmentSlice{*slice},
-	}
+	return slice
 }
 
 // V1Beta2From translates a v1beta1 TopologyAssignment into the v1beta2 format.
 // The choice of a specific v1beta2 representation is an implementation detail,
 // which may change in the future. (See KEP-2724).
-func V1Beta2From(ta *TopologyAssignment) *kueue.TopologyAssignment {
+func V1Beta2From(ta *TopologyAssignment, options ...V1Beta2FromOption) *kueue.TopologyAssignment {
 	if ta == nil {
 		return nil
 	}
-	return singleCompactSliceEncoding(ta)
+	opts := &v1Beta2FromOptions{logger: ctrl.Log}
+	for _, option := range options {
+		if option != nil {
+			option(opts)
+		}
+	}
+	if !features.Enabled(features.TASAssignmentsEncodingByHostnamePrefix) {
+		return singleCompactTopologyAssignmentEncoding(ta)
+	}
+	return compactTopologyAssignmentEncoding(opts.logger, ta)
+}
+
+// compactTopologyAssignmentEncoding translates a v1beta1 TopologyAssignment to
+// a v1beta2 counterpart. It keeps the single-slice encoding when that fits
+// v1beta2 limits, and only splits hostname-level assignments when needed.
+//
+// When splitting is needed, hostname-level assignments are split into contiguous
+// runs that share reusable '-' delimited hostname prefixes. Prefix keys are
+// chosen from longest to shortest, backing off until the resulting run chunks
+// fit the v1beta2 slice limit.
+//
+// For example, domains (gke-c-pool-a-hash1-aa, 3),
+// (gke-c-pool-a-hash1-bb, 3), (gke-c-pool-b-hash2-cc, 4), and
+// (gke-c-pool-b-hash2-dd, 5) produce two slices. The first slice uses prefix
+// "gke-c-pool-a-hash1-", roots ["aa", "bb"], and universal pod count 3. The
+// second uses prefix "gke-c-pool-b-hash2-", roots ["cc", "dd"], and pod
+// counts [4, 5].
+//
+// Local BenchmarkV1Beta2From results on an Intel i9-14900K were approximately
+// 2-6 ms for 40k-node cases and 20 ms for the sorted 150k-node GKE-style split
+// case.
+func compactTopologyAssignmentEncoding(log logr.Logger, ta *TopologyAssignment) *kueue.TopologyAssignment {
+	if len(ta.Domains) <= maxDomainsPerTopologyAssignmentSlice {
+		out := singleCompactTopologyAssignmentEncoding(ta)
+		bytes, err := json.Marshal(out)
+		switch {
+		case err != nil:
+			log.Error(err, "Failed to marshal single-slice topology assignment; falling back to hostname-prefix runs",
+				"domainCount", len(ta.Domains),
+			)
+		case len(bytes) <= maxTopologyAssignmentJSONBytes:
+			return out
+		default:
+			log.V(4).Info("Single-slice topology assignment exceeds the heuristic serialized-size budget; falling back to hostname-prefix runs",
+				"domainCount", len(ta.Domains),
+				"serializedBytes", len(bytes),
+				"heuristicBudgetBytes", maxTopologyAssignmentJSONBytes,
+			)
+		}
+	} else {
+		log.V(4).Info("Topology assignment exceeds the per-slice domain limit; falling back to hostname-prefix runs",
+			"domainCount", len(ta.Domains),
+			"maxDomainsPerSlice", maxDomainsPerTopologyAssignmentSlice,
+		)
+	}
+
+	out := compactTopologyAssignmentEncodingWithHostnamePrefixRuns(ta)
+	if logV := log.V(3); logV.Enabled() {
+		bytes, err := json.Marshal(out)
+		if err != nil {
+			log.Error(err, "Failed to marshal topology assignment after hostname-prefix encoding",
+				"domainCount", len(ta.Domains),
+				"sliceCount", len(out.Slices),
+			)
+		} else if len(bytes) > maxTopologyAssignmentJSONBytes {
+			logV.Info("Topology assignment remains above the heuristic serialized-size budget after hostname-prefix encoding",
+				"domainCount", len(ta.Domains),
+				"sliceCount", len(out.Slices),
+				"serializedBytes", len(bytes),
+				"heuristicBudgetBytes", maxTopologyAssignmentJSONBytes,
+			)
+		}
+	}
+	if len(out.Slices) > maxTopologyAssignmentSlices {
+		log.V(3).Info("Topology assignment exceeds the slice limit after hostname-prefix encoding",
+			"domainCount", len(ta.Domains),
+			"sliceCount", len(out.Slices),
+			"maxSlices", maxTopologyAssignmentSlices,
+		)
+	}
+	return out
+}
+
+// singleCompactTopologyAssignmentEncoding represents an empty assignment with no
+// slices and every non-empty assignment with exactly one maximally compacted
+// slice.
+func singleCompactTopologyAssignmentEncoding(ta *TopologyAssignment) *kueue.TopologyAssignment {
+	out := &kueue.TopologyAssignment{
+		Levels: ta.Levels,
+		Slices: []kueue.TopologyAssignmentSlice{},
+	}
+	if len(ta.Domains) > 0 {
+		out.Slices = append(out.Slices, compactSliceEncoding(ta.Levels, ta.Domains))
+	}
+	return out
+}
+
+// compactTopologyAssignmentEncodingWithHostnamePrefixRuns splits contiguous
+// hostname-level domains with reusable hostname prefixes into multiple slices.
+// For example, for hostnames ["pool-a-node-0", "pool-a-node-1",
+// "pool-b-node-0"], the first two domains form a slice with prefix
+// "pool-a-node-" and roots ["0", "1"], and the last domain forms a separate
+// slice. If no reusable hostname key is available, this function only chunks
+// domains at maxDomainsPerTopologyAssignmentSlice.
+func compactTopologyAssignmentEncodingWithHostnamePrefixRuns(ta *TopologyAssignment) *kueue.TopologyAssignment {
+	domains := ta.Domains
+	var prefixKeys []string
+	if len(domains) > 1 && len(ta.Levels) > 0 && IsLowestLevelHostname(ta.Levels) {
+		prefixKeys = reusableHostnamePrefixKeys(ta.Levels, domains)
+	}
+
+	out := &kueue.TopologyAssignment{
+		Levels: ta.Levels,
+		Slices: []kueue.TopologyAssignmentSlice{},
+	}
+
+	for _, run := range compactDomainRuns(domains, prefixKeys) {
+		for chunk := range slices.Chunk(run, maxDomainsPerTopologyAssignmentSlice) {
+			out.Slices = append(out.Slices, compactSliceEncoding(ta.Levels, chunk))
+		}
+	}
+	return out
+}
+
+// compactDomainRuns returns consecutive sub-slices of domains grouped by prefix key.
+// Keys [a, a, b, a] produce domain ranges [0:2], [2:3], and [3:4].
+// An empty prefixKeys slice means that all domains form one run.
+func compactDomainRuns(domains []TopologyDomainAssignment, prefixKeys []string) [][]TopologyDomainAssignment {
+	if len(domains) == 0 {
+		return nil
+	}
+	if len(prefixKeys) == 0 {
+		return [][]TopologyDomainAssignment{domains}
+	}
+
+	runs := make([][]TopologyDomainAssignment, 0)
+	start := 0
+	for i := 1; i < len(domains); i++ {
+		if prefixKeys[i] == prefixKeys[start] {
+			continue
+		}
+		runs = append(runs, domains[start:i])
+		start = i
+	}
+	return append(runs, domains[start:])
+}
+
+// reusableHostnamePrefixKeys returns reusable '-' delimited hostname prefix keys
+// for each domain. It tries the longest reusable prefixes first, then backs off
+// to shorter reusable prefixes until the resulting domain runs fit within the
+// v1beta2 slice limit.
+//
+// A prefix is reusable when it occurs at least twice in the assignment:
+// "pool-a-node-0" and "pool-a-node-1" receive the key "pool-a-node-".
+// A nil result lets the caller fall back to domain-count chunking.
+func reusableHostnamePrefixKeys(levels []string, domains []TopologyDomainAssignment) []string {
+	levelIdx := len(levels) - 1
+	prefixOffsets := make([]int, len(domains)+1)
+	prefixEnds := make([]int, 0, len(domains)*4)
+	prefixCounts := make(map[string]int, len(domains))
+	maxPrefixDepth := 0
+	for i, domain := range domains {
+		hostname := domain.Values[levelIdx]
+		for end := 0; end+1 < len(hostname); end++ {
+			if hostname[end] != '-' {
+				continue
+			}
+			prefixEnd := end + 1
+			prefixEnds = append(prefixEnds, prefixEnd)
+			prefix := hostname[:prefixEnd]
+			if prefixCounts[prefix] < 2 {
+				prefixCounts[prefix]++
+			}
+		}
+		prefixOffsets[i+1] = len(prefixEnds)
+		maxPrefixDepth = max(maxPrefixDepth, prefixOffsets[i+1]-prefixOffsets[i])
+	}
+
+	keys := make([]string, len(domains))
+	for prefixDepth := maxPrefixDepth; prefixDepth >= 1; prefixDepth-- {
+		clear(keys)
+		for i, domain := range domains {
+			hostname := domain.Values[levelIdx]
+			start, end := prefixOffsets[i], prefixOffsets[i+1]
+			for j := min(end-start, prefixDepth) - 1; j >= 0; j-- {
+				prefix := hostname[:prefixEnds[start+j]]
+				if prefixCounts[prefix] < 2 {
+					continue
+				}
+				keys[i] = prefix
+				break
+			}
+		}
+
+		sliceCount := 0
+		start := 0
+		for i := 1; i < len(domains); i++ {
+			if keys[i] == keys[start] {
+				continue
+			}
+			sliceCount += chunkCount(i-start, maxDomainsPerTopologyAssignmentSlice)
+			start = i
+		}
+		sliceCount += chunkCount(len(domains)-start, maxDomainsPerTopologyAssignmentSlice)
+
+		if sliceCount <= maxTopologyAssignmentSlices {
+			return keys
+		}
+	}
+
+	return nil
+}
+
+// chunkCount returns the number of fixed-size chunks needed for length items.
+func chunkCount(length, chunkSize int) int {
+	return (length + chunkSize - 1) / chunkSize
 }
 
 // CountPodsInAssignment returns total pod count across all domains.

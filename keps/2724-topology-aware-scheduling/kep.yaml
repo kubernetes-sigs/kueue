@@ -51,6 +51,7 @@ feature-gates:
   - name: TASRespectNodeAffinityPreferred
   - name: TASHandleOverlappingFlavors
   - name: TASRecomputeAssignmentWithinSchedulingCycle
+  - name: TASAssignmentsEncodingByHostnamePrefix
   - name: SkipReassignmentForPodOwnedWorkloads
 disable-supported: true
 
