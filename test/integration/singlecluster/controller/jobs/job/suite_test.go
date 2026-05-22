@@ -53,6 +53,10 @@ var (
 	fwk       *framework.Framework
 )
 
+var (
+	miniJobConroller util.MiniJobController
+)
+
 func TestAPIs(t *testing.T) {
 	util.RunSuite(t, "Job Controller Suite")
 }
@@ -61,9 +65,12 @@ var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
+	miniJobConroller = util.NewMiniJobController(ctx, k8sClient)
+	miniJobConroller.Start()
 })
 
 var _ = ginkgo.AfterSuite(func() {
+	miniJobConroller.Stop()
 	fwk.Teardown()
 })
 

@@ -348,6 +348,14 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("waiting for the Job on the manager to be unsuspended", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob := batchv1.Job{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(false)))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("updating the worker job status", func() {
 			startTime := metav1.NewTime(time.Now().Truncate(time.Second))
 			gomega.Eventually(func(g gomega.Gomega) {
