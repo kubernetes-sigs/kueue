@@ -26,7 +26,8 @@ const ErrorMessage = ({ error }) => {
   if (!error) return null;
 
   // Extract the first line as the summary
-  const lines = error.split('\n');
+  const errorString = typeof error === 'string' ? error : (error.message || JSON.stringify(error));
+  const lines = errorString.split('\n');
   const errorSummary = lines[0];
   
   // The rest is considered details
