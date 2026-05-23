@@ -217,9 +217,6 @@ ignoreFiles = []
       source = "layouts/_default/_markup/render-codeblock-mermaid.html"
       target = "layouts/_default/_markup/render-codeblock-mermaid.html"
     [[module.imports.mounts]]
-      source = "layouts/blog"
-      target = "layouts/blog"
-    [[module.imports.mounts]]
       source = "layouts/community"
       target = "layouts/community"
     [[module.imports.mounts]]
