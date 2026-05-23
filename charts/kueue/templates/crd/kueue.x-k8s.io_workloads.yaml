@@ -18007,6 +18007,8 @@ spec:
               rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == ''QuotaReserved'' && c.status == ''True'')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == ''QuotaReserved'' && c.status == ''True'')) && has(oldSelf.spec.queueName) && has(self.spec.queueName) ? oldSelf.spec.queueName == self.spec.queueName : true'
             - message: maximumExecutionTimeSeconds is immutable while workload quota reserved
               rule: ((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true
+      selectableFields:
+        - jsonPath: .status.admission.clusterQueue
       served: true
       storage: true
       subresources:

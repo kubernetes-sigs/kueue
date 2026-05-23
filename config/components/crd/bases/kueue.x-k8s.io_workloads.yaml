@@ -19139,6 +19139,8 @@ spec:
             && self.status.conditions.exists(c, c.type == 'Admitted' && c.status ==
             'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0)
             ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true
+    selectableFields:
+    - jsonPath: .status.admission.clusterQueue
     served: true
     storage: true
     subresources:
