@@ -603,6 +603,62 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
+			featureGates: map[featuregate.Feature]bool{features.TASHierarchicalUnconstrained: false},
+		},
+		// Topology: scatteredNodes (block → rack → host)
+		//   b1/r1: x3(4cpu), x5(1cpu), x1(1cpu) = 6cpu total
+		//   b2/r1: x6(2cpu), x2(1cpu) = 3cpu total
+		// With TASHierarchicalUnconstrained, LeastFreeCapacity sorts top-down:
+		// block b1 has more used capacity than b2, so b1 is chosen first, packing
+		// 6 pods into b1's nodes (x3:4, x5:1, x1:1) instead of scattering across blocks.
+		"unconstrained; 6 pods fit into hosts packed within rack; TASHierarchicalUnconstrained": {
+			nodes:  scatteredNodes,
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 6,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 4, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x5"}},
+					},
+				},
+			}},
+			featureGates: map[featuregate.Feature]bool{features.TASHierarchicalUnconstrained: true},
+		},
+		// Same topology as above but with TASHierarchicalUnconstrained disabled.
+		// Without hierarchical packing, pods are scattered across all nodes sorted
+		// by least free capacity at the node level only (no rack awareness).
+		"unconstrained; 6 pods fit into hosts scattered across blocks; TASHierarchicalUnconstrained disabled": {
+			nodes:  scatteredNodes,
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 6,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x5"}},
+						{Count: 1, Values: []string{"x2"}},
+						{Count: 2, Values: []string{"x6"}},
+					},
+				},
+			}},
+			featureGates: map[featuregate.Feature]bool{features.TASHierarchicalUnconstrained: false},
 		},
 		"unconstrained; a single pod fits into each host; BestFit": {
 			nodes:  defaultNodes,
@@ -627,7 +683,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
+			featureGates: map[featuregate.Feature]bool{features.TASHierarchicalUnconstrained: false},
 		},
+		// Topology: defaultNodes (block → rack → host), all 1cpu except x4(2cpu)
 		"unconstrained; a single pod fits into each host; LeastFreeCapacity; TASProfileMixed": {
 			nodes:  defaultNodes,
 			levels: defaultThreeLevels,
@@ -651,7 +709,60 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true, features.TASHierarchicalUnconstrained: false},
+		},
+		// Same topology as above but with TASHierarchicalUnconstrained enabled.
+		// The algorithm picks the tightest-fitting block first (b2: 3cpu total
+		// vs b1: 4cpu total), then the tightest host within b2 → x2(1cpu).
+		"unconstrained; a single pod fits into each host; LeastFreeCapacity; TASHierarchicalUnconstrained": {
+			nodes:  defaultNodes,
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count: 1,
+							Values: []string{
+								"x2",
+							},
+						},
+					},
+				},
+			}},
+			featureGates: map[featuregate.Feature]bool{features.TASHierarchicalUnconstrained: true},
+		},
+		"unconstrained; a single pod fits into each host; LeastFreeCapacity; TASProfileMixed and TASHierarchicalUnconstrained": {
+			nodes:  defaultNodes,
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count: 1,
+							Values: []string{
+								"x2",
+							},
+						},
+					},
+				},
+			}},
+			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true, features.TASHierarchicalUnconstrained: true},
 		},
 		"block required; 4 pods fit into one host each; BestFit": {
 			nodes:  binaryTreesNodes,

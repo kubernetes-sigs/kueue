@@ -109,6 +109,15 @@ const (
 	// Enable to set use Mixed algorithm (BestFit or LeastFreeCapacity) for TAS which switch the algorithm based on TAS requirements level.
 	TASProfileMixed featuregate.Feature = "TASProfileMixed"
 
+	// owner: @abhi179
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// When enabled alongside TASProfileMixed, makes LeastFreeCapacity for
+	// unconstrained workloads start from the highest topology level instead
+	// of the node level, enabling hierarchical packing to reduce rack fragmentation.
+	// Planned graduation: Beta in 0.18, GA in 0.21.
+	TASHierarchicalUnconstrained featuregate.Feature = "TASHierarchicalUnconstrained"
+
 	// owner: @mwielgus
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/79-hierarchical-cohorts
 	//
@@ -477,6 +486,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASProfileMixed: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASHierarchicalUnconstrained: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	HierarchicalCohorts: {
 		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.Beta},
