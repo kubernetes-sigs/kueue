@@ -285,6 +285,24 @@ wl2                                             very-long-local-queue-name      
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2b"))
 			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-pending"))
 			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("very-long-workload-name"))
+
+			ginkgo.By("filtering for workloads without quota reserved")
+			streams, _, output, errOutput = genericiooptions.NewTestIOStreams()
+			configFlags = CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl = app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
+			kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
+				"status.admission.clusterQueue=", "--namespace", ns.Name})
+			err = kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-pending"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl1"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl2"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("very-long-workload-name"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq1"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq2a"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq2b"))
 		})
 	})
 
