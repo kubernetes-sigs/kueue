@@ -4486,6 +4486,52 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 				gomega.BeNumerically("<=", int64(cpuNominalQuota)*1000))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("Should keep old workload-slice unfinished while replacement slice is pending", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+		elasticJob := testingjob.MakeJob("job-pending-replacement", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1000m").
+			Parallelism(3).
+			Completions(int32(cpuNominalQuota + 1)).
+			Obj()
+
+		ginkgo.By("creating an elastic job")
+		util.MustCreate(ctx, k8sClient, elasticJob)
+
+		ginkgo.By("the original workload slice is admitted")
+		workloads := util.ExpectWorkloadsInNamespace(ctx, k8sClient, elasticJob.Namespace, 1)
+		oldWorkloadSlice := &workloads[0]
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, oldWorkloadSlice)
+		util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(elasticJob), nil)
+
+		ginkgo.By("scaling the job beyond the remaining quota")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(elasticJob), elasticJob)).Should(gomega.Succeed())
+			elasticJob.Spec.Parallelism = ptr.To(int32(cpuNominalQuota + 1))
+			g.Expect(k8sClient.Update(ctx, elasticJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("observing a new pending replacement workload slice")
+		newWorkloadSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, oldWorkloadSlice)
+		gomega.Expect(newWorkloadSlice).ShouldNot(gomega.BeNil())
+		util.ExpectWorkloadsToBePending(ctx, k8sClient, newWorkloadSlice)
+
+		ginkgo.By("keeping the old workload slice unfinished until the replacement is admitted")
+		gomega.Consistently(func(g gomega.Gomega) {
+			currentOldSlice := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oldWorkloadSlice), currentOldSlice)).Should(gomega.Succeed())
+			g.Expect(currentOldSlice.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+			g.Expect(workload.IsAdmitted(currentOldSlice)).Should(gomega.BeTrue())
+
+			currentNewSlice := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newWorkloadSlice), currentNewSlice)).Should(gomega.Succeed())
+			g.Expect(currentNewSlice.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+			g.Expect(currentNewSlice.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
 })
 
 var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
