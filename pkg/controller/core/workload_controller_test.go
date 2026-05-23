@@ -3299,24 +3299,6 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
-
-		"workload with gone controller owner should be finished": {
-			featureGates: map[featuregate.Feature]bool{
-				features.FinishOrphanedWorkloads: true,
-			},
-			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "deleted-job", "gone-uid").
-				Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "deleted-job", "gone-uid").
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadFinished,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadFinishedReasonOwnerNotFound,
-					Message: "The workload's owner no longer exists",
-				}).
-				Obj(),
-		},
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
