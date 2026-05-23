@@ -370,16 +370,13 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		// - the new workload is not admitted.
 		// In a single-cluster context, this should lead to Job suspension.
 		// In a MultiKueue context, this should also trigger removal of remote workload/Job objects.
+		// Copy ClusterName from old slice before admission (needed for MultiKueue).
 		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
 			e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
-			if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
-				log.Error(err, "Failed to replace workload slice")
-				continue
-			}
 		}
 
 		e.status = nominated
-		if err := s.admit(ctx, e, cq); err != nil {
+		if err := s.admit(ctx, e, cq, oldWorkloadSlice); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
 	}
@@ -651,7 +648,7 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 // admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
-func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQueueSnapshot) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQueueSnapshot, oldWorkloadSlice *preemption.Target) error {
 	log := ctrl.LoggerFrom(ctx)
 	admission := &kueue.Admission{
 		ClusterQueue:      e.ClusterQueue,
@@ -679,6 +676,11 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission, consideredStr)
 
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
+				if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
+					log.Error(err, "Failed to finish old workload slice after admitting replacement; job reconciler will handle recovery")
+				}
+			}
 			return
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted
