@@ -23,7 +23,7 @@ ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' 
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
 KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
 YQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
-HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v3)
+HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v4)
 HELM_UNITTEST_PLUGIN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/helm-unittest/helm-unittest)
 GENREF_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/kubernetes-sigs/reference-docs/genref)
 HUGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/gohugoio/hugo)
@@ -112,12 +112,12 @@ yq: ## Download yq locally if necessary.
 
 .PHONY: helm
 helm: ## Download helm locally if necessary.
-	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install helm.sh/helm/v3/cmd/helm@$(HELM_VERSION)
+	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install helm.sh/helm/v4/cmd/helm@$(HELM_VERSION)
 
 .PHONY: helm-unittest-plugin
 helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
 	@if ! HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) plugin list | grep -q unittest; then \
-		HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git --version $(HELM_UNITTEST_PLUGIN_VERSION); \
+		HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git --version $(HELM_UNITTEST_PLUGIN_VERSION) --verify=false; \
 	fi
 
 .PHONY: genref

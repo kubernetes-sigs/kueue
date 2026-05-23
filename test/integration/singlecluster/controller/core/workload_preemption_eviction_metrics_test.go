@@ -34,15 +34,7 @@ const (
 	pePendingHighPriority int32 = 1
 )
 
-var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("controller:workload", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("controller:workload", "area:core"), func() {
 	var (
 		ns          *corev1.Namespace
 		alphaFlavor *kueue.ResourceFlavor
@@ -51,6 +43,7 @@ var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("co
 	)
 
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pe-pending-metrics-")
 		alphaFlavor = utiltestingapi.MakeResourceFlavor("alpha").Obj()
 		util.MustCreate(ctx, k8sClient, alphaFlavor)
@@ -72,6 +65,7 @@ var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("co
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, alphaFlavor, true)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("should record workload_eviction_latency_seconds when a preemptee returns to Pending", func() {

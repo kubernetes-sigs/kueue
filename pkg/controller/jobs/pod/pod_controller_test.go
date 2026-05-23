@@ -3794,8 +3794,8 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"finalize workload for non existent pod": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+		"finalize workload for non existent pod with FinishOrphanedWorkloads disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_pod"},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
@@ -3806,6 +3806,29 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted_pod", "").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"finalize workload for non existent pod with FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_pod"},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted_pod", "").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted_pod", "").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadFinishedReasonOwnerNotFound,
+						Message:            "The workload's owner no longer exists",
+					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
