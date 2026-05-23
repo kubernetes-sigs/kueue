@@ -200,7 +200,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Ordered, func() {
 			ginkgo.By("scale back replicas", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
-					deployment.Spec.Replicas = new(int32(oldReplicas))
+					deployment.Spec.Replicas = ptr.To(int32(oldReplicas))
 					g.Expect(k8sClient.Update(ctx, deployment)).Should(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
