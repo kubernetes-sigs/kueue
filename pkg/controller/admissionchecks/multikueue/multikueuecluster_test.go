@@ -318,6 +318,9 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, nil),
+			},
 			wantCancelCalled: 1,
 			wantErr:          fmt.Errorf("failed to load client config, reason: BadKubeConfig, error: %w", errors.New("open : no such file or directory")),
 		},
@@ -499,7 +502,9 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
-			wantRemoteClients: map[string]*remoteClient{},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, nil),
+			},
 			wantCancelCalled:  1,
 			wantErr:           fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
 		},
