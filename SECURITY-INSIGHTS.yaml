@@ -1,8 +1,8 @@
 header:
   schema-version: 1.0.0
   expiration-date: '2024-09-28T01:00:00.000Z'
-  last-updated: '2026-05-15'
-  last-reviewed: '2026-05-15'
+  last-updated: '2026-05-22'
+  last-reviewed: '2026-05-22'
   commit-hash: "3753b2981c8909e1cd077821f242778b81760481"
   project-url: 'https://github.com/kubernetes-sigs/kueue'
   project-release: "0.17.3"
@@ -64,3 +64,13 @@ dependencies:
   sbom:
     - sbom-file: https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.3/kueue-v0.17.3.spdx.json
       sbom-format: SPDX
+  dependencies-lifecycle:
+    policy-url: 'https://github.com/kubernetes-sigs/kueue/blob/main/DEPENDENCY_LIFECYCLE.md'
+    comment: |
+      New dependencies are introduced via standard pull requests reviewed by
+      maintainers listed in OWNERS. Existing dependencies are kept current by
+      Dependabot — weekly for Go modules, Docker images, and npm packages, and
+      daily for GitHub Actions. k8s.io/* modules accept only patch and security
+      updates automatically; major and minor bumps are coordinated with a Kueue
+      release that targets a new Kubernetes minor. See DEPENDENCY_LIFECYCLE.md
+      for the full policy.
