@@ -21,7 +21,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta2.
 - [Topology](#kueue-x-k8s-io-v1beta2-Topology)
 - [Workload](#kueue-x-k8s-io-v1beta2-Workload)
 - [WorkloadPriorityClass](#kueue-x-k8s-io-v1beta2-WorkloadPriorityClass)
-
+  
 
 ## `AdmissionCheck`     {#kueue-x-k8s-io-v1beta2-AdmissionCheck}
     
@@ -3877,3 +3877,4 @@ can trigger preemptions.</p>
 </tr>
 </tbody>
 </table>
+  

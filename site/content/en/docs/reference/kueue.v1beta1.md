@@ -21,7 +21,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 - [Topology](#kueue-x-k8s-io-v1beta1-Topology)
 - [Workload](#kueue-x-k8s-io-v1beta1-Workload)
 - [WorkloadPriorityClass](#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass)
-
+  
 
 ## `AdmissionCheck`     {#kueue-x-k8s-io-v1beta1-AdmissionCheck}
     
@@ -3451,3 +3451,4 @@ Requires enabling the TASFailedNodeReplacement feature gate.</p>
 </tr>
 </tbody>
 </table>
+  
