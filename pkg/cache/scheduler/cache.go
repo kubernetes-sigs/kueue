@@ -731,6 +731,9 @@ func (c *Cache) concurrentAdmissionEnabledForWithoutLock(wl *kueue.Workload) boo
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return false
 	}
+	if wl.Status.Admission == nil {
+		return false
+	}
 	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
 	if cq == nil {
 		return false
