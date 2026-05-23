@@ -74,6 +74,9 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 
 	jobframework.ApplyDefaultLocalQueue(trainJob.Object(), w.queues.DefaultLocalQueueExist)
 	jobframework.ApplyDefaultForManagedBy(trainJob, w.queues, w.cache, log)
+	if obj.GetDeletionTimestamp() != nil {
+		return nil
+	}
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, trainJob.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
 	if err != nil {
 		return err

@@ -77,6 +77,9 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(obj, wh.queues.DefaultLocalQueueExist)
+	if obj.GetDeletionTimestamp() != nil {
+		return nil
+	}
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
 		return err
@@ -187,21 +190,24 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldLeaderWorkerSet.Object(), newLeaderWorkerSet.Object())...)
 	}
 
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newLeaderWorkerSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
-	if err != nil {
-		return nil, err
-	}
-	if suspend {
-		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
-			newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
-			oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
-			leaderTemplatePath,
-		)...)
-		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
-			&newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
-			&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
-			workerTemplatePath,
-		)...)
+	if newLeaderWorkerSet.Object().GetDeletionTimestamp() == nil {
+		var suspend bool
+		suspend, err = jobframework.WorkloadShouldBeSuspended(ctx, newLeaderWorkerSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+		if err != nil {
+			return nil, err
+		}
+		if suspend {
+			allErrs = append(allErrs, validateImmutablePodTemplateSpec(
+				newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
+				oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
+				leaderTemplatePath,
+			)...)
+			allErrs = append(allErrs, validateImmutablePodTemplateSpec(
+				&newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
+				&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
+				workerTemplatePath,
+			)...)
+		}
 	}
 
 	return warnings, allErrs.ToAggregate()

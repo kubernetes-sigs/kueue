@@ -73,6 +73,9 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 	log.V(5).Info("Propagating queue-name")
 
 	jobframework.ApplyDefaultLocalQueue(deployment.Object(), wh.queues.DefaultLocalQueueExist)
+	if obj.GetDeletionTimestamp() != nil {
+		return nil
+	}
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, deployment.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
 		return err

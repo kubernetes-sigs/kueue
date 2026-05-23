@@ -148,6 +148,12 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 			return err
 		}
 
+		// During GC teardown the pod may be terminating with its parent already gone;
+		// skip further mutation to avoid adding finalizers to a deleting pod.
+		if pod.pod.DeletionTimestamp != nil {
+			return nil
+		}
+
 		// Local queue defaulting
 		if jobframework.QueueNameForObject(pod.Object()) == "" &&
 			w.queues.DefaultLocalQueueExist(pod.pod.GetNamespace()) {

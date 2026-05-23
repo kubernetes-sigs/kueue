@@ -33,6 +33,10 @@ import (
 
 func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) error {
+	// Do not default suspend an object that is already being deleted (e.g. during GC teardown).
+	if job.Object().GetDeletionTimestamp() != nil {
+		return nil
+	}
 	suspend, err := WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector)
 	if err != nil {
 		return err

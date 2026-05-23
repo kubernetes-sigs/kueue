@@ -296,6 +296,18 @@ func (j *JobWrapper) StartTime(t time.Time) *JobWrapper {
 	return j
 }
 
+// DeletionTimestamp sets the deletion timestamp, marking the job as terminating.
+func (j *JobWrapper) DeletionTimestamp(t time.Time) *JobWrapper {
+	j.Job.DeletionTimestamp = &metav1.Time{Time: t}
+	return j
+}
+
+// Finalizer adds a finalizer to the job.
+func (j *JobWrapper) Finalizer(f string) *JobWrapper {
+	j.Finalizers = append(j.Finalizers, f)
+	return j
+}
+
 // Active sets the .status.active
 func (j *JobWrapper) Active(c int32) *JobWrapper {
 	j.Status.Active = c

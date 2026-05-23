@@ -894,6 +894,12 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 			}
 		}
 		if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj); err != nil {
+			if apierrors.IsNotFound(err) && jobObj.GetDeletionTimestamp() != nil {
+				// The object being processed is already being deleted; a missing owner is
+				// expected during GC teardown (e.g. foreground+background deletion mix).
+				// Return whatever ancestor we have found so far rather than blocking.
+				return topLevelJob, nil
+			}
 			return nil, errors.Join(ErrWorkloadOwnerNotFound, err)
 		}
 		if managed && (manageJobsWithoutQueueName || QueueNameForObject(parentObj) != "") {

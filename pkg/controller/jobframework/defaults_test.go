@@ -18,6 +18,7 @@ package jobframework
 
 import (
 	"testing"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -48,6 +49,7 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 		obj                        client.Object
 		manageJobsWithoutQueueName bool
 		wantSuspend                bool
+		wantErr                    bool
 	}{
 		"job with queue name ": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Queue("default").Obj(),
@@ -76,6 +78,25 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 			manageJobsWithoutQueueName: true,
 			wantSuspend:                false,
 		},
+		"job with ownerReference to a deleted known parent while terminating (GC teardown)": {
+			obj: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
+				OwnerReference("nonexistent-parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				DeletionTimestamp(time.Now()).
+				Finalizer("batch.kubernetes.io/job-tracking").
+				Obj(),
+			manageJobsWithoutQueueName: true,
+			// FindAncestorJobManagedByKueue gracefully returns nil for the missing parent
+			// since the job is terminating. WorkloadShouldBeSuspended itself no longer has
+			// the DeletionTimestamp early exit; callers in webhook paths guard that separately.
+			wantSuspend: true,
+		},
+		"job with ownerReference to a missing parent while not terminating (cache lag)": {
+			obj: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
+				OwnerReference("nonexistent-parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			manageJobsWithoutQueueName: true,
+			wantErr:                    true,
+		},
 		"job without queue name with manageJobs with feature disabled": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			manageJobsWithoutQueueName: true,
@@ -96,10 +117,10 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			suspend, err := WorkloadShouldBeSuspended(ctx, tc.obj, client, tc.manageJobsWithoutQueueName, namespaceSelector)
-			if err != nil {
-				t.Errorf("Got error: %v", err)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("Unexpected error state: got err=%v, wantErr=%v", err, tc.wantErr)
 			}
-			if suspend != tc.wantSuspend {
+			if !tc.wantErr && suspend != tc.wantSuspend {
 				t.Errorf("Unexpected result: got %v wanted %v", suspend, tc.wantSuspend)
 			}
 		})
