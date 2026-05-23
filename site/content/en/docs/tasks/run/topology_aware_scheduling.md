@@ -34,7 +34,95 @@ Make sure the following conditions are met:
   by creating a `Topology` object, a `ResourceFlavor` that references it via
   `spec.topologyName`, and a `ClusterQueue` that uses that flavor.
 
-## 0. Identify the queues available in your namespace
+If you do not already have a Kubernetes cluster, you can create a TAS-ready
+`kind` cluster. The config creates worker nodes labeled with
+`cloud.provider.com/node-group`, `cloud.provider.com/topology-block`, and
+`cloud.provider.com/topology-rack`, matching the sample topology used on this
+page:
+
+```shell
+curl -L https://kueue.sigs.k8s.io/examples/tas/kind-cluster.yaml -o kind-cluster-tas.yaml
+kind create cluster --name kueue-tas --config kind-cluster-tas.yaml
+```
+
+Then install Kueue. For example, to install the latest development version:
+
+```shell
+kubectl apply --server-side -k "github.com/kubernetes-sigs/kueue/config/default?ref=main"
+```
+
+### Enable the TAS feature gate if needed
+
+The `TopologyAwareScheduling` feature gate is enabled by default since Kueue
+v0.14. If your Kueue installation manages feature gates explicitly, enable it
+using one of the following methods.
+
+For a manifests-based installation, edit the `kueue-manager-config` `ConfigMap`:
+
+```shell
+kubectl -n kueue-system edit configmap kueue-manager-config
+```
+
+Set `featureGates.TopologyAwareScheduling` to `true` in the
+`controller_manager_config.yaml` data entry. Keep the rest of the existing
+configuration unchanged:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kueue-manager-config
+  namespace: kueue-system
+data:
+  controller_manager_config.yaml: |
+    apiVersion: config.kueue.x-k8s.io/v1beta2
+    kind: Configuration
+    featureGates:
+      TopologyAwareScheduling: true
+```
+
+Restart the controller manager after updating the `ConfigMap`:
+
+```shell
+kubectl -n kueue-system rollout restart deployment/kueue-controller-manager
+```
+
+Alternatively, add the feature gate to the `manager` container arguments in the
+`kueue-controller-manager` `Deployment`:
+
+```yaml
+args:
+- --config=/controller_manager_config.yaml
+- --feature-gates=TopologyAwareScheduling=true
+```
+
+If the container already has a `--feature-gates` argument, append
+`,TopologyAwareScheduling=true` to the existing value instead of adding a
+second `--feature-gates` argument.
+
+Use either the `ConfigMap` field or the `--feature-gates` argument, not both.
+For more details, see
+[Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration).
+
+### Create the sample TAS setup
+
+If your cluster does not already have TAS queues configured, apply the sample
+setup:
+
+```shell
+kubectl apply -f https://kueue.sigs.k8s.io/examples/tas/sample-queues.yaml
+```
+
+This setup creates:
+
+- a `Topology` with block, rack, and hostname levels;
+- a `ResourceFlavor` named `tas-flavor` that selects the labeled `kind` nodes
+  and references that topology;
+- a `ClusterQueue` named `tas-cluster-queue` with CPU and memory quota for the
+  flavor;
+- a `LocalQueue` named `tas-user-queue` in the `default` namespace.
+
+## 1. Identify the queues available in your namespace
 
 Run the following command to list the `LocalQueues` available in your namespace.
 
@@ -52,7 +140,7 @@ tas-user-queue   tas-cluster-queue   0
 The [ClusterQueue](/docs/concepts/cluster_queue) defines the quotas for the
 Queue, and its `ResourceFlavor` is what binds the queue to a `Topology`.
 
-## 1. Choose a topology scheduling mode
+## 2. Choose a topology scheduling mode
 
 TAS exposes three Pod-template annotations, each expressing a different
 placement intent for the PodSet. Pick the one that matches your workload:
@@ -121,7 +209,7 @@ A full example:
 
 {{< include "examples/tas/sample-job-unconstrained.yaml" "yaml" >}}
 
-## 2. Run the workload
+## 3. Run the workload
 
 Submit any of the examples above using `kubectl create`:
 
@@ -141,7 +229,7 @@ Internally, Kueue creates a corresponding [Workload](/docs/concepts/workload)
 for the Job and runs the TAS scheduling algorithm against the matching
 `ResourceFlavor`'s `Topology`.
 
-## 3. (Optional) Monitor the topology assignment
+## 4. (Optional) Monitor the topology assignment
 
 List Workloads in the namespace:
 
@@ -166,22 +254,34 @@ kubectl -n default get workloads.kueue.x-k8s.io <workload-name> -o yaml
 ```
 
 That field lists the topology levels and domain values into which each PodSet
-was placed — it is the authoritative signal that TAS was applied.
+was placed. It is the authoritative signal that TAS was applied.
 
 ## Advanced topics
 
-The page above covers the three basic TAS annotations. Kueue also supports:
+The page above covers the three basic TAS annotations. Kueue also supports
+additional placement behavior:
 
-- **PodSet groups** — co-locate multiple PodSets of a single workload in the
+- **Placement strategies** - TAS uses greedy packing strategies to choose
+  domains. The default strategy is `BestFit`. When the beta `TASProfileMixed`
+  feature gate is enabled, which is the default since Kueue v0.15, TAS uses
+  `LeastFreeCapacity` for unconstrained placement and `BestFit` for required
+  and preferred placement.
+- **Balanced placement** - the alpha `TASBalancedPlacement` feature gate makes
+  preferred placement distribute pods or slices more evenly across the selected
+  domains. This is useful for workloads with all-to-all communication patterns
+  where a placement such as 6 pods in one rack and 6 pods in another rack is
+  better than 10 pods in one rack and 2 pods in another. See
+  [Balanced Placement](/docs/concepts/topology_aware_scheduling#balanced-placement).
+- **PodSet groups** - co-locate multiple PodSets of a single workload in the
   same topology domain using `kueue.x-k8s.io/podset-group-name`. See
   [Configure Topology Aware Scheduling for LeaderWorkerSet](/docs/tasks/run/leaderworkerset#configure-topology-aware-scheduling)
   for a working example.
-- **PodSet slices** — split a PodSet into fixed-size slices, each pinned to a
+- **PodSet slices** - split a PodSet into fixed-size slices, each pinned to a
   single domain, using `kueue.x-k8s.io/podset-slice-required-topology` and
   `kueue.x-k8s.io/podset-slice-size`. See the
   [Topology-Aware Scheduling concepts](/docs/concepts/topology_aware_scheduling)
   page.
-- **Multi-layer topology** — express slice constraints at up to three
+- **Multi-layer topology** - express slice constraints at up to three
   topology layers in one annotation using
   `kueue.x-k8s.io/podset-slice-required-topology-constraints`. This is
   controlled by the alpha `TASMultiLayerTopology` feature gate; see the
@@ -196,23 +296,22 @@ If the Workload stays in `Pending` state:
 
 - Run `kubectl -n default describe workload <workload-name>` and look at the
   `Events` section for admission rejection reasons.
-- Verify the `Topology` object referenced by the `ResourceFlavor` exists and
-  its `spec.levels` include the node label used in your annotation.
+- Verify that the `ResourceFlavor` selected for the Workload references the
+  expected `Topology` in `spec.topologyName`.
+- Verify that the referenced `Topology` exists, and that every
+  `spec.levels[].nodeLabel` value exists as a label key on the cluster's nodes.
+- Verify that the topology label in your same-domain placement annotation, such
+  as `kueue.x-k8s.io/podset-required-topology` or
+  `kueue.x-k8s.io/podset-preferred-topology`, matches one of the referenced
+  `Topology` object's `spec.levels[].nodeLabel` values.
 - For `required` placement, verify at least one domain at the requested level
   has enough free capacity to fit the entire PodSet.
 
-### Pods scheduled outside the requested domain
-
-If admission succeeds but pods land on nodes that do not match your
-expectation, the underlying nodes are probably missing the topology label.
-Check labels with:
+You can inspect node labels with:
 
 ```shell
 kubectl get nodes --show-labels
 ```
-
-Every node serving the TAS `ResourceFlavor` must carry the labels listed in
-the `Topology` object's `spec.levels`.
 
 ### Annotation has no effect
 
