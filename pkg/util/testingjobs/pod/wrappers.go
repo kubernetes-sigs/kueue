@@ -141,6 +141,12 @@ func (p *PodWrapper) PriorityClass(pc string) *PodWrapper {
 	return p
 }
 
+// PreemptionPolicy updates the preemption policy of the Pod.
+func (p *PodWrapper) PreemptionPolicy(policy corev1.PreemptionPolicy) *PodWrapper {
+	p.Spec.PreemptionPolicy = &policy
+	return p
+}
+
 // Name updated the name of the pod
 func (p *PodWrapper) Name(n string) *PodWrapper {
 	p.ObjectMeta.Name = n
