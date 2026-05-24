@@ -75,6 +75,10 @@ func GetClusterQueueDefaults(ctx context.Context, c client.Client, queueName kue
 // ApplyClusterQueueDefaults applies ClusterQueue defaults to the workload.
 // Fields already set on the workload (e.g. from job labels) are not overridden.
 func ApplyClusterQueueDefaults(defaults *ClusterQueueDefaults, wl *kueue.Workload) {
+	if !features.Enabled(features.ClusterQueueMaxExecutionTime) {
+		return
+	}
+
 	if defaults == nil {
 		return
 	}
