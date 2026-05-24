@@ -2852,7 +2852,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("best-effort workloads not admitted as foundation workload has priority")
 			util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
-			util.ExpectPendingWorkloadsMetric(cq2, 2, 0)
+			util.ExpectPendingWorkloadsMetric(cq2, 0, 2)
 
 			ginkgo.By("second foundation workload admitted")
 			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
