@@ -17,6 +17,8 @@ limitations under the License.
 package baseline
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -30,14 +32,13 @@ import (
 )
 
 const (
-	kubeSystemNamespace       = "kube-system"
 	kueueManagerName          = "kueue-controller-manager"
 	kueueVisibilityServerName = "kueue-visibility-server"
 	cqName                    = "test-kubeconfig-cq"
 	customVisibilityPort      = 9444
 )
 
-var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility"), ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Visibility Server", func() {
 	var originalDeployment appsv1.Deployment
 	var originalService corev1.Service
 	var cq *kueue.ClusterQueue
@@ -79,9 +80,7 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility"),
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 	})
 
-	ginkgo.It("Should use the custom port from the visibilityServer configuration API", func() {
-		ginkgo.By("Updating the visibilityServer configuration and restarting Kueue")
-
+	ginkgo.It("Should use the custom port from the --visibility-server-port flag", func() {
 		ginkgo.By("Updating the visibility-server service's targetPort")
 		gomega.Eventually(func(g gomega.Gomega) {
 			patchedService := &corev1.Service{}
@@ -93,6 +92,20 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility"),
 			}
 			g.Expect(k8sClient.Update(ctx, patchedService)).To(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Updating the visibility-server deployment's port")
+		gomega.Eventually(func(g gomega.Gomega) {
+			patchedDeployment := &appsv1.Deployment{}
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, patchedDeployment)).To(gomega.Succeed())
+			for i, c := range patchedDeployment.Spec.Template.Spec.Containers {
+				if c.Name == "manager" {
+					container := &patchedDeployment.Spec.Template.Spec.Containers[i]
+					container.Args = append(c.Args, fmt.Sprintf("--visibility-server-port=%d", customVisibilityPort))
+				}
+			}
+			g.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		ginkgo.By("Verifying requests succeed on the custom port")
 		gomega.Eventually(func(g gomega.Gomega) {
