@@ -1156,6 +1156,7 @@ time, in seconds, for workloads submitted to LocalQueues backed by this
 ClusterQueue.
 This value is used when the job does not already specify a maximum execution
 time via the kueue.x-k8s.io/max-exec-time-seconds label.</p>
+<p>This is an alpha field and requires enabling the ClusterQueueMaxExecutionTime feature gate.</p>
 </td>
 </tr>
 </tbody>

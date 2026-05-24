@@ -210,3 +210,73 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller with ClusterQueue default ex
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 })
+
+var _ = ginkgo.Describe("LeaderWorkerSet controller with ClusterQueue default execution time disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns         *corev1.Namespace
+		cqWithTime *kueue.ClusterQueue
+		lqWithTime *kueue.LocalQueue
+		onDemand   *kueue.ResourceFlavor
+	)
+
+	ginkgo.BeforeAll(func() {
+		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
+			string(features.ClusterQueueMaxExecutionTime): false,
+		})).Should(gomega.Succeed())
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+			jobframework.WithManageJobsWithoutQueueName(false),
+		))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-exec-time-off-")
+
+		onDemand = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		util.MustCreate(ctx, k8sClient, onDemand)
+
+		cqWithTime = utiltestingapi.MakeClusterQueue("exec-time-cq-off").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+			).
+			MaximumExecutionTimeSeconds(120).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cqWithTime)
+
+		lqWithTime = utiltestingapi.MakeLocalQueue("lq-with-timeout", ns.Name).
+			ClusterQueue(cqWithTime.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, lqWithTime)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cqWithTime, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemand, true)
+	})
+
+	ginkgo.It("should not set MaximumExecutionTimeSeconds when feature gate is disabled", func() {
+		lws := testingleaderworkerset.MakeLeaderWorkerSet("lws-gate-off", ns.Name).
+			Queue(lqWithTime.Name).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, lws)
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), lws)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		wlLookupKey := types.NamespacedName{
+			Name:      lwscontroller.GetWorkloadName(lwscontroller.GetOwnerUID(lws), lws.Name, "0"),
+			Namespace: ns.Name,
+		}
+
+		createdWorkload := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Expect(createdWorkload.Spec.MaximumExecutionTimeSeconds).To(gomega.BeNil())
+	})
+})

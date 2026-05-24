@@ -4843,6 +4843,72 @@ var _ = ginkgo.Describe("Job controller with ClusterQueue default execution time
 	})
 })
 
+var _ = ginkgo.Describe("Job controller with ClusterQueue default execution time disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns         *corev1.Namespace
+		onDemand   *kueue.ResourceFlavor
+		cqWithTime *kueue.ClusterQueue
+		lqWithTime *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
+			string(features.ClusterQueueMaxExecutionTime): false,
+		})).Should(gomega.Succeed())
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false, nil))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "cq-exec-time-off-")
+
+		onDemand = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		util.MustCreate(ctx, k8sClient, onDemand)
+
+		cqWithTime = utiltestingapi.MakeClusterQueue("exec-time-cq-off").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+			).
+			MaximumExecutionTimeSeconds(120).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cqWithTime)
+
+		lqWithTime = utiltestingapi.MakeLocalQueue("lq-with-timeout", ns.Name).
+			ClusterQueue(cqWithTime.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, lqWithTime)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cqWithTime, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemand, true)
+	})
+
+	ginkgo.It("should not set MaximumExecutionTimeSeconds when feature gate is disabled", func() {
+		job := testingjob.MakeJob("job-gate-off", ns.Name).
+			Queue(kueue.LocalQueueName(lqWithTime.Name)).
+			Suspend(true).
+			Parallelism(1).
+			Request(corev1.ResourceCPU, "1").
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Expect(createdWorkload.Spec.MaximumExecutionTimeSeconds).To(gomega.BeNil())
+	})
+})
+
 var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 	const (
 		cqName = "cluster-queue"
