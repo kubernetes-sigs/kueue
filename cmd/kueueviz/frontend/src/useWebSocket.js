@@ -43,8 +43,13 @@ const useWebSocket = (url) => {
     };
 
     ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      setData(message);
+      try {
+        const message = JSON.parse(event.data);
+        setData(message);
+      } catch (err) {
+        console.error('Failed to parse WebSocket message:', err);
+        setError('Received malformed data from the server.');
+      }
     };
 
     ws.onerror = (err) => {
