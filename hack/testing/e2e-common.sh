@@ -103,6 +103,21 @@ function e2e_docker_pull_if_needed {
     return 1
 }
 
+function e2e_wait_for_operator_in_install {
+  local kubeconfig=$1
+  local ns=$2
+  local deployment_name=$3
+
+  if ! e2e_is_truthy "${E2E_WAIT_FOR_OPERATORS_IN_INSTALL:-false}"; then
+    echo "Skipping install-time wait for deployment/${deployment_name} in ${ns};" \
+         "BeforeSuite will verify readiness."
+    return 0
+  fi
+
+  kubectl --kubeconfig="${kubeconfig}" wait deploy/"${deployment_name}" \
+    -n "${ns}" --for=condition=available --timeout=5m
+}
+
 function e2e_deployment_exists {
     local kubeconfig=${1:-}
     local ns=$2
@@ -691,7 +706,7 @@ function install_appwrapper {
 
     cluster_kind_load_image "${name}" "${APPWRAPPER_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${APPWRAPPER_MANIFEST}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -732,7 +747,7 @@ function install_jobset {
 
     cluster_kind_load_image "${name}" "${JOBSET_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${JOBSET_MANIFEST}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -767,7 +782,7 @@ function install_kubeflow {
 
     cluster_kind_load_image "${name}" "${KUBEFLOW_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -863,7 +878,8 @@ function install_mpi {
     curl -sSL "${KUBEFLOW_MPI_MANIFEST}" \
         | $YQ eval '(. | select(.kind == "ClusterRole" and has("aggregationRule"))) |= del(.rules | select(length == 0))' - \
         | kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
+
 }
 
 # $1 cluster name
@@ -913,7 +929,7 @@ function install_kuberay {
         kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} delete -k "${KUBERAY_MANIFEST}" --ignore-not-found=true
     fi
     kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create -k "${KUBERAY_MANIFEST}"
-    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} wait deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -954,7 +970,7 @@ function install_lws {
 
     cluster_kind_load_image "${name}" "${LEADERWORKERSET_IMAGE/#v}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${LEADERWORKERSET_MANIFEST}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 kubeconfig option
