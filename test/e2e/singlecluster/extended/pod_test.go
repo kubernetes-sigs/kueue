@@ -464,6 +464,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Queue(lq.Name).
 				PriorityClass(highPriorityClass.Name).
+				PreemptionPolicy(corev1.PreemptNever).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				TerminationGracePeriod(1).
 				MakeGroup(2)
