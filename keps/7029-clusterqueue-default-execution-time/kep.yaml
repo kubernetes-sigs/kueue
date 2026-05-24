@@ -17,7 +17,7 @@ stage: alpha
 latest-milestone: "v0.18"
 
 milestone:
-  alpha: "v0.18"
+  alpha: "v0.19"
   beta:
   stable:
 
