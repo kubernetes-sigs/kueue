@@ -30,6 +30,8 @@ type ClusterQueueWorkloadDefaultsApplyConfiguration struct {
 	// ClusterQueue.
 	// This value is used when the job does not already specify a maximum execution
 	// time via the kueue.x-k8s.io/max-exec-time-seconds label.
+	//
+	// This is an alpha field and requires enabling the ClusterQueueMaxExecutionTime feature gate.
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
 }
 

@@ -178,6 +178,8 @@ type ClusterQueueWorkloadDefaults struct {
 	// This value is used when the job does not already specify a maximum execution
 	// time via the kueue.x-k8s.io/max-exec-time-seconds label.
 	//
+	// This is an alpha field and requires enabling the ClusterQueueMaxExecutionTime feature gate.
+	//
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
