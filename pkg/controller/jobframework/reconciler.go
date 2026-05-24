@@ -1267,14 +1267,10 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false, nil
 	}
 
-	defaultDuration := int32(-1)
-	if ptr.Deref(wl.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(MaximumExecutionTimeSeconds(job), defaultDuration) {
-		return false, nil
-	}
-
 	// Only compare MaximumExecutionTimeSeconds when the job explicitly has the
 	// max-exec-time-seconds label. If the label is absent, the workload's value
 	// may have been inherited from the ClusterQueue, and no mismatch should be reported.
+	defaultDuration := int32(-1)
 	if jobMaxExecTime := MaximumExecutionTimeSeconds(job); jobMaxExecTime != nil {
 		if ptr.Deref(wl.Spec.MaximumExecutionTimeSeconds, defaultDuration) != *jobMaxExecTime {
 			return false, nil
