@@ -166,6 +166,7 @@ test-multikueue-e2e-helm: test-multikueue-e2e
 ##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
 .PHONY: test-e2e-extended
 test-e2e-extended: E2E_NPROCS := 4
+test-e2e-extended: GINKGO_ARGS += --label-filter=feature:kuberay --focus=Should.run.a.rayjob.with.multi.scale-up.steps --repeat=300
 test-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
@@ -212,6 +213,7 @@ test-e2e-sequential-baseline-helm: test-e2e-sequential-baseline
 ## Examples:
 ##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-sequential-extended
+test-e2e-sequential-extended: GINKGO_ARGS += --label-filter=feature:kuberay --focus=Should.run.a.rayjob.with.multi.scale-up.steps --repeat=99
 test-e2e-sequential-extended: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-sequential-extended-helm
