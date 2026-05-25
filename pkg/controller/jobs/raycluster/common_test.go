@@ -818,11 +818,13 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 					{GroupName: "workers5"},
 					{GroupName: "workers6"},
 					{GroupName: "workers7"},
-					{GroupName: "workers8"}, // 8 worker groups is too many
+					{GroupName: "workers8"},
+					{GroupName: "workers9"},
+					{GroupName: "workers10"}, // 10 worker groups is too many
 				},
 			},
 			wantErrors: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 8, 7),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 10, 9),
 			},
 		},
 		"worker group named 'head'": {
@@ -857,11 +859,13 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 					{GroupName: "workers6"},
 					{GroupName: "workers7"},
 					{GroupName: "workers8"},
+					{GroupName: "workers9"},
+					{GroupName: "workers10"},
 				},
 			},
 			wantErrors: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 8, 7),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 10, 9),
 				field.Forbidden(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			},
 		},

@@ -149,9 +149,9 @@ func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCl
 			)
 		}
 
-		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
-		if len(spec.WorkerGroupSpecs) > 7 {
-			allErrors = append(allErrors, field.TooMany(specPath.Child("workerGroupSpecs"), len(spec.WorkerGroupSpecs), 7))
+		// Should limit the worker count to max PodSets minus the cluster head.
+		if len(spec.WorkerGroupSpecs) > jobframework.MaxPodSets-1 {
+			allErrors = append(allErrors, field.TooMany(specPath.Child("workerGroupSpecs"), len(spec.WorkerGroupSpecs), jobframework.MaxPodSets-1))
 		}
 
 		// None of the workerGroups should be named "head"

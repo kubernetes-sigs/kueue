@@ -19,6 +19,7 @@ package pod
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -129,6 +130,65 @@ func TestRun(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("error mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
+	makePodGroup := func(roleCount int) *Pod {
+		pods := make([]corev1.Pod, roleCount)
+		for i := range pods {
+			pods[i] = *testingpod.MakePod(fmt.Sprintf("pod-%d", i), "ns").
+				UID(fmt.Sprintf("test-uid-%d", i)).
+				Queue("user-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount(strconv.Itoa(roleCount)).
+				Annotation(podconstants.RoleHashAnnotation, fmt.Sprintf("role-%02d", i)).
+				Image("", nil).
+				Obj()
+		}
+		return &Pod{
+			pod:     pods[0],
+			isFound: true,
+			isGroup: true,
+			list:    corev1.PodList{Items: pods},
+		}
+	}
+
+	testCases := map[string]struct {
+		roleCount int
+		wantErr   string
+	}{
+		"allows maximum pod group roles": {
+			roleCount: 10,
+		},
+		"rejects more than maximum pod group roles": {
+			roleCount: 11,
+			wantErr:   "pod group can't include more than 10 roles",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			kClient := utiltesting.NewClientBuilder().Build()
+
+			wl, gotErr := makePodGroup(tc.roleCount).ConstructComposableWorkload(ctx, kClient, nil, nil)
+
+			if tc.wantErr == "" && gotErr != nil {
+				t.Fatalf("unexpected error: %v", gotErr)
+			}
+			if tc.wantErr != "" {
+				if gotErr == nil {
+					t.Fatalf("got nil error, want %q", tc.wantErr)
+				}
+				if gotErr.Error() != tc.wantErr {
+					t.Fatalf("error = %q, want %q", gotErr.Error(), tc.wantErr)
+				}
+			}
+			if tc.wantErr == "" && len(wl.Spec.PodSets) != tc.roleCount {
+				t.Fatalf("podSets count = %d, want %d", len(wl.Spec.PodSets), tc.roleCount)
 			}
 		})
 	}
