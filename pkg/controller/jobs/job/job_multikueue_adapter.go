@@ -104,6 +104,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 func shouldSkipSyncForSuspendedLocalJob(log logr.Logger, localJob, remoteJob *batchv1.Job) bool {
 	localJobInfo := fromObject(localJob)
 
+	log.V(2).Info("Checking shouldSkipSyncForSuspendedLocalJob", "localJob", localJob, "remoteJob", remoteJob)
 	if !localJobInfo.IsSuspended() {
 		// do not skip any syncs if the local Job is unsuspnded
 		log.V(3).Info("Peforming the sync as the local Job is unsuspended")

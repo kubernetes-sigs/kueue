@@ -1636,20 +1636,27 @@ app = HelloWorld.bind()`,
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			lowPrioJob := &batchv1.Job{}
 			ginkgo.By("Checking that the low-priority job is not active", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					admittedJob := &batchv1.Job{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(lowJob), admittedJob)).To(gomega.Succeed())
-					g.Expect(admittedJob.Status.Active).To(gomega.Equal(int32(0)))
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(lowJob), lowPrioJob)).To(gomega.Succeed())
+					g.Expect(lowPrioJob.Status.Active).To(gomega.Equal(int32(0)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking that the high-priority job is active", func() {
+			ginkgo.By("Checking that the high-priority workload was admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					admittedJob := &batchv1.Job{}
+					g.Expect(k8sWorker2Client.Get(ctx, highWlKey, workerHighWorkload)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeTrue())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("high-priority is not admitted", workerHighWorkload))
+			})
+
+			ginkgo.By("Checking that the high-priority job is active", func() {
+				admittedJob := &batchv1.Job{}
+				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(highJob), admittedJob)).To(gomega.Succeed())
 					g.Expect(admittedJob.Status.Active).To(gomega.Equal(int32(1)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("Job high-priority is not active", admittedJob, lowPrioJob))
 			})
 
 			ginkgo.By("Checking that the low-priority workload is dispatched again after backoff", func() {
