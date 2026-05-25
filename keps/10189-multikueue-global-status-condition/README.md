@@ -228,7 +228,7 @@ const (
 
   // AdmittedOnWorker state means the workload has the "Admitted" condition on the Manager Cluster and was admitted on a specific Worker Cluster.
   // The underlying job is being executed on said Worker Cluster.
-  Running = "Running"
+  AdmittedOnWorker = "AdmittedOnWorker"
 
   // WorkerSelected state means the workload has the "Admitted" condition on the Manager Cluster but was not admitted on the Worker yet.
   // A specific Worker was selected, but the workload has only managed to reserve quota there so far.
