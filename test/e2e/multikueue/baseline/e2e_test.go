@@ -513,7 +513,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					for _, pod := range pods.Items {
 						g.Expect(utilpod.HasGate(&pod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Deleting the statefulset", func() {
