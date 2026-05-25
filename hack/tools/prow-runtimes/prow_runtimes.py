@@ -467,7 +467,7 @@ def main() -> int:
 
     for job in jobs:
         job_name, _, _ = parse_gs_prefix(job, bucket=args.bucket)
-        print(f"checking: {job} ({job_name})", file=sys.stderr)
+        print(f"Checking job: {job}", file=sys.stderr)
         try:
             builds = last_n_builds(
                 job,
