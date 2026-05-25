@@ -160,11 +160,14 @@ fi
 if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBEFLOW_MANIFEST_ORIG=${ROOT_DIR}/dep-crds/training-operator/manifests/overlays/standalone/kustomization.yaml
     export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue/baseline
-    # Extract the Kubeflow Training Operator image version tag (newTag) from the manifest.
-    # This is necessary because the image version tag does not follow the usual package versioning convention.
+    # Extract the Kubeflow Training Operator image name and version tag from the manifest.
+    # The image version tag does not follow the usual package versioning convention,
+    # and the image name must match the kustomize output so the pre-loaded image is
+    # used instead of pulling from the registry at deploy time.
+    KUBEFLOW_IMAGE_NAME=$($YQ '.images[] | select(.name | contains("training-operator")) | (.newName // .name)' "${KUBEFLOW_MANIFEST_ORIG}")
     KUBEFLOW_IMAGE_VERSION=$($YQ '.images[] | select(.name | contains("training-operator")) | .newTag' "${KUBEFLOW_MANIFEST_ORIG}")
     export KUBEFLOW_IMAGE_VERSION
-    export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
+    export KUBEFLOW_IMAGE=${KUBEFLOW_IMAGE_NAME}:${KUBEFLOW_IMAGE_VERSION}
 fi
 
 if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
