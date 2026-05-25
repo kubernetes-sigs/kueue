@@ -442,11 +442,37 @@ function cluster_create {
         cat "$kind_config"
     fi
 
+<<<<<<< HEAD
     if ! $KIND create cluster --name "$cluster" --image "$E2E_KIND_VERSION" \
             --config "$kind_config" --kubeconfig="$kubeconfig" --wait 5m -v 5 \
             > "$ARTIFACTS/$cluster-create.log" 2>&1; then
         echo "ERROR: Unable to create kind cluster '$cluster'." >&2
         cat "$ARTIFACTS/$cluster-create.log" >&2
+=======
+    local max_attempts=3
+    local attempt=1
+    local created=0
+    while [ "$attempt" -le "$max_attempts" ]; do
+        echo "Creating kind cluster '$cluster' (attempt $attempt/$max_attempts)..."
+        if $KIND create cluster --name "$cluster" --image "$E2E_KIND_VERSION" --config "$kind_config" --kubeconfig="$kubeconfig" --wait 1m -v 5 > "$ARTIFACTS/$cluster-create.log" 2>&1; then
+            created=1
+            break
+        fi
+        echo "Attempt $attempt failed. Log:"
+        cat "$ARTIFACTS/$cluster-create.log"
+        if ! grep -q "port is already allocated" "$ARTIFACTS/$cluster-create.log"; then
+            echo "Failure is not a port collision — not retrying."
+            break
+        fi
+        echo "Port collision detected on attempt $attempt. Cleaning up and retrying in 3s..."
+        $KIND delete cluster --name "$cluster" 2>/dev/null || true
+        attempt=$((attempt + 1))
+        sleep 3
+    done
+    if [ "$created" -eq 0 ]; then
+        echo "ERROR: unable to start the $cluster cluster after $max_attempts attempts"
+        cat "$ARTIFACTS/$cluster-create.log"
+>>>>>>> 280150c6a (test(e2e): retry cluster creation on port collision (#11278))
         return 1
     fi
 
