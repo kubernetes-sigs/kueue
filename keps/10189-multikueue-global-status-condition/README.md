@@ -343,8 +343,7 @@ The proposed set of states would be as follows:
 | INACTIVE | Local workload is not active. No remotes exist. This falls under "Waiting for manager quota". | Workload is inactive. | WAITING_FOR_MANAGER_QUOTA | Inactive |
 | REJECTED | Local workload was rejected by the MK AC. | -| REJECTED | - |
 | ADMITTED | Local workload has the admitted condition. Worker selected and remote in state ADMITTED (Admitted). Worker is attempting to execute the job. | Workload has an admission and the admitted condition. The cluster is attempting to execute the underlying job. | ADMITTED_ON_WORKER | Admitted |
-| ADMISSION PENDING | Local workload has the admitted condition. Worker selected and remote in state ADMISSION PENDING (QuotaReserved). | Workload has an admission but does not have the admitted condition. This means the workload received a quota reservation but not all admission checks have reached the Ready state yet. | WORKER_SELECTED | QuotaReserved |
-| WAITING FOR WORKER | Local has the admission but not the admitted condition. Dispatching remotes to one or more workers. All remotes are PENDING (Pending). | — | WAITING_FOR_WORKER | — |
+| ADMISSION PENDING | Local has the admission but not the admitted condition. Dispatching remotes to one or more workers. All remotes are PENDING (Pending). | Workload has an admission but does not have the admitted condition. This means the workload received a quota reservation but not all admission checks have reached the Ready state yet. | WAITING_FOR_WORKER | QuotaReserved |
 | WAITING FOR WORKER NOMINATION | Local workload is a non-primary workload in a group of composite workloads. Local has got an admission but not the admitted condition. Primary has not selected a worker yet. | — | WAITING_FOR_WORKER_NOMINATION | — |
 | PENDING | Local workload does not have an admission (including being inactive). No remotes exist. | Workload does not have an admission. | WAITING_FOR_MANAGER_QUOTA | Pending |
 
