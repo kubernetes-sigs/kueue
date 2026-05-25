@@ -69,7 +69,7 @@ To address this, we need a way to present users with a clearly defined, human-re
 The lifecycle of the Manager Workload will be split into the following **MultiKueueGlobalStatus** enumeration:
 * **SUCCESS** - workload finished successfully,
 * **FAILED** - workload finished with failed state,
-* **INACTIVE** - Manager Workload marked as inactive, preventing it from being scheduled; we can enter this state from any other as the workload can be deactivated both by Kueue and by the user; cover the cases of MK AC Rejected,
+* **REJECTED** - Rejected by the MK Admission Check,
 * **RUNNING** - local workload is admitted (has the admitted condition); a single worker was selected; the remote is admitted (has the admitted condition); the underlying job will attempt to execute; if it finishes we transition into the SUCCESS/FAILED state, otherwise we back-off,
 * **WAITING_FOR_WORKER** -  quota reserved on the local workload; dispatching remotes to nominated workers and waiting for one of them to be selected - a worker will be selected once the remote achieves a state allowing it to graduate to either the WORKER_SELECTED (receiving quota reservation, MultiKueueWaitForWorkloadAdmitted feature gate disabled) or the RUNNING (workload receives the admitted condition set to true) state,
 * **WAITING_FOR_WORKER_NOMINATION** - specific to a non-primary component workload in the multi-workload-resource handling scenario;  quota reserved on the component workload; the component workload is waiting for the primary to select a worker to create a remote on,
@@ -103,14 +103,10 @@ flowchart TD
     result -- Failed --> FAILED
   end
 
-  subgraph Active [INACTIVE state management]
-    direction BT
-    Deactivated@{ shape: rounded, label: "Deactivated or Rejected"} --> INACTIVE --> Reactivated@{ shape: rounded, label: "Reactivated"}
-  end
+  REJECTED --> END
 
-  Reactivated --> WAITING_FOR_MANAGER_QUOTA
-  WAITING_FOR_MANAGER_QUOTA --> Deactivated
-  DistributedProcessing --> Deactivated
+  WAITING_FOR_MANAGER_QUOTA --> REJECTED
+  DistributedProcessing --> REJECTED
 
   subgraph Evictions [Evictions handling]
     direction BT
@@ -131,7 +127,7 @@ flowchart TD
 For each MultiKueueGlobalStatus a message - **MultiKueueGlobalStatusMessage** - will be defined:
 * SUCCESS: `Workload has finished successfully on Worker Cluster: <worker cluster reference>.`
 * FAILED: `Workload failed after admission on Worker Cluster: <worker cluster reference>.`
-* INACTIVE: `Workload inactive: <reason>.`
+* REJECTED: `Workload rejected by MultiKueue AdmissionCheck: <reason>.`
 * RUNNING: `Workload admitted on Worker Cluster: <worker cluster reference>.`
 * WAITING_FOR_WORKER:
   * Default:
@@ -205,7 +201,7 @@ const (
   // The possible reasons depend on the state of the MK Workload:
   // - Success,
   // - Failed,
-  // - Inactive,
+  // - Rejected,
   // - Running,
   // - WorkerSelected,
   // - WaitingForWorker,
@@ -227,8 +223,8 @@ const (
   // Failed state means the workload has finished with the Failed state.
   Failed = "Failed"
 
-  // Inactive state means the workload is inactive.
-  Inactive = "Inactive"
+  // Rejected state means the workload was Rejected by the MK Admission Check.
+  Rejected = "Rejected"
 
   // Running state means the workload has the "Admitted" condition on the Manager Cluster and was admitted on a specific Worker Cluster.
   // The underlying job is being executed on said Worker Cluster.
@@ -265,7 +261,7 @@ The exact MultiKueueGlobalStatus to assign can be determined using the condition
 
 For the defined messages, each variable can be determined using the data present during the reconciliation process:
 * _worker cluster reference_ of the selected Worker is retrieved as part of processing (when in one of {SUCCESS, FAILED, RUNNING, WORKER_SELECTED} states),
-* the _reason_ for why the Manager Workload is inactive is present in an appropriate condition of the Manager Workload,
+* the _reason_ for why the Manager Workload was rejected,
 * _number of remotes_ is number of the noted remotes,
 * _worker selected by the primary local workload_ and _primary local workload reference_ are already identified in the current reconciliation process,
 * _multi-workload resource type name_ can be determined by verifying the type of the underlying job.
@@ -353,12 +349,13 @@ The proposed set of states would be as follows:
 | :--- | :--- | :--- | :--- | :--- |
 | SUCCESS | Underlying job executed successfully. Local workload has the finished condition with “Succeeded” reason. The remote is in the SUCCESS (Finished) state. | The underlying job executed successfully. Workload has the finished condition with “Succeeded” reason. | SUCCESS | Finished |
 | FAILED | A worker was selected, a remote admitted and the job executed. The job failed on the selected worker. Local workload has the finished condition with “Failed” reason. The remote is in the FAILED (Finished) state. | The underlying job was executed and failed. Workload has the finished condition with “Failed” reason. | FAILED | Finished |
-| INACTIVE | Local workload inactive. No remotes exist. | Workload is inactive. | INACTIVE | Inactive |
+| INACTIVE | Local workload is not active. No remotes exist. This falls under "Waiting for manager quota". | Workload is inactive. | WAITING_FOR_MANAGER_QUOTA | Inactive |
+| REJECTED | Local workload was rejected by the MK AC. | -| REJECTED | - |
 | ADMITTED | Local workload has the admitted condition. Worker selected and remote in state ADMITTED (Admitted). Worker is attempting to execute the job. | Workload has an admission and the admitted condition. The cluster is attempting to execute the underlying job. | RUNNING | Admitted |
 | ADMISSION PENDING | Local workload has the admitted condition. Worker selected and remote in state ADMISSION PENDING (QuotaReserved). | Workload has an admission but does not have the admitted condition. This means the workload received a quota reservation but not all admission checks have reached the Ready state yet. | WORKER_SELECTED | QuotaReserved |
-| WAITING FOR WORKER | Local has the admission but not the admitted condition. Dispatching remotes to one or more workers. All remotes are PENDING (Pending) or ADMISSION PENDING (QuotaReserved). | — | WAITING_FOR_WORKER | — |
+| WAITING FOR WORKER | Local has the admission but not the admitted condition. Dispatching remotes to one or more workers. All remotes are PENDING (Pending). | — | WAITING_FOR_WORKER | — |
 | WAITING FOR WORKER NOMINATION | Local workload is a non-primary workload in a group of composite workloads. Local has got an admission but not the admitted condition. Primary has not selected a worker yet. | — | WAITING_FOR_WORKER_NOMINATION | — |
-| PENDING | Local workload does not have an admission. No remotes exist. | Workload does not have an admission. | WAITING_FOR_MANAGER_QUOTA | Pending |
+| PENDING | Local workload does not have an admission (including being inactive). No remotes exist. | Workload does not have an admission. | WAITING_FOR_MANAGER_QUOTA | Pending |
 
 This consolidated set of statuses could then be used to populate a new, stand-alone field in the WorkloadStatus, allowing for a generic solution providing a high-level status summary for both individual and MultiKueue workloads.
 
@@ -376,7 +373,7 @@ Nil denotes a condition not having an equivalent. If not otherwise stated, the *
 |---|---|
 |SUCCESS|nil|
 |FAILED|nil|
-|INACTIVE|**State**: False, **Reason**: WorkloadInactive|
+|REJECTED|**State**: False, **Reason**: WorkloadRejected|
 |RUNNING|**State**: True|
 |WORKER_SELECTED|**State**: False|
 |WAITING_FOR_WORKER|**State**: False|
@@ -384,7 +381,7 @@ Nil denotes a condition not having an equivalent. If not otherwise stated, the *
 |WAITING_FOR_MANAGER_QUOTA|**State**: False|
 
 This alternative reduces data duplication from listing the SUCCESS and FAILED states.
-Outside of that, it closely resembles the proposed solution, especially given that both Reason and Message values can be copied directly in all cases (except the Reason being different for the INACTIVE status).
+Outside of that, it closely resembles the proposed solution, especially given that both Reason and Message values can be copied directly in all cases (except the Reason being different for the REJECTED status).
 
 #### Condition per status
 
