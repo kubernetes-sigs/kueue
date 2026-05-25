@@ -198,15 +198,6 @@ const (
   // ...
 
   // MultiKueueWorkload means the workload is a MultiKueue Workload created on a Manager Cluster.
-  // The possible reasons depend on the state of the MK Workload:
-  // - Success,
-  // - Failed,
-  // - Rejected,
-  // - AdmittedOnWorker,
-  // - WorkerSelected,
-  // - WaitingForWorker,
-  // - WaitingForWorkerNomination,
-  // - WaitingForManagerQuota.
   MultiKueueWorkload = "MultiKueueWorkload"
 
   // ...
