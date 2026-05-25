@@ -194,6 +194,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		wantRequeue        time.Duration
 		wantEvictedCond    *metav1.Condition
 		wantPatchedPods    []string
+		wantNotPatchedPods []string
 		featureGates       map[featuregate.Feature]bool
 		// ignoreUnhealthyNodes is used only when we expect the unhealthy nodes list to be cleared.
 		// Patching the status in tests (via fake client and strategic merge interceptor)
@@ -965,6 +966,49 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
+		"Node has NoSchedule taint, already in unhealthyNodes, sibling running elsewhere -> stray pod NOT patched (second-pass in flight)": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Label(corev1.LabelHostname, nodeName).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				baseNode.Clone().Name(nodeName2).StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Label(corev1.LabelHostname, nodeName2).Obj(),
+				// nodeName already recorded as unhealthy from the prior reconcile
+				func() *kueue.Workload {
+					wl := workloadWithTwoNodes.DeepCopy()
+					wl.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: nodeName}}
+					return wl
+				}(),
+				// replacement pod still pending on the tainted node (this is the second reconcile)
+				testingpod.MakePod("pending-pod-1", nsName).
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(corev1.LabelHostname, nodeName).
+					StatusPhase(corev1.PodPending).Obj(),
+				// sibling pod progressing on the healthy node — second-pass scheduling is in flight
+				testingpod.MakePod("running-pod-2", nsName).
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeName(nodeName2).
+					StatusPhase(corev1.PodRunning).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			// markPodsFailed must be skipped to preserve BackoffLimit while second-pass scheduling runs
+			wantNotPatchedPods: []string{"pending-pod-1"},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
 		"Node has untolerated NoSchedule taint, pod is Gated -> Healthy": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
@@ -1145,6 +1189,16 @@ func TestNodeFailureReconciler(t *testing.T) {
 				}
 				if targetCond == nil || targetCond.Status != corev1.ConditionTrue || targetCond.Reason != podTerminatedByKueueConditionReason {
 					t.Errorf("Expected %s condition to be True with Reason %s, got %v", podTerminatedByKueueConditionType, podTerminatedByKueueConditionReason, targetCond)
+				}
+			}
+			for _, podName := range tc.wantNotPatchedPods {
+				pod := &corev1.Pod{}
+				if err := cl.Get(ctx, types.NamespacedName{Name: podName, Namespace: nsName}, pod); err != nil {
+					t.Errorf("Expected pod %s to still exist: %v", podName, err)
+					continue
+				}
+				if pod.Status.Phase == corev1.PodFailed {
+					t.Errorf("Expected pod %s NOT to be Failed, but markPodsFailed was called on it", podName)
 				}
 			}
 		})

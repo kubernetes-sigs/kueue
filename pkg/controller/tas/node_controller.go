@@ -557,6 +557,12 @@ func (r *nodeReconciler) reconcileWorkloadsOnNode(
 	unhealthyWorkloads := sets.New[types.NamespacedName]()
 	notUnhealthyWorkloads := sets.New[types.NamespacedName]()
 	podsToTerminateMap := make(map[types.NamespacedName][]*corev1.Pod)
+	// pendingSecondPassWorkloads tracks unhealthy workloads where this node was
+	// already recorded in a prior reconcile and other pods are still progressing
+	// on different nodes. In that case second-pass scheduling is in flight, so we
+	// must not fail retry pods on the unhealthy node — doing so would consume
+	// BackoffLimit before the second-pass eviction runs.
+	pendingSecondPassWorkloads := sets.New[types.NamespacedName]()
 
 	for wlKey := range allTASWorkloads {
 		var wl kueue.Workload
@@ -572,6 +578,15 @@ func (r *nodeReconciler) reconcileWorkloadsOnNode(
 		switch result.status {
 		case workloadUnhealthy:
 			unhealthyWorkloads.Insert(wlKey)
+			if workload.HasUnhealthyNode(&wl, nodeName) {
+				progressingElsewhere, err := r.hasProgressingPodsOnOtherNodes(ctx, &wl, nodeName)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				if progressingElsewhere {
+					pendingSecondPassWorkloads.Insert(wlKey)
+				}
+			}
 		case workloadHealthy:
 			notUnhealthyWorkloads.Insert(wlKey)
 		}
@@ -593,7 +608,7 @@ func (r *nodeReconciler) reconcileWorkloadsOnNode(
 	}
 
 	for wlKey, pods := range podsToTerminateMap {
-		if evictedWorkloads.Has(wlKey) {
+		if evictedWorkloads.Has(wlKey) || pendingSecondPassWorkloads.Has(wlKey) {
 			continue
 		}
 		if err := r.markPodsFailed(ctx, pods); err != nil {
@@ -715,6 +730,20 @@ func (r *nodeReconciler) hasProgressingPods(ctx context.Context, wl *kueue.Workl
 		return pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod)
 	})
 	return hasProgressingPods, nil
+}
+
+func (r *nodeReconciler) hasProgressingPodsOnOtherNodes(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
+	sliceName := workloadslicing.SliceName(wl)
+	pods, err := ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(pods, func(pod *corev1.Pod) bool {
+		if pod.Spec.NodeName == "" || pod.Spec.NodeName == nodeName {
+			return false
+		}
+		return pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod)
+	}), nil
 }
 
 func checkTaintTolerations(logger logr.Logger, taint *corev1.Taint, podSets []kueue.PodSet) taintToleration {
