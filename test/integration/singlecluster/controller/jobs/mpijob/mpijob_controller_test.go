@@ -59,6 +59,11 @@ var _ = ginkgo.Describe("Job controller", func() {
 	var (
 		ns *corev1.Namespace
 	)
+
+	ginkgo.DeferCleanup(func() {
+		fwk.StopManager(ctx)
+	})
+
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(false, jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
@@ -67,7 +72,6 @@ var _ = ginkgo.Describe("Job controller", func() {
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should reconcile MPIJobs", func() {
