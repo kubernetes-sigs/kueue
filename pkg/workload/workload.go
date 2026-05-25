@@ -1901,6 +1901,22 @@ func ClusterName(wl *kueue.Workload) string {
 	return ptr.Deref(wl.Status.ClusterName, "")
 }
 
+// ShouldSkipClusterNomination returns true if cluster nomination should be
+// skipped. This covers the case when eviction is ongoing (ClusterName is still
+// assigned while the admission check transitions through Retry), as well as
+// any other state where the admission check is not Pending.
+// Elastic workloads are exempt from the stale-ClusterName check because they
+// intentionally set ClusterName on new slices to target the same worker cluster.
+func ShouldSkipClusterNomination(acs *kueue.AdmissionCheckState, wl *kueue.Workload, isElastic bool) bool {
+	if acs == nil || acs.State != kueue.CheckStatePending {
+		return true
+	}
+	if isElastic {
+		return false
+	}
+	return wl.Status.ClusterName != nil
+}
+
 func PriorityChanged(log logr.Logger, old, new *kueue.Workload) bool {
 	// Updates to Pod Priority are not supported.
 	if IsPodPriorityClass(old) || !IsWorkloadPriorityClass(new) {

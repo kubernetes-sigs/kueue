@@ -529,6 +529,13 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		requeueAfterSynchronize = requeueIn
 	}
 
+	// 8. Skip nomination while eviction is still in progress or the
+	// admission check is not yet Pending.
+	if workload.ShouldSkipClusterNomination(acs, group.local, group.IsElasticWorkload()) {
+		log.V(3).Info("Skipping cluster nomination phase")
+		return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, nil
+	}
+
 	res, err := w.nominateAndSynchronizeWorkers(ctx, group)
 	if err == nil && (res.RequeueAfter == 0 || requeueAfterSynchronize < res.RequeueAfter) {
 		res.RequeueAfter = requeueAfterSynchronize
@@ -773,12 +780,6 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		}
 
 		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			// ClusterName != nil indicates possibly stale cache (eviction just cleared ClusterName
-			// but the informer hasn't caught up yet). Avoid creating remote workloads without a
-			// confirmed nomination — wait for the cache to sync.
-			if group.local.Status.ClusterName != nil {
-				return reconcile.Result{}, nil
-			}
 			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				wl.Status.NominatedClusterNames = nominatedWorkers
 				return true, nil
