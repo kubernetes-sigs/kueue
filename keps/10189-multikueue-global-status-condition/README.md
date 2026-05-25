@@ -79,23 +79,22 @@ The lifecycle of the Manager Workload will be split into the following **MultiKu
 flowchart TD
   START@{ shape: circle, label: "START" } --> WAITING_FOR_MANAGER_QUOTA
 
-  subgraph CoreLogic [Core MultiKueue Processing Path]
-    WAITING_FOR_MANAGER_QUOTA --> ManagerQuotaReserved@{shape: rounded, label: "Quota Reserved on Manager"} --> component{"Is a non-primary Component Workload?"}
-    component -- YES --> WAITING_FOR_WORKER_NOMINATION
-    component -- NO --> WAITING_FOR_WORKER
+  WAITING_FOR_MANAGER_QUOTA --> ManagerQuotaReserved@{shape: rounded, label: "Quota Reserved on Manager"} --> component{"Is a non-primary Component Workload?"}
+  component -- YES --> WAITING_FOR_WORKER_NOMINATION
+  component -- NO --> WAITING_FOR_WORKER
 
-    WAITING_FOR_WORKER_NOMINATION --> WorkerNominated@{shape: rounded, label: "Worker nominated"} --> WAITING_FOR_WORKER
+  WAITING_FOR_WORKER_NOMINATION --> WorkerNominated@{shape: rounded, label: "Worker nominated"} --> WAITING_FOR_WORKER
 
-    WAITING_FOR_WORKER --> AnyWorkerAdmitted@{ shape: rounded, label: "Workload admitted on any Worker"} --> RUNNING
+  WAITING_FOR_WORKER --> AnyWorkerAdmitted@{ shape: rounded, label: "Workload admitted on any Worker"} --> RUNNING
 
-    subgraph SearchingForWorker [Searching for Worker]
-      ManagerQuotaReserved
-      component
-      WAITING_FOR_WORKER_NOMINATION
-      WorkerNominated
-      WAITING_FOR_WORKER
-      AnyWorkerAdmitted
-    end
+  subgraph DistributedProcessing [Core MultiKueue distributed logic]
+    ManagerQuotaReserved
+    component
+    WAITING_FOR_WORKER_NOMINATION
+    WorkerNominated
+    WAITING_FOR_WORKER
+    AnyWorkerAdmitted
+    RUNNING
   end
 
   subgraph Finalize [Finalizing]
@@ -106,11 +105,12 @@ flowchart TD
 
   subgraph Active [INACTIVE state management]
     direction BT
-    Deactivated@{ shape: rounded, label: "Deactivated"} --> INACTIVE --> Reactivated@{ shape: rounded, label: "Reactivated"}
+    Deactivated@{ shape: rounded, label: "Deactivated or Rejected"} --> INACTIVE --> Reactivated@{ shape: rounded, label: "Reactivated"}
   end
 
   Reactivated --> WAITING_FOR_MANAGER_QUOTA
-  CoreLogic --> Deactivated
+  WAITING_FOR_MANAGER_QUOTA --> Deactivated
+  DistributedProcessing --> Deactivated
 
   subgraph Evictions [Evictions handling]
     direction BT
@@ -120,8 +120,8 @@ flowchart TD
   end
 
   EvictedOnManager --> WAITING_FOR_MANAGER_QUOTA
-  CoreLogic --> EvictedOnManager
-  WorkerSelected --> EvictedOnWorker
+  DistributedProcessing --> EvictedOnManager
+  RUNNING --> EvictedOnWorker
 
   END@{ shape: dbl-circ, label: "END" }
   SUCCESS --> END
