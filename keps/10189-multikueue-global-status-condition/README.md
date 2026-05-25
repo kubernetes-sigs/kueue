@@ -69,10 +69,8 @@ To address this, we need a way to present users with a clearly defined, human-re
 The lifecycle of the Manager Workload will be split into the following **MultiKueueGlobalStatus** enumeration:
 * **SUCCESS** - workload finished successfully,
 * **FAILED** - workload finished with failed state,
-* **INACTIVE** - Manager Workload marked as inactive, preventing it from being scheduled; we can enter this state from any other as the workload can be deactivated both by Kueue and by the user,
+* **INACTIVE** - Manager Workload marked as inactive, preventing it from being scheduled; we can enter this state from any other as the workload can be deactivated both by Kueue and by the user; cover the cases of MK AC Rejected,
 * **RUNNING** - local workload is admitted (has the admitted condition); a single worker was selected; the remote is admitted (has the admitted condition); the underlying job will attempt to execute; if it finishes we transition into the SUCCESS/FAILED state, otherwise we back-off,
-* **WORKER_SELECTED** - local workload is admitted (has the admitted condition); a single worker was selected; the remote has currently received quota but is not admitted yet;
-this is possible if the MultiKueueWaitForWorkloadAdmitted feature is disabled,
 * **WAITING_FOR_WORKER** -  quota reserved on the local workload; dispatching remotes to nominated workers and waiting for one of them to be selected - a worker will be selected once the remote achieves a state allowing it to graduate to either the WORKER_SELECTED (receiving quota reservation, MultiKueueWaitForWorkloadAdmitted feature gate disabled) or the RUNNING (workload receives the admitted condition set to true) state,
 * **WAITING_FOR_WORKER_NOMINATION** - specific to a non-primary component workload in the multi-workload-resource handling scenario;  quota reserved on the component workload; the component workload is waiting for the primary to select a worker to create a remote on,
 * **WAITING_FOR_MANAGER_QUOTA** - local workload is waiting to be granted a quota reservation on the Manager Cluster.
@@ -88,11 +86,6 @@ flowchart TD
 
     WAITING_FOR_WORKER_NOMINATION --> WorkerNominated@{shape: rounded, label: "Worker nominated"} --> WAITING_FOR_WORKER
 
-    WAITING_FOR_WORKER --> AnyWorkerQuotaReserved@{ shape: rounded, label: "Quota Reserved on any Worker"} --> featureGate{"Feature Gate: Wait for Workload Admitted"}
-    featureGate -- ENABLED --> WAITING_FOR_WORKER
-    featureGate -- DISABLED --> WORKER_SELECTED
-
-    WORKER_SELECTED --> WorkerAdmitted@{ shape: rounded, label: "Admitted on Worker"} --> RUNNING
     WAITING_FOR_WORKER --> AnyWorkerAdmitted@{ shape: rounded, label: "Workload admitted on any Worker"} --> RUNNING
 
     subgraph SearchingForWorker [Searching for Worker]
@@ -101,15 +94,7 @@ flowchart TD
       WAITING_FOR_WORKER_NOMINATION
       WorkerNominated
       WAITING_FOR_WORKER
-      AnyWorkerQuotaReserved
-      featureGate
       AnyWorkerAdmitted
-    end
-
-    subgraph WorkerSelected [Worker Selected]
-      WORKER_SELECTED
-      WorkerAdmitted
-      RUNNING
     end
   end
 
@@ -148,7 +133,6 @@ For each MultiKueueGlobalStatus a message - **MultiKueueGlobalStatusMessage** - 
 * FAILED: `Workload failed after admission on Worker Cluster: <worker cluster reference>.`
 * INACTIVE: `Workload inactive: <reason>.`
 * RUNNING: `Workload admitted on Worker Cluster: <worker cluster reference>.`
-* WORKER_SELECTED: `Workload received quota reservation on Worker Cluster: <worker cluster reference>. <number of ready admission checks>/<number of all admission checks> Admission Checks Ready.`
 * WAITING_FOR_WORKER:
   * Default:
   `Workload awaiting admission on one of the registered Workers. <number of remotes> Remote Workloads created.`
