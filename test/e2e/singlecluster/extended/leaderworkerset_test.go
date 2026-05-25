@@ -737,13 +737,23 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			ginkgo.By(fmt.Sprintf("Wait for the surge workloads to be created with maxSurge=%d", maxSurge), func() {
-				wl := &kueue.Workload{}
+				surgeWorkloadNames := sets.New[string]()
+				for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
+					surgeWorkloadNames.Insert(util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)).Name)
+				}
+				seenSurgeWorkloads := sets.New[string]()
 				gomega.Eventually(func(g gomega.Gomega) {
-					for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
-						g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).To(gomega.Succeed(),
-							"workload for surge group %d should exist", i)
+					wls := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, wls, client.InNamespace(lws.Namespace))).To(gomega.Succeed())
+					for _, wl := range wls.Items {
+						if surgeWorkloadNames.Has(wl.Name) {
+							seenSurgeWorkloads.Insert(wl.Name)
+						}
 					}
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+					g.Expect(seenSurgeWorkloads).To(gomega.Equal(surgeWorkloadNames),
+						"expected to observe all %d surge workloads %v, seen so far: %v",
+						maxSurge, surgeWorkloadNames.UnsortedList(), seenSurgeWorkloads.UnsortedList())
+				}, util.MediumTimeout, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By(fmt.Sprintf("Verify rolling update completes successfully with %d replicas running", lwsReplicas), func() {
