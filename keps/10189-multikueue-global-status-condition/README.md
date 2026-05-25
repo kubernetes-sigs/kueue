@@ -70,8 +70,8 @@ The lifecycle of the Manager Workload will be split into the following **MultiKu
 * **SUCCESS** - workload finished successfully,
 * **FAILED** - workload finished with failed state,
 * **REJECTED** - Rejected by the MK Admission Check,
-* **RUNNING** - local workload is admitted (has the admitted condition); a single worker was selected; the remote is admitted (has the admitted condition); the underlying job will attempt to execute; if it finishes we transition into the SUCCESS/FAILED state, otherwise we back-off,
-* **WAITING_FOR_WORKER** -  quota reserved on the local workload; dispatching remotes to nominated workers and waiting for one of them to be selected - a worker will be selected once the remote achieves a state allowing it to graduate to either the WORKER_SELECTED (receiving quota reservation, MultiKueueWaitForWorkloadAdmitted feature gate disabled) or the RUNNING (workload receives the admitted condition set to true) state,
+* **ADMITTED_ON_WORKER** - local workload is admitted (has the admitted condition); a single worker was selected; the remote is admitted (has the admitted condition); the underlying job will attempt to execute; if it finishes we transition into the SUCCESS/FAILED state, otherwise we back-off,
+* **WAITING_FOR_WORKER** -  quota reserved on the local workload; dispatching remotes to nominated workers and waiting for one of them to be selected - a worker will be selected once the remote achieves a state allowing it to graduate to either the WORKER_SELECTED (receiving quota reservation, MultiKueueWaitForWorkloadAdmitted feature gate disabled) or the ADMITTED_ON_WORKER (workload receives the admitted condition set to true) state,
 * **WAITING_FOR_WORKER_NOMINATION** - specific to a non-primary component workload in the multi-workload-resource handling scenario;  quota reserved on the component workload; the component workload is waiting for the primary to select a worker to create a remote on,
 * **WAITING_FOR_MANAGER_QUOTA** - local workload is waiting to be granted a quota reservation on the Manager Cluster.
 
@@ -85,7 +85,7 @@ flowchart TD
 
   WAITING_FOR_WORKER_NOMINATION --> WorkerNominated@{shape: rounded, label: "Worker nominated"} --> WAITING_FOR_WORKER
 
-  WAITING_FOR_WORKER --> AnyWorkerAdmitted@{ shape: rounded, label: "Workload admitted on any Worker"} --> RUNNING
+  WAITING_FOR_WORKER --> AnyWorkerAdmitted@{ shape: rounded, label: "Workload admitted on any Worker"} --> ADMITTED_ON_WORKER
 
   subgraph DistributedProcessing [Core MultiKueue distributed logic]
     ManagerQuotaReserved
@@ -94,11 +94,11 @@ flowchart TD
     WorkerNominated
     WAITING_FOR_WORKER
     AnyWorkerAdmitted
-    RUNNING
+    ADMITTED_ON_WORKER
   end
 
   subgraph Finalize [Finalizing]
-    RUNNING --> Finished@{ shape: rounded, label: "Finished"} --> result{"Result?"}
+    ADMITTED_ON_WORKER --> Finished@{ shape: rounded, label: "Finished"} --> result{"Result?"}
     result -- Succeeded --> SUCCESS
     result -- Failed --> FAILED
   end
@@ -117,7 +117,7 @@ flowchart TD
 
   EvictedOnManager --> WAITING_FOR_MANAGER_QUOTA
   DistributedProcessing --> EvictedOnManager
-  RUNNING --> EvictedOnWorker
+  ADMITTED_ON_WORKER --> EvictedOnWorker
 
   END@{ shape: dbl-circ, label: "END" }
   SUCCESS --> END
@@ -128,7 +128,7 @@ For each MultiKueueGlobalStatus a message - **MultiKueueGlobalStatusMessage** - 
 * SUCCESS: `Workload has finished successfully on Worker Cluster: <worker cluster reference>.`
 * FAILED: `Workload failed after admission on Worker Cluster: <worker cluster reference>.`
 * REJECTED: `Workload rejected by MultiKueue AdmissionCheck: <reason>.`
-* RUNNING: `Workload admitted on Worker Cluster: <worker cluster reference>.`
+* ADMITTED_ON_WORKER: `Workload admitted on Worker Cluster: <worker cluster reference>.`
 * WAITING_FOR_WORKER:
   * Default:
   `Workload awaiting admission on one of the registered Workers. <number of remotes> Remote Workloads created.`
@@ -202,7 +202,7 @@ const (
   // - Success,
   // - Failed,
   // - Rejected,
-  // - Running,
+  // - AdmittedOnWorker,
   // - WorkerSelected,
   // - WaitingForWorker,
   // - WaitingForWorkerNomination,
@@ -226,7 +226,7 @@ const (
   // Rejected state means the workload was Rejected by the MK Admission Check.
   Rejected = "Rejected"
 
-  // Running state means the workload has the "Admitted" condition on the Manager Cluster and was admitted on a specific Worker Cluster.
+  // AdmittedOnWorker state means the workload has the "Admitted" condition on the Manager Cluster and was admitted on a specific Worker Cluster.
   // The underlying job is being executed on said Worker Cluster.
   Running = "Running"
 
@@ -260,7 +260,7 @@ MultiKueue Core Controller as well, since that is where the logic will be used.
 The exact MultiKueueGlobalStatus to assign can be determined using the conditions in the Manager Workload and the conditions in each of the Remote Workloads, all already gathered as part of the reconciliation process.
 
 For the defined messages, each variable can be determined using the data present during the reconciliation process:
-* _worker cluster reference_ of the selected Worker is retrieved as part of processing (when in one of {SUCCESS, FAILED, RUNNING, WORKER_SELECTED} states),
+* _worker cluster reference_ of the selected Worker is retrieved as part of processing (when in one of {SUCCESS, FAILED, ADMITTED_ON_WORKER, WORKER_SELECTED} states),
 * the _reason_ for why the Manager Workload was rejected,
 * _number of remotes_ is number of the noted remotes,
 * _worker selected by the primary local workload_ and _primary local workload reference_ are already identified in the current reconciliation process,
@@ -276,7 +276,7 @@ The structure will be implemented either as a new (Optional) Workload Status fie
 Aside from  these, the structure could also be extended with the following fields:
 - WorkloadReference of the related Manager Workload (necessary if the structure is implemented as a separate resource rather than a new Status field),
 - AdditionalMessages - additional messages describing the state; a list with contents depending on which type of state is assigned,
-- Admission - a field containing the data on the selected Worker and Remote when in WORKER_SELECTED/RUNNING state. Empty in any other state,
+- Admission - a field containing the data on the selected Worker and Remote when in WORKER_SELECTED/ADMITTED_ON_WORKER state. Empty in any other state,
 - AdmissionHistory - a list of entries representing Workers which historically were selected for this local workload but have failed to reach the Finished state. A remote is moved here from the Admission field when a backoff occurs,
 - WorkerDetails - a field containing a detailed description of the state of the workers and their remotes in the form of high-level aggregations,
 - MultiWorkloadSpec - a specification of the multi-workload setup if local workload is part of one, otherwise empty.
@@ -351,7 +351,7 @@ The proposed set of states would be as follows:
 | FAILED | A worker was selected, a remote admitted and the job executed. The job failed on the selected worker. Local workload has the finished condition with “Failed” reason. The remote is in the FAILED (Finished) state. | The underlying job was executed and failed. Workload has the finished condition with “Failed” reason. | FAILED | Finished |
 | INACTIVE | Local workload is not active. No remotes exist. This falls under "Waiting for manager quota". | Workload is inactive. | WAITING_FOR_MANAGER_QUOTA | Inactive |
 | REJECTED | Local workload was rejected by the MK AC. | -| REJECTED | - |
-| ADMITTED | Local workload has the admitted condition. Worker selected and remote in state ADMITTED (Admitted). Worker is attempting to execute the job. | Workload has an admission and the admitted condition. The cluster is attempting to execute the underlying job. | RUNNING | Admitted |
+| ADMITTED | Local workload has the admitted condition. Worker selected and remote in state ADMITTED (Admitted). Worker is attempting to execute the job. | Workload has an admission and the admitted condition. The cluster is attempting to execute the underlying job. | ADMITTED_ON_WORKER | Admitted |
 | ADMISSION PENDING | Local workload has the admitted condition. Worker selected and remote in state ADMISSION PENDING (QuotaReserved). | Workload has an admission but does not have the admitted condition. This means the workload received a quota reservation but not all admission checks have reached the Ready state yet. | WORKER_SELECTED | QuotaReserved |
 | WAITING FOR WORKER | Local has the admission but not the admitted condition. Dispatching remotes to one or more workers. All remotes are PENDING (Pending). | — | WAITING_FOR_WORKER | — |
 | WAITING FOR WORKER NOMINATION | Local workload is a non-primary workload in a group of composite workloads. Local has got an admission but not the admitted condition. Primary has not selected a worker yet. | — | WAITING_FOR_WORKER_NOMINATION | — |
@@ -374,7 +374,7 @@ Nil denotes a condition not having an equivalent. If not otherwise stated, the *
 |SUCCESS|nil|
 |FAILED|nil|
 |REJECTED|**State**: False, **Reason**: WorkloadRejected|
-|RUNNING|**State**: True|
+|ADMITTED_ON_WORKER|**State**: True|
 |WORKER_SELECTED|**State**: False|
 |WAITING_FOR_WORKER|**State**: False|
 |WAITING_FOR_WORKER_NOMINATION|**State**: False|
@@ -388,9 +388,9 @@ Outside of that, it closely resembles the proposed solution, especially given th
 We can define multiple conditions providing users with data they lack to establish the Global Status of a MultiKueue workload.
 
 These conditions could be one or more of:
-* AdmittedInWorker - set to true when in the RUNNING status. The message would identify the worker.
+* AdmittedInWorker - set to true when in the ADMITTED_ON_WORKER status. The message would identify the worker.
 * QuotaReservedInWorker - set to true when in the WORKER_SELECTED status. The message would identify the worker.
-* WorkerNominated - set to False when no worker was nominated for dispatch yet. Set to True once a single worker is nominated. This can mean entering the RUNNING or WORKER_SELECTED states, as well as cover exiting the WAITING_FOR_WORKER_NOMINATION state in case of non-primary composite workloads. The reason and message would identify which of these 3 cases we encountered.
+* WorkerNominated - set to False when no worker was nominated for dispatch yet. Set to True once a single worker is nominated. This can mean entering the ADMITTED_ON_WORKER or WORKER_SELECTED states, as well as cover exiting the WAITING_FOR_WORKER_NOMINATION state in case of non-primary composite workloads. The reason and message would identify which of these 3 cases we encountered.
 * MultiKueueManagerWorkload - present and set to True only for MultiKueue Manager Workloads, ensuring we are always aware if the workload in question is a Manager Workload or not.
 
 #### Disadvantages
