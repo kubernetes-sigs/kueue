@@ -127,6 +127,11 @@ func (p *PodWrapper) PriorityClass(pc string) *PodWrapper {
 	return p
 }
 
+// WorkloadPriorityClass updates the Kueue workload priority class label of the Pod.
+func (p *PodWrapper) WorkloadPriorityClass(wpc string) *PodWrapper {
+	return p.Label(controllerconsts.WorkloadPriorityClassLabel, wpc)
+}
+
 // Name updated the name of the pod
 func (p *PodWrapper) Name(n string) *PodWrapper {
 	p.ObjectMeta.Name = n
