@@ -231,12 +231,13 @@ func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
 }
 
 // setConfig - will try to recreate the k8s client and restart watching if the new config is different than
-// the one currently used or a reconnect was requested.
+// the one currently used, a reconnect was requested, or the client was marked as disconnected.
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
 func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig) (*time.Duration, error) {
 	configChanged := !equality.Semantic.DeepEqual(config, rc.config)
 	connecting := rc.connecting.Load()
-	if !configChanged && !connecting {
+	disconnected := rc.disconnected.Load()
+	if !configChanged && !connecting && !disconnected {
 		return nil, nil
 	}
 
@@ -495,6 +496,7 @@ func (rc *remoteClient) StopWatchers() {
 // is now unreachable, and apply the workerLostTimeout delay before requeuing.
 func (rc *remoteClient) disconnect() {
 	rc.StopWatchers()
+	rc.connecting.Store(true)
 	rc.disconnected.Store(true)
 }
 
