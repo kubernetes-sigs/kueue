@@ -19,16 +19,13 @@ package pod
 import (
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
-func TestPreemptionPolicy(t *testing.T) {
-	p := MakePod("pod", "ns").PreemptionPolicy(corev1.PreemptNever).Obj()
+func TestWorkloadPriorityClass(t *testing.T) {
+	p := MakePod("pod", "ns").WorkloadPriorityClass("high").Obj()
 
-	if p.Spec.PreemptionPolicy == nil {
-		t.Fatalf("preemptionPolicy = nil, want %q", corev1.PreemptNever)
-	}
-	if got := *p.Spec.PreemptionPolicy; got != corev1.PreemptNever {
-		t.Fatalf("preemptionPolicy = %q, want %q", got, corev1.PreemptNever)
+	if got := p.Labels[controllerconstants.WorkloadPriorityClassLabel]; got != "high" {
+		t.Fatalf("workload priority class label = %q, want %q", got, "high")
 	}
 }
