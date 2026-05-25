@@ -710,7 +710,7 @@ The label 'reason' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "flavor_admitted_active_workloads",
 			Help:      "The number of admitted Workloads that are active (unsuspended and not finished), per 'cluster_queue' and 'flavor'",
-		}, []string{"cluster_queue", "replica_role", "flavor"},
+		}, append([]string{"cluster_queue", "replica_role", "flavor"}, extraLabels...),
 	)
 	trackGaugeVec(FlavorAdmittedActiveWorkloads, gaugeCleanupScopeClusterQueueCache)
 
@@ -1233,9 +1233,8 @@ func ReportReservingActiveWorkloads(cqName kueue.ClusterQueueReference, count in
 }
 
 func ReportFlavorAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, fr resources.FlavorResource, count int64, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
+	labels := append([]string{string(cqName), roletracker.GetRole(tracker), fr.String()}, customLabelValues...)
 	FlavorAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
-
 }
 
 func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
