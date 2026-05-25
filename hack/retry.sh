@@ -18,7 +18,7 @@
 # where the captured stdout becomes the variable value.
 #
 # Usage:
-#   retry.sh [--attempts N] [--delay SECONDS] -- <command> [args...]
+#   retry.sh [--attempts N] [--delay SECONDS] [--retry-condition "CMD"] [--cleanup "CMD"] -- <command> [args...]
 #
 # Defaults: --attempts 4, --delay 5
 # Exit:     0 on first success, 1 if all attempts fail, 2 on usage error.
@@ -27,14 +27,18 @@ set -u
 
 attempts=4
 delay=5
+retry_condition=""
+cleanup=""
 
 while [ $# -gt 0 ]; do
     case $1 in
-        --attempts) attempts=$2; shift 2 ;;
-        --delay)    delay=$2;    shift 2 ;;
-        --)         shift; break ;;
-        -*)         echo "retry: unknown flag: $1" 1>&2; exit 2 ;;
-        *)          break ;;
+        --attempts)        attempts=$2; shift 2 ;;
+        --delay)           delay=$2;    shift 2 ;;
+        --retry-condition) retry_condition=$2; shift 2 ;;
+        --cleanup)         cleanup=$2; shift 2 ;;
+        --)                shift; break ;;
+        -*)                echo "retry: unknown flag: $1" 1>&2; exit 2 ;;
+        *)                 break ;;
     esac
 done
 
@@ -50,6 +54,23 @@ for i in $(seq 1 "$attempts"); do
         exit 0
     fi
     echo "retry [$i/$attempts] failed" 1>&2
-    [ "$i" -lt "$attempts" ] && sleep "$delay"
+
+    if [ "$i" -lt "$attempts" ]; then
+        if [ -n "$retry_condition" ]; then
+            # Evaluate the fail-fast condition
+            if ! eval "$retry_condition"; then
+                echo "retry: aborting early as retry condition failed (fail-fast)" 1>&2
+                exit 1
+            fi
+        fi
+
+        if [ -n "$cleanup" ]; then
+            # Run the cleanup command before the next attempt
+            echo "retry: running cleanup command..." 1>&2
+            eval "$cleanup"
+        fi
+
+        sleep "$delay"
+    fi
 done
 exit 1
