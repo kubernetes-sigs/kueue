@@ -62,9 +62,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		if fromObject(&localJob).IsSuspended() && !fromObject(&localJob).IsActive() {
-			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-			log.V(2).Info("Skipping the sync since the local job is still suspended")
+		if shouldSkipSyncForSuspendedLocalJob(log, &localJob, &remoteJob) {
 			return nil
 		}
 
@@ -101,6 +99,30 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	remoteJob.Spec.ManagedBy = nil
 
 	return remoteClient.Create(ctx, &remoteJob)
+}
+
+func shouldSkipSyncForSuspendedLocalJob(log logr.Logger, localJob, remoteJob *batchv1.Job) bool {
+	localJobInfo := fromObject(localJob)
+
+	if !localJobInfo.IsSuspended() {
+		// do not skip any syncs if the local Job is unsuspnded
+		log.V(3).Info("Peforming the sync as the local Job is unsuspended")
+		return false
+	}
+	remoteJobInfo := fromObject(remoteJob)
+	if remoteJobInfo.IsSuspended() {
+		// Do not skip any syncs if the remote Job is also suspended
+		// This is needed to await for updating the status.active field
+		// when the remote Job is evicted; see: https://github.com/kubernetes-sigs/kueue/pull/8151
+		log.V(3).Info("Peforming the sync as the local and the remote Job are suspended")
+		return false
+	}
+
+	// We skip the sync when the localJob has suspend=true, and the remote job is suspend=false
+	// to prevent the race condition when the local Job is updated to suspend=false prematurely
+	// so that the injection of nodeSlectors does not work; see: https://github.com/kubernetes-sigs/kueue/pull/3685
+	log.V(2).Info("Skipping the sync when the localJob has suspend=true, and the remote job is suspend=false")
+	return true
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
