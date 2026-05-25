@@ -217,6 +217,62 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 	}
 }
 
+func TestDefaultWorkloadPriorityClassExist(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
+
+	tests := map[string]struct {
+		workloadPriorityClassList *kueue.WorkloadPriorityClassList
+		wantExist                 bool
+	}{
+		"default workloadPriorityClass exists": {
+			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
+				Items: []kueue.WorkloadPriorityClass{
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "default"},
+						Value:      100,
+					},
+				},
+			},
+			wantExist: true,
+		},
+		"default workloadPriorityClass does not exist": {
+			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
+				Items: []kueue.WorkloadPriorityClass{
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "other"},
+						Value:      50,
+					},
+				},
+			},
+			wantExist: false,
+		},
+		"no workloadPriorityClasses exist": {
+			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{},
+			wantExist:                 false,
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			t.Parallel()
+
+			builder := fake.NewClientBuilder().WithScheme(scheme).WithLists(tt.workloadPriorityClassList)
+			client := builder.Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			exist, err := DefaultWorkloadPriorityClassExist(ctx, client)
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if exist != tt.wantExist {
+				t.Errorf("unexpected result: got: %v, expected: %v", exist, tt.wantExist)
+			}
+		})
+	}
+}
+
 func TestPriorityBoost(t *testing.T) {
 	tests := map[string]struct {
 		workload     *kueue.Workload

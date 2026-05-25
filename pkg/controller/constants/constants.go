@@ -47,6 +47,11 @@ const (
 	// This label is always mutable because it might be useful for the preemption.
 	WorkloadPriorityClassLabel = "kueue.x-k8s.io/priority-class"
 
+	// DefaultWorkloadPriorityClassName is the name for the default
+	// WorkloadPriorityClass that is applied if WorkloadPriorityClassLabel is not
+	// specified and the WorkloadPriorityClassDefaulting feature gate is enabled.
+	DefaultWorkloadPriorityClassName = "default"
+
 	// ProvReqAnnotationPrefix is the prefix for annotations that should be pass to ProvisioningRequest as Parameters.
 	ProvReqAnnotationPrefix = "provreq.kueue.x-k8s.io/"
 

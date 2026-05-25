@@ -120,4 +120,5 @@ after the `QuotaReserved` condition is `True`.
 
 - Learn how to [run jobs](/docs/tasks/run/jobs)
 - Learn how to [run jobs with workload priority](/docs/tasks/manage/run_job_with_workload_priority)
+- Learn how to [setup a default WorkloadPriorityClass](/docs/tasks/manage/enforce_job_management/setup_default_workload_priority_class)
 - Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass) for `WorkloadPriorityClass`

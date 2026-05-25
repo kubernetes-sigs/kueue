@@ -22,12 +22,15 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
+	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
@@ -59,6 +62,33 @@ func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string)
 		labels[constants.QueueLabel] = string(constants.DefaultLocalQueueName)
 		jobObj.SetLabels(labels)
 	}
+}
+
+func ApplyDefaultWorkloadPriorityClass(ctx context.Context, c client.Client, jobObj client.Object) {
+	if !features.Enabled(features.WorkloadPriorityClassDefaulting) {
+		return
+	}
+	if WorkloadPriorityClassName(jobObj) != "" {
+		return
+	}
+	if IsOwnerManagedByKueueForObject(jobObj) {
+		return
+	}
+	exists, err := utilpriority.DefaultWorkloadPriorityClassExist(ctx, c)
+	if err != nil {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(2).Error(err, "Failed to check for default WorkloadPriorityClass")
+		return
+	}
+	if !exists {
+		return
+	}
+	labels := jobObj.GetLabels()
+	if labels == nil {
+		labels = make(map[string]string, 1)
+	}
+	labels[constants.WorkloadPriorityClassLabel] = constants.DefaultWorkloadPriorityClassName
+	jobObj.SetLabels(labels)
 }
 
 func ApplyDefaultForManagedBy(job GenericJob, queues *qcache.Manager, cache *schdcache.Cache, log logr.Logger) {

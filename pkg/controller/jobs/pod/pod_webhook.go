@@ -157,6 +157,8 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 			pod.pod.Labels[ctrlconstants.QueueLabel] = string(ctrlconstants.DefaultLocalQueueName)
 		}
 
+		jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, pod.Object())
+
 		suspend = jobframework.QueueNameForObject(pod.Object()) != "" || w.manageJobsWithoutQueueName
 		if suspend {
 			if pod.pod.Labels == nil {
