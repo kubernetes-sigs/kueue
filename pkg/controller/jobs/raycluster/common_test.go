@@ -1085,6 +1085,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 		rayClusterName   string
 		registerRayType  bool
 		createRayCluster bool
+		standalone       bool
 		wantAnnotation   map[string]string
 		wantErr          bool
 	}{
@@ -1111,6 +1112,22 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			createRayCluster: true,
 			wantAnnotation: map[string]string{
 				RayClusterGenerationAnnotation:         "0",
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+			},
+		},
+		"standalone raycluster does not track its own generation": {
+			annotations: map[string]string{
+				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+			},
+			podSets: []kueue.PodSet{
+				{Name: "head", Count: 1},
+				{Name: "worker", Count: 3},
+			},
+			rayClusterName:   "test-raycluster",
+			registerRayType:  true,
+			createRayCluster: true,
+			standalone:       true,
+			wantAnnotation: map[string]string{
 				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
 			},
 		},
@@ -1188,22 +1205,29 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 
 			builder := fake.NewClientBuilder().WithScheme(scheme)
 
+			var jobObject client.Object
 			if tc.createRayCluster {
 				rayCluster := testingrayutil.MakeCluster("test-raycluster", "default").Obj()
+				if tc.standalone {
+					rayCluster.SetAnnotations(tc.annotations)
+					jobObject = rayCluster
+				}
 				builder = builder.WithObjects(rayCluster)
 			}
 
 			c := builder.Build()
 
-			obj := &metav1.ObjectMeta{
-				Name:        "test-object",
-				Namespace:   "default",
-				Annotations: tc.annotations,
+			if jobObject == nil {
+				obj := &metav1.ObjectMeta{
+					Name:        "test-object",
+					Namespace:   "default",
+					Annotations: tc.annotations,
+				}
+				// Use a corev1.ConfigMap as a simple client.Object wrapper.
+				jobObject = &corev1.ConfigMap{ObjectMeta: *obj}
 			}
-			// Use a corev1.ConfigMap as a simple client.Object wrapper
-			cm := &corev1.ConfigMap{ObjectMeta: *obj}
 
-			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, cm, tc.podSets, tc.rayClusterName)
+			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, jobObject, tc.podSets, tc.rayClusterName)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("GetWorkloadslicingCustomAnnotations() expected error but got nil")
