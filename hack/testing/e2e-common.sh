@@ -424,29 +424,23 @@ function cluster_create {
         cat "$kind_config"
     fi
 
-    local max_attempts=3
-    local attempt=1
-    local created=0
-    while [ "$attempt" -le "$max_attempts" ]; do
-        echo "Creating kind cluster '$cluster' (attempt $attempt/$max_attempts)..."
-        if $KIND create cluster --name "$cluster" --image "$E2E_KIND_VERSION" --config "$kind_config" --kubeconfig="$kubeconfig" --wait 1m -v 5 > "$ARTIFACTS/$cluster-create.log" 2>&1; then
-            created=1
-            break
-        fi
-        echo "Attempt $attempt failed. Log:"
-        cat "$ARTIFACTS/$cluster-create.log"
-        if ! grep -q "port is already allocated" "$ARTIFACTS/$cluster-create.log"; then
-            echo "Failure is not a port collision — not retrying."
-            break
-        fi
-        echo "Port collision detected on attempt $attempt. Cleaning up and retrying in 3s..."
-        $KIND delete cluster --name "$cluster" 2>/dev/null || true
-        attempt=$((attempt + 1))
-        sleep 3
-    done
-    if [ "$created" -eq 0 ]; then
-        echo "ERROR: unable to start the $cluster cluster after $max_attempts attempts"
-        cat "$ARTIFACTS/$cluster-create.log"
+    local log_file="$ARTIFACTS/$cluster-create.log"
+    local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 1m -v 5 > \"$log_file\" 2>&1"
+
+    local retry_condition="grep -q 'port is already allocated' \"$log_file\""
+
+    local cleanup_cmd="$KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
+
+    echo "Creating kind cluster '$cluster'..."
+    if ! "${ROOT_DIR}/hack/retry.sh" \
+        --attempts 3 \
+        --delay 3 \
+        --retry-condition "$retry_condition" \
+        --cleanup "$cleanup_cmd" \
+        -- bash -c "$create_cmd"; then
+
+        echo "ERROR: unable to start the $cluster cluster after retries." >&2
+        cat "$log_file" >&2
         return 1
     fi
 
