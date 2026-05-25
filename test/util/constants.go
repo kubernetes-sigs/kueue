@@ -61,6 +61,7 @@ var (
 	ArtifactsDir             = filepath.Join(ProjectBaseDir, "artifacts")
 	AutoscalerCrds           = filepath.Join(ProjectBaseDir, "dep-crds", "cluster-autoscaler")
 	JobsetCrds               = filepath.Join(ProjectBaseDir, "dep-crds", "jobset-operator")
+	LeaderWorkerSetCrds      = filepath.Join(ProjectBaseDir, "dep-crds", "leaderworkerset-operator")
 	TrainingOperatorCrds     = filepath.Join(ProjectBaseDir, "dep-crds", "training-operator-crds")
 	KfTrainerCrds            = filepath.Join(ProjectBaseDir, "dep-crds", "kf-trainer-crds")
 	KfTrainerClusterRuntimes = filepath.Join(ProjectBaseDir, "dep-crds", "kf-trainer-runtimes")

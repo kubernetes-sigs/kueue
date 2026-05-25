@@ -414,6 +414,11 @@ const (
 	// (pod-group-name and prebuilt-workload-name) via annotations. When the gate is
 	// disabled, the label-based identifiers are used instead.
 	WorkloadIdentifierAnnotations featuregate.Feature = "WorkloadIdentifierAnnotations"
+	// owner: @kannon92
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7029-clusterqueue-default-execution-time
+	//
+	// Enables defaulting MaximumExecutionTimeSeconds on workloads from ClusterQueue configuration.
+	ClusterQueueMaxExecutionTime featuregate.Feature = "ClusterQueueMaxExecutionTime"
 )
 
 func init() {
@@ -645,6 +650,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	WorkloadIdentifierAnnotations: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ClusterQueueMaxExecutionTime: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
