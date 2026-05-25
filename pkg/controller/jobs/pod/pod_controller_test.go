@@ -3734,7 +3734,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"finalize workload for non existent pod with FinishOrphanedWorkloads disabled": {
+		"finalize workload for non existent pod with FinalizeAndFinishOrphanedWorkloads disabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_pod"},
 			workloads: []kueue.Workload{
@@ -3750,7 +3750,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"finalize workload for non existent pod with FinishOrphanedWorkloads enabled": {
+		"finalize workload for non existent pod with FinalizeAndFinishOrphanedWorkloads enabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_pod"},
 			workloads: []kueue.Workload{
