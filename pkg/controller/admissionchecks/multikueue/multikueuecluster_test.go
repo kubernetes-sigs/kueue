@@ -505,8 +505,8 @@ func TestUpdateConfig(t *testing.T) {
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, nil),
 			},
-			wantCancelCalled:  1,
-			wantErr:           fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
+			wantCancelCalled: 1,
+			wantErr:          fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
 		},
 		"skip insecure kubeconfig validation": {
 			reconcileFor: "worker1",
