@@ -82,7 +82,7 @@ type CohortStatus struct {
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:deprecatedversion:warning="This version is deprecated. Use v1beta2 instead."
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={co}
 // +kubebuilder:subresource:status
 
 // Cohort defines the Cohorts API.

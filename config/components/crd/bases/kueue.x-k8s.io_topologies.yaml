@@ -11,6 +11,8 @@ spec:
     kind: Topology
     listKind: TopologyList
     plural: topologies
+    shortNames:
+    - topo
     singular: topology
   scope: Cluster
   versions:

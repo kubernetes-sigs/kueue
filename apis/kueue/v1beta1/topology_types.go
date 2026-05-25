@@ -125,7 +125,7 @@ type TopologyLevel struct {
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:deprecatedversion:warning="This version is deprecated. Use v1beta2 instead."
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={topo}
 
 // Topology is the Schema for the topology API
 type Topology struct {

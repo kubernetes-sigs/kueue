@@ -106,7 +106,7 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={ac}
 
 // AdmissionCheck is the Schema for the admissionchecks API
 type AdmissionCheck struct {
