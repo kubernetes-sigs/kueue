@@ -15,4 +15,3 @@ patches:
       group: apps
       kind: Deployment
       name: training-operator
-
