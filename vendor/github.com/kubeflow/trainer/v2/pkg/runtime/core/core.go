@@ -22,34 +22,46 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1"
 	"github.com/kubeflow/trainer/v2/pkg/runtime"
 )
 
 // +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=trainingruntimes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=clustertrainingruntimes,verbs=get;list;watch
 
-func New(ctx context.Context, client client.Client, indexer client.FieldIndexer) (map[string]runtime.Runtime, error) {
+var runtimes map[string]runtime.Runtime
+
+func New(ctx context.Context, client client.Client, indexer client.FieldIndexer, cfg *configapi.Configuration) (map[string]runtime.Runtime, error) {
 	registry := NewRuntimeRegistry()
-	runtimes := make(map[string]runtime.Runtime, len(registry))
+	newRuntimes := make(map[string]runtime.Runtime, len(registry))
 	for name, registrar := range registry {
 		for _, dep := range registrar.dependencies {
 			depRegistrar, depExist := registry[dep]
-			_, depRegistered := runtimes[dep]
+			_, depRegistered := newRuntimes[dep]
 			if depExist && !depRegistered {
-				r, err := depRegistrar.factory(ctx, client, indexer)
+				r, err := depRegistrar.factory(ctx, client, indexer, cfg)
 				if err != nil {
 					return nil, fmt.Errorf("initializing runtime %q on which %q depends: %w", dep, name, err)
 				}
-				runtimes[dep] = r
+				newRuntimes[dep] = r
 			}
 		}
-		if _, ok := runtimes[name]; !ok {
-			r, err := registrar.factory(ctx, client, indexer)
+		if _, ok := newRuntimes[name]; !ok {
+			r, err := registrar.factory(ctx, client, indexer, cfg)
 			if err != nil {
 				return nil, fmt.Errorf("initializing runtime %q: %w", name, err)
 			}
-			runtimes[name] = r
+			newRuntimes[name] = r
 		}
 	}
-	return runtimes, nil
+	runtimes = newRuntimes
+	return newRuntimes, nil
+}
+
+func Runtimes() map[string]runtime.Runtime {
+	runtimesCopy := make(map[string]runtime.Runtime, len(runtimes))
+	for d, r := range runtimes {
+		runtimesCopy[d] = r
+	}
+	return runtimesCopy
 }

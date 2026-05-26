@@ -16,16 +16,59 @@ package v1alpha2
 
 // JobSetSpecApplyConfiguration represents a declarative configuration of the JobSetSpec type for use
 // with apply.
+//
+// JobSetSpec defines the desired state of JobSet
 type JobSetSpecApplyConfiguration struct {
-	ReplicatedJobs          []ReplicatedJobApplyConfiguration `json:"replicatedJobs,omitempty"`
-	Network                 *NetworkApplyConfiguration        `json:"network,omitempty"`
-	SuccessPolicy           *SuccessPolicyApplyConfiguration  `json:"successPolicy,omitempty"`
-	FailurePolicy           *FailurePolicyApplyConfiguration  `json:"failurePolicy,omitempty"`
-	StartupPolicy           *StartupPolicyApplyConfiguration  `json:"startupPolicy,omitempty"`
-	Suspend                 *bool                             `json:"suspend,omitempty"`
-	Coordinator             *CoordinatorApplyConfiguration    `json:"coordinator,omitempty"`
-	ManagedBy               *string                           `json:"managedBy,omitempty"`
-	TTLSecondsAfterFinished *int32                            `json:"ttlSecondsAfterFinished,omitempty"`
+	// replicatedJobs is the group of jobs that will form the set.
+	ReplicatedJobs []ReplicatedJobApplyConfiguration `json:"replicatedJobs,omitempty"`
+	// network defines the networking options for the jobset.
+	Network *NetworkApplyConfiguration `json:"network,omitempty"`
+	// successPolicy configures when to declare the JobSet as
+	// succeeded.
+	// The JobSet is always declared succeeded if all jobs in the set
+	// finished with status complete.
+	SuccessPolicy *SuccessPolicyApplyConfiguration `json:"successPolicy,omitempty"`
+	// failurePolicy configures when to declare the JobSet as
+	// failed.
+	// The JobSet is always declared failed if any job in the set
+	// finished with status failed.
+	FailurePolicy *FailurePolicyApplyConfiguration `json:"failurePolicy,omitempty"`
+	// startupPolicy configures in what order jobs must be started
+	// Deprecated: StartupPolicy is deprecated, please use the DependsOn API.
+	StartupPolicy *StartupPolicyApplyConfiguration `json:"startupPolicy,omitempty"`
+	// suspend suspends all running child Jobs when set to true.
+	Suspend *bool `json:"suspend,omitempty"`
+	// coordinator can be used to assign a specific pod as the coordinator for
+	// the JobSet. If defined, an annotation will be added to all Jobs and pods with
+	// coordinator pod, which contains the stable network endpoint where the
+	// coordinator pod can be reached.
+	// jobset.sigs.k8s.io/coordinator=<pod hostname>.<headless service>
+	Coordinator *CoordinatorApplyConfiguration `json:"coordinator,omitempty"`
+	// managedBy is used to indicate the controller or entity that manages a JobSet.
+	// The built-in JobSet controller reconciles JobSets which don't have this
+	// field at all or the field value is the reserved string
+	// `jobset.sigs.k8s.io/jobset-controller`, but skips reconciling JobSets
+	// with a custom value for this field.
+	//
+	// The value must be a valid domain-prefixed path (e.g. acme.io/foo) -
+	// all characters before the first "/" must be a valid subdomain as defined
+	// by RFC 1123. All characters trailing the first "/" must be valid HTTP Path
+	// characters as defined by RFC 3986. The value cannot exceed 63 characters.
+	// The field is immutable.
+	ManagedBy *string `json:"managedBy,omitempty"`
+	// ttlSecondsAfterFinished limits the lifetime of a JobSet that has finished
+	// execution (either Complete or Failed). If this field is set,
+	// TTLSecondsAfterFinished after the JobSet finishes, it is eligible to be
+	// automatically deleted. When the JobSet is being deleted, its lifecycle
+	// guarantees (e.g. finalizers) will be honored. If this field is unset,
+	// the JobSet won't be automatically deleted. If this field is set to zero,
+	// the JobSet becomes eligible to be deleted immediately after it finishes.
+	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
+	// volumeClaimPolicies is a list of policies for persistent volume claims that pods are allowed
+	// to reference. JobSet controller automatically adds the required volume claims to the
+	// pod template. Every claim in this list must have at least one matching (by name)
+	// volumeMount in one container in the template.
+	VolumeClaimPolicies []VolumeClaimPolicyApplyConfiguration `json:"volumeClaimPolicies,omitempty"`
 }
 
 // JobSetSpecApplyConfiguration constructs a declarative configuration of the JobSetSpec type for use with
@@ -108,5 +151,18 @@ func (b *JobSetSpecApplyConfiguration) WithManagedBy(value string) *JobSetSpecAp
 // If called multiple times, the TTLSecondsAfterFinished field is set to the value of the last call.
 func (b *JobSetSpecApplyConfiguration) WithTTLSecondsAfterFinished(value int32) *JobSetSpecApplyConfiguration {
 	b.TTLSecondsAfterFinished = &value
+	return b
+}
+
+// WithVolumeClaimPolicies adds the given value to the VolumeClaimPolicies field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the VolumeClaimPolicies field.
+func (b *JobSetSpecApplyConfiguration) WithVolumeClaimPolicies(values ...*VolumeClaimPolicyApplyConfiguration) *JobSetSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithVolumeClaimPolicies")
+		}
+		b.VolumeClaimPolicies = append(b.VolumeClaimPolicies, *values[i])
+	}
 	return b
 }

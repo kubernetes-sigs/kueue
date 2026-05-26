@@ -16,9 +16,11 @@ description: 将 StatefulSet 作为 Kueue 管理的工作负载运行。
 
 ## 开始之前 {#before-you-begin}
 
-1. 学习如何[安装 Kueue 并配置自定义管理器版本](/zh-CN/docs/installation/#install-a-custom-configured-released-version)。
+1. 默认情况下已启用 `statefulset` 集成。
 
-2. 确保你启用了 v1/statefulset 集成，例如：
+2. 对于 Kueue v0.15 及更早版本，
+   学习如何[安装 Kueue 并配置自定义管理器版本](/zh-CN/docs/installation/#install-a-custom-configured-released-version)，
+   并确保你启用了 v1/statefulset 集成，例如：
    ```yaml
    apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration

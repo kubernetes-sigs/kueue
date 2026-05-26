@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -58,41 +57,43 @@ func TestMultiKueueAdapter(t *testing.T) {
 	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
-		managersJobs        []batchv1.Job
-		workerJobs          []batchv1.Job
-		withoutJobManagedBy bool
+		managersJobs []batchv1.Job
+		workerJobs   []batchv1.Job
 
 		operation func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError        error
 		wantManagersJobs []batchv1.Job
 		wantWorkerJobs   []batchv1.Job
+		featureGates     map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote job": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
 			wantManagersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 		},
 		"sync intermediate status from remote job": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Active(2).
 					Obj(),
@@ -106,13 +107,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Active(2).
 					Obj(),
 			},
 		},
 		"skip to sync intermediate status from remote suspended job": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().
 					Suspend(true).
@@ -120,7 +122,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					Active(2).
@@ -136,7 +138,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					Active(2).
@@ -144,12 +146,13 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync final status from remote job": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
@@ -165,81 +168,27 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueue.MultiKueueOriginLabel, "origin1").
-					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
-					Obj(),
-			},
-		},
-		"don't sync intermediate status from remote job without Job ManagedBy": {
-			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
-			},
-			workerJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueue.MultiKueueOriginLabel, "origin1").
-					Active(2).
-					Obj(),
-			},
-			withoutJobManagedBy: true,
-			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
-			},
-
-			wantManagersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
-			},
-			wantWorkerJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueue.MultiKueueOriginLabel, "origin1").
-					Active(2).
-					Obj(),
-			},
-		},
-		"sync final status from remote job without Job ManagedBy": {
-			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
-			},
-			workerJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueue.MultiKueueOriginLabel, "origin1").
-					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
-					Obj(),
-			},
-			withoutJobManagedBy: true,
-			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
-			},
-
-			wantManagersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().
-					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
-					Obj(),
-			},
-			wantWorkerJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
 		},
 		"remote job is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Active(2).
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace})
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace})
 			},
 		},
 		"missing job is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
@@ -248,8 +197,9 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"job with wrong managedBy is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); isManged {
@@ -258,12 +208,13 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 		},
 		"job managedBy multikueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); !isManged {
@@ -272,29 +223,31 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
-		"any job is managed without Job ManagedBy": {
+		"sync creates missing remote job, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
-			withoutJobManagedBy: true,
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); !isManged {
-					return errors.New("expecting true")
-				}
-				return nil
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 			wantManagersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().Obj(),
+				*baseJobManagedByKueueBuilder.DeepCopy(),
+			},
+			wantWorkerJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadAnnotation("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
 			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, !tc.withoutJobManagedBy)
-
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			managerBuilder = managerBuilder.WithLists(&batchv1.JobList{Items: tc.managersJobs})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
@@ -337,7 +290,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 	type fields struct {
-		features map[featuregate.Feature]bool
+		featureGates map[featuregate.Feature]bool
 	}
 	type args struct {
 		localClient  client.Client
@@ -395,7 +348,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobNotFound": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
+				featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -406,32 +359,11 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			want: want{
 				localJob: newJob().ManagedBy("parent").Obj(),
 				remoteJob: newJob().Label(kueue.MultiKueueOriginLabel, "").
-					Label(constants.PrebuiltWorkloadLabel, "").
-					ManagedBy("parent").
-					Obj(),
-			},
-		},
-		"RemoteJobNotFound_ResetManagedBy": {
-			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
-			},
-			args: args{
-				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					ManagedBy("parent").Obj()).Build(),
-				remoteClient: fake.NewClientBuilder().WithScheme(schema).Build(),
-				key:          client.ObjectKeyFromObject(newJob().Obj()),
-			},
-			want: want{
-				localJob: newJob().ManagedBy("parent").Obj(),
-				remoteJob: newJob().Label(kueue.MultiKueueOriginLabel, "").
-					Label(constants.PrebuiltWorkloadLabel, "").
+					PrebuiltWorkloadLabel("").
 					Obj(),
 			},
 		},
 		"RemoteJobInProgress_LocalIsManagedButStillSuspended": {
-			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
-			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -447,9 +379,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			},
 		},
 		"RemoteJobInProgress_LocalIsManagedAndUnsuspended": {
-			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
-			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -483,36 +412,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 			},
 		},
-		"RemoteJobFinished_Completed_MultiKueueBatchJobWithManagedBy_Disabled": {
-			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
-			},
-			args: args{
-				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Obj()).Build(),
-				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					Condition(batchv1.JobCondition{
-						Type:   batchv1.JobComplete,
-						Status: corev1.ConditionTrue,
-					}).
-					Obj()).Build(),
-				key: client.ObjectKeyFromObject(newJob().Obj()),
-			},
-			want: want{
-				localJob: newJob().
-					Suspend(false).
-					ResourceVersion("2").
-					Condition(
-						batchv1.JobCondition{
-							Type:   batchv1.JobComplete,
-							Status: corev1.ConditionTrue,
-						}).
-					Obj(),
-			},
-		},
-		"RemoteJobFinished_Completed_MultiKueueBatchJobWithManagedBy_Enabled": {
-			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
-			},
+		"RemoteJobFinished_Completed": {
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -534,38 +434,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 			},
 		},
-		"RemoteJobFinished_Failed_MultiKueueBatchJobManagedBy_Disabled": {
-			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
-			},
-
-			args: args{
-				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Obj()).Build(),
-				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					Condition(batchv1.JobCondition{
-						Type:   batchv1.JobFailed,
-						Status: corev1.ConditionTrue,
-					}).
-					Obj()).Build(),
-				key: client.ObjectKeyFromObject(newJob().Obj()),
-			},
-			want: want{
-				localJob: newJob().
-					Suspend(false).
-					ResourceVersion("2").
-					Condition(
-						batchv1.JobCondition{
-							Type:   batchv1.JobFailed,
-							Status: corev1.ConditionTrue,
-						}).
-					Obj(),
-			},
-		},
-		"RemoteJobFinished_Failed_MultiKueueBatchJobManagedBy_Enabled": {
-			fields: fields{
-				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
-			},
-
+		"RemoteJobFinished_Failed": {
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -590,7 +459,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_RemoteInSync": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -599,7 +468,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj()).Build(),
 				key:          client.ObjectKeyFromObject(newJob().Obj()),
@@ -612,14 +481,14 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 				remoteJob: newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj(),
 			},
 		},
 		"ElasticJob_LocalIsStale": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -629,7 +498,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj()).Build(),
 				key:          client.ObjectKeyFromObject(newJob().Obj()),
@@ -643,43 +512,14 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 				remoteJob: newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj(),
 			},
 		},
-		"ElasticJob_WorkloadNameOnlyChange_EdgeCase_MultiKueueBatchJobWithManagedBy_Disabled": {
+		"ElasticJob_WorkloadNameOnlyChange_EdgeCase": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: false},
-			},
-			args: args{
-				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Condition(runningJobCondition).
-					Obj()).Build(),
-				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Condition(runningJobCondition).
-					Obj()).Build(),
-				key:          client.ObjectKeyFromObject(newJob().Obj()),
-				workloadName: "test-workload-new",
-			},
-			want: want{
-				localJob: newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Condition(runningJobCondition).
-					Obj(),
-				remoteJob: newJob().
-					ResourceVersion("2").
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload-new").
-					Condition(runningJobCondition).
-					Obj(),
-			},
-		},
-		"ElasticJob_WorkloadNameOnlyChange_EdgeCase_MultiKueueBatchJobWithManagedBy_Enabled": {
-			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: true},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -705,9 +545,9 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 			},
 		},
-		"ElasticJob_RemoteOutOfSync_MultiKueueBatchJobWithManagedBy_Disabled": {
+		"ElasticJob_RemoteOutOfSync": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: false},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -717,40 +557,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
-					Condition(runningJobCondition).
-					Obj()).Build(),
-				key:          client.ObjectKeyFromObject(newJob().Obj()),
-				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0),
-			},
-			want: want{
-				localJob: newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Parallelism(22).
-					Condition(runningJobCondition).
-					Obj(),
-				remoteJob: newJob().
-					ResourceVersion("2").
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0)).
-					Parallelism(22).
-					Condition(runningJobCondition).
-					Obj(),
-			},
-		},
-		"ElasticJob_RemoteOutOfSync_MultiKueueBatchJobWithManagedBy_Enabled": {
-			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: true},
-			},
-			args: args{
-				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Parallelism(22).
-					Condition(runningJobCondition).
-					Obj()).Build(),
-				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj()).Build(),
 				key:          client.ObjectKeyFromObject(newJob().Obj()),
@@ -765,15 +572,15 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				remoteJob: newJob().
 					ResourceVersion("1").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Parallelism(1).
 					Condition(runningJobCondition).
 					Obj(),
 			},
 		},
-		"ElasticJob_RemoteOutOfSync_PatchFailure_MultiKueueBatchJobManagedBy_Disabled": {
+		"ElasticJob_RemoteOutOfSync_PatchFailure": {
 			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: false},
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -783,44 +590,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
-					Condition(runningJobCondition).
-					Obj()).
-					WithInterceptorFuncs(interceptor.Funcs{
-						Patch: func(ctx context.Context, client client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-							return errors.New("test-patch-error")
-						},
-					}).Build(),
-				key:          client.ObjectKeyFromObject(newJob().Obj()),
-				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0),
-			},
-			want: want{
-				err: true,
-				localJob: newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Parallelism(22).
-					Condition(runningJobCondition).
-					Obj(),
-				remoteJob: newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
-					Condition(runningJobCondition).
-					Obj(),
-			},
-		},
-		"ElasticJob_RemoteOutOfSync_PatchFailure_MultiKueueBatchJobManagedBy_Enabled": {
-			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueBatchJobWithManagedBy: true},
-			},
-			args: args{
-				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Parallelism(22).
-					Condition(runningJobCondition).
-					Obj()).Build(),
-				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
@@ -839,7 +609,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 				remoteJob: newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					PrebuiltWorkloadLabel("test-workload").
 					Condition(runningJobCondition).
 					Obj(),
 			},
@@ -848,9 +618,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			// Setup feature gates if any provided.
-			for featureName, enabled := range tt.fields.features {
-				features.SetFeatureGateDuringTest(t, featureName, enabled)
-			}
+			features.SetFeatureGatesDuringTest(t, tt.fields.featureGates)
 
 			adapter := &multiKueueAdapter{}
 			ctx, _ := utiltesting.ContextWithLog(t)

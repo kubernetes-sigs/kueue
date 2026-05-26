@@ -11,6 +11,7 @@
       - [Story 1A - Using Replace with MIG](#story-1a---using-replace-with-mig)
       - [Story 1B - Using Retain with MIG](#story-1b---using-retain-with-mig)
     - [Story 2](#story-2)
+    - [Story 3](#story-3)
 - [Design Details](#design-details)
   - [Specifying the Transformation](#specifying-the-transformation)
   - [Observability](#observability)
@@ -267,6 +268,35 @@ be of limited applicability.  It would benefit from finer-grained
 [alternatives](#alternatives) that would for example `cpu` allocated from
 the `spot` flavor to cost fewer credits than when allocated from the `on-demand` flavor.
 
+#### Story 3
+This KEP would enable Kueue to calculate and derive new resources for quota purposes based on the logical relationship between two existing resources when handling workload resource requests. For instance, if a workload requests 2 vGPU resources `nvidia.com/gpu`, with each vGPU allocated 1GB of gpu memory resource `nvidia.com/gpumem`, the total impact on gpu memory resources in this case should amount to 2GB. A new resource—total GPU memory `nvidia.com/total-gpumem` can be defined within ClusterQueues, and its value is calculated by multiplying the number of vGPUs by the memory size allocated to each individual vGPU.
+
+For example:
+A workload requesting the resources below:
+```yaml
+  nvidia.com/gpu: 2
+  nvidia.com/gpumem: 1024
+```
+
+this would yield a Workload with an effective request of:
+```yaml
+  nvidia.com/gpu: 2
+  nvidia.com/total-gpumem: 2048
+```
+
+and could be admitted to the `default-flavor` of a ClusterQueue with the ResourceGroup below:
+```yaml
+...
+  - coveredResources: ["nvidia.com/gpu", "nvidia.com/total-gpumem"]
+    flavors:
+    - name: default-flavor
+      resources:
+      - name: "nvidia.com/gpu"
+        nominalQuota: 10
+      - name: "nvidia.com/total-gpumem"
+        nominalQuota: 100G
+```
+
 ## Design Details
 
 Since Kueue's workload.Info struct is already a well-defined
@@ -303,16 +333,21 @@ type ResourceTransformationStrategy string
 const Retain ResourceTransformationStrategy = "Retain"
 const Replace ResourceTransformationStrategy = "Replace"
 
+
 type ResourceTransformation struct {
-	// Name of the input resource
-	Input corev1.ResourceName `json:"input"`
+  // Name of the input resource
+  Input corev1.ResourceName `json:"input"`
 
-	// Whether the input resource should be replaced or retained
-	// +kubebuilder:default="Retain"
-	Strategy ResourceTransformationStrategy `json:"strategy"`
+  // Whether the input resource should be replaced or retained
+  // +kubebuilder:default="Retain"
+  Strategy ResourceTransformationStrategy `json:"strategy"`
 
-	// Output resources and quantities per unit of input resource
-	Outputs corev1.ResourceList `json:"outputs,omitempty"`
+  // MultiplyBy defines a resource name, which performs a multiplication
+  // calculation on the resource name of the input.
+  MultiplyBy corev1.ResourceName `json:"multiplyBy"`
+
+  // Output resources and quantities per unit of input resource
+  Outputs corev1.ResourceList `json:"outputs,omitempty"`
 }
 ```
 Given these types, the following list of 4-tuples
@@ -348,6 +383,18 @@ resources:
     strategy: Retain
     outputs:
       example.com/credits: 1
+```
+
+Based on the example in Story 3, the following content can be defined in the Kueue Configuration object:
+
+```yaml
+resources:
+  transformations:
+  - input: nvidia.com/gpumem
+    strategy: Retain
+    multiplyBy: nvidia.com/gpu
+    outputs:
+      nvidia.com/total-gpumem: 1
 ```
 
 ### Observability

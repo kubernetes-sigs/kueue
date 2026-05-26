@@ -17,12 +17,14 @@ limitations under the License.
 package config
 
 import (
-	"errors"
 	"fmt"
+	"net"
+	"regexp"
 	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
@@ -32,8 +34,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	apimachineryutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -41,30 +44,38 @@ import (
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 var (
-	integrationsPath                     = field.NewPath("integrations")
-	integrationsFrameworksPath           = integrationsPath.Child("frameworks")
-	integrationsExternalFrameworkPath    = integrationsPath.Child("externalFrameworks")
-	podOptionsPath                       = integrationsPath.Child("podOptions")
-	podOptionsNamespaceSelectorPath      = podOptionsPath.Child("namespaceSelector")
-	managedJobsNamespaceSelectorPath     = field.NewPath("managedJobsNamespaceSelector")
-	waitForPodsReadyPath                 = field.NewPath("waitForPodsReady")
-	requeuingStrategyPath                = waitForPodsReadyPath.Child("requeuingStrategy")
-	multiKueuePath                       = field.NewPath("multiKueue")
-	fsPreemptionStrategiesPath           = field.NewPath("fairSharing", "preemptionStrategies")
-	afsResourceWeightsPath               = field.NewPath("admissionFairSharing", "resourceWeights")
-	afsPath                              = field.NewPath("admissionFairSharing")
-	internalCertManagementPath           = field.NewPath("internalCertManagement")
-	resourceTransformationPath           = field.NewPath("resources", "transformations")
-	dynamicResourceAllocationPath        = field.NewPath("resources", "deviceClassMappings")
-	objectRetentionPoliciesPath          = field.NewPath("objectRetentionPolicies")
-	objectRetentionPoliciesWorkloadsPath = objectRetentionPoliciesPath.Child("workloads")
-	log                                  = ctrl.Log.WithName("config")
+	integrationsPath                             = field.NewPath("integrations")
+	integrationsFrameworksPath                   = integrationsPath.Child("frameworks")
+	integrationsExternalFrameworkPath            = integrationsPath.Child("externalFrameworks")
+	managedJobsNamespaceSelectorPath             = field.NewPath("managedJobsNamespaceSelector")
+	waitForPodsReadyPath                         = field.NewPath("waitForPodsReady")
+	requeuingStrategyPath                        = waitForPodsReadyPath.Child("requeuingStrategy")
+	multiKueuePath                               = field.NewPath("multiKueue")
+	clusterProfileCredentialProvidersPath        = multiKueuePath.Child("clusterProfile").Child("credentialsProviders")
+	clusterProfileCredentialProvidersExecCfgPath = clusterProfileCredentialProvidersPath.Child("execConfig")
+	fsPreemptionStrategiesPath                   = field.NewPath("fairSharing", "preemptionStrategies")
+	afsResourceWeightsPath                       = field.NewPath("admissionFairSharing", "resourceWeights")
+	afsPath                                      = field.NewPath("admissionFairSharing")
+	internalCertManagementPath                   = field.NewPath("internalCertManagement")
+	resourceTransformationPath                   = field.NewPath("resources", "transformations")
+	dynamicResourceAllocationPath                = field.NewPath("resources", "deviceClassMappings")
+	objectRetentionPoliciesPath                  = field.NewPath("objectRetentionPolicies")
+	objectRetentionPoliciesWorkloadsPath         = objectRetentionPoliciesPath.Child("workloads")
+	tlsPath                                      = field.NewPath("tls")
+	featureGatesPath                             = field.NewPath("featureGates")
+	visibilityServerBindAddressPath              = field.NewPath("visibilityServer", "bindAddress")
+	visibilityServerBindPortPath                 = field.NewPath("visibilityServer", "bindPort")
+	customLabelsPath                             = field.NewPath("metrics", "customLabels")
+	resourceQuotaCheckStrategyPath               = field.NewPath("resources", "quotaCheckStrategy")
 )
 
-func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
+// Validate checks the configuration for invalid values.
+func Validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
 	allErrs = append(allErrs, validateIntegrations(c, scheme)...)
@@ -76,6 +87,39 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateDeviceClassMappings(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
+	allErrs = append(allErrs, validateTLS(c)...)
+	allErrs = append(allErrs, validateVisibilityServer(c)...)
+	allErrs = append(allErrs, validateCustomLabels(c)...)
+	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
+	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
+	return allErrs
+}
+
+func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if !features.Enabled(features.QuotaCheckStrategy) {
+		return allErrs
+	}
+	if c.Resources != nil && c.Resources.QuotaCheckStrategy != nil {
+		strategy := *c.Resources.QuotaCheckStrategy
+		if len(c.Resources.ExcludeResourcePrefixes) > 0 && strategy == configapi.QuotaCheckIgnoreUndeclared {
+			allErrs = append(allErrs, field.Invalid(
+				resourceQuotaCheckStrategyPath,
+				strategy,
+				"excludeResourcePrefixes is not allowed when quotaCheckStrategy is IgnoreUndeclared",
+			))
+		}
+		if strategy != configapi.QuotaCheckIgnoreUndeclared && strategy != configapi.QuotaCheckBlockUndeclared {
+			allErrs = append(allErrs, field.NotSupported(
+				resourceQuotaCheckStrategyPath,
+				strategy,
+				[]configapi.QuotaCheckStrategy{
+					configapi.QuotaCheckIgnoreUndeclared,
+					configapi.QuotaCheckBlockUndeclared,
+				},
+			))
+		}
+	}
 	return allErrs
 }
 
@@ -109,7 +153,7 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 				c.MultiKueue.WorkerLostTimeout.Duration, apimachineryvalidation.IsNegativeErrorMsg))
 		}
 		if c.MultiKueue.Origin != nil {
-			if errs := apimachineryutilvalidation.IsValidLabelValue(*c.MultiKueue.Origin); len(errs) != 0 {
+			if errs := content.IsLabelValue(*c.MultiKueue.Origin); len(errs) != 0 {
 				allErrs = append(allErrs, field.Invalid(multiKueuePath.Child("origin"), *c.MultiKueue.Origin, strings.Join(errs, ",")))
 			}
 		}
@@ -149,19 +193,53 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 				}
 			}
 		}
+
+		if cp := c.MultiKueue.ClusterProfile; cp != nil {
+			for _, provider := range cp.CredentialsProviders {
+				if len(provider.Name) == 0 {
+					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersPath.Child("name"), "must be specified"))
+				}
+
+				// The following execConfig validations almost stolen from
+				// https://github.com/kubernetes/client-go/blob/45e0decafa9b847c983f55c84b4f6ce5617f8f69/tools/clientcmd/validation.go#L308-L335
+				if len(provider.ExecConfig.Command) == 0 {
+					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("command"), "must be specified"))
+				}
+				if len(provider.ExecConfig.APIVersion) == 0 {
+					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("apiVersion"), "must be specified"))
+				}
+				for _, v := range provider.ExecConfig.Env {
+					if len(v.Name) == 0 {
+						allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("env").Child("name"), "must be specified"))
+					}
+				}
+				switch provider.ExecConfig.InteractiveMode {
+				case "":
+					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("interactiveMode"), "must be specified"))
+				case clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode:
+					// These are valid
+				default:
+					allErrs = append(allErrs, field.NotSupported(
+						clusterProfileCredentialProvidersExecCfgPath.Child("interactiveMode"),
+						provider.ExecConfig.InteractiveMode,
+						[]clientcmdapi.ExecInteractiveMode{clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode},
+					))
+				}
+			}
+		}
 	}
 	return allErrs
 }
 
 func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
-	if !WaitForPodsReadyIsEnabled(c) {
-		if c.WaitForPodsReady != nil && (c.WaitForPodsReady.Timeout != nil || c.WaitForPodsReady.BlockAdmission != nil || c.WaitForPodsReady.RequeuingStrategy != nil || c.WaitForPodsReady.RecoveryTimeout != nil) {
-			log.Info("enable is set to false in waitForPodsReady, ignoring the rest of its configuration")
-		}
+	if !waitforpodsready.Enabled(c.WaitForPodsReady) {
 		return allErrs
 	}
-	if c.WaitForPodsReady.Timeout != nil && c.WaitForPodsReady.Timeout.Duration < 0 {
+	if c.WaitForPodsReady.Timeout.Duration == 0 {
+		allErrs = append(allErrs, field.Required(waitForPodsReadyPath.Child("timeout"), "must be specified"))
+	}
+	if c.WaitForPodsReady.Timeout.Duration < 0 {
 		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("timeout"),
 			c.WaitForPodsReady.Timeout, apimachineryvalidation.IsNegativeErrorMsg))
 	}
@@ -255,19 +333,9 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		return allErrs
 	}
 
-	// At least one namespace selector must be non-nil and enabled.
-	// It is ok for both to be non-nil; pods will only be managed if all non-nil selectors match
-	hasNamespaceSelector := false
 	if c.ManagedJobsNamespaceSelector != nil {
 		allErrs = validateNamespaceSelectorForPodIntegration(c, c.ManagedJobsNamespaceSelector, managedJobsNamespaceSelectorPath, allErrs)
-		hasNamespaceSelector = true
-	}
-	if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
-		allErrs = validateNamespaceSelectorForPodIntegration(c, c.Integrations.PodOptions.NamespaceSelector, podOptionsNamespaceSelectorPath, allErrs)
-		hasNamespaceSelector = true
-	}
-
-	if !hasNamespaceSelector {
+	} else {
 		allErrs = append(allErrs, field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
 	}
 
@@ -303,7 +371,9 @@ func validateFairSharing(c *configapi.Configuration) field.ErrorList {
 		return nil
 	}
 	var allErrs field.ErrorList
-	if len(fs.PreemptionStrategies) > 0 {
+	if len(fs.PreemptionStrategies) == 0 {
+		allErrs = append(allErrs, field.Required(fsPreemptionStrategiesPath, "must be specified"))
+	} else {
 		validStrategy := false
 		for _, s := range validStrategySets {
 			if slices.Equal(s, fs.PreemptionStrategies) {
@@ -382,7 +452,7 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 	for idx, mapping := range mappings {
 		mappingPath := dynamicResourceAllocationPath.Index(idx)
 
-		if errs := apimachineryutilvalidation.IsQualifiedName(string(mapping.Name)); len(errs) > 0 {
+		if errs := content.IsLabelKey(string(mapping.Name)); len(errs) > 0 {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, strings.Join(errs, "; ")))
 		}
 
@@ -410,7 +480,7 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 		for dcIdx, deviceClass := range mapping.DeviceClassNames {
 			dcPath := mappingPath.Child("deviceClassNames").Index(dcIdx)
 
-			if errs := apimachineryutilvalidation.IsQualifiedName(string(deviceClass)); len(errs) > 0 {
+			if errs := content.IsLabelKey(string(deviceClass)); len(errs) > 0 {
 				allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, strings.Join(errs, "; ")))
 			}
 
@@ -463,27 +533,57 @@ func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.Erro
 	return allErrs
 }
 
-func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) error {
+func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) field.ErrorList {
+	if featureGateCLI != "" {
+		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGateCLI); err != nil {
+			return field.ErrorList{field.Invalid(featureGatesPath, featureGateCLI, err.Error())}
+		}
+	} else {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(featureGateMap); err != nil {
+			return field.ErrorList{field.Invalid(featureGatesPath, featureGateMap, err.Error())}
+		}
+	}
+	var allErrs field.ErrorList
 	if featureGateCLI != "" && featureGateMap != nil {
-		return errors.New("feature gates for CLI and configuration cannot both specified")
+		allErrs = append(allErrs, field.Invalid(featureGatesPath, featureGateMap, "feature gates for CLI and configuration cannot both specified"))
 	}
-	TASProfilesEnabled := []bool{features.Enabled(features.TASProfileMixed),
-		features.Enabled(features.TASProfileLeastFreeCapacity),
-	}
+	TASProfilesEnabled := []bool{features.Enabled(features.TASProfileMixed)}
 	enabledProfilesCount := 0
 	for _, enabled := range TASProfilesEnabled {
 		if enabled {
 			enabledProfilesCount++
 		}
 	}
+	// Currently dead code but leaving in if more TASProfiles are added
 	if enabledProfilesCount > 1 {
-		return errors.New("cannot use more than one TAS profiles")
+		allErrs = append(allErrs, field.Invalid(featureGatesPath, TASProfilesEnabled, "cannot use more than one TAS profiles"))
 	}
 	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
-		return errors.New("cannot use a TAS profile with TAS disabled")
+		allErrs = append(allErrs, field.Invalid(featureGatesPath, enabledProfilesCount, "cannot use a TAS profile with TAS disabled"))
 	}
 
-	return nil
+	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
+		if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+			allErrs = append(allErrs, field.Invalid(featureGatesPath, "ElasticJobsViaWorkloadSlicesWithTAS", "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled"))
+		}
+		if !features.Enabled(features.TopologyAwareScheduling) {
+			allErrs = append(allErrs, field.Invalid(featureGatesPath, "ElasticJobsViaWorkloadSlicesWithTAS", "ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled"))
+		}
+	}
+
+	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
+
+	return allErrs
+}
+
+func validateDRAFeatureGateDependencies() field.ErrorList {
+	var allErrs field.ErrorList
+	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		if !features.Enabled(features.KueueDRAIntegration) {
+			allErrs = append(allErrs, field.Invalid(featureGatesPath, "KueueDRAIntegrationExtendedResource", "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled"))
+		}
+	}
+	return allErrs
 }
 
 func validateObjectRetentionPolicies(c *configapi.Configuration) field.ErrorList {
@@ -501,4 +601,89 @@ func validateObjectRetentionPolicies(c *configapi.Configuration) field.ErrorList
 			c.ObjectRetentionPolicies.Workloads.AfterDeactivatedByKueue.Duration.String(), apimachineryvalidation.IsNegativeErrorMsg))
 	}
 	return allErrs
+}
+
+func validateTLS(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.TLS == nil {
+		return allErrs
+	}
+
+	// Validate unparsed values first, then parse.
+	// This provides clearer error messages for invalid input.
+	_, err := tlsconfig.ParseTLSOptions(c.TLS)
+	if err != nil {
+		allErrs = append(allErrs, field.Invalid(tlsPath.Root(), c.TLS, err.Error()))
+		return allErrs
+	}
+
+	// TLS 1.3 cipher suites are not configurable in Go's crypto/tls package.
+	// When TLS 1.3 is set as the minimum version, cipher suites must not be specified.
+	if c.TLS.MinVersion == "VersionTLS13" && len(c.TLS.CipherSuites) > 0 {
+		allErrs = append(allErrs, field.Invalid(tlsPath.Child("cipherSuites"),
+			c.TLS.CipherSuites, "may not be specified when `minVersion` is 'VersionTLS13'"))
+	}
+	return allErrs
+}
+
+func validateVisibilityServer(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.VisibilityServer == nil {
+		return allErrs
+	}
+	if c.VisibilityServer.BindAddress != nil {
+		if net.ParseIP(*c.VisibilityServer.BindAddress) == nil {
+			allErrs = append(allErrs, field.Invalid(visibilityServerBindAddressPath, *c.VisibilityServer.BindAddress, "must be a valid IP address"))
+		}
+	}
+	if c.VisibilityServer.BindPort != nil {
+		port := *c.VisibilityServer.BindPort
+		if port < 1 || port > 65535 {
+			allErrs = append(allErrs, field.Invalid(visibilityServerBindPortPath, port, "must be a valid port number (1-65535)"))
+		}
+	}
+	return allErrs
+}
+
+var customLabelNameRegexp = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
+
+func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
+	if len(c.Metrics.CustomLabels) == 0 {
+		return nil
+	}
+	var allErrs field.ErrorList
+	seenNames := sets.New[string]()
+	for i, entry := range c.Metrics.CustomLabels {
+		fldPath := customLabelsPath.Index(i)
+
+		if !customLabelNameRegexp.MatchString(entry.Name) {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("name"), entry.Name,
+				"must match ^[a-zA-Z][a-zA-Z0-9_]*$"))
+		}
+		if seenNames.Has(entry.Name) {
+			allErrs = append(allErrs, field.Duplicate(fldPath.Child("name"), entry.Name))
+		} else {
+			seenNames.Insert(entry.Name)
+		}
+		if entry.SourceLabelKey != "" && entry.SourceAnnotationKey != "" {
+			allErrs = append(allErrs, field.Invalid(fldPath, entry,
+				"sourceLabelKey and sourceAnnotationKey are mutually exclusive"))
+		}
+		switch {
+		case entry.SourceLabelKey != "":
+			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("sourceLabelKey"), entry.SourceLabelKey)...)
+		case entry.SourceAnnotationKey != "":
+			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("sourceAnnotationKey"), entry.SourceAnnotationKey)...)
+		default:
+			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("name"), entry.Name)...)
+		}
+	}
+	return allErrs
+}
+
+func validateQualifiedName(fldPath *field.Path, value string) field.ErrorList {
+	if errs := content.IsLabelKey(value); len(errs) > 0 {
+		return field.ErrorList{field.Invalid(fldPath, value, strings.Join(errs, "; "))}
+	}
+	return nil
 }

@@ -1,0 +1,26 @@
+# The values are computed based on the result of 5 trial runs:
+# - #1782760671465705472
+# - #1782764439129296896
+# - #1782768037514973184
+# - #1782772615836864512
+# - #1782775995984515072
+cmd:
+  # Average value 351116.4 (+/- 0.9%), setting at +20%
+  maxWallMs: 425_000
+
+clusterQueueClassesMinUsage:
+  # Average value 55.9 (+/- 1.1%) with SchedulingEquivalenceHashing enabled
+  # (was 58.7 without). Slight decrease due to requeue latency from hash bulk-move.
+  cq: 50 #%
+
+wlClassesMaxAvgTimeToAdmissionMs:
+  # Average value 16501 (+/- 13%) with SchedulingEquivalenceHashing enabled, setting at +40%.
+  # Previously 6666 with hash disabled; increase is expected as equivalent NoFit workloads
+  # are bulk-moved to inadmissible and wait for capacity events to be re-evaluated.
+  large: 23_000
+
+  # Average value 76768 (+/- 2%), setting at +20%
+  medium: 90_000
+
+  # Average value 215468 (+/- 2%), setting at +20% accounting for observed failures
+  small: 260_000

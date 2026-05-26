@@ -16,8 +16,8 @@ for ClusterQueue visibility, and [batch users](/docs/tasks#batch-user) for Local
 Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
-- [Kueue](/docs/installation) is installed
-- [Kube-prometheus operator](https://github.com/prometheus-operator/kube-prometheus/blob/main/README.md#quickstart) is installed in version v0.15.0 or later.
+- [Kueue](/docs/installation) v0.15.0 or later is installed.
+- Prometheus Operator is installed. See [Setup Prometheus](/docs/tasks/manage/observability/setup_prometheus) for instructions.
 - The [VisibilityOnDemand](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#monitor-pending-workloads-on-demand) feature is enabled.
 
 ## Setting Up Grafana for Pending Workloads

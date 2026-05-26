@@ -19,6 +19,7 @@ package testing
 import (
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -168,6 +169,11 @@ func (c *ContainerWrapper) Image(image string) *ContainerWrapper {
 	return c
 }
 
+func (c *ContainerWrapper) ImagePullPolicy(policy corev1.PullPolicy) *ContainerWrapper {
+	c.Container.ImagePullPolicy = policy
+	return c
+}
+
 // WithResourceReq appends a resource request to the container.
 func (c *ContainerWrapper) WithResourceReq(resourceName corev1.ResourceName, quantity string) *ContainerWrapper {
 	requests := utilResource.MergeResourceListKeepFirst(c.Resources.Requests, corev1.ResourceList{
@@ -198,6 +204,19 @@ func (c *ContainerWrapper) WithEnvVar(envVar corev1.EnvVar) *ContainerWrapper {
 func (c *ContainerWrapper) AsSidecar() *ContainerWrapper {
 	c.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
 
+	return c
+}
+
+func (c *ContainerWrapper) VolumeMount(name, mountPath string) *ContainerWrapper {
+	c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{
+		Name:      name,
+		MountPath: mountPath,
+	})
+	return c
+}
+
+func (c *ContainerWrapper) Command(cmd ...string) *ContainerWrapper {
+	c.Container.Command = cmd
 	return c
 }
 
@@ -272,8 +291,53 @@ func (p *PodTemplateWrapper) RequiredDuringSchedulingIgnoredDuringExecution(node
 	return p
 }
 
+func (p *PodTemplateWrapper) PreferredDuringSchedulingIgnoredDuringExecution(preferredSchedulingTerms []corev1.PreferredSchedulingTerm) *PodTemplateWrapper {
+	if p.Template.Spec.Affinity == nil {
+		p.Template.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity == nil {
+		p.Template.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	p.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = append(
+		p.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution,
+		preferredSchedulingTerms...,
+	)
+	return p
+}
+
+func (p *PodTemplateWrapper) RequiredNodeSelectorRequirement(key string, op corev1.NodeSelectorOperator, values ...string) *PodTemplateWrapper {
+	return p.RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+		{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      key,
+					Operator: op,
+					Values:   values,
+				},
+			},
+		},
+	})
+}
+
+func (p *PodTemplateWrapper) PreferredNodeSelectorRequirement(weight int32, key string, op corev1.NodeSelectorOperator, values ...string) *PodTemplateWrapper {
+	return p.PreferredDuringSchedulingIgnoredDuringExecution([]corev1.PreferredSchedulingTerm{
+		{
+			Weight: weight,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      key,
+						Operator: op,
+						Values:   values,
+					},
+				},
+			},
+		},
+	})
+}
+
 func (p *PodTemplateWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *PodTemplateWrapper {
-	AppendOwnerReference(&p.PodTemplate, gvk, name, uid, ptr.To(true), ptr.To(true))
+	AppendOwnerReference(&p.PodTemplate, gvk, name, uid, new(true), new(true))
 	return p
 }
 
@@ -408,7 +472,7 @@ func (b *ResourceClaimSpecBuilder) WithAdminAccess(enabled bool) *ResourceClaimS
 	if len(b.spec.Devices.Requests) > 0 {
 		lastIdx := len(b.spec.Devices.Requests) - 1
 		if b.spec.Devices.Requests[lastIdx].Exactly != nil {
-			b.spec.Devices.Requests[lastIdx].Exactly.AdminAccess = ptr.To(enabled)
+			b.spec.Devices.Requests[lastIdx].Exactly.AdminAccess = new(enabled)
 		}
 	}
 	return b
@@ -418,7 +482,7 @@ func (b *ResourceClaimSpecBuilder) WithAdminAccess(enabled bool) *ResourceClaimS
 func (b *ResourceClaimSpecBuilder) WithDeviceConstraints(requestNames []string, matchAttribute string) *ResourceClaimSpecBuilder {
 	constraint := resourcev1.DeviceConstraint{
 		Requests:       requestNames,
-		MatchAttribute: ptr.To(resourcev1.FullyQualifiedName(matchAttribute)),
+		MatchAttribute: new(resourcev1.FullyQualifiedName(matchAttribute)),
 	}
 	b.spec.Devices.Constraints = append(b.spec.Devices.Constraints, constraint)
 	return b
@@ -627,4 +691,142 @@ func (r *ResourceClaimWrapper) FirstAvailableRequest(requestName, deviceClassNam
 // Obj returns the underlying ResourceClaim
 func (r *ResourceClaimWrapper) Obj() *resourcev1.ResourceClaim {
 	return &r.ResourceClaim
+}
+
+type SecretWrapper struct{ corev1.Secret }
+
+func MakeSecret(name, ns string) *SecretWrapper {
+	return &SecretWrapper{
+		corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: ns,
+			},
+		}}
+}
+
+func (s *SecretWrapper) Obj() *corev1.Secret {
+	return &s.Secret
+}
+
+func (s *SecretWrapper) Data(key string, value []byte) *SecretWrapper {
+	if s.Secret.Data == nil {
+		s.Secret.Data = make(map[string][]byte)
+	}
+	s.Secret.Data[key] = value
+	return s
+}
+
+type RoleWrapper struct{ rbacv1.Role }
+
+func MakeRole(name, ns string) *RoleWrapper {
+	return &RoleWrapper{
+		rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: ns,
+			},
+		},
+	}
+}
+
+func (r *RoleWrapper) Obj() *rbacv1.Role {
+	return &r.Role
+}
+
+func (r *RoleWrapper) Rule(apiGroups, resources, verbs []string) *RoleWrapper {
+	r.Rules = append(r.Rules, rbacv1.PolicyRule{
+		APIGroups: apiGroups,
+		Resources: resources,
+		Verbs:     verbs,
+	})
+	return r
+}
+
+type RoleBindingWrapper struct{ rbacv1.RoleBinding }
+
+func MakeRoleBinding(name, ns string) *RoleBindingWrapper {
+	return &RoleBindingWrapper{
+		rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: ns,
+			},
+		},
+	}
+}
+
+func (rb *RoleBindingWrapper) Obj() *rbacv1.RoleBinding {
+	return &rb.RoleBinding
+}
+
+func (rb *RoleBindingWrapper) RoleRef(apiGroup, kind, name string) *RoleBindingWrapper {
+	rb.RoleBinding.RoleRef = rbacv1.RoleRef{
+		APIGroup: apiGroup,
+		Kind:     kind,
+		Name:     name,
+	}
+	return rb
+}
+
+func (rb *RoleBindingWrapper) Subject(kind, name, namespace string) *RoleBindingWrapper {
+	rb.Subjects = append(rb.Subjects, rbacv1.Subject{
+		Kind:      kind,
+		Name:      name,
+		Namespace: namespace,
+	})
+	return rb
+}
+
+type PreferredSchedulingTermsWrapper struct {
+	terms []corev1.PreferredSchedulingTerm
+}
+
+func MakePreferredSchedulingTerms() *PreferredSchedulingTermsWrapper {
+	return &PreferredSchedulingTermsWrapper{}
+}
+
+func (w *PreferredSchedulingTermsWrapper) Term(weight int32, key string, op corev1.NodeSelectorOperator, values ...string) *PreferredSchedulingTermsWrapper {
+	w.terms = append(w.terms, corev1.PreferredSchedulingTerm{
+		Weight: weight,
+		Preference: corev1.NodeSelectorTerm{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      key,
+					Operator: op,
+					Values:   values,
+				},
+			},
+		},
+	})
+	return w
+}
+
+func (w *PreferredSchedulingTermsWrapper) Obj() []corev1.PreferredSchedulingTerm {
+	return w.terms
+}
+
+type NodeSelectorTermsWrapper struct {
+	terms []corev1.NodeSelectorTerm
+}
+
+func MakeNodeSelectorTerms() *NodeSelectorTermsWrapper {
+	return &NodeSelectorTermsWrapper{}
+}
+
+func (w *NodeSelectorTermsWrapper) Term(key string, op corev1.NodeSelectorOperator, values ...string) *NodeSelectorTermsWrapper {
+	w.terms = append(w.terms, corev1.NodeSelectorTerm{
+		MatchExpressions: []corev1.NodeSelectorRequirement{
+			{
+				Key:      key,
+				Operator: op,
+				Values:   values,
+			},
+		},
+	})
+	return w
+}
+
+func (w *NodeSelectorTermsWrapper) Obj() []corev1.NodeSelectorTerm {
+	return w.terms
 }

@@ -11,7 +11,7 @@ This page shows how to leverage Kueue's scheduling and resource management capab
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
-We demonstrate how to support scheduling Tekton Pipelines Tasks in Kueue based on the [Plain Pod](/docs/tasks/run_plain_pods) integration, where every Pod from a Pipeline is represented as a single independent Plain Pod.
+We demonstrate how to support scheduling Tekton Pipelines Tasks in Kueue based on the [Plain Pod](/docs/tasks/run/plain_pods) integration, where every Pod from a Pipeline is represented as a single independent Plain Pod.
 
 ## Before you begin
 

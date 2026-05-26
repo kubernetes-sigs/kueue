@@ -24,7 +24,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -42,7 +41,7 @@ func (s SpyTimer) Reset(d time.Duration) bool {
 func makeSpyTimer() SpyTimer {
 	timer := clock.RealClock{}.NewTimer(0)
 	<-timer.C()
-	return SpyTimer{history: ptr.To([]time.Duration{}), Timer: timer}
+	return SpyTimer{history: new([]time.Duration{}), Timer: timer}
 }
 
 func ms(m int) time.Duration {
@@ -80,12 +79,12 @@ func TestUntilWithBackoff(t *testing.T) {
 		{
 			name:     "reset before reaching max backoff",
 			signals:  []SpeedSignal{SlowDown, SlowDown, SlowDown, KeepGoing, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, KeepGoing},
-			expected: []time.Duration{ms(0), ms(1), ms(2), ms(4), ms(0), ms(1), ms(2), ms(4), ms(8), ms(16), ms(32), ms(64), ms(0)},
+			expected: []time.Duration{ms(0), ms(1), ms(2), ms(4), ms(0), ms(1), ms(2), ms(4), ms(8), ms(10), ms(10), ms(10), ms(0)},
 		},
 		{
 			name:     "double until max then reset",
 			signals:  []SpeedSignal{SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, KeepGoing},
-			expected: []time.Duration{ms(0), ms(1), ms(2), ms(4), ms(8), ms(16), ms(32), ms(64), ms(100), ms(100), ms(0)},
+			expected: []time.Duration{ms(0), ms(1), ms(2), ms(4), ms(8), ms(10), ms(10), ms(10), ms(10), ms(10), ms(0)},
 		},
 	}
 	for _, testCase := range testCases {

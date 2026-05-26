@@ -17,7 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
@@ -26,10 +25,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -39,23 +37,14 @@ const (
 	taintsMaxItems            = 8
 )
 
-var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr)
-		})
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-	var ns *corev1.Namespace
-
+var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
-
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Creating a ResourceFlavor", func() {
@@ -108,7 +97,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
 		err := k8sClient.Create(ctx, resourceFlavor)
 		if isInvalid {
 			gomega.Expect(err).To(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeInvalidError())
+			gomega.Expect(err).Should(utiltesting.BeInvalidError())
 		} else {
 			gomega.Expect(err).To(gomega.Succeed())
 			defer func() {
@@ -149,7 +138,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
 			ginkgo.By("Updating the resourceFlavor with invalid labels")
 			err := k8sClient.Update(ctx, &created)
 			gomega.Expect(err).To(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeInvalidError())
+			gomega.Expect(err).Should(utiltesting.BeInvalidError())
 		})
 	})
 
@@ -172,10 +161,10 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
 					Value:  "bar",
 					Effect: corev1.TaintEffectNoSchedule,
 				}).Obj(),
-			testing.BeInvalidError()),
+			utiltesting.BeInvalidError()),
 		ginkgo.Entry("Should fail to create with invalid label name",
 			utiltestingapi.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
-			testing.BeForbiddenError()),
+			utiltesting.BeForbiddenError()),
 		ginkgo.Entry("Should fail to create with invalid tolerations",
 			utiltestingapi.MakeResourceFlavor("resource-flavor").
 				Toleration(corev1.Toleration{
@@ -203,6 +192,6 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
 					Effect:   corev1.TaintEffectNoSchedule,
 				}).
 				Obj(),
-			testing.BeInvalidError()),
+			utiltesting.BeInvalidError()),
 	)
 })

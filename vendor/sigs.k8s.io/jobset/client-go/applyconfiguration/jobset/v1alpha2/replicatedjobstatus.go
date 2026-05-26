@@ -16,13 +16,24 @@ package v1alpha2
 
 // ReplicatedJobStatusApplyConfiguration represents a declarative configuration of the ReplicatedJobStatus type for use
 // with apply.
+//
+// ReplicatedJobStatus defines the observed ReplicatedJobs Readiness.
 type ReplicatedJobStatusApplyConfiguration struct {
-	Name      *string `json:"name,omitempty"`
-	Ready     *int32  `json:"ready,omitempty"`
-	Succeeded *int32  `json:"succeeded,omitempty"`
-	Failed    *int32  `json:"failed,omitempty"`
-	Active    *int32  `json:"active,omitempty"`
-	Suspended *int32  `json:"suspended,omitempty"`
+	// name of the ReplicatedJob.
+	Name *string `json:"name,omitempty"`
+	// ready is the number of child Jobs where the number of ready pods and completed pods
+	// is greater than or equal to the total expected pod count for the Job (i.e., the minimum
+	// of job.spec.parallelism and job.spec.completions).
+	Ready *int32 `json:"ready,omitempty"`
+	// succeeded is the number of successfully completed child Jobs.
+	Succeeded *int32 `json:"succeeded,omitempty"`
+	// failed is the number of failed child Jobs.
+	Failed *int32 `json:"failed,omitempty"`
+	// active is the number of child Jobs with at least 1 pod in a running or pending state
+	// which are not marked for deletion.
+	Active *int32 `json:"active,omitempty"`
+	// suspended is the number of child Jobs which are in a suspended state.
+	Suspended *int32 `json:"suspended,omitempty"`
 }
 
 // ReplicatedJobStatusApplyConfiguration constructs a declarative configuration of the ReplicatedJobStatus type for use with

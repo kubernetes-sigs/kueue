@@ -28,7 +28,7 @@ const ResourceFlavors = () => {
 
   useEffect(() => {
     if (flavors && Array.isArray(flavors)) {
-      setResourceFlavors(flavors);
+      setResourceFlavors([...flavors].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
     }
   }, [flavors]);
 
@@ -58,7 +58,7 @@ const ResourceFlavors = () => {
                   <TableCell>{JSON.stringify(flavor.details)}</TableCell>
                   <TableCell align="right">
                     <Box display="flex" justifyContent="flex-end">
-                      <ViewYamlButton 
+                      <ViewYamlButton
                         resourceType="resourceflavor"
                         resourceName={flavor.name}
                       />

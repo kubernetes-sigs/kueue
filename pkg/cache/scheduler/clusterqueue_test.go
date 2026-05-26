@@ -25,7 +25,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -346,6 +345,28 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantMessage: `Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: check1,check3.`,
 		},
 		{
+			name:     "Active clusterQueue with both MultiKueue and ProvisioningRequest ACs",
+			cq:       cqWithAC,
+			cqStatus: active,
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: kueue.MultiKueueControllerName,
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: kueue.ProvisioningRequestControllerName,
+				},
+			},
+			wantStatus:  pending,
+			wantReason:  kueue.ClusterQueueActiveReasonMultiKueueWithProvisioningRequest,
+			wantMessage: `Can't admit new workloads: Cannot use both MultiKueue and ProvisioningRequest AdmissionChecks together, found: check1, check3.`,
+		},
+		{
 			name:     "Terminating clusterQueue updated with valid AC list",
 			cq:       cqWithAC,
 			cqStatus: terminating,
@@ -548,7 +569,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantMessage: "Can admit new workloads",
 		},
 		{
-			name: "TAS do not support MultiKueue AdmissionCheck",
+			name: "TAS supports MultiKueue AdmissionCheck",
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -561,8 +582,8 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).AdmissionChecks("mk-check").Obj(),
-			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
-			wantMessage: "Can't admit new workloads: TAS is not supported with MultiKueue admission check.",
+			wantReason:  kueue.ClusterQueueActiveReasonReady,
+			wantMessage: "Can admit new workloads",
 		},
 		{
 			name:         "Referenced TAS flavor without topology",
@@ -580,8 +601,6 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
-
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder()

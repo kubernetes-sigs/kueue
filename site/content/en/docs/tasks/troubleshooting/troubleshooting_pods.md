@@ -43,6 +43,10 @@ the name of the Workload matches the value of the label `kueue.x-k8s.io/pod-grou
 When using [single Pods](/docs/tasks/run/plain_pods/#running-a-single-pod-admitted-by-kueue), you can identify its corresponding
 Workload by following the guide for [Identifying the Workload of a Job](troubleshooting_jobs/#identifying-the-workload-for-your-job).
 
+If you are starting from a Pod and using an agent with access to Kueue's experimental skills,
+see [Troubleshooting with Agent Skills](/docs/tasks/troubleshooting/troubleshooting_agent_skills)
+to trace the Pod back to its Workload and parent job.
+
 ## Why doesn't a Workload exist for my Pod group?
 
 Before creating a Workload object, Kueue expects all the Pods for the group to be created.
@@ -108,3 +112,9 @@ Kueue will remove the finalizer from Pods when:
 Once a Pod doesn't have any finalizers, Kubernetes will delete the Pods based on:
 - Whether a user or a controller has issued a Pod deletion.
 - The [Pod garbage collector](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-garbage-collection).
+
+## Why is my Pod not being scheduled if I am using external scheduling gates
+
+If you use custom [scheduling gates](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-scheduling-readiness/), then your Pods will stay gated even if Kueue marks the 
+workload as admitted and removes the scheduling gates it is managing (such as `keueu.x-k8s.io/admission` or `keueu.x-k8s.io/topology`), because Kueue only removes scheduling gates
+managed by Kueue.

@@ -39,8 +39,9 @@ import (
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	clientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -49,7 +50,7 @@ var (
 	wlLong    = templates.LongDesc(`Lists Workloads that match the provided criteria.`)
 	wlExample = templates.Examples(`
 		# List Workload 
-  		kueuectl list workload
+  		kueuectl list kueueworkload
 	`)
 )
 
@@ -92,14 +93,14 @@ func NewWorkloadOptions(streams genericiooptions.IOStreams, clock clock.Clock) *
 	}
 }
 
-func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
+func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
 	o := NewWorkloadOptions(streams, clock)
 
 	cmd := &cobra.Command{
 		Use: "workload [--clusterqueue CLUSTER_QUEUE_NAME] [--localqueue LOCAL_QUEUE_NAME] [--status STATUS] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces] [--for TYPE[.API-GROUP]/NAME]",
 		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
-		Aliases:               []string{"wl"},
+		Aliases:               []string{"kwl", "kueueworkload", "kueueworkloads"},
 		Short:                 "List Workload",
 		Long:                  wlLong,
 		Example:               wlExample,
@@ -115,7 +116,7 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 
 	o.PrintFlags.AddFlags(cmd)
 
-	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
+	flags.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addClusterQueueFilterFlagVar(cmd, &o.ClusterQueueFilter)
@@ -159,7 +160,7 @@ func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
 }
 
 // Complete completes all the required options
-func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command) error {
+func (o *WorkloadOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command) error {
 	var err error
 
 	o.Limit, err = listRequestLimit()

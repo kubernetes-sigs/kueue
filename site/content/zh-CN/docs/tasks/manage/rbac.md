@@ -13,7 +13,7 @@ The page is intended for a [batch administrator](/docs/tasks#batch-administrator
 
 本页面介绍了如何在集群中设置基于角色的访问控制（RBAC），以控制可以查看和创建 Kueue 对象的用户类型。
 
-本页面适用于[批处理管理员](/zh-cn/docs/tasks#batch-administrator)。
+本页面适用于[批处理管理员](/docs/tasks#batch-administrator)。
 
 ## 开始之前
 

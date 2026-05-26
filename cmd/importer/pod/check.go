@@ -26,48 +26,48 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/cmd/importer/util"
+	"sigs.k8s.io/kueue/cmd/importer/cache"
 )
 
-func Check(ctx context.Context, c client.Client, cache *util.ImportCache, jobs uint) error {
+func Check(ctx context.Context, c client.Client, importCache *cache.ImportCache, jobs uint) error {
 	ch := make(chan corev1.Pod)
 	go func() {
-		err := util.PushPods(ctx, c, cache.Namespaces, ch)
+		err := ListPods(ctx, c, importCache.Namespaces, ch)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "Listing pods")
 		}
 	}()
-	summary := util.ConcurrentProcessPod(ch, jobs, func(p *corev1.Pod) (bool, error) {
+	summary := ProcessConcurrently(ch, jobs, func(p *corev1.Pod) (bool, error) {
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
 		log.V(3).Info("Checking")
 
-		cq, skip, err := cache.ClusterQueue(p)
+		cq, skip, err := importCache.ClusterQueue(p)
 		if skip || err != nil {
 			return skip, err
 		}
 
 		if len(cq.Spec.ResourceGroups) == 0 {
-			return false, fmt.Errorf("%q has no resource groups: %w", cq.Name, util.ErrCQInvalid)
+			return false, fmt.Errorf("%q has no resource groups: %w", cq.Name, cache.ErrCQInvalid)
 		}
 
 		if len(cq.Spec.ResourceGroups[0].Flavors) == 0 {
-			return false, fmt.Errorf("%q has no resource groups flavors: %w", cq.Name, util.ErrCQInvalid)
+			return false, fmt.Errorf("%q has no resource groups flavors: %w", cq.Name, cache.ErrCQInvalid)
 		}
 
 		rfName := cq.Spec.ResourceGroups[0].Flavors[0].Name
-		rf, rfFound := cache.ResourceFlavors[rfName]
+		rf, rfFound := importCache.ResourceFlavors[rfName]
 		if !rfFound {
-			return false, fmt.Errorf("%q flavor %q: %w", cq.Name, rfName, util.ErrCQInvalid)
+			return false, fmt.Errorf("%q flavor %q: %w", cq.Name, rfName, cache.ErrCQInvalid)
 		}
 
 		var pv int32
-		if pc, found := cache.PriorityClasses[p.Spec.PriorityClassName]; found {
+		if pc, found := importCache.PriorityClasses[p.Spec.PriorityClassName]; found {
 			pv = pc.Value
 		} else if p.Spec.PriorityClassName != "" {
-			return false, fmt.Errorf("%q: %w", p.Spec.PriorityClassName, util.ErrPCNotFound)
+			return false, fmt.Errorf("%q: %w", p.Spec.PriorityClassName, cache.ErrPCNotFound)
 		}
 
-		log.V(2).Info("Successfully checked", "clusterQueue", klog.KObj(cq), "resourceFalvor", klog.KObj(rf), "priority", pv)
+		log.V(2).Info("Successfully checked", "clusterQueue", klog.KObj(cq), "resourceFlavor", klog.KObj(rf), "priority", pv)
 		return false, nil
 	})
 

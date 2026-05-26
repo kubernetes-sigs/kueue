@@ -7,6 +7,7 @@ linters:
     - copyloopvar
     - dupword
     - durationcheck
+    - exptostd
     - fatcontext
     - ginkgolinter
     - gocritic
@@ -15,12 +16,14 @@ linters:
     - loggercheck
     - makezero
     - misspell
+    - modernize
     - nilerr
     - nilnesserr
     - nolintlint
     - perfsprint
     - revive
     - unconvert
+    - usetesting
     - forbidigo
   settings:
     gocritic:
@@ -31,23 +34,7 @@ linters:
         - appendAssign
         - exitAfterDefer
     goheader:
-      template: |-
-        Copyright The Kubernetes Authors.
-
-        Licensed under the Apache License, Version 2.0 (the "License");
-        you may not use this file except in compliance with the License.
-        You may obtain a copy of the License at
-
-            http://www.apache.org/licenses/LICENSE-2.0
-
-        Unless required by applicable law or agreed to in writing, software
-        distributed under the License is distributed on an "AS IS" BASIS,
-        WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-        See the License for the specific language governing permissions and
-        limitations under the License.
-      # We can't use the template-path option because it requires text without `/*` and `*/` comments.
-      # We can't remove the comments `/*` and `*/` because the controller-gen requires them.
-      # template-path: ./hack/boilerplate.go.txt
+      template-path: ${config-path}/hack/boilerplate.txt
     govet:
       enable:
         - nilness
@@ -69,19 +56,29 @@ linters:
         - name: empty-lines
         - name: increment-decrement
         - name: var-naming
+          arguments:
+            - []
+            - []
+            - - skip-package-name-collision-with-go-std: true
+        - name: package-directory-mismatch
         - name: redundant-import-alias
         - name: use-any
+        - name: use-slices-sort
         - name: use-waitgroup-go
     forbidigo:
       forbid:
-        - pattern: ^sort\.Slice$
-          msg: Please use slices.SortFunc instead of sort.Slice for better performance and consistency
+        - pattern: ^sort\.(Slice|Sort|Stable|String).*$
+          msg: Please use slices package instead of sort for better performance and consistency
+    modernize:
+      disable:
+        - omitzero
+    usetesting:
+      os-temp-dir: true
+      context-background: true
+      context-todo: true
   exclusions:
-    generated: lax
+    warn-unused: true
     presets:
-      - comments
-      - common-false-positives
-      - legacy
       - std-error-handling
     rules:
       - linters:
@@ -91,18 +88,11 @@ linters:
           - staticcheck
         text: 'SA1019: j.Status.RayClusterStatus.State is deprecated: the State field is replaced by the Conditions field.'
       - linters:
+          - staticcheck
+        text: 'SA1019: features.* is deprecated: planned to be removed in .*'
+      - linters:
           - fatcontext
         path: ^test/*
-      - linters:
-          - revive
-        path: 'util/*'
-        text: 'var-naming: avoid meaningless package names'
-    paths:
-      - bin
-      - vendor
-      - third_party$
-      - builtin$
-      - examples$
 issues:
   # Show all issues from a linter
   max-issues-per-linter: 0
@@ -111,6 +101,7 @@ issues:
 formatters:
   enable:
     - gci
+    - golines
   settings:
     gci:
       sections:
@@ -119,11 +110,8 @@ formatters:
         - prefix(sigs.k8s.io/kueue) # Custom section: groups all imports with the specified Prefix.
         - blank # Blank section: contains all blank imports. This section is not present unless explicitly enabled.
         - dot # Dot section: contains all dot imports.
+    golines:
+      max-len: 200
+      reformat-tags: false
   exclusions:
-    generated: lax
-    paths:
-      - bin
-      - vendor
-      - third_party$
-      - builtin$
-      - examples$
+    warn-unused: true

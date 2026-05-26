@@ -1,19 +1,81 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
-approvers:
-- gabesaba
-- mimowo
-- tenzen-y
+filters:
+  # Catch-all (required when using filters)
+  ".*":
+    approvers:
+      - kueue-approvers
+    reviewers:
+      - kueue-reviewers
+    emeritus_approvers:
+      - ahg-g
+      - alculquicondor
+      - denkensk
+      - kerthcet
 
-reviewers:
-- gabesaba
-- mbobrovskyi
-- mimowo
-- pbundyra
-- tenzen-y
+  # Any directory depth: go.mod or go.sum
+  "go\\.(mod|sum)$":
+    approvers:
+      - dependency-approvers
 
-emeritus_approvers:
-- ahg-g
-- alculquicondor
-- denkensk
-- kerthcet
+  # Any directory depth: package.json or package-lock.json
+  "package(-lock)?\\.json$":
+    approvers:
+      - dependency-approvers
+
+  # Any directory depth: Makefile-deps.mk
+  "Makefile-deps\\.mk$":
+    approvers:
+      - dependency-approvers
+
+  "^site/hugo\\.toml$":
+    approvers:
+      - hugo-approvers
+      - infra-approvers
+
+  "^netlify\\.toml$":
+    approvers:
+      - hugo-approvers
+
+  # Vendor directory
+  "^vendor/.*$":
+    approvers:
+      - dependency-approvers
+
+  # Any directory depth: *_test.go
+  "_test\\.go$":
+    approvers:
+      - test-approvers
+
+  # Any directory depth: Makefile-test.mk
+  "Makefile-(verify|test)\\.mk$":
+    approvers:
+      - test-approvers
+
+  # Linter configs
+  "^\\.golangci.*\\.ya?ml$":
+    approvers:
+      - test-approvers
+
+  # Agent instructions and experimental agent
+  "^AGENTS\\.md$":
+    approvers:
+      - agent-approvers
+    reviewers:
+      - agent-reviewers
+
+  "Dockerfile$|\\.dockerignore$":
+    approvers:
+      - infra-approvers
+
+  "^\\.github/dependabot\\.ya?ml$":
+    approvers:
+      - infra-approvers
+
+  "^\\.cloudbuild.yaml$":
+    approvers:
+      - infra-approvers
+
+  "^\\.krew.yaml$":
+    approvers:
+      - infra-approvers

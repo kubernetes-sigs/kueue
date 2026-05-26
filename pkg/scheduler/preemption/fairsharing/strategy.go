@@ -16,7 +16,10 @@ limitations under the License.
 
 package fairsharing
 
-import schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+import (
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+)
 
 // PreemptorNewShare is the DominantResourceShare of the Preemptor
 // after the incoming workload's usage has been added. It is used for
@@ -42,4 +45,8 @@ func LessThanOrEqualToFinalShare(preemptorNewShare PreemptorNewShare, _ TargetOl
 // LessThanInitialShare implements rule S2-b in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
 func LessThanInitialShare(preemptorNewShare PreemptorNewShare, targetOldShare TargetOldShare, _ TargetNewShare) bool {
 	return schdcache.CompareDRS(schdcache.DRS(preemptorNewShare), schdcache.DRS(targetOldShare)) < 0
+}
+
+func Enabled(pfs *config.FairSharing) bool {
+	return pfs != nil
 }

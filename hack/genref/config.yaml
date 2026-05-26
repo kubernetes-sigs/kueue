@@ -4,22 +4,22 @@ hiddenMemberFields:
 
 apis:
   - name: kueue
-    title: Kueue API
+    title: Kueue v1beta1 API 
     package: sigs.k8s.io/kueue
     path: apis/kueue/v1beta1
 
   - name: kueue
-    title: Kueue API
+    title: Kueue v1beta2 API
     package: sigs.k8s.io/kueue
     path: apis/kueue/v1beta2
 
   - name: kueue-config
-    title: Kueue Configuration API
+    title: Kueue Configuration v1beta1 API
     package: sigs.k8s.io/kueue
     path: apis/config/v1beta1
 
   - name: kueue-config
-    title: Kueue Configuration API
+    title: Kueue Configuration v1beta2 API
     package: sigs.k8s.io/kueue
     path: apis/config/v1beta2
 
@@ -35,6 +35,8 @@ externalPackages:
     target: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#{{- lower .TypeIdentifier -}}-{{- arrIndex .PackageSegments -1 -}}-{{- arrIndex .PackageSegments -2 -}}
   - match: ^k8s\.io/apimachinery/pkg/api/resource\.Quantity$
     target: https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity
+  - match: ^k8s\.io/client-go/tools/clientcmd/api\.
+    target: https://pkg.go.dev/k8s.io/client-go/tools/clientcmd/api#{{- .TypeIdentifier -}}
   - match: ^k8s.io/component-base/config/v1alpha1.
     target: https://pkg.go.dev/k8s.io/component-base/config/v1alpha1#{{- .TypeIdentifier -}}
   - match: ^time\.Duration$

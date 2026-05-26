@@ -26,15 +26,6 @@ rules:
   - apiGroups:
       - ""
     resources:
-      - events
-    verbs:
-      - create
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - ""
-    resources:
       - limitranges
       - namespaces
       - nodes
@@ -145,6 +136,15 @@ rules:
       - get
       - patch
       - update
+  - apiGroups:
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+      - update
+      - watch
   - apiGroups:
       - flowcontrol.apiserver.k8s.io
     resources:
@@ -314,6 +314,14 @@ rules:
       - list
       - watch
   - apiGroups:
+      - leaderworkerset.x-k8s.io
+    resources:
+      - leaderworkersets/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
       - node.k8s.io
     resources:
       - runtimeclasses
@@ -326,6 +334,7 @@ rules:
     resources:
       - rayclusters
       - rayjobs
+      - rayservices
     verbs:
       - delete
       - get
@@ -338,6 +347,7 @@ rules:
     resources:
       - rayclusters/finalizers
       - rayjobs/finalizers
+      - rayservices/finalizers
     verbs:
       - get
       - update
@@ -346,6 +356,7 @@ rules:
     resources:
       - rayclusters/status
       - rayjobs/status
+      - rayservices/status
     verbs:
       - get
       - patch
@@ -353,8 +364,10 @@ rules:
   - apiGroups:
       - resource.k8s.io
     resources:
+      - deviceclasses
       - resourceclaims
       - resourceclaimtemplates
+      - resourceslices
     verbs:
       - get
       - list
@@ -366,6 +379,17 @@ rules:
     verbs:
       - get
       - list
+      - watch
+  - apiGroups:
+      - sparkoperator.k8s.io
+    resources:
+      - sparkapplications
+    verbs:
+      - delete
+      - get
+      - list
+      - patch
+      - update
       - watch
   - apiGroups:
       - trainer.kubeflow.org

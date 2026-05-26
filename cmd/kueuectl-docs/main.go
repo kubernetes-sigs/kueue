@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	goflag "flag"
 	"log"
 	"os"
 
@@ -43,7 +42,6 @@ func main() {
 
 	cmd := app.NewDefaultKueuectlCmd()
 	pflag.CommandLine.SetNormalizeFunc(cliflag.WordSepNormalizeFunc)
-	pflag.CommandLine.AddGoFlagSet(goflag.CommandLine)
 
 	if err := generators.GenMarkdownTree(cmd, templatesDir, outputDir); err != nil {
 		panic(err)

@@ -1,0 +1,66 @@
+{{- $currentVersion := site.Params.version -}}
+{{- $versionParts := split (replaceRE "^v" "" $currentVersion) "." -}}
+{{- $majorVersion := index $versionParts 0 -}}
+{{- $currentMinorVersion := int (index $versionParts 1) -}}
+{{- $currentPatchVersion := int (index $versionParts 2) -}}
+{{- $previousMinorVersion := sub $currentMinorVersion 1 -}}
+{{- $exampleSourceVersion := printf "v%s.%d.1" $majorVersion (sub $currentMinorVersion 2) -}}
+{{- $releaseURLPrefix := "https://github.com/kubernetes-sigs/kueue/releases/tag/" -}}
+
+{{/* Find the latest stable patch in the previous minor line. */}}
+{{- $previousMinorTagsURL := printf "https://api.github.com/repos/kubernetes-sigs/kueue/git/matching-refs/tags/v%s.%d." $majorVersion $previousMinorVersion -}}
+{{- $previousMinorTagsResource := resources.GetRemote $previousMinorTagsURL -}}
+{{- $previousMinorTags := $previousMinorTagsResource | transform.Unmarshal -}}
+{{- $stablePreviousMinorPattern := printf "^v%s\\.%d\\.[0-9]+$" $majorVersion $previousMinorVersion -}}
+{{- $previousMinorLatestPatch := 0 -}}
+{{- range $previousMinorTags -}}
+  {{- $tagName := replace .ref "refs/tags/" "" -}}
+  {{- if findRE $stablePreviousMinorPattern $tagName -}}
+    {{- $tagParts := split (replaceRE "^v" "" $tagName) "." -}}
+    {{- $patchVersion := int (index $tagParts 2) -}}
+    {{- if gt $patchVersion $previousMinorLatestPatch -}}
+      {{- $previousMinorLatestPatch = $patchVersion -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- $previousMinorTargetVersion := printf "v%s.%d.%d" $majorVersion $previousMinorVersion $previousMinorLatestPatch -}}
+
+{{/* Example 1: upgrade to the latest release, crossing each new minor line. */}}
+{{- $latestReleaseNotes := slice -}}
+{{- range seq (add (sub $currentMinorVersion 2) 1) $currentMinorVersion -}}
+  {{- $latestReleaseNotes = $latestReleaseNotes | append (printf "v%s.%d.0" $majorVersion .) -}}
+{{- end -}}
+{{- if gt $currentPatchVersion 0 -}}
+  {{- range seq 1 $currentPatchVersion -}}
+    {{- $latestReleaseNotes = $latestReleaseNotes | append (printf "v%s.%d.%d" $majorVersion $currentMinorVersion .) -}}
+  {{- end -}}
+{{- end -}}
+
+{{/* Example 2: upgrade to the latest patch in the previous minor line. */}}
+{{- $previousMinorReleaseNotes := slice -}}
+{{- range seq 0 $previousMinorLatestPatch -}}
+  {{- $previousMinorReleaseNotes = $previousMinorReleaseNotes | append (printf "v%s.%d.%d" $majorVersion $previousMinorVersion .) -}}
+{{- end -}}
+
+{{- $latestReleaseNoteLinks := slice -}}
+{{- range $latestReleaseNotes -}}
+  {{- $latestReleaseNoteLinks = $latestReleaseNoteLinks | append (printf "<a href=\"%s%s\"><code>%s</code></a>" $releaseURLPrefix . .) -}}
+{{- end -}}
+{{- $previousMinorReleaseNoteLinks := slice -}}
+{{- range $previousMinorReleaseNotes -}}
+  {{- $previousMinorReleaseNoteLinks = $previousMinorReleaseNoteLinks | append (printf "<a href=\"%s%s\"><code>%s</code></a>" $releaseURLPrefix . .) -}}
+{{- end -}}
+
+{{- if eq .Page.Lang "zh-cn" -}}
+{{- $latestReleaseNoteList := delimit $latestReleaseNoteLinks "、" " 和 " | safeHTML -}}
+{{- $previousMinorReleaseNoteList := delimit $previousMinorReleaseNoteLinks "、" " 和 " | safeHTML -}}
+<p>例如：</p>
+<p>从 <a href="{{ $releaseURLPrefix }}{{ $exampleSourceVersion }}"><code>{{ $exampleSourceVersion }}</code></a> 升级到 <a href="{{ $releaseURLPrefix }}{{ $currentVersion }}"><code>{{ $currentVersion }}</code></a> 时，请查看 {{ $latestReleaseNoteList }} 的升级说明。</p>
+<p>从 <a href="{{ $releaseURLPrefix }}{{ $exampleSourceVersion }}"><code>{{ $exampleSourceVersion }}</code></a> 升级到 <a href="{{ $releaseURLPrefix }}{{ $previousMinorTargetVersion }}"><code>{{ $previousMinorTargetVersion }}</code></a> 时，请查看 {{ $previousMinorReleaseNoteList }} 的升级说明。</p>
+{{- else -}}
+{{- $latestReleaseNoteList := delimit $latestReleaseNoteLinks ", " ", and " | safeHTML -}}
+{{- $previousMinorReleaseNoteList := delimit $previousMinorReleaseNoteLinks ", " ", and " | safeHTML -}}
+<p>For example:</p>
+<p>When upgrading from <a href="{{ $releaseURLPrefix }}{{ $exampleSourceVersion }}"><code>{{ $exampleSourceVersion }}</code></a> to <a href="{{ $releaseURLPrefix }}{{ $currentVersion }}"><code>{{ $currentVersion }}</code></a>, review the upgrade notes for {{ $latestReleaseNoteList }}.</p>
+<p>When upgrading from <a href="{{ $releaseURLPrefix }}{{ $exampleSourceVersion }}"><code>{{ $exampleSourceVersion }}</code></a> to <a href="{{ $releaseURLPrefix }}{{ $previousMinorTargetVersion }}"><code>{{ $previousMinorTargetVersion }}</code></a>, review the upgrade notes for {{ $previousMinorReleaseNoteList }}.</p>
+{{- end -}}

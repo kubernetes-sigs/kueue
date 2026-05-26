@@ -18,57 +18,43 @@ package handlers
 
 import (
 	"context"
-	"sort"
 
 	"github.com/gin-gonic/gin"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/dynamic"
+	"k8s.io/apimachinery/pkg/util/sets"
+
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // NamespacesWebSocketHandler streams namespaces that are related to Kueue
-func NamespacesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-		return fetchNamespaces(ctx, dynamicClient)
-	})
+func (h *Handlers) NamespacesWebSocketHandler() gin.HandlerFunc {
+	// Use LocalQueue informer since namespaces are derived from LocalQueues
+	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+		return h.fetchNamespaces(ctx)
+	}, LocalQueuesGVK())
 }
 
 // Fetch namespaces that have LocalQueues (Kueue-related namespaces)
-func fetchNamespaces(ctx context.Context, dynamicClient dynamic.Interface) (any, error) {
+func (h *Handlers) fetchNamespaces(ctx context.Context) (any, error) {
+	lql := &kueueapi.LocalQueueList{}
+
 	// First, get all LocalQueues to find namespaces that have them
-	localQueues, err := dynamicClient.Resource(LocalQueuesGVR()).List(ctx, metav1.ListOptions{})
+	err := h.client.List(ctx, lql)
 	if err != nil {
 		return nil, err
 	}
 
 	// Extract unique namespaces from LocalQueues
-	namespaceSet := make(map[string]bool)
-	for _, lq := range localQueues.Items {
-		namespace := lq.GetNamespace()
-		if namespace != "" {
-			namespaceSet[namespace] = true
-		}
+	namespaceSet := sets.NewString()
+	for _, lq := range lql.Items {
+		namespaceSet.Insert(lq.GetNamespace())
 	}
 
-	// If no LocalQueues found, return empty result with proper structure
-	if len(namespaceSet) == 0 {
-		return map[string]any{
-			"namespaces": []string{},
-		}, nil
+	namespaces := namespaceSet.List()
+	if namespaceSet.Len() == 0 {
+		namespaces = []string{}
 	}
 
-	// Convert namespace set to a slice of strings (just the names)
-	var namespaceNames []string
-	for namespaceName := range namespaceSet {
-		namespaceNames = append(namespaceNames, namespaceName)
-	}
-
-	// Sort namespaces alphabetically for consistent ordering
-	sort.Strings(namespaceNames)
-
-	// Return in the same format as other endpoints
-	result := map[string]any{
-		"namespaces": namespaceNames,
-	}
-
-	return result, nil
+	return map[string]any{
+		"namespaces": namespaces,
+	}, nil
 }

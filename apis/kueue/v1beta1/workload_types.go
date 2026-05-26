@@ -23,17 +23,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	WorkloadPriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
+	PodPriorityClassSource      = "scheduling.k8s.io/priorityclass"
+)
+
 // WorkloadSpec defines the desired state of Workload
 // +kubebuilder:validation:XValidation:rule="has(self.priorityClassName) ? has(self.priority) : true", message="priority should not be nil when priorityClassName is set"
 type WorkloadSpec struct {
 	// podSets is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
-	// There must be at least one element and at most 8.
+	// There must be at least one element and at most 10.
 	// podSets cannot be changed.
 	//
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	// +kubebuilder:validation:MinItems=1
 	PodSets []PodSet `json:"podSets"`
 
@@ -153,7 +158,7 @@ type Admission struct {
 	// podSetAssignments hold the admission results for each of the .spec.podSets entries.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	PodSetAssignments []PodSetAssignment `json:"podSetAssignments"`
 }
 
@@ -382,7 +387,7 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	ReclaimablePods []ReclaimablePod `json:"reclaimablePods,omitempty"`
 
 	// admissionChecks list all the admission checks required by the workload and the current status
@@ -402,7 +407,7 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	ResourceRequests []PodSetRequest `json:"resourceRequests,omitempty"`
 
 	// accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
@@ -422,7 +427,7 @@ type WorkloadStatus struct {
 	// This field is optional.
 	//
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
 
@@ -537,11 +542,28 @@ type AdmissionCheckState struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=32768
 	Message string `json:"message" protobuf:"bytes,6,opt,name=message"`
-
+	// requeueAfterSeconds indicates how long to wait at least before
+	// retrying to admit the workload.
+	// The admission check controllers can set this field when State=Retry
+	// to implement delays between retry attempts.
+	//
+	// If nil when State=Retry, Kueue will retry immediately.
+	// If set, Kueue will add the workload back to the queue after
+	//   lastTransitionTime + RequeueAfterSeconds is over.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RequeueAfterSeconds *int32 `json:"requeueAfterSeconds,omitempty"`
+	// retryCount tracks retry attempts for this admission check.
+	// Kueue automatically increments the counter whenever the
+	// state transitions to Retry.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RetryCount *int32 `json:"retryCount,omitempty"`
 	// podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.
 	// +optional
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	PodSetUpdates []PodSetUpdate `json:"podSetUpdates,omitempty"`
 }
 
@@ -754,19 +776,19 @@ const (
 
 // +genclient
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
+// +kubebuilder:deprecatedversion:warning="This version is deprecated. Use v1beta2 instead."
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type="string",description="Name of the queue this workload was submitted to"
 // +kubebuilder:printcolumn:name="Reserved in",JSONPath=".status.admission.clusterQueue",type="string",description="Name of the ClusterQueue where the workload is reserving quota"
 // +kubebuilder:printcolumn:name="Admitted",JSONPath=".status.conditions[?(@.type=='Admitted')].status",type="string",description="Admission status"
 // +kubebuilder:printcolumn:name="Finished",JSONPath=".status.conditions[?(@.type=='Finished')].status",type="string",description="Workload finished"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
-// +kubebuilder:resource:shortName={wl}
+// +kubebuilder:resource:shortName={kwl,kueueworkload,kueueworkloads}
 
 // Workload is the Schema for the workloads API
 // +kubebuilder:validation:XValidation:rule="has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(self.status.admission) ? size(self.spec.podSets) == size(self.status.admission.podSetAssignments) : true", message="podSetAssignments must have the same number of podSets as the spec"
-// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) ? (oldSelf.spec.priorityClassSource == self.spec.priorityClassSource) : true", message="priorityClassSource is immutable while workload quota reserved"
-// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && (self.spec.priorityClassSource != 'kueue.x-k8s.io/workloadpriorityclass') && has(oldSelf.spec.priorityClassName) && has(self.spec.priorityClassName)) ? (oldSelf.spec.priorityClassName == self.spec.priorityClassName) : true", message="priorityClassName is immutable while workload quota reserved and priorityClassSource is not equal to kueue.x-k8s.io/workloadpriorityclass"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassSource) && has(self.spec.priorityClassSource)) ? (oldSelf.spec.priorityClassSource == self.spec.priorityClassSource) : true", message="priorityClassSource is immutable while workload quota reserved"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassSource) && has(self.spec.priorityClassSource) && (self.spec.priorityClassSource != 'kueue.x-k8s.io/workloadpriorityclass') && has(oldSelf.spec.priorityClassName) && has(self.spec.priorityClassName)) ? (oldSelf.spec.priorityClassName == self.spec.priorityClassName) : true", message="priorityClassName is immutable while workload quota reserved and priorityClassSource is not equal to kueue.x-k8s.io/workloadpriorityclass"
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && has(oldSelf.spec.queueName) && has(self.spec.queueName) ? oldSelf.spec.queueName == self.spec.queueName : true", message="queueName is immutable while workload quota reserved"
 // +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true", message="maximumExecutionTimeSeconds is immutable while workload quota reserved"
 type Workload struct {

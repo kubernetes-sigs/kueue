@@ -26,13 +26,20 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // HasGate checks if the pod has a scheduling gate with a specified name.
 func HasGate(pod *corev1.Pod, gateName string) bool {
 	return gateIndex(&pod.Spec, gateName) >= 0
+}
+
+// HasCondition checks if there is a condition in the Pod's status
+// with exactly the same Type and Status.
+func HasCondition(p *corev1.Pod, cond *corev1.PodCondition) bool {
+	return slices.ContainsFunc(p.Status.Conditions, func(c corev1.PodCondition) bool {
+		return c.Type == cond.Type && c.Status == cond.Status
+	})
 }
 
 // Ungate removes scheduling gate from the Pod if present.
@@ -111,7 +118,7 @@ func readUIntFromStringBelowBound(value string, bound int) (*int, error) {
 	if uintValue >= uint64(bound) {
 		return nil, fmt.Errorf("%w: value should be less than %d", ErrValidation, bound)
 	}
-	return ptr.To(int(uintValue)), nil
+	return new(int(uintValue)), nil
 }
 
 func GenerateRoleHash(podSpec *corev1.PodSpec) (string, error) {

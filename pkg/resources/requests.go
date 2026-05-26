@@ -23,7 +23,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/utils/ptr"
+
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 // The following resources calculations are inspired on
@@ -38,6 +41,10 @@ func NewRequests(rl corev1.ResourceList) Requests {
 		r[name] = ResourceValue(name, quant)
 	}
 	return r
+}
+
+func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
+	return NewRequests(resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{}))
 }
 
 func (r Requests) Clone() Requests {
@@ -70,7 +77,7 @@ func (r Requests) Divide(f int64) {
 
 func (r Requests) Mul(f int64) {
 	for k := range r {
-		r[k] *= f
+		r[k] = utilmath.SaturatingMul(r[k], f)
 	}
 }
 
@@ -98,7 +105,7 @@ func (r Requests) ToResourceList() corev1.ResourceList {
 // It's milli-units for CPU and absolute units for everything else.
 func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 	if name == corev1.ResourceCPU {
-		return q.MilliValue()
+		return utilmath.SafeMilliValue(q)
 	}
 	return q.Value()
 }
@@ -108,13 +115,33 @@ func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
 	case corev1.ResourceCPU:
 		return *resource.NewMilliQuantity(v, resource.DecimalSI)
 	case corev1.ResourceMemory, corev1.ResourceEphemeralStorage:
-		return *resource.NewQuantity(v, resource.BinarySI)
+		return newCanonicalQuantity(v, resource.BinarySI)
 	default:
 		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) {
-			return *resource.NewQuantity(v, resource.BinarySI)
+			return newCanonicalQuantity(v, resource.BinarySI)
 		}
 		return *resource.NewQuantity(v, resource.DecimalSI)
 	}
+}
+
+// newCanonicalQuantity returns a Quantity that will successfully round-trip.
+//
+// This means the returned quantity can be serialized then deserialized back to
+// an identical quantity.
+//
+// If the value can round-trip using the preferred format, that one will be used.
+// Otherwise, the format will be automatically determined.
+//
+// For example, if preferred format is BinarySI, 128000 will use BinarySI format
+// (because it can be represented as 125Ki), but 100000 will use DecimalSI format.
+func newCanonicalQuantity(v int64, preferredFormat resource.Format) resource.Quantity {
+	preferred := *resource.NewQuantity(v, preferredFormat)
+	final, err := resource.ParseQuantity(preferred.String())
+	if err != nil {
+		// Should never happen
+		return preferred
+	}
+	return final
 }
 
 func ResourceQuantityString(name corev1.ResourceName, v int64) string {
@@ -122,23 +149,69 @@ func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 	return rq.String()
 }
 
+// GreaterKeys returns keys where the receiver is greater than other.
+func (r Requests) GreaterKeys(other Requests) []corev1.ResourceName {
+	if len(r) == 0 || len(other) == 0 {
+		return nil
+	}
+	var result []corev1.ResourceName
+	for name, value := range r {
+		if otherValue, found := other[name]; found && value > otherValue {
+			result = append(result, name)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// GreaterKeysRL compares against a ResourceList and returns larger keys.
+func (r Requests) GreaterKeysRL(rl corev1.ResourceList) []corev1.ResourceName {
+	return r.GreaterKeys(NewRequests(rl))
+}
+
 func (r Requests) CountIn(capacity Requests) int32 {
-	var result *int32
+	count, _ := r.CountInWithLimitingResource(capacity)
+	return count
+}
+
+// CountInWithLimitingResource returns how many times the request fits into capacity
+// and the resource that is most constraining (i.e., gave the minimum count).
+// When multiple resources have the same count, ties are broken alphabetically
+// by resource name for determinism.
+func (r Requests) CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName) {
+	var (
+		result           *int32
+		limitingResource corev1.ResourceName
+	)
 	for rName, rValue := range r {
-		capacity, found := capacity[rName]
+		cap, found := capacity[rName]
 		if !found && rValue != 0 {
-			return 0
+			return 0, rName
 		}
 		// find the minimum count matching all the resource quota.
 		var count int32
 		if rValue == 0 {
 			count = int32(math.MaxInt32)
 		} else {
-			count = int32(capacity / rValue)
+			// Clamp to 0: when an extended-resource allocatable on a node
+			// drops below current usage mid-workload (e.g. GPU lost to a
+			// driver issue, SKU removed, or NFD label flap), the TAS
+			// snapshot's per-domain cap (allocatable - inUse) can go
+			// negative. Integer division would then yield a negative count
+			// and propagate into TopologyDomain.Count, which the apiserver
+			// rejects with "podCounts.individual[X] in body should be greater
+			// than or equal to 1", permanently wedging the workload. A
+			// negative "fits N times" is meaningless; treat it as 0 so the
+			// scheduler skips the over-subscribed domain instead.
+			count = max(int32(cap/rValue), 0)
 		}
-		if result == nil || count < *result {
-			result = ptr.To(count)
+		// Tie-break between CPU and memory counts to ensure deterministic results.
+		if result == nil || count < *result || (count == *result && rName < limitingResource) {
+			result = new(count)
+			limitingResource = rName
 		}
 	}
-	return ptr.Deref(result, 0)
+	return ptr.Deref(result, 0), limitingResource
 }

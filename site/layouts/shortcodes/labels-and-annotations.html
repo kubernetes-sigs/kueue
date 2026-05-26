@@ -1,0 +1,32 @@
+{{ $items := sort .Page.Site.Data.labels_and_annotations "key" }}
+{{ range $items }}
+
+{{ printf "### %s" .key }}
+
+<p>Type: {{ .type }}</p>
+
+<p>Example: {{ $.Page.RenderString .example }}</p>
+
+<p>Used on: {{ $.Page.RenderString .used_on }}</p>
+
+{{ $desc := i18n .description }}
+{{ if hasPrefix $desc "[i18n]" }}
+{{ $desc = .description }}
+{{ end }}
+<p>{{ $.Page.RenderString $desc }}</p>
+
+{{ if .note }}
+<div class="alert alert-primary" role="note">
+    <h4 class="alert-heading">Note</h4>
+    <p>{{ $.Page.RenderString .note }}</p>
+</div>
+{{ end }}
+
+{{ if .warning }}
+<div class="alert alert-warning" role="alert">
+    <h4 class="alert-heading">Warning</h4>
+    <p>{{ $.Page.RenderString .warning }}</p>
+</div>
+{{ end }}
+
+{{ end }}

@@ -32,8 +32,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 var (
@@ -64,7 +64,7 @@ func NewLocalQueueOptions(streams genericiooptions.IOStreams) *LocalQueueOptions
 	}
 }
 
-func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewLocalQueueOptions(streams)
 
 	cmd := &cobra.Command{
@@ -75,7 +75,7 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 		Long:                  lqLong,
 		Example:               lqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgsFunction:     completion.LocalQueueNameFunc(clientGetter, ptr.To(true)),
+		ValidArgsFunction:     completion.LocalQueueNameFunc(clientGetter, new(true)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter, args)
@@ -94,7 +94,7 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 }
 
 // Complete completes all the required options
-func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, args []string) error {
+func (o *LocalQueueOptions) Complete(clientGetter clientgetter.ClientGetter, args []string) error {
 	o.LocalQueueName = args[0]
 
 	namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()

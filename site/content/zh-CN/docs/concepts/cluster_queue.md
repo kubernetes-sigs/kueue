@@ -61,6 +61,10 @@ spec:
 在称为[准入](/docs/concepts#admission)的流程中，Kueue 会为[工作负载 Pod 集合](/docs/concepts/workload#pod-sets)分配每个所需资源的规格。
 Kueue 会优先分配 ClusterQueue `.spec.resourceGroups[*].flavors` 列表中第一个拥有足够未用 `nominalQuota` 的规格，无论是在本 ClusterQueue 还是其[队列组](#cohort)中。
 
+当为 ClusterQueue 启用[并发准入](/docs/concepts/concurrent_admission)时，
+`.spec.resourceGroups[*].flavors` 的顺序也会定义 ResourceFlavor 偏好：列表中的第一个 ResourceFlavor 是迁移时最优先的 ResourceFlavor。
+Kueue 可以在多个 ResourceFlavor 上并发且独立地尝试准入。
+
 {{% alert title="注意" color="primary" %}}
 在 ClusterQueue 配额中使用 `pods` 资源名来限制可接纳的 Pod 数量。
 
@@ -336,13 +340,7 @@ ClusterQueue 可以借用所有名义配额从 cohort 中的所有 ClusterQueues
 `.spec.resourcesGroup[*].flavors[*].resource[*].lendingLimit`
 [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) 字段。
 
-{{< feature-state state="beta" for_version="v0.9" >}}
-{{% alert title="注意" color="primary" %}}
-
-`LendingLimit` 是一个 Beta 功能，默认启用。
-
-你可以通过设置 `LendingLimit` feature gate 来禁用它。请参阅 [Installation](/docs/installation/#change-the-feature-gates-configuration) 指南，了解 feature gate 配置的详细信息。
-{{% /alert %}}
+{{< feature-state state="stable" for_version="v0.17" >}}
 
 例如，假设你创建了以下两个 ClusterQueues：
 
@@ -416,8 +414,8 @@ spec:
 - `reclaimWithinCohort` 确定是否可以预留
   cohort 中使用更多配额的 Workloads。可能的值是：
   - `Never`（默认）：不要预留 cohort 中的 Workloads。
-  - `LowerPriority`：如果待处理的工作负载适合其 ClusterQueue 的配额，则仅预留 cohort 中优先级较低的 Workloads。
-  - `Any`：如果待处理的工作负载适合其 ClusterQueue 的配额，则预留 cohort 中的任何 Workloads，无论优先级如何。
+  - `LowerPriority`：**经典抢占**下，若待处理工作负载可容纳在其 ClusterQueue 的名义配额内，则仅预留 cohort 中优先级较低的 Workloads。**公平共享**下，仅预留 cohort 中优先级低于待处理工作负载且满足公平共享抢占策略的 Workloads。
+  - `Any`：**经典抢占**下，若待处理工作负载可容纳在其 ClusterQueue 的名义配额内，则预留 cohort 中任意优先级的 Workloads。**公平共享**下，预留 cohort 中满足公平共享抢占策略的 Workloads。
 
 - `borrowWithinCohort` 确定是否可以预留
   Workloads 从其他 ClusterQueues 如果工作负载需要借用。

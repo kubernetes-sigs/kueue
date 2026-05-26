@@ -18,30 +18,27 @@ package pod
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
 var (
@@ -50,11 +47,9 @@ var (
 	annotationsPath                = metaPath.Child("annotations")
 	managedLabelPath               = labelsPath.Key(constants.ManagedByKueueLabelKey)
 	groupNameLabelPath             = labelsPath.Key(podconstants.GroupNameLabel)
-	prebuiltWorkloadLabelPath      = labelsPath.Key(ctrlconstants.PrebuiltWorkloadLabel)
+	groupNameAnnotationPath        = annotationsPath.Key(podconstants.GroupNameAnnotation)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
-
-	errPodOptsTypeAssertion = errors.New("options are not of type PodIntegrationOptions")
 )
 
 type PodWebhook struct {
@@ -69,44 +64,27 @@ type PodWebhook struct {
 // SetupWebhook configures the webhook for pods.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
-	podOpts, err := getPodOptions(options.IntegrationOptions)
-	if err != nil {
-		return err
-	}
 	wh := &PodWebhook{
 		client:                       mgr.GetClient(),
 		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 	}
-	if podOpts != nil {
-		wh.namespaceSelector = podOpts.NamespaceSelector
-		wh.podSelector = podOpts.PodSelector
-	}
 	obj := &corev1.Pod{}
-	return webhook.WebhookManagedBy(mgr).
-		For(obj).
-		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
+	if options.NoopWebhook {
+		return webhook.SetupNoopWebhook(mgr, obj)
+	}
+	return ctrl.NewWebhookManagedBy(mgr, obj).
+		WithDefaulter(wh).
 		WithValidator(wh).
+		WithLogConstructor(jobframework.WebhookLogConstructor(FromObject(obj).GVK(), options.RoleTracker)).
 		Complete()
-}
-
-func getPodOptions(integrationOpts map[string]any) (*configapi.PodIntegrationOptions, error) {
-	opts, ok := integrationOpts[corev1.SchemeGroupVersion.WithKind("Pod").String()]
-	if !ok {
-		return nil, nil
-	}
-	podOpts, ok := opts.(*configapi.PodIntegrationOptions)
-	if !ok {
-		return nil, fmt.Errorf("%w, got %T", errPodOptsTypeAssertion, opts)
-	}
-	return podOpts, nil
 }
 
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
-var _ admission.CustomDefaulter = &PodWebhook{}
+var _ admission.Defaulter[*corev1.Pod] = &PodWebhook{}
 
 // addRoleHash calculates the role hash and adds it to the pod's annotations
 func (p *Pod) addRoleHash() error {
@@ -123,12 +101,14 @@ func (p *Pod) addRoleHash() error {
 	return nil
 }
 
-func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
+func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
 
-	_, suspend := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]
+	_, suspendByParent := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]
+
+	suspend := suspendByParent
 	if !suspend {
 		// Namespace filtering
 		ns := corev1.Namespace{}
@@ -169,14 +149,15 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 
 		// Local queue defaulting
-		if features.Enabled(features.LocalQueueDefaulting) &&
-			jobframework.QueueNameForObject(pod.Object()) == "" &&
+		if jobframework.QueueNameForObject(pod.Object()) == "" &&
 			w.queues.DefaultLocalQueueExist(pod.pod.GetNamespace()) {
 			if pod.pod.Labels == nil {
 				pod.pod.Labels = make(map[string]string)
 			}
 			pod.pod.Labels[ctrlconstants.QueueLabel] = string(ctrlconstants.DefaultLocalQueueName)
 		}
+
+		jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, pod.Object())
 
 		suspend = jobframework.QueueNameForObject(pod.Object()) != "" || w.manageJobsWithoutQueueName
 		if suspend {
@@ -188,7 +169,10 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 
 	if suspend {
-		controllerutil.AddFinalizer(pod.Object(), podconstants.PodFinalizer)
+		if !suspendByParent {
+			controllerutil.AddFinalizer(pod.Object(), podconstants.PodFinalizer)
+		}
+
 		gate(&pod.pod)
 
 		if features.Enabled(features.TopologyAwareScheduling) {
@@ -204,7 +188,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			return err
 		}
 		// copy back changes to the object
-		pod.pod.DeepCopyInto(obj.(*corev1.Pod))
+		pod.pod.DeepCopyInto(obj)
 	}
 
 	return nil
@@ -212,9 +196,9 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 
 // +kubebuilder:webhook:path=/validate--v1-pod,mutating=false,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create;update,versions=v1,name=vpod.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomValidator = &PodWebhook{}
+var _ admission.Validator[*corev1.Pod] = &PodWebhook{}
 
-func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *PodWebhook) ValidateCreate(ctx context.Context, obj *corev1.Pod) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
 	pod := FromObject(obj)
@@ -231,7 +215,7 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 	return warnings, allErrs.ToAggregate()
 }
 
-func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.Pod) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
 	oldPod := FromObject(oldObj)
@@ -243,8 +227,9 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	allErrs = append(allErrs, validateCommon(newPod)...)
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
 
-	if podGroupName(oldPod.pod) != "" {
-		allErrs = append(allErrs, validation.ValidateImmutableField(podGroupName(newPod.pod), podGroupName(oldPod.pod), groupNameLabelPath)...)
+	if oldGroupName := GetPodGroupName(&oldPod.pod); oldGroupName != "" {
+		newGroupName := GetPodGroupName(&newPod.pod)
+		allErrs = append(allErrs, validation.ValidateImmutableField(newGroupName, oldGroupName, getGroupNamePath(&newPod.pod))...)
 	}
 
 	if _, suspendByParent := newPod.pod.Annotations[podconstants.SuspendedByParentAnnotation]; !suspendByParent {
@@ -256,7 +241,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	return warnings, allErrs.ToAggregate()
 }
 
-func (w *PodWebhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
+func (w *PodWebhook) ValidateDelete(context.Context, *corev1.Pod) (admission.Warnings, error) {
 	return nil, nil
 }
 
@@ -294,30 +279,26 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 
 	gtc, gtcExists := p.pod.GetAnnotations()[podconstants.GroupTotalCountAnnotation]
 
-	if podGroupName(p.pod) == "" {
+	errorDetail := fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameLabel)
+	groupNameAnnotation := p.pod.Annotations[podconstants.GroupNameAnnotation]
+	if features.Enabled(features.WorkloadIdentifierAnnotations) && groupNameAnnotation != "" {
+		errorDetail = fmt.Sprintf("both the '%s' annotation and the '%s' annotation should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameAnnotation)
+	}
+
+	if groupName := GetPodGroupName(&p.pod); groupName == "" {
 		if gtcExists {
-			return append(allErrs, field.Required(
-				groupNameLabelPath,
-				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameLabel),
-			))
+			return append(allErrs, field.Required(getGroupNamePath(&p.pod), errorDetail))
 		}
 	} else {
-		allErrs = append(allErrs, jobframework.ValidateLabelAsCRDName(p.Object(), podconstants.GroupNameLabel)...)
+		allErrs = append(allErrs, validatePodGroupName(p.Object())...)
 
 		if !gtcExists {
-			return append(allErrs, field.Required(
-				groupTotalCountAnnotationPath,
-				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameLabel),
-			))
+			return append(allErrs, field.Required(groupTotalCountAnnotationPath, errorDetail))
 		}
 	}
 
 	if _, err := p.groupTotalCount(); gtcExists && err != nil {
-		return append(allErrs, field.Invalid(
-			groupTotalCountAnnotationPath,
-			gtc,
-			err.Error(),
-		))
+		return append(allErrs, field.Invalid(groupTotalCountAnnotationPath, gtc, err.Error()))
 	}
 
 	return allErrs
@@ -328,7 +309,7 @@ func validateTopologyRequest(pod *Pod) field.ErrorList {
 }
 
 func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.ErrorList {
-	if podGroupName(newPod.pod) != "" && isUnretriablePod(oldPod.pod) && !isUnretriablePod(newPod.pod) {
+	if groupName := GetPodGroupName(&newPod.pod); groupName != "" && isUnretriablePod(oldPod.pod) && !isUnretriablePod(newPod.pod) {
 		return field.ErrorList{
 			field.Forbidden(retriableInGroupAnnotationPath, "unretriable pod group can't be converted to retriable"),
 		}
@@ -339,10 +320,26 @@ func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.Erro
 
 func validatePrebuiltWorkloadName(pod *Pod) field.ErrorList {
 	var allErrs field.ErrorList
-	prebuiltWorkloadName, hasPrebuiltWorkload := jobframework.PrebuiltWorkloadFor(pod)
-	groupName := podGroupName(pod.pod)
-	if hasPrebuiltWorkload && groupName != "" && prebuiltWorkloadName != groupName {
-		allErrs = append(allErrs, field.Invalid(prebuiltWorkloadLabelPath, prebuiltWorkloadLabelPath, "prebuilt workload and pod group should be equal"))
+
+	groupName := GetPodGroupName(&pod.pod)
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(&pod.pod)
+	if groupName != "" && prebuiltWorkload != "" && prebuiltWorkload != groupName {
+		allErrs = append(allErrs, field.Invalid(jobframework.GetPrebuiltWorkloadPath(&pod.pod), prebuiltWorkload, "prebuilt workload and pod group should be equal"))
 	}
 	return allErrs
+}
+func validatePodGroupName(obj client.Object) field.ErrorList {
+	groupName := obj.GetAnnotations()[podconstants.GroupNameAnnotation]
+	if features.Enabled(features.WorkloadIdentifierAnnotations) && groupName != "" {
+		return jobframework.ValidateAnnotationAsCRDName(obj, podconstants.GroupNameAnnotation)
+	}
+	return jobframework.ValidateLabelAsCRDName(obj, podconstants.GroupNameLabel)
+}
+
+func getGroupNamePath(obj client.Object) *field.Path {
+	groupNameAnnotation := obj.GetAnnotations()[podconstants.GroupNameAnnotation]
+	if features.Enabled(features.WorkloadIdentifierAnnotations) && groupNameAnnotation != "" {
+		return groupNameAnnotationPath
+	}
+	return groupNameLabelPath
 }

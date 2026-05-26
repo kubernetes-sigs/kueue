@@ -16,13 +16,27 @@ limitations under the License.
 
 import { useEffect, useState } from 'react';
 import { buildWebSocketUrl } from './utils/urlHelper';
+import { useAuth } from './AuthContext';
+
+const WS_BASE_PROTOCOL = 'kueueviz.v1';
+const WS_TOKEN_PROTOCOL_PREFIX = 'kueueviz.auth.';
+
+// WebSocket subprotocol values must be valid RFC 6455 tokens.
+const encodeTokenForProtocol = (token) =>
+  btoa(token).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 
 const useWebSocket = (url) => {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const { token } = useAuth();
   const fullUrl = buildWebSocketUrl(url);
+
   useEffect(() => {
-    const ws = new WebSocket(fullUrl);
+    const protocols = [WS_BASE_PROTOCOL];
+    if (token) {
+      protocols.push(`${WS_TOKEN_PROTOCOL_PREFIX}${encodeTokenForProtocol(token)}`);
+    }
+    const ws = new WebSocket(fullUrl, protocols);
 
     ws.onopen = () => {
       console.log(`Connected to WebSocket: ${fullUrl}`);
@@ -30,61 +44,27 @@ const useWebSocket = (url) => {
 
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
-      console.log("WebSocket message received:", message); // Log incoming data
       setData(message);
     };
 
     ws.onerror = (err) => {
-      console.error("WebSocket error:", err);
-      // Log environment variables to the console
-      console.log(`Backend URL: ${fullUrl}`);
-
-      // Function to get all properties, including inherited ones
-      const getAllProperties = (obj) => {
-        let props = {};
-        for (let prop in obj) {
-          props[prop] = obj[prop];
-        }
-        // Manually add non-enumerable properties
-        if (obj.currentTarget) {
-          props.currentTarget = {
-            url: obj.currentTarget.url, // Extract the url property from the WebSocket object
-          };
-        }
-        return props;
-      };
-      let errorCause = "";    
-      switch (ws.readyState) {
-        case WebSocket.CONNECTING:
-          errorCause = "Failed to establish connection.";
-          break;
-        case WebSocket.CLOSED:
-          errorCause = "Connection was closed unexpectedly.";
-          break;
-        case WebSocket.CLOSING:
-          errorCause = "Connection is in the process of closing.";
-          break;
-        case WebSocket.OPEN:
-          errorCause = "Error occurred on an open connection.";
-          break;
-        default:
-          errorCause = "Unknown connection state.";
+      console.error('WebSocket error:', err);
+      if (ws.readyState === WebSocket.CONNECTING) {
+        setError('Failed to connect to WebSocket.');
+      } else {
+        setError('WebSocket connection failed.');
       }
-      const errorDetails = errorCause + "\n" + JSON.stringify(getAllProperties(err), null, 2);
-      const errorMessage = `Failed to fetch data from WebSocket: ${errorDetails}\n`;
-      setError(errorMessage);
       ws.close();
     };
 
-    ws.onclose = () => {
-      console.log("WebSocket connection closed");
+    ws.onclose = (event) => {
+      console.log('WebSocket connection closed', 'code:', event.code);
     };
 
-    // Clean up WebSocket connection on component unmount
     return () => {
       ws.close();
     };
-  }, [url]);
+  }, [fullUrl, token]);
 
   return { data, error };
 };

@@ -21,36 +21,34 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metavalidation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 type ResourceFlavorWebhook struct{}
 
-func setupWebhookForResourceFlavor(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&kueue.ResourceFlavor{}).
+func setupWebhookForResourceFlavor(mgr ctrl.Manager, roleTracker *roletracker.RoleTracker) error {
+	return ctrl.NewWebhookManagedBy(mgr, &kueue.ResourceFlavor{}).
 		WithDefaulter(&ResourceFlavorWebhook{}).
 		WithValidator(&ResourceFlavorWebhook{}).
+		WithLogConstructor(roletracker.WebhookLogConstructor(roleTracker)).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta2-resourceflavor,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=resourceflavors,verbs=create,versions=v1beta2,name=mresourceflavor.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &ResourceFlavorWebhook{}
+var _ admission.Defaulter[*kueue.ResourceFlavor] = &ResourceFlavorWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *ResourceFlavorWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	rf := obj.(*kueue.ResourceFlavor)
+func (w *ResourceFlavorWebhook) Default(ctx context.Context, rf *kueue.ResourceFlavor) error {
 	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
 	log.V(5).Info("Applying defaults")
 
@@ -62,26 +60,24 @@ func (w *ResourceFlavorWebhook) Default(ctx context.Context, obj runtime.Object)
 
 // +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta2-resourceflavor,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=resourceflavors,verbs=create;update,versions=v1beta2,name=vresourceflavor.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &ResourceFlavorWebhook{}
+var _ admission.Validator[*kueue.ResourceFlavor] = &ResourceFlavorWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ResourceFlavorWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	rf := obj.(*kueue.ResourceFlavor)
+func (w *ResourceFlavorWebhook) ValidateCreate(ctx context.Context, rf *kueue.ResourceFlavor) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
 	log.V(5).Info("Validating create")
 	return nil, ValidateResourceFlavor(rf).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	newRF := newObj.(*kueue.ResourceFlavor)
+func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, _, newRF *kueue.ResourceFlavor) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
 	log.V(5).Info("Validating update")
 	return nil, ValidateResourceFlavor(newRF).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ResourceFlavorWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (w *ResourceFlavorWebhook) ValidateDelete(_ context.Context, _ *kueue.ResourceFlavor) (admission.Warnings, error) {
 	return nil, nil
 }
 
@@ -107,7 +103,7 @@ func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorL
 		// validate the taint key
 		allErrors = append(allErrors, metavalidation.ValidateLabelName(currTaint.Key, idxPath.Child("key"))...)
 		// validate the taint value
-		if errs := validation.IsValidLabelValue(currTaint.Value); len(errs) != 0 {
+		if errs := content.IsLabelValue(currTaint.Value); len(errs) != 0 {
 			allErrors = append(allErrors, field.Invalid(idxPath.Child("value"), currTaint.Value, strings.Join(errs, ";")))
 		}
 

@@ -2,6 +2,7 @@
 
 [![GoReport Widget]][GoReport Status]
 [![Latest Release](https://img.shields.io/github/v/release/kubernetes-sigs/kueue?include_prereleases)](https://github.com/kubernetes-sigs/kueue/releases/latest)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kubernetes-sigs/kueue)
 
 [GoReport Widget]: https://goreportcard.com/badge/sigs.k8s.io/kueue
 [GoReport Status]: https://goreportcard.com/report/sigs.k8s.io/kueue
@@ -20,9 +21,9 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 - **Job management:** Support job queueing based on [priorities](https://kueue.sigs.k8s.io/docs/concepts/workload/#priority) with different [strategies](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#queueing-strategy): `StrictFIFO` and `BestEffortFIFO`.
 - **Advanced Resource management:** Comprising: [resource flavor fungibility](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#flavorfungibility), [Fair Sharing](https://kueue.sigs.k8s.io/docs/concepts/preemption/#fair-sharing), [cohorts](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#cohort) and [preemption](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#preemption) with a variety of policies between different tenants.
 - **Integrations:** Built-in support for popular jobs, e.g. [BatchJob](https://kueue.sigs.k8s.io/docs/tasks/run/jobs/), [Kubeflow training jobs](https://kueue.sigs.k8s.io/docs/tasks/run/kubeflow/), [RayJob](https://kueue.sigs.k8s.io/docs/tasks/run/rayjobs/), [RayCluster](https://kueue.sigs.k8s.io/docs/tasks/run/rayclusters/), [JobSet](https://kueue.sigs.k8s.io/docs/tasks/run/jobsets/),  [plain Pod and Pod Groups](https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/).
-- **System insight:** Build-in [prometheus metrics](https://kueue.sigs.k8s.io/docs/reference/metrics/) to help monitor the state of the system, and on-demand visibility endpoint for [monitoring of pending workloads](https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/).
+- **System insight:** Built-in [prometheus metrics](https://kueue.sigs.k8s.io/docs/reference/metrics/) to help monitor the state of the system, and on-demand visibility endpoint for [monitoring of pending workloads](https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/).
 - **AdmissionChecks:** A mechanism for internal or external components to influence whether a workload can be [admitted](https://kueue.sigs.k8s.io/docs/concepts/admission_check/).
-- **Advanced autoscaling support:** Integration with cluster-autoscaler's [provisioningRequest](https://kueue.sigs.k8s.io/docs/admission-check-controllers/provisioning/#job-using-a-provisioningrequest) via admissionChecks.
+- **Advanced autoscaling support:** Integration with cluster-autoscaler's [provisioningRequest](https://kueue.sigs.k8s.io/docs/concepts/admission_check/provisioning_request/#job-using-a-provisioningrequest) via admissionChecks.
 - **All-or-nothing with ready Pods:** A timeout-based implementation of [All-or-nothing scheduling](https://kueue.sigs.k8s.io/docs/tasks/manage/setup_wait_for_pods_ready/).
 - **Partial admission and dynamic reclaim:** mechanisms to run a job with [reduced parallelism](https://kueue.sigs.k8s.io/docs/tasks/run/jobs/#partial-admission), based on available quota, and to [release](https://kueue.sigs.k8s.io/docs/concepts/workload/#dynamic-reclaim) the quota the pods complete..
 - **Mixing training and inference**: Simultaneous management of batch workloads along with serving workloads (such as [Deployments](https://kueue.sigs.k8s.io/docs/tasks/run/deployment/) or [StatefulSets](https://kueue.sigs.k8s.io/docs/tasks/run/statefulset/))
@@ -31,22 +32,39 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 
 ## Production Readiness status
 
-- ✔️ API version: v1beta1, respecting [Kubernetes Deprecation Policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/)
+- ✔️ API version: v1beta2, respecting [Kubernetes Deprecation Policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/).
 - ✔️ Up-to-date [documentation](https://kueue.sigs.k8s.io/docs).
-- ✔️ Test Coverage:
-  - ✔️ Unit Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-unit-main).
-  - ✔️ Integration Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-main)
-  - ✔️ Integration MultiKueue Tests [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-multikueue-main)
-  - ✔️ E2E Tests for Kubernetes
-    [1.31](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-31),
-    [1.32](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-32),
-    [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-33),
-    [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-34),
-    on Kind.
-  - ✔️ E2E TAS Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-main)
-  - ✔️ E2E Custom Configs Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-customconfigs-main)
-  - ✔️ E2E Cert Manager Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-certmanager-main)
-  - ✔️ Performance Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-scheduling-perf-main)
+- ✔️ Test coverage:
+  - ✔️ Unit test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-unit-main).
+  - ✔️ Integration tests:
+    - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-baseline-main).
+    - ✔️ Extended suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-extended-main).
+    - ✔️ MultiKueue suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-multikueue-main).
+  - ✔️ E2E tests:
+    - ✔️ Baseline suites for Kubernetes
+      [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-33),
+      [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-34),
+      [1.35](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-35)
+      on Kind.
+    - ✔️ Extended suites for Kubernetes
+      [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-33),
+      [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-34),
+      [1.35](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-35)
+      on Kind.
+    - ✔️ TAS: 
+      - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-baseline-main).
+      - ✔️ Extended suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-extended-main).
+    - ✔️ Sequential tests: 
+      - ✔️ Baseline suites [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-baseline-main).
+      - ✔️ Extended suites [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-extended-main).
+    - ✔️ E2E Cert Manager test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-certmanager-main).
+    - ✔️ DRA test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-dra-main).
+    - ✔️ MultuKueue: [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-main).
+    - ✔️ MultuKueue DRA test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-dra-main).
+  - ✔️ Scheduling performance tests:
+    - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-scheduling-perf-main).
+    - ✔️ TAS suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-tas-scheduling-perf-main).
+    - ✔️ Large-Scale suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-large-scale-scheduling-perf-main).
 - ✔️ Scalability verification via [performance tests](https://github.com/kubernetes-sigs/kueue/tree/main/test/performance).
 - ✔️ Monitoring via [metrics](https://kueue.sigs.k8s.io/docs/reference/metrics).
 - ✔️ Security: RBAC based accessibility.
@@ -63,7 +81,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.14.3/manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.3/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.
@@ -91,25 +109,26 @@ Learn more about:
 
 ## Roadmap
 
-High-level overview of the main priorities for 2025:
+High-level overview of the main priorities for 2026:
 - Improve user experience for [MultiKueue](https://kueue.sigs.k8s.io/docs/concepts/multikueue/) - multi-cluster Job dispatching, in particular:
-  * sequential attempts to try worker clusters [#3757](https://github.com/kubernetes-sigs/kueue/issues/3757)
-  * log retrieval from worker clusters [3526](https://github.com/kubernetes-sigs/kueue/issues/3526)
+  * Support Elastic RayJob [#8712](https://github.com/kubernetes-sigs/kueue/issues/8712)
+  * Workload-Level Admission Constraints and Preference-Aware MultiKueue Dispatching [#8729](https://github.com/kubernetes-sigs/kueue/issues/8729)
+  * Prevent starting preemptions in multiple worker clusters [#8303](https://github.com/kubernetes-sigs/kueue/issues/8303)
+  * Support long running services [#8526](https://github.com/kubernetes-sigs/kueue/issues/8526)
+  * Log retrieval from worker clusters [#3526](https://github.com/kubernetes-sigs/kueue/issues/3526)
 - Improve user experience for [Topology Aware Scheduling](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/), in particular:
-  * make Topology Aware Scheduling compatible with cohorts and preemption [#3761](https://github.com/kubernetes-sigs/kueue/issues/3761)
-  * optimize the algorithm to minimize fragmentation [#3756](https://github.com/kubernetes-sigs/kueue/issues/3756)
-  * better accuracy of scheduling by tighter integration with kube-scheduler [#3755](https://github.com/kubernetes-sigs/kueue/issues/3755)
-  * reduce friction by defaulting the PodSet annotations [#3754](https://github.com/kubernetes-sigs/kueue/issues/3754)
-- Productization of the Kueue dashboard [#940](https://github.com/kubernetes-sigs/kueue/issues/940)
-- Support Hierarchical Cohorts with FairSharing [#3759](https://github.com/kubernetes-sigs/kueue/issues/3759)
-- Improved support for AI inference, including:
-  * partial preemption of serving workloads [#3762](https://github.com/kubernetes-sigs/kueue/issues/3762)
-  * LeaderWorkerSet support [#3232](https://github.com/kubernetes-sigs/kueue/issues/3232)
-- Progress towards the stable API (v1beta2) [#768](https://github.com/kubernetes-sigs/kueue/issues/768)
+  * Support for ResourceTransformations [#8860](https://github.com/kubernetes-sigs/kueue/issues/8860)
+  * Support for [Elastic Workloads](https://kueue.sigs.k8s.io/docs/concepts/elastic_workload/) [#8160](https://github.com/kubernetes-sigs/kueue/issues/8160)
+  * Evict workloads which are running on nodes which become tainted [#8838](https://github.com/kubernetes-sigs/kueue/issues/8828)
+- Integration with the k8s native Workload-Aware Scheduler (WAS) and Topology-Aware Scheduling [#8871](https://github.com/kubernetes-sigs/kueue/issues/8871)
+- Support for Concurrent Workload Admission [#8691](https://github.com/kubernetes-sigs/kueue/issues/8691)
+- Support for running hero workloads [#8826](https://github.com/kubernetes-sigs/kueue/issues/8826)
+- Consider preemption cost when finding preemption candidates [#7990](https://github.com/kubernetes-sigs/kueue/issues/7990)
+- Progress towards Beta for the integration with Dynamic Resource Allocation (DRA)  [#8243](https://github.com/kubernetes-sigs/kueue/issues/8243)
 
 Long-term aspirational goals:
+- Partial preemption of serving workloads [#3762](https://github.com/kubernetes-sigs/kueue/issues/3762)
 - Integration with workflow frameworks [#74](https://github.com/kubernetes-sigs/kueue/issues/74)
-- Support dynamically-sized Jobs [#77](https://github.com/kubernetes-sigs/kueue/issues/77)
 - Budget support [#28](https://github.com/kubernetes-sigs/kueue/issues/28)
 - Flavor assignment strategies, e.g. _minimizing cost_ vs _minimizing borrowing_ [#312](https://github.com/kubernetes-sigs/kueue/issues/312)
 - Cooperative preemption support for workloads that implement checkpointing [#477](https://github.com/kubernetes-sigs/kueue/issues/477)

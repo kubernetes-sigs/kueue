@@ -24,31 +24,48 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
 const (
-	UsingKubeConfigs               = "spec.kubeconfigs"
-	UsingMultiKueueClusters        = "spec.multiKueueClusters"
-	AdmissionCheckUsingConfigKey   = "spec.multiKueueConfig"
-	WorkloadsWithAdmissionCheckKey = "status.admissionChecks"
+	UsingKubeConfigs                = "spec.kubeconfigs"
+	UsingClusterProfiles            = "spec.clusterProfiles"
+	UsingMultiKueueClusters         = "spec.multiKueueClusters"
+	AdmissionCheckUsingConfigKey    = "spec.multiKueueConfig"
+	WorkloadsWithAdmissionCheckKey  = "status.admissionChecks"
+	AdmissionCheckControllerNameKey = "spec.controllerName"
+	ClusterQueueAdmissionChecksKey  = "spec.admissionChecks"
 )
 
 var (
 	configGVK = kueue.GroupVersion.WithKind("MultiKueueConfig")
 )
 
-func getIndexUsingKubeConfigs(configNamespace string) func(obj client.Object) []string {
+func kubeConfigLocationIndexerFunc(configNamespace string) func(obj client.Object) []string {
+	return func(obj client.Object) []string {
+		cluster, isCluster := obj.(*kueue.MultiKueueCluster)
+		if !isCluster || cluster.Spec.ClusterSource.KubeConfig == nil {
+			return nil
+		}
+		return []string{strings.Join([]string{configNamespace, cluster.Spec.ClusterSource.KubeConfig.Location}, "/")}
+	}
+}
+
+func clusterProfileRefIndexerFunc(configNamespace string) func(obj client.Object) []string {
 	return func(obj client.Object) []string {
 		cluster, isCluster := obj.(*kueue.MultiKueueCluster)
 		if !isCluster {
 			return nil
 		}
-		return []string{strings.Join([]string{configNamespace, cluster.Spec.KubeConfig.Location}, "/")}
+		if cluster.Spec.ClusterSource.ClusterProfileRef == nil {
+			return nil
+		}
+		return []string{strings.Join([]string{configNamespace, cluster.Spec.ClusterSource.ClusterProfileRef.Name}, "/")}
 	}
 }
 
-func indexUsingMultiKueueClusters(obj client.Object) []string {
+func multiKueueClustersIndexerFunc(obj client.Object) []string {
 	config, isConfig := obj.(*kueue.MultiKueueConfig)
 	if !isConfig {
 		return nil
@@ -56,15 +73,48 @@ func indexUsingMultiKueueClusters(obj client.Object) []string {
 	return config.Spec.Clusters
 }
 
+func admissionCheckControllerNameIndexerFunc(obj client.Object) []string {
+	ac, ok := obj.(*kueue.AdmissionCheck)
+	if !ok {
+		return nil
+	}
+	return []string{ac.Spec.ControllerName}
+}
+
+func clusterQueueAdmissionChecksIndexerFunc(obj client.Object) []string {
+	cq, ok := obj.(*kueue.ClusterQueue)
+	if !ok || cq.Spec.AdmissionChecksStrategy == nil {
+		return nil
+	}
+	var names []string
+	for _, rule := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+		names = append(names, string(rule.Name))
+	}
+	return names
+}
+
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamespace string) error {
-	if err := indexer.IndexField(ctx, &kueue.MultiKueueCluster{}, UsingKubeConfigs, getIndexUsingKubeConfigs(configNamespace)); err != nil {
+	if err := indexer.IndexField(ctx, &kueue.MultiKueueCluster{}, UsingKubeConfigs, kubeConfigLocationIndexerFunc(configNamespace)); err != nil {
 		return fmt.Errorf("setting index on clusters using kubeconfig: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &kueue.MultiKueueConfig{}, UsingMultiKueueClusters, indexUsingMultiKueueClusters); err != nil {
+	if features.Enabled(features.MultiKueueClusterProfile) {
+		if err := indexer.IndexField(ctx, &kueue.MultiKueueCluster{}, UsingClusterProfiles, clusterProfileRefIndexerFunc(configNamespace)); err != nil {
+			return fmt.Errorf("setting index on clusters using cluster profiles: %w", err)
+		}
+	}
+	if err := indexer.IndexField(ctx, &kueue.MultiKueueConfig{}, UsingMultiKueueClusters, multiKueueClustersIndexerFunc); err != nil {
 		return fmt.Errorf("setting index on configs using clusters: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
+	}
+	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+		if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckControllerNameKey, admissionCheckControllerNameIndexerFunc); err != nil {
+			return fmt.Errorf("setting index on admission checks controllerName: %w", err)
+		}
+		if err := indexer.IndexField(ctx, &kueue.ClusterQueue{}, ClusterQueueAdmissionChecksKey, clusterQueueAdmissionChecksIndexerFunc); err != nil {
+			return fmt.Errorf("setting index on cluster queues admissionChecks: %w", err)
+		}
 	}
 	return nil
 }

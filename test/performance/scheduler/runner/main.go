@@ -30,13 +30,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/onsi/gomega"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
@@ -71,9 +71,11 @@ var (
 	// related to minimalkueue
 	minimalKueuePath = flag.String("minimalKueue", "", "path to minimalkueue, run in the hosts default cluster if empty")
 	withCPUProfile   = flag.Bool("withCPUProfile", false, "generate a CPU profile for minimalkueue")
+	withMemProfile   = flag.Bool("withMemProfile", false, "generate a memory profile for minimalkueue")
 	withLogs         = flag.Bool("withLogs", false, "capture minimalkueue logs")
 	logLevel         = flag.Int("withLogsLevel", 2, "set minimalkueue logs level")
 	logToFile        = flag.Bool("logToFile", false, "capture minimalkueue logs to files")
+	enableTAS        = flag.Bool("enableTAS", false, "enable TAS controllers and indexers in minimalkueue")
 )
 
 var (
@@ -100,6 +102,12 @@ func main() {
 
 	ctrl.SetLogger(log)
 
+	// Register Gomega fail handler to allow test utilities to work in standalone binary
+	gomega.RegisterFailHandler(func(message string, callerSkip ...int) {
+		log.Error(nil, message)
+		os.Exit(1)
+	})
+
 	log.Info("Start runner", "outputDir", outputDir, "crdsPath", crdsPath)
 	errCh := make(chan error, 3)
 	wg := &sync.WaitGroup{}
@@ -111,6 +119,16 @@ func main() {
 			CRDDirectoryPaths:     []string{*crdsPath},
 			ErrorIfCRDPathMissing: true,
 		}
+
+		// Increase API server request limits to handle high load from performance tests.
+		// The default generator config creates ~15,000 workloads (5 cohorts × 6 queues × 500 workloads).
+		// Under heavy reconciliation, the default kube-apiserver limits (max-requests-inflight=400,
+		// max-mutating-requests-inflight=200) can cause the API server to become overwhelmed,
+		// resulting in "http2: client connection lost" errors when pending requests queue up
+		// and connections time out.
+		testEnv.ControlPlane.GetAPIServer().Configure().
+			Append("max-requests-inflight", "5000").
+			Append("max-mutating-requests-inflight", "2500")
 
 		var err error
 		cfg, err = testEnv.Start()
@@ -145,11 +163,11 @@ func main() {
 			if err != nil {
 				log.Error(err, "getting a free port, metrics scraping disabled")
 			}
-			metricsScrapeURL = ptr.To(fmt.Sprintf("http://localhost:%d/metrics", metricsPort))
+			metricsScrapeURL = new(fmt.Sprintf("http://localhost:%d/metrics", metricsPort))
 		}
 
 		// start the minimal kueue manager process
-		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withLogs, *logToFile, *logLevel, errCh, wg, metricsPort)
+		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withMemProfile, *withLogs, *logToFile, *logLevel, *enableTAS, errCh, wg, metricsPort)
 		if err != nil {
 			log.Error(err, "MinimalKueue start")
 			os.Exit(1)
@@ -244,7 +262,16 @@ func main() {
 	}
 }
 
-func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCPUProf, withLogs, logToFile bool, logLevel int, errCh chan<- error, wg *sync.WaitGroup, metricsPort int) error {
+func runCommand(
+	ctx context.Context,
+	workDir, cmdPath, kubeconfig string,
+	withCPUProf, withMemProfile, withLogs, logToFile bool,
+	logLevel int,
+	enableTAS bool,
+	errCh chan<- error,
+	wg *sync.WaitGroup,
+	metricsPort int,
+) error {
 	log := ctrl.LoggerFrom(ctx).WithName("Run command")
 
 	cmd := exec.CommandContext(ctx, cmdPath, "--kubeconfig", filepath.Join(workDir, kubeconfig))
@@ -259,23 +286,25 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 		cmd.Args = append(cmd.Args, "--cpuprofile", filepath.Join(workDir, fmt.Sprintf("%s.cpu.prof", exe)))
 	}
 
+	if withMemProfile {
+		cmd.Args = append(cmd.Args, "--memprofile", filepath.Join(workDir, fmt.Sprintf("%s.mem.prof", exe)))
+	}
+
+	outWriter := os.Stdout
+	errWriter := os.Stderr
 	if withLogs {
 		cmd.Args = append(cmd.Args, fmt.Sprintf("--zap-log-level=%d", logLevel))
-		outWriter := os.Stdout
-		errWriter := os.Stderr
 		if logToFile {
 			var err error
 			outWriter, err = os.Create(filepath.Join(workDir, fmt.Sprintf("%s.out.log", exe)))
 			if err != nil {
 				return err
 			}
-			defer outWriter.Close()
 
 			errWriter, err = os.Create(filepath.Join(workDir, fmt.Sprintf("%s.err.log", exe)))
 			if err != nil {
 				return err
 			}
-			defer errWriter.Close()
 		}
 		cmd.Stdout = outWriter
 		cmd.Stderr = errWriter
@@ -283,6 +312,10 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 
 	if metricsPort != 0 {
 		cmd.Args = append(cmd.Args, "--metricsPort", strconv.Itoa(metricsPort))
+	}
+
+	if enableTAS {
+		cmd.Args = append(cmd.Args, "--enableTAS")
 	}
 
 	log.Info("Starting process", "path", cmd.Path, "args", cmd.Args)
@@ -293,6 +326,10 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 	startTime := time.Now()
 
 	wg.Go(func() {
+		if logToFile {
+			defer outWriter.Close()
+			defer errWriter.Close()
+		}
 		err := cmd.Wait()
 		if err != nil {
 			select {
@@ -336,23 +373,23 @@ func runGenerator(ctx context.Context, cfg *rest.Config, generatorConfig string,
 		return err
 	}
 
-	cohorts, err := generator.LoadConfig(generatorConfig)
+	config, err := generator.LoadConfig(generatorConfig)
 	if err != nil {
 		log.Error(err, "Loading config")
 		close(genDone)
 		return err
 	}
 
-	statTime := time.Now()
+	startTime := time.Now()
 	wg.Go(func() {
 		defer close(genDone)
-		err := generator.Generate(ctx, c, cohorts)
+		err := generator.Generate(ctx, c, config)
 		if err != nil {
 			log.Error(err, "generating")
 			errCh <- err
 			return
 		}
-		log.Info("Generator done", "duration", time.Since(statTime))
+		log.Info("Generator done", "duration", time.Since(startTime))
 	})
 
 	log.Info("Generator started", "qps", cfg.QPS, "burst", cfg.Burst)
@@ -382,7 +419,7 @@ func runManager(ctx context.Context, cfg *rest.Config, errCh chan<- error, wg *s
 	options := ctrl.Options{
 		Scheme: scheme,
 		Controller: crconfig.Controller{
-			SkipNameValidation: ptr.To(true),
+			SkipNameValidation: new(true),
 			GroupKindConcurrency: map[string]int{
 				kueue.GroupVersion.WithKind("Workload").GroupKind().String(): 5,
 			},

@@ -18,24 +18,33 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/rest"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 )
 
 var (
-	objectKeySecret = new(corev1.Secret)
+	objectKeySecret         = new(corev1.Secret)
+	objectKeyClusterProfile = new(inventoryv1alpha1.ClusterProfile)
 )
 
 // fromFile provides an alternative to the deprecated ctrl.ConfigFile().AtPath(path).OfKind(&cfg)
@@ -77,21 +86,6 @@ func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		o.LivenessEndpointName = cfg.Health.LivenessEndpointName
 	}
 
-	if o.WebhookServer == nil && cfg.Webhook.Port != nil {
-		wo := webhook.Options{}
-		if cfg.Webhook.Port != nil {
-			wo.Port = *cfg.Webhook.Port
-		}
-		if cfg.Webhook.Host != "" {
-			wo.Host = cfg.Webhook.Host
-		}
-
-		if cfg.Webhook.CertDir != "" {
-			wo.CertDir = cfg.Webhook.CertDir
-		}
-		o.WebhookServer = webhook.NewServer(wo)
-	}
-
 	if cfg.Controller != nil {
 		if o.Controller.CacheSyncTimeout == 0 && cfg.Controller.CacheSyncTimeout != nil {
 			o.Controller.CacheSyncTimeout = *cfg.Controller.CacheSyncTimeout
@@ -109,6 +103,12 @@ func addCacheByObjectTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		// due to prior defaulting/validation.
 		return
 	}
+
+	// Strip managedFields from all cached objects to reduce memory usage.
+	// ManagedFields are server-side apply tracking metadata that no kueue
+	// controller reads at runtime, and they can account for 30-50% of
+	// cached object size.
+	o.Cache.DefaultTransform = ctrlcache.TransformStripManagedFields()
 
 	if o.Cache.ByObject == nil {
 		o.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
@@ -162,6 +162,36 @@ func addLeaderElectionTo(o *ctrl.Options, cfg *configapi.Configuration) {
 	}
 }
 
+// AddWebhookSettingsTo is used to add settings to the webhook
+// This is separated to a exported function as we need to call this function after the feature gates are parsed.
+func AddWebhookSettingsTo(o *ctrl.Options, cfg *configapi.Configuration) {
+	if o.WebhookServer == nil && cfg.Webhook.Port != nil {
+		wo := webhook.Options{}
+		if cfg.Webhook.Port != nil {
+			wo.Port = *cfg.Webhook.Port
+		}
+		if cfg.Webhook.Host != "" {
+			wo.Host = cfg.Webhook.Host
+		}
+
+		if cfg.Webhook.CertDir != "" {
+			wo.CertDir = cfg.Webhook.CertDir
+		}
+
+		// Apply TLS configuration if provided
+		if features.Enabled(features.TLSOptions) {
+			if cfg.TLS != nil {
+				tlsOpts, err := tlsconfig.ParseTLSOptions(cfg.TLS)
+				if err == nil {
+					tlsOpts := tlsconfig.BuildTLSOptions(tlsOpts)
+					wo.TLSOpts = append(wo.TLSOpts, tlsOpts...)
+				}
+			}
+		}
+		o.WebhookServer = webhook.NewServer(wo)
+	}
+}
+
 func Encode(scheme *runtime.Scheme, cfg *configapi.Configuration) (string, error) {
 	codecs := serializer.NewCodecFactory(scheme)
 	const mediaType = runtime.ContentTypeYAML
@@ -195,13 +225,36 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 			return options, cfg, err
 		}
 	}
-	if err := validate(&cfg, scheme).ToAggregate(); err != nil {
-		return options, cfg, err
-	}
 	addTo(&options, &cfg)
 	return options, cfg, err
 }
 
-func WaitForPodsReadyIsEnabled(cfg *configapi.Configuration) bool {
-	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
+// ConfigureClusterProfileCache creates the CRD client from kubeConfig and delegates
+// to ConfigureClusterProfileCacheWithClient. Keeping this wrapper preserves the
+// original API while enabling dependency injection via the WithClient function.
+func ConfigureClusterProfileCache(ctx context.Context, log logr.Logger, options *ctrl.Options, kubeConfig *rest.Config, cfg configapi.Configuration) error {
+	crdClient, err := apiextensionsclient.NewForConfig(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed creating the CRD client: %w", err)
+	}
+	return configureClusterProfileCacheWithClient(ctx, log, options, crdClient, cfg)
+}
+
+func configureClusterProfileCacheWithClient(ctx context.Context, log logr.Logger, options *ctrl.Options, crdClient apiextensionsclient.Interface, cfg configapi.Configuration) error {
+	if _, err := crdClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, "clusterprofiles.multicluster.x-k8s.io", metav1.GetOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
+			return nil
+		}
+		return fmt.Errorf("failed loading the ClusterProfile CRD: %w", err)
+	}
+	if options.Cache.ByObject == nil {
+		options.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
+	}
+	options.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+		Namespaces: map[string]ctrlcache.Config{
+			*cfg.Namespace: {},
+		},
+	}
+	return nil
 }

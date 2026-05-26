@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // PaddleJobWrapper wraps a Job.
@@ -40,7 +41,7 @@ func MakePaddleJob(name, ns string) *PaddleJobWrapper {
 		},
 		Spec: kftraining.PaddleJobSpec{
 			RunPolicy: kftraining.RunPolicy{
-				Suspend: ptr.To(true),
+				Suspend: new(true),
 			},
 			PaddleReplicaSpecs: make(map[kftraining.ReplicaType]*kftraining.ReplicaSpec),
 		},
@@ -58,7 +59,7 @@ type PaddleReplicaSpecRequirement struct {
 func (j *PaddleJobWrapper) PaddleReplicaSpecs(replicaSpecs ...PaddleReplicaSpecRequirement) *PaddleJobWrapper {
 	j.PaddleReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
-		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Replicas = new(rs.ReplicaCount)
 		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
 		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "paddle"
@@ -80,7 +81,7 @@ func (j *PaddleJobWrapper) PaddleReplicaSpecsDefault() *PaddleJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:      "c",
-						Image:     "pause",
+						Image:     utiltestingjobs.TestDefaultContainerImage,
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 					},
@@ -98,7 +99,7 @@ func (j *PaddleJobWrapper) PaddleReplicaSpecsDefault() *PaddleJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:      "c",
-						Image:     "pause",
+						Image:     utiltestingjobs.TestDefaultContainerImage,
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 					},
@@ -125,6 +126,15 @@ func (j *PaddleJobWrapper) Label(key, value string) *PaddleJobWrapper {
 	return j
 }
 
+// Annotation sets the annotation key and value
+func (j *PaddleJobWrapper) Annotation(k, v string) *PaddleJobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string, 1)
+	}
+	j.Annotations[k] = v
+	return j
+}
+
 // PriorityClass updates job priorityclass.
 func (j *PaddleJobWrapper) PriorityClass(pc string) *PaddleJobWrapper {
 	if j.Spec.RunPolicy.SchedulingPolicy == nil {
@@ -146,6 +156,16 @@ func (j *PaddleJobWrapper) Queue(queue string) *PaddleJobWrapper {
 	}
 	j.Labels[constants.QueueLabel] = queue
 	return j
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job.
+func (j *PaddleJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *PaddleJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job.
+func (j *PaddleJobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *PaddleJobWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Request adds a resource request to the default container.
@@ -170,7 +190,7 @@ func (j *PaddleJobWrapper) Args(args []string) *PaddleJobWrapper {
 
 // Parallelism updates job parallelism.
 func (j *PaddleJobWrapper) Parallelism(p int32) *PaddleJobWrapper {
-	j.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Replicas = ptr.To(p)
+	j.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Replicas = new(p)
 	return j
 }
 

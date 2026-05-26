@@ -22,11 +22,8 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -45,32 +42,18 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
-
-var nodeSemantic = conversion.EqualitiesOrDie(
-	nodeConditionEqual,
-	// Handle metav1.Time comparison to avoid panic on unexported fields
-	func(a, b metav1.Time) bool {
-		return a.Equal(&b)
-	},
-	// Handle resource.Quantity comparison to avoid panic on unexported fields
-	func(a, b resource.Quantity) bool {
-		return a.Equal(b)
-	},
-)
-
-func nodeConditionEqual(a, b corev1.NodeCondition) bool {
-	aCopy, bCopy := a.DeepCopy(), b.DeepCopy()
-	aCopy.LastHeartbeatTime, bCopy.LastHeartbeatTime = metav1.Time{}, metav1.Time{}
-	return equality.Semantic.DeepEqual(aCopy, bCopy)
-}
 
 type rfReconciler struct {
-	log      logr.Logger
-	queues   *qcache.Manager
-	cache    *schdcache.Cache
-	client   client.Client
-	recorder record.EventRecorder
+	logName      string
+	queues       *qcache.Manager
+	cache        *schdcache.Cache
+	client       client.Client
+	recorder     events.EventRecorder
+	roleTracker  *roletracker.RoleTracker
+	nodeUpdateCh chan event.GenericEvent
 }
 
 var _ reconcile.Reconciler = (*rfReconciler)(nil)
@@ -80,20 +63,23 @@ var _ predicate.TypedPredicate[*kueue.ResourceFlavor] = (*rfReconciler)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
-func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder) *rfReconciler {
+func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder events.EventRecorder, roleTracker *roletracker.RoleTracker) *rfReconciler {
 	return &rfReconciler{
-		log:      ctrl.Log.WithName(TASResourceFlavorController),
-		client:   c,
-		queues:   queues,
-		cache:    cache,
-		recorder: recorder,
+		logName:      TASResourceFlavorController,
+		client:       c,
+		queues:       queues,
+		cache:        cache,
+		recorder:     recorder,
+		roleTracker:  roleTracker,
+		nodeUpdateCh: make(chan event.GenericEvent, updateChBuffer),
 	}
 }
 
+func (r *rfReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
+}
+
 func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache, cfg *configapi.Configuration) (string, error) {
-	nodeHandler := nodeHandler{
-		cache: cache,
-	}
 	return TASResourceFlavorController, builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("tas_resource_flavor_controller").
 		WatchesRawSource(source.TypedKind(
@@ -102,12 +88,28 @@ func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache
 			&handler.TypedEnqueueRequestForObject[*kueue.ResourceFlavor]{},
 			r,
 		)).
-		Watches(&corev1.Node{}, &nodeHandler).
+		WatchesRawSource(source.Channel(r.nodeUpdateCh, &nodeHandler{cache: cache})).
 		WithOptions(controller.Options{
-			NeedLeaderElection:      ptr.To(false),
+			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ResourceFlavor").GroupKind().String()],
 		}).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASResourceFlavorController)).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.ResourceFlavor{}, cfg))
+}
+
+var _ NodeUpdateWatcher = (*rfReconciler)(nil)
+
+func (r *rfReconciler) NotifyNodeUpdate(oldNode *corev1.Node, newNode *corev1.Node) {
+	if oldNode != nil && newNode != nil && checkNodeSchedulingPropertiesChanged(newNode, oldNode) == nodeUnchanged {
+		r.logger().V(5).Info("Skipping node update as scheduling properties are unchanged", "node", newNode.Name)
+		return
+	}
+	if oldNode != nil {
+		r.nodeUpdateCh <- event.GenericEvent{Object: oldNode}
+	}
+	if newNode != nil {
+		r.nodeUpdateCh <- event.GenericEvent{Object: newNode}
+	}
 }
 
 var _ handler.EventHandler = (*nodeHandler)(nil)
@@ -117,53 +119,28 @@ type nodeHandler struct {
 	cache *schdcache.Cache
 }
 
-func (h *nodeHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *nodeHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *nodeHandler) Update(_ context.Context, _ event.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *nodeHandler) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *nodeHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	node, isNode := e.Object.(*corev1.Node)
 	if !isNode {
-		return
-	}
-	h.queueReconcileForNode(node, q)
-}
-
-func (h *nodeHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	oldNode, isOldNode := e.ObjectOld.(*corev1.Node)
-	newNode, isNewNode := e.ObjectNew.(*corev1.Node)
-	if !isOldNode || !isNewNode {
-		return
-	}
-
-	if !checkNodeSchedulingPropertiesChanged(oldNode, newNode) {
-		ctrl.LoggerFrom(ctx).V(5).Info("Skipping node update as new Node is semantically same as old Node", "node", newNode.Name)
-		return
-	}
-
-	h.queueReconcileForNode(oldNode, q)
-	h.queueReconcileForNode(newNode, q)
-}
-
-func (h *nodeHandler) Delete(_ context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	node, isNode := e.Object.(*corev1.Node)
-	if !isNode {
-		return
-	}
-	h.queueReconcileForNode(node, q)
-}
-
-func (h *nodeHandler) queueReconcileForNode(node *corev1.Node, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if node == nil {
 		return
 	}
 	// trigger reconcile for TAS flavors affected by the node being created or updated
 	for name, cache := range h.cache.CloneTASCache() {
-		if nodeBelongsToFlavor(node, cache.NodeLabels(), cache.TopologyLevels()) {
+		if utiltas.NodeMatchesFlavor(node.Labels, cache.NodeLabels(), cache.TopologyLevels()) {
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
 				Name: string(name),
 			}}, constants.UpdatesBatchPeriod)
 		}
 	}
-}
-
-func (h *nodeHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
 func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -181,7 +158,7 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		// or the set of nodes can allow admitting a workload which was
 		// previously inadmissible.
 		if cqNames := r.cache.ActiveClusterQueues(); len(cqNames) > 0 {
-			r.queues.QueueInadmissibleWorkloads(ctx, cqNames)
+			qcache.NotifyRetryInadmissible(r.queues, cqNames)
 		}
 	}
 	return reconcile.Result{}, nil
@@ -189,7 +166,7 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 func (r *rfReconciler) Create(event event.TypedCreateEvent[*kueue.ResourceFlavor]) bool {
 	if event.Object.Spec.TopologyName != nil {
-		log := r.log.WithValues("flavor", event.Object.Name)
+		log := r.logger().WithValues("flavor", event.Object.Name)
 		log.V(2).Info("Topology TAS ResourceFlavor event")
 
 		r.cache.AddOrUpdateResourceFlavor(log, event.Object)
@@ -218,21 +195,83 @@ func (r *rfReconciler) Generic(event event.TypedGenericEvent[*kueue.ResourceFlav
 	return false
 }
 
-func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels []string) bool {
-	for k, v := range nodeLabels {
-		if node.Labels[k] != v {
-			return false
-		}
-	}
-	for i := range levels {
-		if _, ok := node.Labels[levels[i]]; !ok {
-			return false
-		}
-	}
-	return true
+type eventType int64
+
+const (
+	nodeAllocatableChanged eventType = 1 << iota
+	nodeLabelsChanged
+	nodeTaintsChanged
+	nodeConditionsChanged
+	nodeAnnotationsChanged
+	nodeSpecUnschedulableChanged
+
+	nodeUnchanged eventType = 0
+)
+
+type nodeChangeExtractor func(newNode, oldNode *corev1.Node) eventType
+
+var nodeChangeExtractors = []nodeChangeExtractor{
+	extractNodeSpecUnschedulableChange,
+	extractNodeAllocatableChange,
+	extractNodeLabelsChange,
+	extractNodeTaintsChange,
+	extractNodeConditionsChange,
+	extractNodeAnnotationsChange,
 }
 
-// checkNodeSchedulingPropertiesChanged checks if the node update affects TAS scheduling.
-func checkNodeSchedulingPropertiesChanged(oldNode, newNode *corev1.Node) bool {
-	return !nodeSemantic.DeepEqual(oldNode, newNode)
+func checkNodeSchedulingPropertiesChanged(newNode, oldNode *corev1.Node) eventType {
+	var et eventType
+	for _, fn := range nodeChangeExtractors {
+		et |= fn(newNode, oldNode)
+	}
+	return et
+}
+
+func extractNodeAllocatableChange(newNode, oldNode *corev1.Node) eventType {
+	if equality.Semantic.DeepEqual(oldNode.Status.Allocatable, newNode.Status.Allocatable) {
+		return nodeUnchanged
+	}
+	return nodeAllocatableChanged
+}
+
+func extractNodeLabelsChange(newNode, oldNode *corev1.Node) eventType {
+	if equality.Semantic.DeepEqual(newNode.GetLabels(), oldNode.GetLabels()) {
+		return nodeUnchanged
+	}
+	return nodeLabelsChanged
+}
+
+func extractNodeTaintsChange(newNode, oldNode *corev1.Node) eventType {
+	if equality.Semantic.DeepEqual(newNode.Spec.Taints, oldNode.Spec.Taints) {
+		return nodeUnchanged
+	}
+	return nodeTaintsChanged
+}
+
+func extractNodeConditionsChange(newNode, oldNode *corev1.Node) eventType {
+	strip := func(conditions []corev1.NodeCondition) map[corev1.NodeConditionType]corev1.ConditionStatus {
+		conditionStatuses := make(map[corev1.NodeConditionType]corev1.ConditionStatus, len(conditions))
+		for i := range conditions {
+			conditionStatuses[conditions[i].Type] = conditions[i].Status
+		}
+		return conditionStatuses
+	}
+	if equality.Semantic.DeepEqual(strip(oldNode.Status.Conditions), strip(newNode.Status.Conditions)) {
+		return nodeUnchanged
+	}
+	return nodeConditionsChanged
+}
+
+func extractNodeSpecUnschedulableChange(newNode, oldNode *corev1.Node) eventType {
+	if newNode.Spec.Unschedulable == oldNode.Spec.Unschedulable {
+		return nodeUnchanged
+	}
+	return nodeSpecUnschedulableChanged
+}
+
+func extractNodeAnnotationsChange(newNode, oldNode *corev1.Node) eventType {
+	if equality.Semantic.DeepEqual(oldNode.GetAnnotations(), newNode.GetAnnotations()) {
+		return nodeUnchanged
+	}
+	return nodeAnnotationsChanged
 }

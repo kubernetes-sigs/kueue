@@ -14,6 +14,7 @@ description: >
   - [通过 Helm 安装](#install-by-helm)
   - [为 Prometheus-Operator 添加指标采集](#add-metrics-scraping-for-prometheus-operator)
   - [为可见性 API 添加 API 优先级和公平性配置](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
+  - [升级策略](#upgrade-policy)
   - [卸载](#uninstall)
 - [安装自定义配置的正式版本](#install-a-custom-configured-released-version)
 - [安装最新开发版本](#install-the-latest-development-version)
@@ -41,7 +42,7 @@ Kueue 发布[指标](/docs/reference/metrics)以监控其控制器组件。
 如果你没有自己的监控系统，请使用 [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)。
 
 Kueue 中的 Webhook 服务使用内部证书管理来配置证书。如果你想使用第三方证书，例如
-[cert-manager](https://github.com/cert-manager/cert-manager)，请遵循[证书管理指南](/docs/tasks/manage/installation)。
+[cert-manager](https://github.com/cert-manager/cert-manager)，请遵循[证书管理指南](/docs/tasks/manage/productization/cert_manager)。
 
 [feature_gate]: https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 
@@ -101,6 +102,17 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 
 有关更多详细信息，请参阅[配置 API 优先级和公平性](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#configure-api-priority-and-fairness)。
 
+### 升级策略 {#upgrade-policy}
+
+升级 Kueue 时，请查看以下发布说明：
+
+- **次版本发布：** 升级过程中跨越的每个新次版本的 `.0` 发布说明。
+- **补丁发布：** 目标次版本线中直到并包括目标版本的补丁发布说明。
+
+**注意：** 你不需要查看先前次版本的补丁发布说明，因为这些变更已包含在下一个 `.0` 发布说明中。
+
+{{< upgrade-policy-example >}}
+
 ### 卸载 {#uninstall}
 
 要通过 kubectl 从集群中卸载已发布的 Kueue 版本，请运行以下命令：
@@ -155,7 +167,6 @@ data:
       webhookServiceName: kueue-webhook-service
       webhookSecretName: kueue-webhook-server-cert
     waitForPodsReady:
-      enable: true
       timeout: 10m
     integrations:
       frameworks:
@@ -263,54 +274,11 @@ spec:
 
 ### Alpha 和 Beta 级别特性的特性门控 {#feature-gates-for-alpha-and-beta-features}
 
-| 功能                                            | 默认值     | 阶段    | 起始版本 | 截止版本 |
-|-----------------------------------------------|---------|-------|------|------|
-| `FlavorFungibility`                           | `true`  | Beta  | 0.5  |      |
-| `MultiKueue`                                  | `false` | Alpha | 0.6  | 0.8  |
-| `MultiKueue`                                  | `true`  | Beta  | 0.9  |      |
-| `MultiKueueBatchJobWithManagedBy`             | `false` | Alpha | 0.8  | 0.15 |
-| `MultiKueueBatchJobWithManagedBy`             | `true`  | Beta  | 0.15 |      |
-| `PartialAdmission`                            | `false` | Alpha | 0.4  | 0.4  |
-| `PartialAdmission`                            | `true`  | Beta  | 0.5  |      |
-| `VisibilityOnDemand`                          | `false` | Alpha | 0.6  | 0.8  |
-| `VisibilityOnDemand`                          | `true`  | Beta  | 0.9  |      |
-| `PrioritySortingWithinCohort`                 | `true`  | Beta  | 0.6  |      |
-| `LendingLimit`                                | `false` | Alpha | 0.6  | 0.8  |
-| `LendingLimit`                                | `true`  | Beta  | 0.9  |      |
-| `TopologyAwareScheduling`                     | `false` | Alpha | 0.9  | 0.13 |
-| `TopologyAwareScheduling`                     | `true`  | Beta  | 0.14 |      |
-| `LocalQueueDefaulting`                        | `false` | Alpha | 0.10 | 0.11 |
-| `LocalQueueDefaulting`                        | `true`  | Beta  | 0.12 |      |
-| `LocalQueueMetrics`                           | `false` | Alpha | 0.10 |      |
-| `HierarchicalCohort`                          | `true`  | Beta  | 0.11 |      |
-| `ObjectRetentionPolicies`                     | `false` | Alpha | 0.12 | 0.12 |
-| `ObjectRetentionPolicies`                     | `true`  | Beta  | 0.13 |      |
-| `TASFailedNodeReplacement`                    | `false` | Alpha | 0.12 | 0.13 |
-| `TASFailedNodeReplacement`                    | `true`  | Beta  | 0.14 |      |
-| `AdmissionFairSharing`                        | `false` | Alpha | 0.12 |      |
-| `TASFailedNodeReplacementFailFast`            | `false` | Alpha | 0.12 | 0.13 |
-| `TASFailedNodeReplacementFailFast`            | `true`  | Beta  | 0.14 |      |
-| `TASReplaceNodeOnPodTermination`              | `false` | Alpha | 0.13 | 0.13 |
-| `TASReplaceNodeOnPodTermination`              | `true`  | Beta  | 0.14 |      |
-| `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13 |      |
-| `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13 |      |
-| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13 |      |
-| `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14 |      |
-| `SanitizePodSets`                             | `true`  | Beta  | 0.13 |      |
-| `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13 |      |
+{{< feature-gates-table stage="alpha-beta" >}}
 
 ### 已毕业或已弃用特性的特性门控 {#feature-gates-for-graduated-or-deprecated-features}
 
-| 功能                                    | 默认值     | 阶段         | 起始版本 | 截止版本 |
-|---------------------------------------|---------|------------|------|------|
-| `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10 | 0.13 |
-| `ManagedJobsNamespaceSelector`        | `true`  | GA         | 0.13 |      |
-| `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9  | 0.9  |
-| `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10 | 0.13 |
-| `ConfigurableResourceTransformations` | `true`  | GA         | 0.14 |      |
-| `TASProfileMostFreeCapacity`          | `false` | Deprecated | 0.11 | 0.13 |
-| `TASProfileLeastFreeCapacity`         | `false` | Deprecated | 0.11 |      |
-| `TASProfileMixed`                     | `false` | Deprecated | 0.11 |      |
+{{< feature-gates-table stage="ga-deprecated" >}}
 
 ## 接下来是什么 {#whats-next}
 

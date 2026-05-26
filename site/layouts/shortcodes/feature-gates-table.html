@@ -1,0 +1,41 @@
+{{- $stage := .Get "stage" | default "alpha-beta" -}}
+{{- $stageMap := dict "alpha-beta" (slice "Alpha" "Beta") "ga-deprecated" (slice "GA" "Deprecated") -}}
+{{- $selectedStages := index $stageMap $stage -}}
+{{- if not $selectedStages -}}
+  {{- errorf "feature-gates-table: unsupported stage %q" $stage -}}
+{{- end -}}
+{{- $features := .Page.Site.Data.featuregates.versioned_feature_list -}}
+<table class="feature-gates-table">
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Default</th>
+      <th>Stage</th>
+      <th>Since</th>
+      <th>Until</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{- range $features }}
+      {{- $featureName := .name -}}
+      {{- $specs := .versionedSpecs -}}
+      {{- range $i, $spec := $specs }}
+        {{- if in $selectedStages $spec.preRelease }}
+          {{- $nextIndex := add $i 1 -}}
+          {{- $until := "" -}}
+          {{- if lt $nextIndex (len $specs) -}}
+            {{- $until = (index $specs $nextIndex).version -}}
+          {{- end -}}
+          <tr>
+            <td><code>{{ $featureName }}</code></td>
+            <td><code>{{ if $spec.default }}true{{ else }}false{{ end }}</code></td>
+            <td>{{ $spec.preRelease }}</td>
+            <td>{{ $spec.version }}</td>
+            <td>{{ if $until }}{{ $until }}{{ else }}&mdash;{{ end }}</td>
+          </tr>
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  </tbody>
+</table>
+

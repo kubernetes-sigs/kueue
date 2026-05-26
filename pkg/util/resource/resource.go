@@ -17,6 +17,8 @@ limitations under the License.
 package resource
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -76,24 +78,6 @@ func MergeResourceListKeepSum(a, b corev1.ResourceList) corev1.ResourceList {
 	})
 }
 
-// GetGreaterKeys returns the list of ResourceNames for which the value in a are greater than the value in b.
-func GetGreaterKeys(a, b corev1.ResourceList) []corev1.ResourceName {
-	if len(a) == 0 || len(b) == 0 {
-		return nil
-	}
-
-	ret := make([]corev1.ResourceName, 0, len(a))
-	for k, va := range a {
-		if vb, found := b[k]; found && va.Cmp(vb) > 0 {
-			ret = append(ret, k)
-		}
-	}
-	if len(ret) == 0 {
-		return nil
-	}
-	return ret
-}
-
 func QuantityToFloat(q *resource.Quantity) float64 {
 	if q == nil || q.IsZero() {
 		return 0
@@ -128,4 +112,24 @@ func IsZero(rl corev1.ResourceList) bool {
 	}
 
 	return true
+}
+
+// IsExtendedResourceName returns true if the resource name is an extended resource.
+// An extended resource is a fully-qualified resource name with a domain prefix
+// that is not in the kubernetes.io namespace and is not a standard resource.
+// This matches the upstream logic in k8s.io/kubernetes/pkg/apis/core/helper.
+func IsExtendedResourceName(name corev1.ResourceName) bool {
+	if isNativeResource(name) || isHugePageResourceName(name) {
+		return false
+	}
+	return strings.Contains(string(name), "/")
+}
+
+func isNativeResource(name corev1.ResourceName) bool {
+	return !strings.Contains(string(name), "/") ||
+		strings.HasPrefix(string(name), corev1.ResourceDefaultNamespacePrefix)
+}
+
+func isHugePageResourceName(name corev1.ResourceName) bool {
+	return strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix)
 }

@@ -7,7 +7,7 @@ description: >
 ---
 
 此页面展示了如何使用 Kubernetes
-[验证准入策略](https://kubernetes.io/zh-cn/docs/reference/access-authn-authz/validating-admission-policy)，
+[验证准入策略](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy)，
 基于[通用表达语言（CEL）](https://github.com/google/cel-spec)为 Kueue 设置 Job 准入策略。
 
 ## 开始之前

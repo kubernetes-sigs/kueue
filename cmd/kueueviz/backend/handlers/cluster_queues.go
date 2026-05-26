@@ -21,74 +21,54 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/dynamic"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // ClusterQueuesWebSocketHandler streams all cluster queues
-func ClusterQueuesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-		return fetchClusterQueues(ctx, dynamicClient)
-	})
+func (h *Handlers) ClusterQueuesWebSocketHandler() gin.HandlerFunc {
+	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+		return h.fetchClusterQueues(ctx)
+	}, ClusterQueuesGVK())
 }
 
 // ClusterQueueDetailsWebSocketHandler streams details for a specific cluster queue
-func ClusterQueueDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
+func (h *Handlers) ClusterQueueDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterQueueName := c.Param("cluster_queue_name")
-		GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-			return fetchClusterQueueDetails(ctx, dynamicClient, clusterQueueName)
-		})(c)
+
+		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return h.fetchClusterQueueDetails(ctx, clusterQueueName)
+		}, ClusterQueuesGVK(), LocalQueuesGVK())(c)
 	}
 }
 
 // Fetch all cluster queues
-func fetchClusterQueues(ctx context.Context, dynamicClient dynamic.Interface) ([]map[string]any, error) {
+func (h *Handlers) fetchClusterQueues(ctx context.Context) ([]map[string]any, error) {
 	// Fetch the list of ClusterQueue objects
-	clusterQueues, err := dynamicClient.Resource(ClusterQueuesGVR()).List(ctx, metav1.ListOptions{})
+	cql := &kueueapi.ClusterQueueList{}
+	err := h.client.List(ctx, cql)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching cluster queues: %v", err)
 	}
 
 	// Process the ClusterQueue objects
 	var result []map[string]any
-	for _, item := range clusterQueues.Items {
+	for _, item := range cql.Items {
 		// Extract relevant fields
 		name := item.GetName()
-		spec, specExists := item.Object["spec"].(map[string]any)
-		status, statusExists := item.Object["status"].(map[string]any)
 
-		var cohort string
-		var resourceGroups []any
-		if specExists {
-			cohort, _ = spec["cohort"].(string)
-			resourceGroups, _ = spec["resourceGroups"].([]any)
-		}
-
-		var admittedWorkloads, pendingWorkloads, reservingWorkloads int64
-		if statusExists {
-			admittedWorkloads, _ = status["admittedWorkloads"].(int64)
-			pendingWorkloads, _ = status["pendingWorkloads"].(int64)
-			reservingWorkloads, _ = status["reservingWorkloads"].(int64)
-		}
+		cohort := string(item.Spec.CohortName)
+		admittedWorkloads := item.Status.AdmittedWorkloads
+		pendingWorkloads := item.Status.PendingWorkloads
+		reservingWorkloads := item.Status.ReservingWorkloads
 
 		// Extract flavors from resourceGroups
 		var flavors []string
-		for _, rg := range resourceGroups {
-			rgMap, ok := rg.(map[string]any)
-			if !ok {
-				continue
-			}
-			flavorsList, _ := rgMap["flavors"].([]any)
-			for _, flavor := range flavorsList {
-				flavorMap, ok := flavor.(map[string]any)
-				if !ok {
-					continue
-				}
-				if flavorName, ok := flavorMap["name"].(string); ok {
-					flavors = append(flavors, flavorName)
-				}
+		for _, rg := range item.Spec.ResourceGroups {
+			for _, flavor := range rg.Flavors {
+				flavors = append(flavors, string(flavor.Name))
 			}
 		}
 
@@ -96,11 +76,13 @@ func fetchClusterQueues(ctx context.Context, dynamicClient dynamic.Interface) ([
 		result = append(result, map[string]any{
 			"name":               name,
 			"cohort":             cohort,
-			"resourceGroups":     resourceGroups,
+			"resourceGroups":     convertResourceGroups(item.Spec.ResourceGroups),
 			"admittedWorkloads":  admittedWorkloads,
 			"pendingWorkloads":   pendingWorkloads,
 			"reservingWorkloads": reservingWorkloads,
 			"flavors":            flavors,
+			"flavorsUsage":       convertFlavorsUsage(item.Status.FlavorsUsage),
+			"flavorsReservation": convertFlavorsUsage(item.Status.FlavorsReservation),
 		})
 	}
 
@@ -108,58 +90,57 @@ func fetchClusterQueues(ctx context.Context, dynamicClient dynamic.Interface) ([
 }
 
 // Fetch details for a specific cluster queue
-func fetchClusterQueueDetails(ctx context.Context, dynamicClient dynamic.Interface, clusterQueueName string) (map[string]any, error) {
+func (h *Handlers) fetchClusterQueueDetails(ctx context.Context, name string) (any, error) {
 	// Fetch the specific ClusterQueue
-	clusterQueue, err := dynamicClient.Resource(ClusterQueuesGVR()).Get(ctx, clusterQueueName, metav1.GetOptions{})
+	cq := &kueueapi.ClusterQueue{}
+	err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: name}, cq)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching cluster queue %s: %v", clusterQueueName, err)
+		return nil, fmt.Errorf("error fetching cluster queue %s: %v", name, err)
 	}
 
 	// Retrieve all LocalQueues
-	localQueues, err := dynamicClient.Resource(LocalQueuesGVR()).List(ctx, metav1.ListOptions{})
+	lql := &kueueapi.LocalQueueList{}
+	err = h.client.List(ctx, lql)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching local queues: %v", err)
 	}
 
 	// Filter LocalQueues based on the ClusterQueue name
 	var queuesUsingClusterQueue []map[string]any
-	for _, item := range localQueues.Items {
-		spec, specExists := item.Object["spec"].(map[string]any)
-		if !specExists {
+	for _, item := range lql.Items {
+		if name != string(item.Spec.ClusterQueue) {
 			continue
-		}
-		clusterQueueRef, _ := spec["clusterQueue"].(string)
-		if clusterQueueRef != clusterQueueName {
-			continue
-		}
-
-		// Extract relevant fields
-		namespace := item.GetNamespace()
-		name := item.GetName()
-		status, statusExists := item.Object["status"].(map[string]any)
-
-		var reservation, usage any
-		if statusExists {
-			reservation = status["flavorsReservation"]
-			usage = status["flavorUsage"]
 		}
 
 		queuesUsingClusterQueue = append(queuesUsingClusterQueue, map[string]any{
-			"namespace":   namespace,
-			"name":        name,
-			"reservation": reservation,
-			"usage":       usage,
+			"namespace":   item.GetNamespace(),
+			"name":        item.GetName(),
+			"reservation": convertLocalQueueFlavorsUsage(item.Status.FlavorsReservation),
+			"usage":       convertLocalQueueFlavorsUsage(item.Status.FlavorsUsage),
 		})
 	}
 
-	// Attach the queues information to the ClusterQueue details
-	clusterQueueDetails := clusterQueue.Object
-	clusterQueueDetails["queues"] = queuesUsingClusterQueue
+	// Build result with converted numeric resource values
+	result := map[string]any{
+		"metadata": cq.ObjectMeta,
+		"spec": map[string]any{
+			"cohortName":        string(cq.Spec.CohortName),
+			"resourceGroups":    convertResourceGroups(cq.Spec.ResourceGroups),
+			"preemption":        cq.Spec.Preemption,
+			"flavorFungibility": cq.Spec.FlavorFungibility,
+			"queueingStrategy":  cq.Spec.QueueingStrategy,
+		},
+		"status": map[string]any{
+			"admittedWorkloads":  cq.Status.AdmittedWorkloads,
+			"reservingWorkloads": cq.Status.ReservingWorkloads,
+			"pendingWorkloads":   cq.Status.PendingWorkloads,
+			"conditions":         cq.Status.Conditions,
+			"flavorsUsage":       convertFlavorsUsage(cq.Status.FlavorsUsage),
+			"flavorsReservation": convertFlavorsUsage(cq.Status.FlavorsReservation),
+			"fairSharing":        cq.Status.FairSharing,
+		},
+		"queues": queuesUsingClusterQueue,
+	}
 
-	return clusterQueueDetails, nil
-}
-
-func fetchClusterQueuesList(ctx context.Context, dynamicClient dynamic.Interface) (*unstructured.UnstructuredList, error) {
-	clusterQueues, err := dynamicClient.Resource(ClusterQueuesGVR()).List(ctx, metav1.ListOptions{})
-	return clusterQueues, err
+	return result, nil
 }

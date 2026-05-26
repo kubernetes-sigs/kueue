@@ -29,9 +29,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func TestValidate(t *testing.T) {
@@ -52,18 +55,14 @@ func TestValidate(t *testing.T) {
 			},
 		},
 	}
-	defaultPodIntegrationOptions := &configapi.PodIntegrationOptions{
-		NamespaceSelector: systemNamespacesSelector,
-		PodSelector:       &metav1.LabelSelector{},
-	}
 	defaultIntegrations := &configapi.Integrations{
 		Frameworks: []string{"batch/job"},
-		PodOptions: defaultPodIntegrationOptions,
 	}
 
 	testCases := map[string]struct {
-		cfg     *configapi.Configuration
-		wantErr field.ErrorList
+		cfg          *configapi.Configuration
+		featureGates map[featuregate.Feature]bool
+		wantErr      field.ErrorList
 	}{
 		"empty": {
 			cfg: &configapi.Configuration{},
@@ -159,11 +158,10 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"nil PodIntegrationOptions and nil managedJobsNamespaceSelector": {
+		"nil managedJobsNamespaceSelector with pod framework": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{"pod"},
-					PodOptions: nil,
 				},
 			},
 			wantErr: field.ErrorList{
@@ -173,27 +171,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"emptyLabelSelector": {
-			cfg: &configapi.Configuration{
-				Namespace: ptr.To("kueue-system"),
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{},
-					},
-				},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "integrations.podOptions.namespaceSelector",
-				},
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "integrations.podOptions.namespaceSelector",
-				},
-			},
-		},
+
 		"valid managedJobsNamespaceSelector ": {
 			cfg: &configapi.Configuration{
 				ManagedJobsNamespaceSelector: systemNamespacesSelector,
@@ -202,26 +180,6 @@ func TestValidate(t *testing.T) {
 			wantErr: nil,
 		},
 
-		"prohibited namespace in MatchLabels": {
-			cfg: &configapi.Configuration{
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchLabels: map[string]string{
-								corev1.LabelMetadataName: "kube-system",
-							},
-						},
-					},
-				},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "integrations.podOptions.namespaceSelector",
-				},
-			},
-		},
 		"prohibited namespace in MatchLabels managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
@@ -238,30 +196,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"prohibited namespace in MatchExpressions with operator In": {
-			cfg: &configapi.Configuration{
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchExpressions: []metav1.LabelSelectorRequirement{
-								{
-									Key:      corev1.LabelMetadataName,
-									Operator: metav1.LabelSelectorOpIn,
-									Values:   []string{"kube-system"},
-								},
-							},
-						},
-					},
-				},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "integrations.podOptions.namespaceSelector",
-				},
-			},
-		},
+
 		"prohibited namespace in MatchExpressions with operator In managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
@@ -282,25 +217,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"prohibited namespace in MatchExpressions with operator NotIn": {
-			cfg: &configapi.Configuration{
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchExpressions: []metav1.LabelSelectorRequirement{
-								{
-									Key:      corev1.LabelMetadataName,
-									Operator: metav1.LabelSelectorOpNotIn,
-									Values:   []string{"kube-system", "kueue-system"},
-								},
-							},
-						},
-					},
-				},
-			},
-			wantErr: nil,
-		},
+
 		"prohibited namespace in MatchExpressions with operator NotIn managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
@@ -320,7 +237,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp: ptr.To[configapi.RequeuingTimestamp]("NoSupported"),
 					},
@@ -333,12 +250,25 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"invalid an empty waitForPodsReady.timeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 0},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "waitForPodsReady.timeout",
+				},
+			},
+		},
 		"negative waitForPodsReady.timeout": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
-					Timeout: &metav1.Duration{
+					Timeout: metav1.Duration{
 						Duration: -1,
 					},
 				},
@@ -354,7 +284,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RecoveryTimeout: &metav1.Duration{
 						Duration: -1,
 					},
@@ -371,14 +301,13 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
-					Timeout: &metav1.Duration{
+					Timeout: metav1.Duration{
 						Duration: 50,
 					},
 					RecoveryTimeout: &metav1.Duration{
 						Duration: 3,
 					},
-					BlockAdmission: ptr.To(false),
+					BlockAdmission: new(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
 						BackoffLimitCount:  ptr.To[int32](10),
@@ -392,7 +321,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffLimitCount: ptr.To[int32](-1),
 					},
@@ -409,7 +338,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffBaseSeconds: ptr.To[int32](-1),
 					},
@@ -426,7 +355,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable: true,
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						BackoffMaxSeconds: ptr.To[int32](-1),
 					},
@@ -475,7 +404,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					Origin: ptr.To("=]"),
+					Origin: new("=]"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -492,10 +421,197 @@ func TestValidate(t *testing.T) {
 					GCInterval: &metav1.Duration{
 						Duration: time.Second,
 					},
-					Origin: ptr.To("valid"),
+					Origin: new("valid"),
 					WorkerLostTimeout: &metav1.Duration{
 						Duration: 2 * time.Second,
 					},
+				},
+			},
+		},
+		"empty multiKueue.clusterProfile.credentialsProviders.name": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.name",
+				},
+			},
+		},
+		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.command": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.command",
+				},
+			},
+		},
+		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.apiVersion": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.apiVersion",
+				},
+			},
+		},
+		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.env.name": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+									Env: []clientcmdapi.ExecEnvVar{
+										{Name: "", Value: "test-value"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.env.name",
+				},
+			},
+		},
+		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: "",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode",
+				},
+			},
+		},
+		"invalid multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: "Invalid",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode",
+				},
+			},
+		},
+		"valid multiKueue.clusterProfile configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+									Env: []clientcmdapi.ExecEnvVar{
+										{Name: "TEST_VAR", Value: "test-value"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"invalid an empty preemption strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing:  &configapi.FairSharing{},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "fairSharing.preemptionStrategies",
 				},
 			},
 		},
@@ -503,7 +619,6 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				FairSharing: &configapi.FairSharing{
-					Enable:               true,
 					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, "UNKNOWN", configapi.LessThanInitialShare, configapi.LessThanOrEqualToFinalShare},
 				},
 			},
@@ -518,7 +633,6 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				FairSharing: &configapi.FairSharing{
-					Enable:               true,
 					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, configapi.LessThanInitialShare},
 				},
 			},
@@ -586,8 +700,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:            ptr.To(true),
-					WebhookSecretName: ptr.To(":)"),
+					Enable:            new(true),
+					WebhookSecretName: new(":)"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -601,8 +715,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
-					WebhookServiceName: ptr.To("0-invalid"),
+					Enable:             new(true),
+					WebhookServiceName: new("0-invalid"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -616,8 +730,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(false),
-					WebhookServiceName: ptr.To("0-invalid"),
+					Enable:             new(false),
+					WebhookServiceName: new("0-invalid"),
 				},
 			},
 		},
@@ -625,9 +739,9 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
-					WebhookServiceName: ptr.To("webhook-svc"),
-					WebhookSecretName:  ptr.To("webhook-sec"),
+					Enable:             new(true),
+					WebhookServiceName: new("webhook-svc"),
+					WebhookSecretName:  new("webhook-sec"),
 				},
 			},
 		},
@@ -701,7 +815,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: -1}),
+						AfterFinished: new(metav1.Duration{Duration: -1}),
 					},
 				},
 			},
@@ -717,7 +831,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: 0}),
+						AfterFinished: new(metav1.Duration{Duration: 0}),
 					},
 				},
 			},
@@ -727,7 +841,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: 1}),
+						AfterFinished: new(metav1.Duration{Duration: 1}),
 					},
 				},
 			},
@@ -737,7 +851,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: -1}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: -1}),
 					},
 				},
 			},
@@ -753,7 +867,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 0}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: 0}),
 					},
 				},
 			},
@@ -763,8 +877,211 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 1}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: 1}),
 					},
+				},
+			},
+		},
+		"valid TLS with TLS 1.2 and cipher suites": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "VersionTLS12",
+						CipherSuites: []string{
+							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+						},
+					},
+				},
+			},
+		},
+		"valid TLS with TLS 1.3 and no cipher suites": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "VersionTLS13",
+					},
+				},
+			},
+		},
+		"invalid TLS with TLS 1.3 and cipher suites": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "VersionTLS13",
+						CipherSuites: []string{
+							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "tls.cipherSuites",
+				},
+			},
+		},
+		"invalid TLS and valid cipher suites": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "DUMMY",
+						CipherSuites: []string{
+							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "tls",
+				},
+			},
+		},
+		"invalid TLS and invalid cipher suites": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "DUMMY",
+						CipherSuites: []string{
+							"DUMMY",
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "tls",
+				},
+			},
+		},
+		"invalid .visibilityServer.bindAddress": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				VisibilityServer: &configapi.VisibilityServerConfiguration{
+					BindAddress: new("invalid"),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "visibilityServer.bindAddress",
+				},
+			},
+		},
+		"valid .visibilityServer.bindAddress": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				VisibilityServer: &configapi.VisibilityServerConfiguration{
+					BindAddress: new("127.0.0.1"),
+				},
+			},
+		},
+		"invalid .visibilityServer.bindPort": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				VisibilityServer: &configapi.VisibilityServerConfiguration{
+					BindPort: ptr.To[int32](0),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "visibilityServer.bindPort",
+				},
+			},
+		},
+		"valid .visibilityServer.bindPort": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				VisibilityServer: &configapi.VisibilityServerConfiguration{
+					BindPort: ptr.To[int32](8080),
+				},
+			},
+		},
+		"quotaCheckStrategy with value ignoreUndeclared not allowed with excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+					ExcludeResourcePrefixes: []string{"foo.com/device"},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.quotaCheckStrategy",
+					Detail: "excludeResourcePrefixes is not allowed when quotaCheckStrategy is IgnoreUndeclared",
+				},
+			},
+		},
+		"quotaCheckStrategy with value ignoreundeclared allowed without excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+		},
+		"quotaCheckStrategy with value blockundeclared allowed with excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckBlockUndeclared),
+					ExcludeResourcePrefixes: []string{"foo.com/device"},
+				},
+			},
+		},
+		"quotaCheckStrategy with unsupported value": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "resources.quotaCheckStrategy",
+				},
+			},
+		},
+		"quotaCheckStrategy validation skipped when feature gate disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+				},
+			},
+		},
+		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRAIntegration:                 false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
 				},
 			},
 		},
@@ -772,54 +1089,175 @@ func TestValidate(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(tc.wantErr, validate(tc.cfg, testScheme), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestValidateFeatureGates(t *testing.T) {
+func TestLoadAndValidateFeatureGates(t *testing.T) {
 	cases := map[string]struct {
 		featureGatesCLI string
 		featureGateMap  map[string]bool
-		errorStr        string
+		gatesToRestore  map[featuregate.Feature]bool
+		wantErr         field.ErrorList
 	}{
 		"no feature gates is null": {
 			featureGatesCLI: "",
-			featureGateMap:  nil,
-			errorStr:        "",
 		},
 		"feature gate cli": {
-			featureGatesCLI: "test:true",
-			featureGateMap:  nil,
-			errorStr:        "",
+			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration: false,
+			},
 		},
 		"cannot specify both feature gates": {
-			featureGatesCLI: "test:true",
-			featureGateMap:  map[string]bool{"test": true},
-
-			errorStr: "feature gates for CLI and configuration cannot both specified",
-		},
-		"cannot specify more than one TAS profile using GateMap": {
-			featureGateMap: map[string]bool{"TASProfileMixed": true,
-				"TASProfileLeastFreeCapacity": true},
-			errorStr: "Cannot use more than one TAS profiles",
-		},
-		"cannot specify more than one TAS profile using GatesCLI": {
-			featureGatesCLI: "TASProfileLeastFreeCapacity:true,TASProfileMixed:true",
-			errorStr:        "Cannot use more than one TAS profiles",
+			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegration): false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration: false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "feature gates for CLI and configuration cannot both specified",
+				},
+			},
 		},
 		"cannot set TAS profile with TAS disabled": {
-			featureGateMap: map[string]bool{"TASProfileLeastFreeCapacity": true},
-			errorStr:       "Cannot use a TAS profile with TAS disabled",
+			featureGateMap: map[string]bool{
+				string(features.TASProfileMixed):         true,
+				string(features.TopologyAwareScheduling): false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASProfileMixed:         false,
+				features.TopologyAwareScheduling: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "cannot use a TAS profile with TAS disabled",
+				},
+			},
+		},
+		"ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices": {
+			featureGateMap: map[string]bool{
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.TopologyAwareScheduling):             true,
+				string(features.ElasticJobsViaWorkloadSlices):        false,
+				string(features.TASProfileMixed):                     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.TopologyAwareScheduling:             false,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.TASProfileMixed:                     true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled",
+				},
+			},
+		},
+		"ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.ElasticJobsViaWorkloadSlices):        true,
+				string(features.TopologyAwareScheduling):             false,
+				string(features.TASProfileMixed):                     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.ElasticJobsViaWorkloadSlices:        false,
+				features.TopologyAwareScheduling:             true,
+				features.TASProfileMixed:                     true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled",
+				},
+			},
+		},
+		"ElasticJobsViaWorkloadSlicesWithTAS valid when all dependencies enabled": {
+			featureGateMap: map[string]bool{
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.ElasticJobsViaWorkloadSlices):        true,
+				string(features.TopologyAwareScheduling):             true,
+				string(features.TASProfileMixed):                     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.ElasticJobsViaWorkloadSlices:        false,
+				features.TopologyAwareScheduling:             false,
+				features.TASProfileMixed:                     true,
+			},
+		},
+		"multiple FG validation errors at once": {
+			featureGateMap: map[string]bool{
+				string(features.TASProfileMixed):                     true,
+				string(features.TopologyAwareScheduling):             false,
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.ElasticJobsViaWorkloadSlices):        false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASProfileMixed:                     false,
+				features.TopologyAwareScheduling:             true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.ElasticJobsViaWorkloadSlices:        true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "cannot use a TAS profile with TAS disabled",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled",
+				},
+			},
+		},
+		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationExtendedResource): true,
+				string(features.KueueDRAIntegration):                 false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: false,
+				features.KueueDRAIntegration:                 true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
+				},
+			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := ValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
-			if got != nil && tc.errorStr != got.Error() {
-				t.Errorf("Unexpected result from ValidateFeatureGates\nwant:\n%v\ngot:%v\n", tc.errorStr, got.Error())
+			// Ensure clean up is registered for the feature gates to their default values
+			features.SetFeatureGatesDuringTest(t, tc.gatesToRestore)
+			got := LoadAndValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
+				t.Errorf("Unexpected result from LoadAndValidateFeatureGates (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -1256,6 +1694,207 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 			got := validateDeviceClassMappings(tc.cfg)
 			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("validateDeviceClassMappings() returned unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateCustomLabels(t *testing.T) {
+	testCases := map[string]struct {
+		cfg     *configapi.Configuration
+		wantErr field.ErrorList
+	}{
+		"empty custom labels": {
+			cfg: &configapi.Configuration{},
+		},
+		"valid name only": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team"},
+						},
+					},
+				},
+			},
+		},
+		"valid with sourceLabelKey": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team", SourceLabelKey: "org.example.com/team"},
+						},
+					},
+				},
+			},
+		},
+		"valid with sourceAnnotationKey": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "cost_center", SourceAnnotationKey: "billing.example.com/cost-center"},
+						},
+					},
+				},
+			},
+		},
+		"valid multiple entries": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team"},
+							{Name: "env", SourceLabelKey: "environment"},
+							{Name: "cost", SourceAnnotationKey: "billing/cost"},
+						},
+					},
+				},
+			},
+		},
+		"invalid name - special chars": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team-name"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].name",
+				},
+			},
+		},
+		"invalid name - leading digit": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "1team"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].name",
+				},
+			},
+		},
+		"invalid name - empty": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: ""},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].name",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].name",
+				},
+			},
+		},
+		"duplicate names": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team"},
+							{Name: "team"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "metrics.customLabels[1].name",
+				},
+			},
+		},
+		"mutually exclusive sources": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team", SourceLabelKey: "team-label", SourceAnnotationKey: "team-annotation"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0]",
+				},
+			},
+		},
+		"invalid sourceLabelKey": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team", SourceLabelKey: "invalid key with spaces"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].sourceLabelKey",
+				},
+			},
+		},
+		"invalid sourceAnnotationKey": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team", SourceAnnotationKey: "invalid key with spaces"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].sourceAnnotationKey",
+				},
+			},
+		},
+		"name with underscore valid as k8s label key": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "has_underscore"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got := validateCustomLabels(tc.cfg)
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("validateCustomLabels() returned unexpected error (-want,+got):\n%s", diff)
 			}
 		})
 	}

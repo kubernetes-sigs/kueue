@@ -131,7 +131,7 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 `,
 		},
 		"should print workload list with all namespaces (short command and flag)": {
-			args: []string{"wl", "-A"},
+			args: []string{"kwl", "-A"},
 			objs: []runtime.Object{
 				utiltestingapi.MakeWorkload("wl1", "ns1").
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").

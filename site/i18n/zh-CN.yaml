@@ -34,3 +34,11 @@
   translation: "满意"
 - id: feedback_negative
   translation: "不满意"
+- id: labels_and_annotations_priority_boost_description
+  translation: |
+    可选的有符号整数注解，用于调整工作负载的有效优先级：
+    `effectivePriority = workloadPriority + priorityBoost`。
+    正值提高优先级，负值降低优先级。
+    有效优先级同时用于调度排序和抢占候选排序。
+    此注解由外部控制器直接设置在 Workload 上（不从 Job 传播）。
+    如果值缺失或非法，会按 `0` 处理。

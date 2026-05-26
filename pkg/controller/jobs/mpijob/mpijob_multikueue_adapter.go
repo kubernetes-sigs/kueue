@@ -27,11 +27,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -42,8 +40,6 @@ type multiKueueAdapter struct{}
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
 func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	localJob := kfmpi.MPIJob{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
@@ -58,15 +54,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// if the remote exists, just copy the status
 	if err == nil {
-		if fromObject(&localJob).IsSuspended() {
-			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-			log.V(2).Info("Skipping the sync since the local job is still suspended")
-			return nil
-		}
-
-		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
+		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 			localJob.Status = remoteJob.Status
-			return &localJob, true, nil
+			return true, nil
 		})
 	}
 
@@ -75,12 +65,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
 
-	// add the prebuilt workload
-	if remoteJob.Labels == nil {
-		remoteJob.Labels = make(map[string]string, 2)
-	}
-	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remoteJob, workloadName, origin)
 
 	// clear the managedBy enables the controller to take over
 	remoteJob.Spec.RunPolicy.ManagedBy = nil
@@ -88,15 +74,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	job := kfmpi.MPIJob{}
 	job.SetName(key.Name)
 	job.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
-}
-
-func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
-	return false
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
@@ -122,16 +104,16 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &kfmpi.MPIJobList{}
 }
 
-func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	job, isJob := o.(*kfmpi.MPIJob)
 	if !isJob {
-		return types.NamespacedName{}, errors.New("not a mpijob")
+		return nil, errors.New("not a mpijob")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := job.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for mpijob: %s", klog.KObj(job))
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
+	if prebuiltWorkload == "" {
+		return nil, fmt.Errorf("no prebuilt workload found for mpijob: %s", klog.KObj(job))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: job.Namespace}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.Namespace}}, nil
 }

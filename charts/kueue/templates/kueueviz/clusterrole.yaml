@@ -24,12 +24,17 @@ metadata:
   namespace: '{{ .Release.Namespace }}'
 rules:
   - apiGroups: ["kueue.x-k8s.io"]
-    resources: ["workloads", "clusterqueues", "localqueues", "resourceflavors"]
+    resources: ["workloads", "clusterqueues", "localqueues", "resourceflavors", "cohorts"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods", "events", "nodes"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["kueue.x-k8s.io"]
-    resources: ["workloadpriorityclass"]
+    resources: ["workloadpriorityclasses"]
     verbs: ["get", "list", "watch"]
+{{- if ne .Values.kueueViz.backend.auth.mode "Disabled" }}
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+{{- end }}
 {{- end }}

@@ -31,6 +31,54 @@ two main personas that we assume will interact with Kueue:
 - `kueue-batch-user-role` includes the permissions to manage [Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/)
   and to view Queues and Workloads.
 
+In addition, Kueue creates a set of per-resource editor and viewer ClusterRoles
+(for example, `kueue-clusterqueue-viewer-role`, `kueue-workload-editor-role`).
+Each of these ClusterRoles is tagged with the `rbac.kueue.x-k8s.io/role` label
+whose value is the short role identifier (e.g. `clusterqueue-viewer`,
+`workload-editor`). You can use this label to discover or select the Kueue
+ClusterRole for a specific resource and access level:
+
+```shell
+# List all editor/viewer ClusterRoles managed by Kueue.
+kubectl get clusterroles -l rbac.kueue.x-k8s.io/role
+
+# Find the viewer ClusterRole for ClusterQueues.
+kubectl get clusterroles -l rbac.kueue.x-k8s.io/role=clusterqueue-viewer
+```
+
+### Building custom roles with ClusterRole aggregation
+
+The `rbac.kueue.x-k8s.io/role` label is intended as a selector for use
+with [Kubernetes ClusterRole aggregation](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#aggregated-clusterroles).
+By writing an aggregation rule that matches on this label, you can compose
+custom ClusterRoles from any subset of the Kueue editor/viewer roles without
+having to copy or maintain the underlying rules.
+
+For example, the following ClusterRole grants read-only access to queueing
+state across ClusterQueues, LocalQueues, and Workloads:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kueue-queue-readonly
+aggregationRule:
+  clusterRoleSelectors:
+  - matchExpressions:
+    - key: rbac.kueue.x-k8s.io/role
+      operator: In
+      values:
+      - clusterqueue-viewer
+      - localqueue-viewer
+      - workload-viewer
+rules: [] # The control plane fills this in.
+```
+
+You can mix and match values from any of the editor/viewer ClusterRoles
+listed by `kubectl get clusterroles -l rbac.kueue.x-k8s.io/role` to build
+roles tailored to a specific persona (for example, a team lead who can
+edit LocalQueues and Workloads but only view ClusterQueues and Cohorts).
+
 ## Giving permissions to a batch administrator
 
 A batch administrator typically requires the `kueue-batch-admin-role` ClusterRole

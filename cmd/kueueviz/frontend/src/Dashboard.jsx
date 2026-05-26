@@ -24,9 +24,11 @@ import useWebSocket from './useWebSocket';
 import './App.css';
 import { AccessTime, Check, CheckBox, CheckCircle } from '@mui/icons-material';
 import ErrorMessage from './ErrorMessage';
+import UsageBar, { aggregateResourceForQueue, discoverResourceNames, formatResourceValue } from './UsageBar';
 
 const Dashboard = () => {
   const [queues, setQueues] = useState([]);
+  const [clusterQueues, setClusterQueues] = useState([]);
   const [workloads, setWorkloads] = useState([]);
   const [expandedRows, setExpandedRows] = useState({});
   const [expandAll, setExpandAll] = useState(false);
@@ -34,11 +36,11 @@ const Dashboard = () => {
   const [error, setError] = useState(null);
   const [workloadsByUid, setWorkloadsByUid] = useState({});
   const [selectedNamespace, setSelectedNamespace] = useState('');
-  
+
   // Fetch namespaces from our new endpoint
   const { data: namespacesData, error: namespacesError } = useWebSocket('/ws/namespaces');
   const [namespaces, setNamespaces] = useState([]);
-  
+
   // Fetch dashboard data with namespace filter
   const { data: kueueData, error: kueueError } = useWebSocket(`/ws/workloads/dashboard?namespace=${selectedNamespace}`);
 
@@ -53,7 +55,10 @@ const Dashboard = () => {
   useEffect(() => {
     if (kueueData) {
       setQueues(kueueData.queues || []);
-      setWorkloads(kueueData.workloads?.items || []);
+      setClusterQueues(kueueData.clusterQueues || []);
+      setWorkloads([...(kueueData.workloads?.items || [])].sort((a, b) =>
+        (a.metadata?.namespace || '').localeCompare(b.metadata?.namespace || '') || (a.metadata?.name || '').localeCompare(b.metadata?.name || '')
+      ));
       setWorkloadsByUid(kueueData.workloads.workloads_by_uid || {});
 
       kueueData.workloads?.items?.forEach(workload => {
@@ -122,39 +127,106 @@ const Dashboard = () => {
     <>
       <ToastContainer />
       <Paper className="parentContainer">
-      <Grid container spacing={4} className="parentContainer">
-        <Grid item xs={12} sm={6} md={4}>
-          <Paper elevation={3} className="tableContainerWithBorder">
-            <Typography variant="h6">Total Local Queues</Typography>
-            <Typography variant="h3">{queues.length}</Typography>
-          </Paper>
+        <Grid container spacing={4} className="parentContainer">
+          <Grid item xs={12} sm={6} md={4}>
+            <Paper elevation={3} className="tableContainerWithBorder">
+              <Typography variant="h6">Total Local Queues</Typography>
+              <Typography variant="h3">{queues.length}</Typography>
+            </Paper>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={4}>
+            <Paper elevation={3} className="tableContainerWithBorder">
+              <Typography variant="h6">Total Workloads</Typography>
+              <Typography variant="h3">{workloads.length}</Typography>
+            </Paper>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={4} className="parentContainer">
+            <Paper elevation={3} className="tableContainerWithBorder">
+              <Typography variant="h6">Completed Workloads</Typography>
+              <Typography variant="h3">
+                {workloads.filter(wl =>
+                  wl.status?.conditions?.some(
+                    condition => condition.type === "Finished" && condition.status === "True"
+                  )
+                ).length}
+              </Typography>
+            </Paper>
+          </Grid>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={4}>
-          <Paper elevation={3} className="tableContainerWithBorder">
-            <Typography variant="h6">Total Workloads</Typography>
-            <Typography variant="h3">{workloads.length}</Typography>
-          </Paper>
-        </Grid>
+        {/* Per-Cohort Resource Utilization */}
+        {clusterQueues.length > 0 && (() => {
+          const cohortMap = {};
+          clusterQueues.forEach(cq => {
+            const cohort = cq.cohort || '';
+            if (!cohortMap[cohort]) cohortMap[cohort] = [];
+            cohortMap[cohort].push(cq);
+          });
 
-        <Grid item xs={12} sm={6} md={4} className="parentContainer">
-          <Paper elevation={3} className="tableContainerWithBorder">
-            <Typography variant="h6">Completed Workloads</Typography>
-            <Typography variant="h3">
-              {workloads.filter(wl =>
-                wl.status?.conditions?.some(
-                  condition => condition.type === "Finished" && condition.status === "True"
-                )
-              ).length}
-            </Typography>
-          </Paper>
-        </Grid>
-      </Grid>
+          const resourceNames = discoverResourceNames(clusterQueues);
+          if (resourceNames.length === 0) return null;
+
+          const cohortNames = Object.keys(cohortMap).sort((a, b) => {
+            if (a === '') return 1;
+            if (b === '') return -1;
+            return a.localeCompare(b);
+          });
+
+          return (
+            <>
+              <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>
+                Resource Utilization by Cohort
+              </Typography>
+              <TableContainer component={Paper} className="tableContainerWithBorder">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Cohort</TableCell>
+                      <TableCell>Queues</TableCell>
+                      {resourceNames.map(r => (
+                        <TableCell key={r} sx={{ minWidth: 160 }}>{r}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {cohortNames.map(cohortName => {
+                      const cqs = cohortMap[cohortName];
+                      return (
+                        <TableRow key={cohortName || '__standalone__'}>
+                          <TableCell>
+                            {cohortName ? <Link to={`/cohort/${cohortName}`}>{cohortName}</Link> : <em>Standalone</em>}
+                          </TableCell>
+                          <TableCell>{cqs.length}</TableCell>
+                          {resourceNames.map(resName => {
+                            let usage = 0, quota = 0;
+                            cqs.forEach(cq => {
+                              const r = aggregateResourceForQueue(cq, resName);
+                              usage += r.usage; quota += r.quota;
+                            });
+                            return (
+                              <TableCell key={resName}>
+                                {quota > 0 || usage > 0 ? (
+                                  <UsageBar usage={usage} quota={quota} label={resName} compact />
+                                ) : '-'}
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </>
+          );
+        })()}
 
         <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>
           Workloads
         </Typography>
-        
+
         <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>
             <TableHead>
@@ -174,7 +246,7 @@ const Dashboard = () => {
                         displayEmpty
                         disableUnderline
                         renderValue={() => ''}
-                        style={{ 
+                        style={{
                           width: '20px',
                           minWidth: '20px',
                           '& .MuiSelect-select': {

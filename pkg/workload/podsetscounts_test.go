@@ -26,7 +26,7 @@ import (
 
 func testPodSet(name string, count int32) kueue.PodSet {
 	return kueue.PodSet{
-		Name:  kueue.PodSetReference(name),
+		Name:  kueue.NewPodSetReference(name),
 		Count: count,
 	}
 }

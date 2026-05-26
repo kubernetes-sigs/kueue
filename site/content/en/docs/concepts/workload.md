@@ -20,6 +20,12 @@ Workload objects that represent the resource requirements of an arbitrary
 workload. Kueue automatically creates a Workload for each Job object and syncs
 the decisions and statuses.
 
+When [Concurrent Admission](/docs/concepts/concurrent_admission) is
+enabled for the Workload's ClusterQueue, Kueue can represent one Job with a
+Parent Workload and multiple Variant Workloads. The Parent Workload aggregates
+the admission status for the Job integration, and each Variant is an internal
+admission attempt constrained to a ResourceFlavor.
+
 The manifest for a Workload looks like the following:
 
 ```yaml
@@ -197,7 +203,7 @@ This can bypass the strict validation rules causing issues with duplicated envir
 - [MultiKueue: remove the limitation that the external dispatches need to use kueue-admission field manager ](https://github.com/kubernetes-sigs/kueue/issues/6185)
 Using ServerSideApply blocked the ability for Workload Status to be modified from external controllers.
 Once the field e.g. `.status.nominatedClusterNames` was modified and owned by the controller (regardless if Kueue or external one) it can not be modified or cleared by the other.
-This effectively prevent External Dispatching mechanism to work properly in multi cluster enviroment.
+This effectively prevent External Dispatching mechanism to work properly in multi cluster environment.
 
 ## What's next
 

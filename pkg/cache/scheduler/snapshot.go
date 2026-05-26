@@ -23,19 +23,27 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/features"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
-	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+type inactiveCQReason string
+
+const (
+	inactiveCQReasonNotActive         inactiveCQReason = "NotActive"
+	inactiveCQReasonHasCycle          inactiveCQReason = "HasCycle"
+	inactiveCQReasonTASUsageNotSynced inactiveCQReason = "TASUsageNotSynced"
 )
 
 type Snapshot struct {
@@ -130,14 +138,21 @@ func (s *Snapshot) Log(log logr.Logger) {
 }
 
 type snapshotOption struct {
-	afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
+	afsEntryPenalties    *queueafs.AfsEntryPenalties
+	afsConsumedResources *queueafs.AfsConsumedResources
 }
 
 type SnapshotOption func(*snapshotOption)
 
-func WithAfsEntryPenalties(penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) SnapshotOption {
+func WithAfsEntryPenalties(penalties *queueafs.AfsEntryPenalties) SnapshotOption {
 	return func(o *snapshotOption) {
 		o.afsEntryPenalties = penalties
+	}
+}
+
+func WithAfsConsumedResources(consumedResources *queueafs.AfsConsumedResources) SnapshotOption {
+	return func(o *snapshotOption) {
+		o.afsConsumedResources = consumedResources
 	}
 }
 
@@ -166,23 +181,26 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
 		}
 	}
-	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
-	if features.Enabled(features.TopologyAwareScheduling) {
-		for flavor, cache := range c.tasCache.Clone() {
-			s, err := cache.snapshot(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("%w: failed to construct snapshot for TAS flavor: %q", err, flavor)
-			} else {
-				tasSnapshots[flavor] = s
-			}
-		}
-	}
-	for _, cq := range c.hm.ClusterQueues() {
-		if !cq.Active() || (cq.HasParent() && hierarchy.HasCycle(cq.Parent())) {
+	log := ctrl.LoggerFrom(ctx)
+	cqNames := c.hm.ClusterQueues()
+	for _, cq := range cqNames {
+		if reason := skipInactiveCQReason(cq); reason != "" {
+			log.V(3).Info("Skipping ClusterQueue", "clusterQueue", cq.Name, "reason", reason)
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
-		cqSnapshot, err := c.snapshotClusterQueue(ctx, cq, opts.afsEntryPenalties)
+	}
+	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
+	if features.Enabled(features.TopologyAwareScheduling) {
+		for flavor, cache := range c.tasCache.Clone() {
+			tasSnapshots[flavor] = cache.snapshot(log, c.tasCache.nodesCache.find(cache.flavor.NodeLabels, cache.topology.Levels))
+		}
+	}
+	for _, cq := range cqNames {
+		if snap.InactiveClusterQueueSets.Has(cq.Name) {
+			continue
+		}
+		cqSnapshot, err := c.snapshotClusterQueue(ctx, cq, opts.afsEntryPenalties, opts.afsConsumedResources)
 		if err != nil {
 			return nil, err
 		}
@@ -203,9 +221,31 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	return &snap, nil
 }
 
+// skipInactiveCQReason reports why the CQ should not be considered for
+// admitting workloads in this scheduler snapshot. If the CQ can be considered,
+// an empty reason is returned.
+func skipInactiveCQReason(cq *clusterQueue) inactiveCQReason {
+	if !cq.Active() {
+		return inactiveCQReasonNotActive
+	}
+	if cq.HasParent() && hierarchy.HasCycle(cq.Parent()) {
+		return inactiveCQReasonHasCycle
+	}
+	if features.Enabled(features.TopologyAwareScheduling) && len(cq.tasFlavors) > 0 && !cq.isTASSynced {
+		// The CQ uses a TAS flavor, but TAS usage is not synced yet.
+		return inactiveCQReasonTASUsageNotSynced
+	}
+	return ""
+}
+
 // snapshotClusterQueue creates a copy of ClusterQueue that includes
 // references to immutable objects and deep copies of changing ones.
-func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) (*ClusterQueueSnapshot, error) {
+func (c *Cache) snapshotClusterQueue(
+	ctx context.Context,
+	cq *clusterQueue,
+	afsEntryPenalties *queueafs.AfsEntryPenalties,
+	afsConsumedResources *queueafs.AfsConsumedResources,
+) (*ClusterQueueSnapshot, error) {
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
 		Name:                          cq.Name,
@@ -219,9 +259,11 @@ func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsE
 		Status:                        cq.Status,
 		AdmissionChecks:               utilmaps.DeepCopySets(cq.AdmissionChecks),
 		ResourceNode:                  cq.resourceNode.Clone(),
+		ConcurrentAdmissionPolicy:     cq.ConcurrentAdmissionPolicy,
 		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
 		tasOnly:                       cq.isTASOnly(),
 		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),
+		hasMultiKueueAC:               cq.hasMultiKueueAdmissionCheck(),
 	}
 	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
@@ -235,7 +277,7 @@ func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsE
 			return cc, nil
 		}
 		for _, wl := range cc.Workloads {
-			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, afsEntryPenalties)
+			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, afsEntryPenalties, afsConsumedResources)
 			if err != nil {
 				return nil, fmt.Errorf("failed to calculate LocalQueue FS usage for LocalQueue %v", client.ObjectKey{Namespace: wl.Obj.Namespace, Name: string(wl.Obj.Spec.QueueName)})
 			}

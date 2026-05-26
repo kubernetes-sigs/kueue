@@ -69,7 +69,7 @@ func init() {
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=get;update;patch
@@ -159,7 +159,7 @@ func (j *Job) IsActive() bool {
 }
 
 func (j *Job) Suspend() {
-	j.Spec.Suspend = ptr.To(true)
+	j.Spec.Suspend = new(true)
 }
 
 func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
@@ -167,14 +167,14 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	stoppedNow := false
 
 	if !j.IsSuspended() {
-		if err := clientutil.Patch(ctx, c, object, func() (client.Object, bool, error) {
+		if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
 			j.Suspend()
 			if j.Annotations == nil {
 				j.Annotations = map[string]string{}
 			}
 			// We are using annotation to be sure that all updates finished successfully.
 			j.Annotations[StoppingAnnotation] = "true"
-			return object, true, nil
+			return true, nil
 		}); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
 		}
@@ -183,18 +183,18 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 
 	// Reset start time if necessary, so we can update the scheduling directives.
 	if j.Status.StartTime != nil {
-		if err := clientutil.PatchStatus(ctx, c, object, func() (client.Object, bool, error) {
+		if err := clientutil.PatchStatus(ctx, c, object, func() (bool, error) {
 			j.Status.StartTime = nil
-			return object, true, nil
+			return true, nil
 		}); err != nil {
 			return stoppedNow, fmt.Errorf("reset status: %w", err)
 		}
 	}
 
-	if err := clientutil.Patch(ctx, c, object, func() (client.Object, bool, error) {
+	if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
 		j.RestorePodSetsInfo(podSetsInfo)
 		delete(j.Annotations, StoppingAnnotation)
-		return object, true, nil
+		return true, nil
 	}); err != nil {
 		return false, fmt.Errorf("restore info: %w", err)
 	}
@@ -210,7 +210,7 @@ func (j *Job) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", batchv1.JobNameLabel, j.Name)
 }
 
-func (j *Job) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
+func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.ReclaimablePod, error) {
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	if parallelism == 1 || j.Status.Succeeded == 0 {
 		return nil, nil
@@ -233,20 +233,24 @@ var (
 	// the legacy names are no longer defined in the api, only in k/2/apis/batch
 	legacyJobNameLabel       = "job-name"
 	legacyControllerUIDLabel = "controller-uid"
-	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUIDLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
+	managedLabels            = []string{legacyJobNameLabel, legacyControllerUIDLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
 )
 
-func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
-	for _, managedLabel := range ManagedLabels {
+// Clean labels that are managed by the job controller except job-name label.
+func cleanLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
+	for _, managedLabel := range managedLabels {
+		if managedLabel == batchv1.JobNameLabel {
+			continue
+		}
 		delete(pt.Labels, managedLabel)
 	}
 	return pt
 }
 
-func (j *Job) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *Job) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	podSet := kueue.PodSet{
 		Name:     kueue.DefaultPodSetName,
-		Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
+		Template: *cleanLabels(j.Spec.Template.DeepCopy()),
 		Count:    j.podsCount(),
 		MinCount: j.minPodsCount(),
 	}
@@ -264,8 +268,8 @@ func (j *Job) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	}, nil
 }
 
-func (j *Job) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
-	j.Spec.Suspend = ptr.To(false)
+func (j *Job) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
+	j.Spec.Suspend = new(false)
 	if len(podSetsInfo) != 1 {
 		return podset.BadPodSetsInfoLenError(1, len(podSetsInfo))
 	}
@@ -273,7 +277,7 @@ func (j *Job) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSe
 	info := podSetsInfo[0]
 
 	if j.minPodsCount() != nil {
-		j.Spec.Parallelism = ptr.To(info.Count)
+		j.Spec.Parallelism = new(info.Count)
 		if j.syncCompletionWithParallelism() {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
@@ -290,13 +294,13 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	// if the job accepts partial admission
 	if j.minPodsCount() != nil && ptr.Deref(j.Spec.Parallelism, 0) != podSetsInfo[0].Count {
 		changed = true
-		j.Spec.Parallelism = ptr.To(podSetsInfo[0].Count)
+		j.Spec.Parallelism = new(podSetsInfo[0].Count)
 		if j.syncCompletionWithParallelism() {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
 	info := podSetsInfo[0]
-	for _, managedLabel := range ManagedLabels {
+	for _, managedLabel := range managedLabels {
 		if v, found := j.Spec.Template.Labels[managedLabel]; found {
 			info.AddOrUpdateLabel(managedLabel, v)
 		}
@@ -315,7 +319,7 @@ func (j *Job) Finished(ctx context.Context) (message string, success, finished b
 	return "", true, false
 }
 
-func (j *Job) PodsReady(ctx context.Context) bool {
+func (j *Job) PodsReady(ctx context.Context, _ client.Client) bool {
 	ready := ptr.Deref(j.Status.Ready, 0)
 	uncountedTerminatedSucceeded := 0
 	if j.Status.UncountedTerminatedPods != nil {
@@ -326,8 +330,7 @@ func (j *Job) PodsReady(ctx context.Context) bool {
 
 func (j *Job) CanDefaultManagedBy() bool {
 	jobSpecManagedBy := j.Spec.ManagedBy
-	return features.Enabled(features.MultiKueueBatchJobWithManagedBy) &&
-		features.Enabled(features.MultiKueue) &&
+	return features.Enabled(features.MultiKueue) &&
 		(jobSpecManagedBy == nil || *jobSpecManagedBy == batchv1.JobControllerName)
 }
 
@@ -351,7 +354,7 @@ func (j *Job) podsCount() int32 {
 func (j *Job) minPodsCount() *int32 {
 	if strVal, found := j.GetAnnotations()[JobMinParallelismAnnotation]; found {
 		if iVal, err := strconv.Atoi(strVal); err == nil {
-			return ptr.To[int32](int32(iVal))
+			return new(int32(iVal))
 		}
 	}
 	return nil

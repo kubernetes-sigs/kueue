@@ -253,7 +253,7 @@
           "root_selector": "items",
           "source": "url",
           "type": "json",
-          "url": "https://kubernetes.default.svc/apis/visibility.kueue.x-k8s.io/v1beta1/namespaces/${namespace}/localqueues/${local_queue}/pendingworkloads",
+          "url": "https://kubernetes.default.svc/apis/visibility.kueue.x-k8s.io/v1beta2/namespaces/${namespace}/localqueues/${local_queue}/pendingworkloads",
           "url_options": {
             "data": "",
             "method": "GET"
@@ -274,7 +274,7 @@
           "type": "yesoreyeram-infinity-datasource",
           "uid": "${DS_YESOREYERAM-INFINITY-DATASOURCE}"
         },
-        "definition": "https://kubernetes.default.svc/apis/kueue.x-k8s.io/v1beta1/clusterqueues",
+        "definition": "https://kubernetes.default.svc/apis/kueue.x-k8s.io/v1beta2/clusterqueues",
         "label": "Namespace",
         "name": "namespace",
         "options": [],
@@ -300,7 +300,7 @@
               "method": "GET"
             }
           },
-          "query": "https://kubernetes.default.svc/apis/kueue.x-k8s.io/v1beta1/clusterqueues",
+          "query": "https://kubernetes.default.svc/apis/kueue.x-k8s.io/v1beta2/clusterqueues",
           "queryType": "infinity"
         },
         "refresh": 1,
@@ -334,7 +334,7 @@
             "root_selector": "items",
             "source": "url",
             "type": "json",
-            "url": "https://kubernetes.default.svc/apis/kueue.x-k8s.io/v1beta1/namespaces/${namespace}/localqueues",
+            "url": "https://kubernetes.default.svc/apis/kueue.x-k8s.io/v1beta2/namespaces/${namespace}/localqueues",
             "url_options": {
               "data": "",
               "method": "GET"

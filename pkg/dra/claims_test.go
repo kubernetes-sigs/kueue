@@ -18,14 +18,16 @@ package dra
 
 import (
 	"errors"
-	"reflect"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -52,8 +54,8 @@ func Test_GetResourceRequests(t *testing.T) {
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
 						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: ptr.To("claim-tmpl-1")},
-							{Name: "req-2", ResourceClaimName: ptr.To("claim-2")},
+							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+							{Name: "req-2", ResourceClaimName: new("claim-2")},
 						},
 					},
 				},
@@ -79,7 +81,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		extraObjects []runtime.Object
 		lookup       func(corev1.ResourceName) (corev1.ResourceName, bool)
 		want         map[kueue.PodSetReference]corev1.ResourceList
-		wantErr      error
+		wantErr      field.ErrorList
 	}{
 		{
 			name: "Single claim template with single device",
@@ -98,9 +100,11 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
-			name:    "Unmapped DeviceClass returns error",
-			lookup:  noLookup,
-			wantErr: errDeviceClassNotMapped,
+			name:   "Unmapped DeviceClass returns error",
+			lookup: noLookup,
+			wantErr: field.ErrorList{
+				field.NotFound(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("resourceClaimTemplateName"), ""),
+			},
 		},
 		{
 			name: "Two containers each using different claim templates",
@@ -122,8 +126,8 @@ func Test_GetResourceRequests(t *testing.T) {
 					},
 				}
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-a", ResourceClaimTemplateName: ptr.To("claim-tmpl-1")},
-					{Name: "req-b", ResourceClaimTemplateName: ptr.To("claim-tmpl-2")},
+					{Name: "req-a", ResourceClaimTemplateName: new("claim-tmpl-1")},
+					{Name: "req-b", ResourceClaimTemplateName: new("claim-tmpl-2")},
 				}
 			},
 			extraObjects: []runtime.Object{
@@ -158,7 +162,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					},
 				}
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-a", ResourceClaimTemplateName: ptr.To("claim-tmpl-1")},
+					{Name: "req-a", ResourceClaimTemplateName: new("claim-tmpl-1")},
 				}
 			},
 			lookup: defaultLookup,
@@ -182,7 +186,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					},
 				}
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-x", ResourceClaimTemplateName: ptr.To("claim-tmpl-3")},
+					{Name: "req-x", ResourceClaimTemplateName: new("claim-tmpl-3")},
 				}
 			},
 			lookup: defaultLookup,
@@ -210,7 +214,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					},
 				}
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "rc", ResourceClaimTemplateName: ptr.To("claim-tmpl-1")},
+					{Name: "rc", ResourceClaimTemplateName: new("claim-tmpl-1")},
 				}
 			},
 			lookup: defaultLookup,
@@ -226,27 +230,267 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-all", ResourceClaimTemplateName: ptr.To("claim-tmpl-all")},
+					{Name: "req-all", ResourceClaimTemplateName: new("claim-tmpl-all")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRAAllocationModeAll,
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "allocationMode"),
+					"",
+					"",
+				),
+			},
 		},
 		{
-			name: "CEL selectors returns error",
+			name: "CEL selectors with DeviceClassName counts correctly",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
+				&resourcev1.DeviceClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
+				},
+				&resourcev1.ResourceSlice{
+					ObjectMeta: metav1.ObjectMeta{Name: "slice-1"},
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "test-driver",
+						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{Name: "dev-0"},
+							{Name: "dev-1"},
+						},
+					},
+				},
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-cel", ResourceClaimTemplateName: ptr.To("claim-tmpl-cel")},
+					{Name: "req-cel", ResourceClaimTemplateName: new("claim-tmpl-cel")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRACELSelectors,
+			lookup: defaultLookup,
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"res-1": resource.MustParse("1"),
+				},
+			},
+		},
+		{
+			name: "CEL selectors pre-filtered by DeviceClass selectors",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-filtered", "ns1").
+					DeviceRequest("req", "gpu-class", 1).
+					WithCELSelectors("device.driver == \"gpu-driver\"").
+					Obj(),
+				&resourcev1.DeviceClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "gpu-class"},
+					Spec: resourcev1.DeviceClassSpec{
+						Selectors: []resourcev1.DeviceSelector{
+							{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == \"gpu-driver\""}},
+						},
+					},
+				},
+				&resourcev1.ResourceSlice{
+					ObjectMeta: metav1.ObjectMeta{Name: "gpu-slice"},
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "gpu-driver",
+						Pool:   resourcev1.ResourcePool{Name: "gpu-pool", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{Name: "gpu-0"},
+						},
+					},
+				},
+				&resourcev1.ResourceSlice{
+					ObjectMeta: metav1.ObjectMeta{Name: "nic-slice"},
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "nic-driver",
+						Pool:   resourcev1.ResourcePool{Name: "nic-pool", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{Name: "nic-0"},
+							{Name: "nic-1"},
+							{Name: "nic-2"},
+						},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-filtered", ResourceClaimTemplateName: new("claim-tmpl-cel-filtered")},
+				}
+			},
+			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+				if dc == "gpu-class" {
+					return "res-1", true
+				}
+				return "", false
+			},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"res-1": resource.MustParse("1"),
+				},
+			},
+		},
+		{
+			name: "CEL selectors with unsatisfiable expression returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-unsat", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 2).
+					WithCELSelectors("device.driver == \"nonexistent-driver\"").
+					Obj(),
+				&resourcev1.DeviceClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
+				},
+				&resourcev1.ResourceSlice{
+					ObjectMeta: metav1.ObjectMeta{Name: "slice-2"},
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "test-driver",
+						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{Name: "dev-0"},
+						},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-unsat", ResourceClaimTemplateName: new("claim-tmpl-unsat")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
+					"",
+					"",
+				),
+			},
+		},
+		{
+			name: "CEL selectors with insufficient matching devices returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-insuf", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 3).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+				&resourcev1.DeviceClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
+				},
+				&resourcev1.ResourceSlice{
+					ObjectMeta: metav1.ObjectMeta{Name: "slice-3"},
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "test-driver",
+						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{Name: "dev-0"},
+							{Name: "dev-1"},
+						},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-insuf", ResourceClaimTemplateName: new("claim-tmpl-insuf")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
+					"",
+					"",
+				),
+			},
+		},
+		{
+			name: "Multi-request CEL selectors do not double-count devices",
+			extraObjects: []runtime.Object{
+				// Two requests each wanting 1 device, but only 1 device exists.
+				&resourcev1.ResourceClaimTemplate{
+					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-multi", Namespace: "ns1"},
+					Spec: resourcev1.ResourceClaimTemplateSpec{
+						Spec: resourcev1.ResourceClaimSpec{
+							Devices: resourcev1.DeviceClaim{
+								Requests: []resourcev1.DeviceRequest{
+									{
+										Name: "req-a",
+										Exactly: &resourcev1.ExactDeviceRequest{
+											DeviceClassName: "test-deviceclass-1",
+											AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+											Count:           1,
+											Selectors: []resourcev1.DeviceSelector{
+												{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == \"test-driver\""}},
+											},
+										},
+									},
+									{
+										Name: "req-b",
+										Exactly: &resourcev1.ExactDeviceRequest{
+											DeviceClassName: "test-deviceclass-1",
+											AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+											Count:           1,
+											Selectors: []resourcev1.DeviceSelector{
+												{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == \"test-driver\""}},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				&resourcev1.DeviceClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
+				},
+				&resourcev1.ResourceSlice{
+					ObjectMeta: metav1.ObjectMeta{Name: "slice-multi"},
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "test-driver",
+						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{Name: "dev-0"},
+						},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-multi", ResourceClaimTemplateName: new("claim-tmpl-multi")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(1).Child("exactly", "selectors"),
+					"",
+					"",
+				),
+			},
+		},
+		{
+			name: "Invalid CEL selector returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-badcel", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 1).
+					WithCELSelectors("this is not valid CEL!!!").
+					Obj(),
+				&resourcev1.DeviceClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-badcel", ResourceClaimTemplateName: new("claim-tmpl-badcel")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
+					"",
+					"",
+				),
+			},
 		},
 		{
 			name: "Device constraints returns error",
@@ -259,11 +503,13 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-constraints", ResourceClaimTemplateName: ptr.To("claim-tmpl-constraints")},
+					{Name: "req-constraints", ResourceClaimTemplateName: new("claim-tmpl-constraints")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRADeviceConstraints,
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "constraints"), "", ""),
+			},
 		},
 		{
 			name: "FirstAvailable returns error",
@@ -274,11 +520,13 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-first", ResourceClaimTemplateName: ptr.To("claim-tmpl-first")},
+					{Name: "req-first", ResourceClaimTemplateName: new("claim-tmpl-first")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRAFirstAvailable,
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0), "", ""),
+			},
 		},
 		{
 			name: "AdminAccess returns error",
@@ -290,11 +538,94 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-admin", ResourceClaimTemplateName: ptr.To("claim-tmpl-admin")},
+					{Name: "req-admin", ResourceClaimTemplateName: new("claim-tmpl-admin")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRAAdminAccess,
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "adminAccess"),
+					"",
+					"",
+				),
+			},
+		},
+		{
+			name: "CEL selectors with nonexistent DeviceClass returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-noclass", "ns1").
+					DeviceRequest("req", "nonexistent-class", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+				&resourcev1.ResourceSlice{
+					ObjectMeta: metav1.ObjectMeta{Name: "slice-noclass"},
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "test-driver",
+						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{Name: "dev-0"},
+						},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-noclass", ResourceClaimTemplateName: new("claim-tmpl-noclass")},
+				}
+			},
+			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+				return "res-1", true
+			},
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0),
+					errors.New(""),
+				),
+			},
+		},
+		{
+			name: "CEL selectors with empty DeviceClassName succeeds",
+			extraObjects: []runtime.Object{
+				&resourcev1.ResourceClaimTemplate{
+					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-nodc", Namespace: "ns1"},
+					Spec: resourcev1.ResourceClaimTemplateSpec{
+						Spec: resourcev1.ResourceClaimSpec{
+							Devices: resourcev1.DeviceClaim{
+								Requests: []resourcev1.DeviceRequest{
+									{
+										Name: "req",
+										Exactly: &resourcev1.ExactDeviceRequest{
+											AllocationMode: resourcev1.DeviceAllocationModeExactCount,
+											Count:          1,
+											Selectors: []resourcev1.DeviceSelector{
+												{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == \"test-driver\""}},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				&resourcev1.ResourceSlice{
+					ObjectMeta: metav1.ObjectMeta{Name: "slice-nodc"},
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "test-driver",
+						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{Name: "dev-0"},
+						},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-nodc", ResourceClaimTemplateName: new("claim-tmpl-nodc")},
+				}
+			},
+			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+				return "res-1", true
+			},
 		},
 		{
 			name: "Device config returns error",
@@ -306,11 +637,13 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-config", ResourceClaimTemplateName: ptr.To("claim-tmpl-config")},
+					{Name: "req-config", ResourceClaimTemplateName: new("claim-tmpl-config")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRADeviceConfig,
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "config"), "", ""),
+			},
 		},
 	}
 
@@ -320,7 +653,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				mappings := []configapi.DeviceClassMapping{
 					{
 						Name:             corev1.ResourceName("res-1"),
-						DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"},
+						DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1", "gpu-class"},
 					},
 					{
 						Name:             corev1.ResourceName("res-2"),
@@ -351,20 +684,15 @@ func Test_GetResourceRequests(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, wlCopy)
-			if tc.wantErr != nil {
-				if err == nil {
-					t.Fatalf("expected error but got none")
-				}
-				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("unexpected error: got=%v, want=%v", err, tc.wantErr)
-				}
-				return
+
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+				t.Errorf("GetResourceRequestsForResourceClaimTemplates() error mismatch (-want +got):\n%s", diff)
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("unexpected result; got=%v want=%v", got, tc.want)
+
+			if err == nil {
+				if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("GetResourceRequestsForResourceClaimTemplates() result mismatch (-want +got):\n%s", diff)
+				}
 			}
 		})
 	}

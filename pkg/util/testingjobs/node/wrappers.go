@@ -66,7 +66,7 @@ func (n *NodeWrapper) Label(k, v string) *NodeWrapper {
 // Annotation adds an annotation to the Node
 func (n *NodeWrapper) Annotation(k, v string) *NodeWrapper {
 	if n.Annotations == nil {
-		n.Annotations = make(map[string]string)
+		n.Annotations = make(map[string]string, 1)
 	}
 	n.Annotations[k] = v
 	return n
@@ -131,5 +131,11 @@ func (n *NodeWrapper) ConditionHeartbeat(conditionType corev1.NodeConditionType,
 // ResourceVersion sets the ResourceVersion of the Node.
 func (n *NodeWrapper) ResourceVersion(version string) *NodeWrapper {
 	n.ObjectMeta.ResourceVersion = version
+	return n
+}
+
+// ManagedFields sets the ManagedFields of the Node.
+func (n *NodeWrapper) ManagedFields(fields []metav1.ManagedFieldsEntry) *NodeWrapper {
+	n.ObjectMeta.ManagedFields = fields
 	return n
 }

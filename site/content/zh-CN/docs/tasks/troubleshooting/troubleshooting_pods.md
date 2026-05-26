@@ -45,6 +45,10 @@ Workload 的名称与标签 `kueue.x-k8s.io/pod-group-name` 的值匹配。
 你可以按照[识别 Job 的 Workload](troubleshooting_jobs/#identifying-the-workload-for-your-job)
 指南来识别其对应的 Workload。
 
+如果你从 Pod 开始排查，并且使用的 agent 可以访问 Kueue 的实验性 skills，
+请参阅[使用 Agent Skills 进行故障排除](/zh-CN/docs/tasks/troubleshooting/troubleshooting_agent_skills)，
+将 Pod 反向追踪到对应的 Workload 和父级 Job。
+
 ## 为什么我的 Pod 组没有 Workload？ {#why-doesnt-a-workload-exist-for-my-pod-group}
 
 在创建 Workload 对象之前，Kueue 期望为该组创建所有 Pod。
@@ -111,3 +115,10 @@ Kueue 会在以下情况下从 Pod 中移除 finalizer：
 
 - 用户或控制器是否已发出 Pod 删除请求。
 - [Pod 垃圾收集器](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-garbage-collection)。
+
+## 为什么使用外部调度门控时我的 Pod 没有被调度？ {#why-is-my-pod-not-being-scheduled-if-i-am-using-external-scheduling-gates}
+
+如果你使用自定义的[调度门控](https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/pod-scheduling-readiness/)，
+那么即使 Kueue 将工作负载标记为已准入并移除它管理的调度门控（例如
+`keueu.x-k8s.io/admission` 或 `keueu.x-k8s.io/topology`），
+你的 Pod 仍会保持被门控状态，因为 Kueue 只会移除它管理的调度门控。

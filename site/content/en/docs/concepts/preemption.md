@@ -47,7 +47,7 @@ status:
 The `Evicted` condition indicates that the Workload was evicted with a reason `Preempted`,
 whereas the `Preempted` condition gives more details about the preemption reason.
 
-The preempting workload can be found by running `kubectl get workloads --selector=kueue.x-k8s.io/job-uid=<JobUID> --all-namespaces`.
+The preempting workload can be found by running `kubectl get workloads.kueue.x-k8s.io --selector=kueue.x-k8s.io/job-uid=<JobUID> --all-namespaces`.
 
 ## Preemption algorithms
 
@@ -60,7 +60,7 @@ already above the nominal quota. The algorithms are:
   - Preemption while borrowing is enabled for the workload's ClusterQueue
   - All candidates for preemption belong to the same ClusterQueue as the preempting Workload
 
-  In the above scenarios, a workload can only be considered for preemption, in favor a workload from another ClusterQueue, 
+  In the above scenarios, a workload can only be considered for preemption, in favor of a workload from another ClusterQueue, 
   if it belongs to a ClusterQueue which is running over its nominal quota. 
   ClusterQueues in a cohort borrow resources in a first-come first-served fashion.
   
@@ -126,11 +126,6 @@ achieve an equal or weighted share of the borrowable resources between the
 tenants of a cohort.
 
 {{< feature-state state="stable" for_version="v0.7" >}}
-{{% alert title="Note" color="primary" %}}
-Fair Sharing is compatible with Hierarchical Cohorts (any Cohort which has a
-parent) as of v0.11. Using these features together in V0.9 and V0.10 is
-unsupported, and results in undefined behavior.
-{{% /alert %}}
 
 To enable Fair Sharing, [use a Kueue Configuration](/docs/installation#install-a-custom-configured-release-version) similar to the following:
 
@@ -138,7 +133,6 @@ To enable Fair Sharing, [use a Kueue Configuration](/docs/installation#install-a
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 fairSharing:
-  enable: true
   preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
 ```
 
@@ -185,7 +179,6 @@ The values you can put in the `preemptionStrategies` list are:
   Note that this strategy doesn't depend on the share usage of the Workload being preempted.
   As a result, the strategy chooses to first preempt workloads with the lowest priority and
   newest start time within the target ClusterQueue.
-The default strategy is `[LessThanOrEqualToFinalShare, LessThanInitialShare]`
 
 ### Algorithm overview
 

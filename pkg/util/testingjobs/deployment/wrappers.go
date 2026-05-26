@@ -27,6 +27,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // DeploymentWrapper wraps a Deployment.
@@ -58,7 +59,7 @@ func MakeDeployment(name, ns string) *DeploymentWrapper {
 					Containers: []corev1.Container{
 						{
 							Name:      "c",
-							Image:     "pause",
+							Image:     utiltestingjobs.TestDefaultContainerImage,
 							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 						},
 					},
@@ -80,6 +81,15 @@ func (d *DeploymentWrapper) Label(k, v string) *DeploymentWrapper {
 		d.Labels = make(map[string]string)
 	}
 	d.Labels[k] = v
+	return d
+}
+
+// SetAnnotation sets the annotation of the Deployment
+func (d *DeploymentWrapper) SetAnnotation(k, v string) *DeploymentWrapper {
+	if d.Annotations == nil {
+		d.Annotations = make(map[string]string)
+	}
+	d.Annotations[k] = v
 	return d
 }
 

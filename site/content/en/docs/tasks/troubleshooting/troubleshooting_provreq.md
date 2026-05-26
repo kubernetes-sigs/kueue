@@ -8,7 +8,7 @@ description: >
 
 This document helps you troubleshoot ProvisioningRequests, an API defined by [ClusterAutoscaler](https://github.com/kubernetes/autoscaler/blob/4872bddce2bcc5b4a5f6a3d569111c11b8a2baf4/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1/types.go#L41).
 
-Kueue creates ProvisioningRequests via the [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning/), and treats them like an [Admission Check](/docs/concepts/admission_check/). In order for Kueue to admit a Workload, the ProvisioningRequest created for it needs to succeed.
+Kueue creates ProvisioningRequests via the [Provisioning Admission Check Controller](/docs/concepts/admission_check/provisioning_request/), and treats them like an [Admission Check](/docs/concepts/admission_check/). In order for Kueue to admit a Workload, the ProvisioningRequest created for it needs to succeed.
 
 ## Before you begin
 

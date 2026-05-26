@@ -18,6 +18,7 @@ examples
 *.dylib
 bin
 artifacts
+release-artifacts
 testbin/*
 **/.DS_Store
 go.work*

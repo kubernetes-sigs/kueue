@@ -22,10 +22,13 @@ const (
 type RayServiceUpgradeType string
 
 const (
+	// During upgrade, NewClusterWithIncrementalUpgrade strategy will create an upgraded cluster to gradually scale
+	// and migrate traffic to using Gateway API.
+	RayServiceNewClusterWithIncrementalUpgrade RayServiceUpgradeType = "NewClusterWithIncrementalUpgrade"
 	// During upgrade, NewCluster strategy will create new upgraded cluster and switch to it when it becomes ready
-	NewCluster RayServiceUpgradeType = "NewCluster"
+	RayServiceNewCluster RayServiceUpgradeType = "NewCluster"
 	// No new cluster will be created while the strategy is set to None
-	None RayServiceUpgradeType = "None"
+	RayServiceUpgradeNone RayServiceUpgradeType = "None"
 )
 
 // These statuses should match Ray Serve's application statuses
@@ -57,14 +60,36 @@ var DeploymentStatusEnum = struct {
 	UNHEALTHY: "UNHEALTHY",
 }
 
+// These options are currently only supported for the IncrementalUpgrade type.
+type ClusterUpgradeOptions struct {
+	// The capacity of serve requests the upgraded cluster should scale to handle each interval.
+	// Defaults to 100%.
+	// +kubebuilder:default:=100
+	MaxSurgePercent *int32 `json:"maxSurgePercent,omitempty"`
+	// The percentage of traffic to switch to the upgraded RayCluster at a set interval after scaling by MaxSurgePercent.
+	StepSizePercent *int32 `json:"stepSizePercent"`
+	// The interval in seconds between transferring StepSize traffic from the old to new RayCluster.
+	IntervalSeconds *int32 `json:"intervalSeconds"`
+	// The name of the Gateway Class installed by the Kubernetes Cluster admin.
+	GatewayClassName string `json:"gatewayClassName"`
+}
+
 type RayServiceUpgradeStrategy struct {
-	// Type represents the strategy used when upgrading the RayService. Currently supports `NewCluster` and `None`.
+	// Type represents the strategy used when upgrading the RayService. Currently supports `NewCluster`, `NewClusterWithIncrementalUpgrade` and `None`.
 	// +optional
 	Type *RayServiceUpgradeType `json:"type,omitempty"`
+	// ClusterUpgradeOptions defines the behavior of a NewClusterWithIncrementalUpgrade type.
+	// RayServiceIncrementalUpgrade feature gate must be enabled to set ClusterUpgradeOptions.
+	ClusterUpgradeOptions *ClusterUpgradeOptions `json:"clusterUpgradeOptions,omitempty"`
 }
 
 // RayServiceSpec defines the desired state of RayService
 type RayServiceSpec struct {
+	// RayClusterDeletionDelaySeconds specifies the delay, in seconds, before deleting old RayClusters.
+	// The default value is 60 seconds.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	RayClusterDeletionDelaySeconds *int32 `json:"rayClusterDeletionDelaySeconds,omitempty"`
 	// Deprecated: This field is not used anymore. ref: https://github.com/ray-project/kuberay/issues/1685
 	// +optional
 	ServiceUnhealthySecondThreshold *int32 `json:"serviceUnhealthySecondThreshold,omitempty"`
@@ -77,6 +102,16 @@ type RayServiceSpec struct {
 	// UpgradeStrategy defines the scaling policy used when upgrading the RayService.
 	// +optional
 	UpgradeStrategy *RayServiceUpgradeStrategy `json:"upgradeStrategy,omitempty"`
+	// ManagedBy is an optional configuration for the controller or entity that manages a RayService.
+	// The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.
+	// The kuberay-operator reconciles a RayService which doesn't have this field at all or
+	// the field value is the reserved string 'ray.io/kuberay-operator',
+	// but delegates reconciling the RayService with 'kueue.x-k8s.io/multikueue' to the Kueue.
+	// The field is immutable.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="the managedBy field is immutable"
+	// +kubebuilder:validation:XValidation:rule="self in ['ray.io/kuberay-operator', 'kueue.x-k8s.io/multikueue']",message="the managedBy field value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'"
+	// +optional
+	ManagedBy *string `json:"managedBy,omitempty"`
 	// Important: Run "make" to regenerate code after modifying this file
 	// Defines the applications and deployments to deploy, should be a YAML multi-line scalar string.
 	// +optional
@@ -124,6 +159,20 @@ type RayServiceStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 	// +optional
 	Applications map[string]AppStatus `json:"applicationStatuses,omitempty"`
+	// TargetCapacity is the `target_capacity` percentage for all Serve replicas
+	// across the cluster for this RayService. The `num_replicas`, `min_replicas`, `max_replicas`,
+	// and `initial_replicas` for each deployment will be scaled by this percentage."
+	// +optional
+	TargetCapacity *int32 `json:"targetCapacity,omitempty"`
+	// TrafficRoutedPercent is the percentage of traffic that is routed to the Serve service
+	// for this RayService. TrafficRoutedPercent is updated to reflect the weight on the HTTPRoute
+	// created for this RayService during incremental upgrades to a new cluster.
+	// +optional
+	TrafficRoutedPercent *int32 `json:"trafficRoutedPercent,omitempty"`
+	// LastTrafficMigratedTime is the last time that TrafficRoutedPercent was updated to a new value
+	// for this RayService.
+	// +optional
+	LastTrafficMigratedTime *metav1.Time `json:"lastTrafficMigratedTime,omitempty"`
 	// +optional
 	RayClusterName string `json:"rayClusterName,omitempty"`
 	// +optional
@@ -157,15 +206,20 @@ const (
 	RayServiceReady RayServiceConditionType = "Ready"
 	// UpgradeInProgress means the RayService is currently performing a zero-downtime upgrade.
 	UpgradeInProgress RayServiceConditionType = "UpgradeInProgress"
+	// RollbackInProgress means the RayService is currently rolling back an in-progress upgrade to the original cluster state.
+	RollbackInProgress RayServiceConditionType = "RollbackInProgress"
 )
 
 const (
 	RayServiceInitializing         RayServiceConditionReason = "Initializing"
+	RayServiceInitializingTimeout  RayServiceConditionReason = "InitializingTimeout"
 	ZeroServeEndpoints             RayServiceConditionReason = "ZeroServeEndpoints"
 	NonZeroServeEndpoints          RayServiceConditionReason = "NonZeroServeEndpoints"
 	BothActivePendingClustersExist RayServiceConditionReason = "BothActivePendingClustersExist"
 	NoPendingCluster               RayServiceConditionReason = "NoPendingCluster"
 	NoActiveCluster                RayServiceConditionReason = "NoActiveCluster"
+	RayServiceValidationFailed     RayServiceConditionReason = "ValidationFailed"
+	TargetClusterChanged           RayServiceConditionReason = "TargetClusterChanged"
 )
 
 // +kubebuilder:object:root=true
@@ -179,8 +233,7 @@ const (
 type RayService struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec RayServiceSpec `json:"spec,omitempty"`
+	Spec              RayServiceSpec `json:"spec,omitempty"`
 	// +optional
 	Status RayServiceStatuses `json:"status,omitempty"`
 }

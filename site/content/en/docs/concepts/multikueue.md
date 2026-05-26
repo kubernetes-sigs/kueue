@@ -43,6 +43,12 @@ The worker cluster acts like a standalone Kueue cluster.
 The **MultiKueue Admission Check Controller**, running in the manager cluster,
 creates and deletes Workloads and Jobs in the worker clusters as needed.
 
+### Using manager to run workloads
+
+MultiKueue supports running regular Jobs regular Jobs on the manager when using 
+a dedicated ClusterQueue. However, we do not support currently role sharing where the manager
+cluster is also one of workers for itself, see [limitations](#limitations)
+
 ## Job Flow
 
 To enable multi-cluster dispatching, you need to assign a Job to a ClusterQueue configured with a MultiKueue `AdmissionCheck`.
@@ -62,6 +68,16 @@ The dispatching flow works as follows:
 4. Once the remote Workload is marked `Finished`:
    - The manager performs a final status sync.
    - It then deletes the corresponding objects from the worker cluster.
+
+{{< feature-state state="beta" for_version="v0.16" >}}
+
+{{% alert title="Note" color="primary" %}}
+By default, Workloads are only deleted from non-selected worker clusters after a Workload is
+fully admitted (quota reserved AND all admission checks satisfied). This allows parallel
+ProvisioningRequests across worker clusters. To revert to the previous behavior where Workloads
+are deleted immediately upon quota reservation, disable the `MultiKueueWaitForWorkloadAdmitted`
+feature gate.
+{{% /alert %}}
 
 ## Workload Dispatching
 
@@ -113,12 +129,14 @@ MultiKueue supports a wide variety of workloads. You can learn how to:
 
 - [Dispatch a Kueue managed Deployment](docs/tasks/run/multikueue/deployment).
 - [Dispatch a Kueue managed batch/Job](docs/tasks/run/multikueue/job).
-- [Dispatch a Kueue managed JobSet](docs/tasks/run/multikueue/jobset).
+- [Dispatch a Kueue managed JobSet](docs/tasks/run/multikueue/jobsets).
 - [Dispatch a Kueue managed Kubeflow Jobs](docs/tasks/run/multikueue/kubeflow).
 - [Dispatch a Kueue managed KubeRay workloads](docs/tasks/run/multikueue/kuberay).
 - [Dispatch a Kueue managed MPIJob](docs/tasks/run/multikueue/mpijob).
 - [Dispatch a Kueue managed AppWrapper](docs/tasks/run/multikueue/appwrapper).
 - [Dispatch a Kueue managed plain Pod](docs/tasks/run/multikueue/plain_pods).
+- [Dispatch a Kueue managed StatefulSet](docs/tasks/run/multikueue/statefulset).
+- [Dispatch a Kueue managed LeaderWorkerSet](docs/tasks/run/multikueue/leaderworkerset).
 - [Dispatch a Kueue managed External Framework Job](docs/tasks/run/multikueue/external-frameworks.md)
 
 ## Submitting Jobs
@@ -132,3 +150,12 @@ Kueue handles delegation to the appropriate worker cluster without requiring any
 
 - [Set up a MultiKueue environment](/docs/tasks/manage/setup_multikueue/)
 - [Run Jobs in a MultiKueue environment](/docs/tasks/run/multikueue)
+
+## Limitations
+
+- We do not currently support running the manager cluster as one of the workers for itself.
+- For job types without `managedBy` support (StatefulSet, LeaderWorkerSet), the job status on the
+  manager cluster may not reflect the actual status from the worker cluster. This is because the
+  local job controller continuously updates status based on local (gated) pods. The job execution
+  on the worker cluster is not affected - only the status visibility on the manager is limited.
+  Check the Workload status for accurate admission state.

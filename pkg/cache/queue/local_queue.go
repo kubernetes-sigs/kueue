@@ -17,6 +17,8 @@ limitations under the License.
 package queue
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -28,12 +30,18 @@ type LocalQueue struct {
 	ClusterQueue kueue.ClusterQueueReference
 
 	items map[workload.Reference]*workload.Info
+
+	finishedWorkloads sets.Set[workload.Reference]
+
+	labels map[string]string
 }
 
 func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
 	qImpl := &LocalQueue{
-		Key:   queue.Key(q),
-		items: make(map[workload.Reference]*workload.Info),
+		Key:               queue.Key(q),
+		items:             make(map[workload.Reference]*workload.Info),
+		finishedWorkloads: sets.New[workload.Reference](),
+		labels:            q.GetLabels(),
 	}
 	qImpl.update(q)
 	return qImpl
@@ -41,42 +49,10 @@ func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
 
 func (q *LocalQueue) update(apiQueue *kueue.LocalQueue) {
 	q.ClusterQueue = apiQueue.Spec.ClusterQueue
+	q.labels = apiQueue.GetLabels()
 }
 
 func (q *LocalQueue) AddOrUpdate(info *workload.Info) {
 	key := workload.Key(info.Obj)
 	q.items[key] = info
-}
-
-func (m *Manager) PendingActiveInLocalQueue(lq *LocalQueue) int {
-	c, ok := m.getClusterQueueLockless(lq.ClusterQueue)
-	result := 0
-	if !ok {
-		return 0
-	}
-	for _, wl := range c.heap.List() {
-		wlLqKey := queue.KeyFromWorkload(wl.Obj)
-		if wlLqKey == lq.Key {
-			result++
-		}
-	}
-	if c.inflight != nil && string(workloadKey(c.inflight)) == string(lq.Key) {
-		result++
-	}
-	return result
-}
-
-func (m *Manager) PendingInadmissibleInLocalQueue(lq *LocalQueue) int {
-	c, ok := m.getClusterQueueLockless(lq.ClusterQueue)
-	if !ok {
-		return 0
-	}
-	result := 0
-	for _, wl := range c.inadmissibleWorkloads {
-		wlLqKey := queue.KeyFromWorkload(wl.Obj)
-		if wlLqKey == lq.Key {
-			result++
-		}
-	}
-	return result
 }

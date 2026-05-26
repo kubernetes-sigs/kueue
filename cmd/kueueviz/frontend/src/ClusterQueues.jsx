@@ -21,6 +21,7 @@ import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHe
 import './App.css';
 import ErrorMessage from './ErrorMessage';
 import ViewYamlButton from './ViewYamlButton';
+import UsageBar, { aggregateResourceForQueue, computeEffectiveQuota, discoverResourceNames } from './UsageBar';
 
 const ClusterQueues = () => {
   const { data: clusterQueues, error } = useWebSocket('/ws/cluster-queues');
@@ -28,9 +29,11 @@ const ClusterQueues = () => {
 
   useEffect(() => {
     if (clusterQueues && Array.isArray(clusterQueues)) {
-      setQueues(clusterQueues);
+      setQueues([...clusterQueues].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
     }
   }, [clusterQueues]);
+
+  const resourceNames = discoverResourceNames(queues);
 
   if (error) return <ErrorMessage error={error} />;
 
@@ -50,6 +53,9 @@ const ClusterQueues = () => {
                 <TableCell>Admitted Workloads</TableCell>
                 <TableCell>Pending Workloads</TableCell>
                 <TableCell>Reserving Workloads</TableCell>
+                {resourceNames.map(r => (
+                  <TableCell key={r}>{r}</TableCell>
+                ))}
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -77,9 +83,21 @@ const ClusterQueues = () => {
                   <TableCell>{queue.admittedWorkloads ?? 'N/A'}</TableCell>
                   <TableCell>{queue.pendingWorkloads ?? 'N/A'}</TableCell>
                   <TableCell>{queue.reservingWorkloads ?? 'N/A'}</TableCell>
+                  {resourceNames.map(resName => {
+                    const r = aggregateResourceForQueue(queue, resName);
+                    return (
+                      <TableCell key={resName}>
+                        {r.quota > 0 || r.usage > 0 ? (
+                          <UsageBar usage={r.usage} borrowed={r.borrowed} quota={r.quota}
+                            effectiveQuota={computeEffectiveQuota(r)} unlimitedBorrowing={r.unlimitedBorrowing}
+                            label={resName} compact />
+                        ) : '-'}
+                      </TableCell>
+                    );
+                  })}
                   <TableCell align="right">
                     <Box display="flex" justifyContent="flex-end">
-                      <ViewYamlButton 
+                      <ViewYamlButton
                         resourceType="clusterqueue"
                         resourceName={queue.name}
                       />

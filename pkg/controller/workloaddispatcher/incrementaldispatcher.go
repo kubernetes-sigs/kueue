@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package dispatcher
+package workloaddispatcher
 
 import (
 	"context"
@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -49,38 +50,34 @@ type IncrementalDispatcherReconciler struct {
 	client          client.Client
 	helper          *admissioncheck.MultiKueueStoreHelper
 	clock           clock.Clock
-	dispatcherName  string
 	roundStartTimes *utilmaps.SyncMap[types.NamespacedName, time.Time]
+	roleTracker     *roletracker.RoleTracker
 }
 
 var realClock = clock.RealClock{}
 var _ reconcile.Reconciler = (*IncrementalDispatcherReconciler)(nil)
 
+const IncrementalDispatcherControllerName = "multikueue_incremental_dispatcher"
+
 func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg *kueueconfig.Configuration) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("multikueue_incremental_dispatcher").
+		Named(IncrementalDispatcherControllerName).
 		For(&kueue.Workload{}).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, IncrementalDispatcherControllerName)).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
-func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, dispatcherName string) *IncrementalDispatcherReconciler {
+func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, roleTracker *roletracker.RoleTracker) *IncrementalDispatcherReconciler {
 	return &IncrementalDispatcherReconciler{
 		client:          c,
 		helper:          helper,
 		clock:           realClock,
-		dispatcherName:  dispatcherName,
 		roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
+		roleTracker:     roleTracker,
 	}
 }
 func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(3).Info("Nominate Worker Clusters with Incremental Dispatcher")
-
-	if r.dispatcherName != kueueconfig.MultiKueueDispatcherModeIncremental {
-		log.V(3).Info("Not a Incremental Dispatcher, skip the reconciliation", "dispatcherName", r.dispatcherName)
-		return reconcile.Result{}, nil
-	}
-
 	wl := &kueue.Workload{}
 	err := r.client.Get(ctx, req.NamespacedName, wl)
 	if err != nil {
@@ -126,6 +123,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 		return reconcile.Result{}, nil
 	}
 
+	log.V(3).Info("Nominate Worker Clusters with Incremental Dispatcher")
 	return r.nominateWorkers(ctx, wl, remoteClusters, log)
 }
 
@@ -148,9 +146,9 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	}
 
 	nominatedWorkers := append(wl.Status.NominatedClusterNames, nextNominatedWorkers...)
-	if err = workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func() (*kueue.Workload, bool, error) {
+	if err = workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 		wl.Status.NominatedClusterNames = nominatedWorkers
-		return wl, true, nil
+		return true, nil
 	}); err != nil {
 		log.V(2).Error(err, "Failed to patch nominated clusters")
 		return reconcile.Result{}, err

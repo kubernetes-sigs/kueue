@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 	"sync"
 	"testing"
 
@@ -31,7 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/set"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,7 +51,7 @@ type JobReconcilerInterface interface {
 	SetupWithManager(mgr ctrl.Manager) error
 }
 
-type ReconcilerFactory func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record record.EventRecorder, opts ...Option) (JobReconcilerInterface, error)
+type ReconcilerFactory func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record events.EventRecorder, opts ...Option) (JobReconcilerInterface, error)
 
 // IntegrationCallbacks groups a set of callbacks used to integrate a new framework.
 type IntegrationCallbacks struct {
@@ -82,6 +81,7 @@ type IntegrationCallbacks struct {
 	// The job's MultiKueue adapter (optional)
 	MultiKueueAdapter MultiKueueAdapter
 	// The list of integration that need to be enabled along with the current one.
+	//
 	// Deprecated: Use ImplicitlyEnabledFrameworkNames instead.
 	DependencyList []string
 	// The list of integrations implicitly enabled as dependencies of the integration.
@@ -206,7 +206,7 @@ func (m *integrationManager) enableIntegration(name string) {
 func (m *integrationManager) getList() []string {
 	ret := make([]string, len(m.names))
 	copy(ret, m.names)
-	sort.Strings(ret)
+	slices.Sort(ret)
 	return ret
 }
 
@@ -362,9 +362,9 @@ func IsOwnerManagedByKueueForObject(obj client.Object) bool {
 	return false
 }
 
-// getEmptyOwnerObject returns an empty object of the owner's type,
+// GetEmptyOwnerObject returns an empty object of the owner's type,
 // returns nil if the owner is not manageable by kueue.
-func getEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
+func GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
 	if jt := manager.getJobTypeForOwner(owner); jt != nil {
 		return jt.DeepCopyObject().(client.Object)
 	}

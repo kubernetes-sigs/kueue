@@ -69,7 +69,7 @@ metadata:
   name: sample-queue
 spec:
   admissionScope:
-    admissionMode: UsageBasedFairSharing
+    admissionMode: UsageBasedAdmissionFairSharing
   resources:
     # ...existing resource configuration...
 ```

@@ -10,6 +10,12 @@ resources:
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+
+configMapGenerator:
+- files:
+  - env.js
+  name: kueueviz-frontend-env
+
 images:
 - name: backend
   newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend

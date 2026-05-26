@@ -15,7 +15,7 @@
   - [Subcomponents](#subcomponents)
     - [MultiKueueCluster Controller](#multikueuecluster-controller)
     - [AdmissionCheck Controller](#admissioncheck-controller)
-    - [Workload Controller](#workload-controller)
+    - [MultiKueue Workload Controller](#multikueue-workload-controller)
     - [Garbage Collector](#garbage-collector)
   - [Jobs abstraction](#jobs-abstraction)
     - [MultiKueueAdapter](#multikueueadapter)
@@ -23,6 +23,7 @@
   - [Configuration](#configuration)
   - [MultiKueue Dispatcher API](#multikueue-dispatcher-api)
     - [Workload Synchronization](#workload-synchronization)
+  - [Cluster Role sharing](#cluster-role-sharing)
   - [Follow ups ideas](#follow-ups-ideas)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -69,9 +70,8 @@ in the clusters (manually, using gitops or some 3rd-party tooling).
 * Support K8S Jobs on management clusters that don't have either 
 kubernetes/enhancements#4370 implemented or Job controller disabled.
 * Support for cluster role sharing (worker & manager inside one cluster)
-is out of scope for this KEP. We will get back to the topic once 
-kubernetes/enhancements#4370 is merged and becomes a wider standard.
-* distribute running Jobs across multiple clusters, and reconcile partial
+although proved to be possible after kubernetes/enhancements#4370 was merged.
+* Distribute and run a single Job across multiple clusters, and reconcile partial
 results in the Job objects on the management cluster (each Job will run on
 a single worker cluster).
 
@@ -189,9 +189,25 @@ const (
     SecretLocationType LocationType = "Secret"
 )
 
-type MultiKueueClusterSpec {
-    // Information how to connect to the cluster.
-    KubeConfig KubeConfig `json:"kubeConfig"`
+type MultiKueueClusterSpec struct {
+  // Information about the cluster.
+  // +required
+  ClusterSource ClusterSource `json:"clusterSource,omitempty"`
+}
+
+// +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfile
+type ClusterSource struct {
+
+    // KubeConfig is the direct specification of the kubeconfig for the remote cluster.
+    // This field can only be configured when ClusterProfile is not specified.
+    // +optional
+    KubeConfig *KubeConfig `json:"kubeConfig,omitempty"`
+
+    // ClusterProfile is a reference to a ClusterProfile object.
+    // The controller will use the information from the ClusterProfile to connect to the remote cluster.
+    // This field can only be configured when KubeConfig is not specified.
+    // +optional
+    ClusterProfileRef *ClusterProfileReference `json:"clusterProfile,omitempty"`
 }
 
 type KubeConfig struct {
@@ -202,10 +218,15 @@ type KubeConfig struct {
     //
     // +kubebuilder:default=Secret
     // +kubebuilder:validation:Enum=Secret;Path
-    LocationType LocationType `json:"locationType"`
+    LocationType LocationType `json:"locationType,omitempty"`
 }
 
-type MultiKueueClusterStatus {
+type ClusterProfileReference struct {
+  // Name of the ClusterProfile.
+  Name string `json:"name"`
+}
+
+type MultiKueueClusterStatus struct {
    Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 ```
@@ -221,35 +242,77 @@ admission checks, use ProvisioningRequest, etc.
 
 #### MultiKueueCluster Controller
 
-Will monitor all cluster definitions and maintain 
+Will monitor all `MultiKueueCluster` definitions and maintain 
 the Kube clients for all of them. Any connectivity problems will be reported both in
-MultiKueueCluster status and Events. MultiKueue controller 
-will make sure that whenever the kubeconfig is refreshed, the appropriate 
-clients will also be recreated and attempt to reconnect when the connection to the
-target cluster is lost.
+the `MultiKueueCluster`'s status and via Events.
 
-Creation of kubeconfig files is outside of the MultiKueue scope, and is cloud
-provider/environment dependant.
+The controller obtains cluster credentials based on the `MultiKueueCluster` spec:
+
+- When `kubeConfig` is provided, the controller uses it directly. It ensures that
+  whenever the underlying kubeconfig (e.g., in a Secret) is refreshed, the client
+  is recreated.
+
+- When `clusterProfile` is provided, the controller relies on the
+  [client-go credential plugin mechanism](https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins) to obtain and refresh credentials for the remote cluster as described in [KEP-5339](https://github.com/kubernetes/enhancements/blob/master/keps/sig-multicluster/5339-clusterprofile-plugin-credentials/README.md).
+  This requires installation of the ClusterProfile CRD (`clusterprofiles.multicluster.x-k8s.io`). If your Kueue deployment is already running, you must restart it after installing the CRD for the changes to take effect.
+
+  The authentication flow is as follows:
+  1. The controller reads the `ClusterProfile` object referenced by the `MultiKueueCluster`. The `ClusterProfile` contains a list of access providers.
+  2. The controller uses this configuration to match the access provider with the credentials provider and invoke the credential plugin binary. The list of credentials providers is configured in the `CredentialsProviders` section under `ClusterProfile` in the `MultiKueue` in the Configuration API.
+
+```go
+type MultiKueue struct {
+  ...
+	// ClusterProfile defines configuration for using the ClusterProfile API.
+	// +optional
+	ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
+}
+
+// ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
+type ClusterProfile struct {
+	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
+	// using the ClusterProfile API.
+	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
+}
+
+// ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.
+type ClusterProfileCredentialsProvider struct {
+	// Name is the name of the provider.
+	Name string `json:"name"`
+	//  ExecConfig is the exec configuration to obtain credentials.
+	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
+}
+```
+
+  3. The plugin is responsible for the actual authentication process. This might involve calling an external HTTP endpoint (e.g., a cloud provider's metadata service or an OIDC provider) to generate a short-lived authentication token. The details of this process are specific to the plugin and are opaque to Kueue. It returns the credentials, including the token, to the controller.
+  4. The controller uses these credentials to configure a Kubernetes client for the worker cluster.
+
+  Token refreshing is also managed automatically by the client-go library. When a token is expired or about to expire, client-go re-invokes the plugin to fetch a new one.
+
+Creation of kubeconfig files or ClusterProfile objects is outside of the MultiKueue scope, and is cloud
+provider/environment dependent.
 
 #### AdmissionCheck Controller
 
 Will monitor the AdmissionChecks associated with MultiKueue (by ControllerName) and maintain
 their `Active` status condition based on the validity of their MultiKueueConfig and `Active`
-state of the MultiKueueClusters in use. An AdmissionCheck being considered `Active` when it 
+state of the MultiKueueClusters in use. An AdmissionCheck will be set as `Active` when it
 has a valid configuration and at least one of its MultiKueueClusters is `Active`.
 
-#### Workload Controller
+#### MultiKueue Workload Controller
 
 Will monitor the workloads in the management cluster and manage their MultiKueue specific
 AdmissionCheckStates.
 
-When distributing the workloads across clusters MultiKueue Workloads controller will first create
-the Kueue's internal Workload object. Only after the workload is admitted and other clusters
-are cleaned-up the real job will be created, to match the Workload. That gives the guarantee
+When distributing a workload across clusters, the MultiKueue Workload Controller will first create
+a Kueue-internal workload object in each of the currently "nominated" worker clusters
+(see [MultiKueue Dispatcher API](#multikueue-dispatcher-api) for details).
+Only after the workload is admitted on one cluster and cleaned
+up on the other clusters, the real job will be created, to match the workload. That gives the guarantee
 that the workload will not start in more than one cluster. The workload will
 get the annotation stating where it is actually running.
 
-When the job is running MultiKueue controller will copy its status from worker cluster
+When the job is running, MultiKueue Workload Controller will copy its status from worker cluster
 to the management cluster, to keep the impression that the job is running in the management 
 cluster. This is needed to allow pipelines and workflow engines to execute against 
 the management cluster with MultiKueue without any extra changes. 
@@ -263,8 +326,8 @@ In case of duplicates, all but one of them will be removed.
 
 #### Garbage Collector
 
-Will monitor the Workloads in the remote clusters to detect and remove
-those that were created by MultiKueue but were not deleted by the Workload Controller 
+Will monitor the workloads in the remote clusters to detect and remove
+those that were created by MultiKueue but were not deleted by the MultiKueue Workload Controller
 in the normal flow, due to a temporary connectivity outage to the remote cluster.
 
 The garbage collector will run periodically with a configurable time interval.
@@ -284,7 +347,7 @@ type MultiKueueAdapter interface {
     ...
 }
 ```
-Used by the [Workload Controller](#workload-controller) to interact with the owner of the reconciled workloads.
+Used by the [MultiKueue Workload Controller](#multikueue-workload-controller) to interact with the owner of the reconciled workloads.
 
 `SyncJob` will:
 - Create the Job object in the worker cluster, if not already created.
@@ -316,6 +379,7 @@ type MultiKueue struct {
 	GCInterval *metav1.Duration `json:"gcInterval"`
 	Origin *string `json:"origin,omitempty"`
 	WorkerLostTimeout *metav1.Duration `json:"workerLostTimeout,omitempty"`
+	ClusterProfileConfig *ClusterProfileConfig `json:"clusterProfileConfig,omitempty"`
 }
 ```
 
@@ -327,14 +391,15 @@ This is used by multikueue in components like its [garbage collector](#garbage-c
 that ware created by this multikueue manager cluster and delete them if their local counterpart no longer exists.
 - `WorkerLostTimeout` - defines the time a local workload's multikueue admission check state is kept Ready
 if the connection with its reserving worker cluster is lost.
+- `ClusterProfileConfig` - defines the configuration for the ClusterProfile API.
 
 
 ### MultiKueue Dispatcher API
 
 Since Kueue 0.13, in order to meet the requirements of [Story 3](#story-3), we introduce an API for custom dispatching algorithms.
-When a custom Dispatcher API is used, instead of creating the copy of the Workload on all clusters the
-the MultiKueue Workload Controller only creates the copy of the Workload on the subset of worker clusters
-specified in the Workload's .status.nominatedClusterNames field.
+When a custom Dispatcher API is used, instead of creating the copy of the workload on all clusters the
+the MultiKueue Workload Controller only creates the copy of the workload on the subset of worker clusters
+specified in the workload's `.status.nominatedClusterNames` field.
 
 Additionally, we implement a built-in incremental dispatcher as a reference implementation.
 Including the pre-existing dispatching algorithm until 0.12, we distinguish the following dispatchers:
@@ -344,7 +409,7 @@ The workload is copied to all available worker clusters at once. This is the def
 
 * **Incremental**:  
 Clusters are nominated incrementally in rounds of fixed duration (5 minutes per round). 
-The process begins by nominating an initial set of 3 clusters, which are set in the `.status.nominatedClusterNames` field in the Workload.
+The process begins by nominating an initial set of 3 clusters, which are set in the `.status.nominatedClusterNames` field in the workload.
 If none of the clusters admit the workload within the current round's duration, the next round begins, 
 and 3 additional clusters are nominated, until the workload is admitted or all eligible clusters have been considered.
 This strategy allows for a controlled and gradual expansion of candidate clusters, rather than dispatching the workload to all clusters at once.
@@ -357,24 +422,25 @@ While the workload `.status.clusterName` is assigned, the `nominatedClusterNames
 
 #### Workload Synchronization
 
-While the Workload is pending, the dispatcher can add or remove clusters from the list, and the Workload
-Controller synchronizes the value of the field with the subset of worker clusters with the Workload copy.
+While the workload is pending, the dispatcher can add or remove clusters from the list, and the MultiKueue Workload
+Controller synchronizes the value of the field with the subset of worker clusters with the workload copy.
 
-Changes to Workload type:
+Changes to `WorkloadStatus` type:
 ```go
 type WorkloadStatus struct {
+  ...
   // nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
   // This field is mutually exclusive with the `.status.clusterName` field, and is reset when 
   // `status.clusterName` is set.
   // This field is optional.
   // 
-  // +listType=set
+  // +listType=atomic
   // +kubebuilder:validation:MaxItems=10
   // +optional
   NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
 
   // clusterName is the name of the cluster where the workload is actually assigned.
-  // This field is reset after the Workload is evicted.
+  // This field is reset after the workload is evicted.
   // +optional
   ClusterName *string `json:"clusterName,omitempty"`
 }
@@ -402,6 +468,10 @@ type MultiKueue struct {
 }
 ```
 
+### Cluster Role sharing
+
+MultiKueue Cluster Role Sharing enables Kueue cluster to simultaneously run both MultiKueue managed workloads and regular Kueue workloads, depending on the ClusterQueue configuration
+targeted by the workloads.
 
 ### Follow ups ideas
 

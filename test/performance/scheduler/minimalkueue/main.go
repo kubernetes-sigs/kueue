@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -44,14 +43,20 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/tas"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 )
 
 var (
 	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
+	memprofile = flag.String("memprofile", "", "write memory profile to file")
 
 	metricsPort = flag.Int("metricsPort", 0, "metrics serving port")
+
+	enableTAS = flag.Bool("enableTAS", false, "enable TAS controllers and indexers")
 )
 
 var (
@@ -66,35 +71,63 @@ func init() {
 }
 
 func main() {
-	os.Exit(mainWithExitCode())
+	initFlags()
+	flag.Parse()
+	os.Exit(run())
 }
 
-func mainWithExitCode() int {
-	opts := zap.Options{
-		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
-		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
-		Development: true,
-		Level:       zaplog.NewAtomicLevelAt(zapcore.ErrorLevel),
-	}
-	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
-	log := zap.New(zap.UseFlagOptions(&opts))
+var logOptions = zap.Options{
+	TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
+	ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
+	Development: true,
+	Level:       zaplog.NewAtomicLevelAt(zapcore.ErrorLevel),
+}
 
+func initFlags() {
+	logOptions.BindFlags(flag.CommandLine)
+}
+
+func run() int {
+	log := zap.New(zap.UseFlagOptions(&logOptions))
 	ctrl.SetLogger(log)
-	log.Info("Start")
+	if *enableTAS {
+		log.Info("Start minimalkueue with TAS support")
+	} else {
+		log.Info("Start minimalkueue")
+	}
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
 		if err != nil {
 			log.Error(err, "Could not create CPU profile")
+			return 1
 		}
 		defer f.Close() // error handling omitted for example
 		if err := pprof.StartCPUProfile(f); err != nil {
 			log.Error(err, "Could not start CPU profile")
+			return 1
 		}
 		defer func() {
 			log.Info("Stop CPU profile")
 			pprof.StopCPUProfile()
+		}()
+	}
+
+	if *memprofile != "" {
+		defer func() {
+			log.Info("Write memory profile")
+
+			f, err := os.Create(*memprofile)
+			if err != nil {
+				log.Error(err, "Could not create memory profile")
+				return
+			}
+			defer f.Close()
+
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				log.Error(err, "Could not write memory profile")
+				return
+			}
 		}()
 	}
 
@@ -110,16 +143,21 @@ func mainWithExitCode() int {
 	log.Info("K8S Client", "Host", kubeConfig.Host, "qps", kubeConfig.QPS, "burst", kubeConfig.Burst)
 
 	// based on the default config
+	groupKindConcurrency := map[string]int{
+		kueue.GroupVersion.WithKind("Workload").GroupKind().String():       5,
+		kueue.GroupVersion.WithKind("LocalQueue").GroupKind().String():     1,
+		kueue.GroupVersion.WithKind("ClusterQueue").GroupKind().String():   1,
+		kueue.GroupVersion.WithKind("ResourceFlavor").GroupKind().String(): 1,
+	}
+	if *enableTAS {
+		groupKindConcurrency[kueue.GroupVersion.WithKind("Topology").GroupKind().String()] = 1
+	}
+
 	options := ctrl.Options{
 		Scheme: scheme,
 		Controller: crconfig.Controller{
-			SkipNameValidation: ptr.To(true),
-			GroupKindConcurrency: map[string]int{
-				kueue.GroupVersion.WithKind("Workload").GroupKind().String():       5,
-				kueue.GroupVersion.WithKind("LocalQueue").GroupKind().String():     1,
-				kueue.GroupVersion.WithKind("ClusterQueue").GroupKind().String():   1,
-				kueue.GroupVersion.WithKind("ResourceFlavor").GroupKind().String(): 1,
-			},
+			SkipNameValidation:   new(true),
+			GroupKindConcurrency: groupKindConcurrency,
 		},
 		Metrics: metricsserver.Options{
 			BindAddress: "0",
@@ -147,28 +185,58 @@ func mainWithExitCode() int {
 		cancel()
 	}()
 
+	// Setup core indexers
 	err = indexer.Setup(ctx, mgr.GetFieldIndexer())
 	if err != nil {
 		log.Error(err, "Indexer setup")
 		return 1
 	}
 
+	// Setup TAS indexers if enabled
+	if *enableTAS {
+		err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		if err != nil {
+			log.Error(err, "TAS indexer setup")
+			return 1
+		}
+	}
+
 	cCache := schdcache.New(mgr.GetClient())
-	queues := qcache.NewManager(mgr.GetClient(), cCache)
+
+	// setup inadmissible workload requeuer
+	requeuer := qcache.NewRequeuer()
+	if err := mgr.Add(requeuer); err != nil {
+		log.Error(err, "Unable to add workloadRequeuer to manager")
+		return 1
+	}
+
+	preemptionExpectations := preemptexpectations.New()
+	queueOptions := qcache.WithPreemptionExpectations(preemptionExpectations)
+	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions)
 
 	go queues.CleanUpOnContext(ctx)
 	go cCache.CleanUpOnContext(ctx)
 
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}); err != nil {
-		log.Error(err, "Unable to create controller", "controller", failedCtrl)
+	// Setup core controllers
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}, nil, preemptionExpectations, nil); err != nil {
+		log.Error(err, "Unable to create core controller", "controller", failedCtrl)
 		return 1
+	}
+
+	// Setup TAS controllers if enabled
+	if *enableTAS {
+		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}, nil); err != nil {
+			log.Error(err, "Unable to create TAS controller", "controller", failedCtrl)
+			return 1
+		}
 	}
 
 	sched := scheduler.New(
 		queues,
 		cCache,
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.AdmissionName),
+		mgr.GetEventRecorder(constants.AdmissionName),
+		scheduler.WithPreemptionExpectations(preemptionExpectations),
 	)
 
 	if err := mgr.Add(sched); err != nil {

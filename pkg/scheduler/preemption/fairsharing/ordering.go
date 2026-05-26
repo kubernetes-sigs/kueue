@@ -100,6 +100,7 @@ func (t *TargetClusterQueueOrdering) Iter() iter.Seq[*TargetClusterQueue] {
 					return
 				}
 			}
+			return
 		}
 
 		root := t.preemptorCq.Parent().Root()
@@ -150,8 +151,11 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		// we can't prune the preemptor ClusterQueue itself,
 		// until it runs out of candidates.
 		switch {
-		case (drs.IsZero() && cq != t.preemptorCq) || !t.hasWorkload(cq):
+		case (!drs.IsBorrowing() && cq != t.preemptorCq) || !t.hasWorkload(cq):
 			t.prunedClusterQueues.Insert(cq)
+			if logV := t.log.V(6); logV.Enabled() {
+				logV.Info("Pruning ClusterQueue during Target ordering", "clusterQueue", cq.GetName(), "drs", drs)
+			}
 		case schdcache.CompareDRS(drs, highestCqDrs) == 0:
 			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
 			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
@@ -173,15 +177,18 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 
 		drs := cohort.DominantResourceShare()
 
-		// we prune a Cohort when it is no longer borrowing
-		// (DRS=0). Even when not borrowing, we can't prune a
+		// we prune a Cohort when it is no longer borrowing.
+		// Even when not borrowing, we can't prune a
 		// Cohort on path from preemptor ClusterQueue to
 		// root, as there may be imbalance within some
 		// subtree, or a possible preemption within Preemptor
 		// CQ itself.  We will only prune such a Cohort if all
 		// of its children have been pruned.
-		if drs.IsZero() && !t.onPathFromRootToPreemptorCQ(cohort) {
+		if !drs.IsBorrowing() && !t.onPathFromRootToPreemptorCQ(cohort) {
 			t.prunedCohorts.Insert(cohort)
+			if logV := t.log.V(6); logV.Enabled() {
+				logV.Info("Pruning Cohort during Target ordering", "cohort", cohort.GetName(), "drs", drs)
+			}
 		} else if schdcache.CompareDRS(drs, highestCohortDrs) >= 0 {
 			highestCohortDrs = drs
 			highestCohort = cohort
@@ -192,6 +199,9 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 	// children pruned), so this Cohort is pruned.
 	if highestCohort == nil && highestCq == nil {
 		t.prunedCohorts.Insert(cohort)
+		if logV := t.log.V(6); logV.Enabled() {
+			logV.Info("Pruning Cohort during Target ordering as all children are pruned", "cohort", cohort.GetName())
+		}
 		return nil
 	}
 
@@ -199,7 +209,13 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 	// slightly more fair, as we can choose the most unfair node
 	// within that Cohort.
 	if schdcache.CompareDRS(highestCohortDrs, highestCqDrs) >= 0 {
+		if logV := t.log.V(6); logV.Enabled() {
+			logV.Info("Selected Cohort with highest DRS", "cohort", highestCohort.GetName(), "drs", highestCohortDrs)
+		}
 		return t.nextTarget(highestCohort)
+	}
+	if logV := t.log.V(6); logV.Enabled() {
+		logV.Info("Selected ClusterQueue with highest DRS", "clusterQueue", highestCq.GetName(), "drs", highestCqDrs)
 	}
 	return &TargetClusterQueue{
 		ordering: t,

@@ -28,19 +28,19 @@ import (
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	corev1 "k8s.io/api/core/v1"
+	resourceapi "k8s.io/api/resource/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/utils/ptr"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -60,20 +60,30 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/externalframeworks"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
+	"sigs.k8s.io/kueue/pkg/controller/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
+	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
-	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
+	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/debugger"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/cert"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/version"
 	"sigs.k8s.io/kueue/pkg/visibility"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -93,6 +103,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(schedulingv1.AddToScheme(scheme))
+	utilruntime.Must(resourceapi.AddToScheme(scheme))
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(kueuev1beta1.AddToScheme(scheme))
@@ -100,6 +111,7 @@ func init() {
 	utilruntime.Must(configapiv1beta1.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
+	utilruntime.Must(inventoryv1alpha1.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
 		jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
@@ -120,13 +132,17 @@ func main() {
 	var featureGates string
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 
-	opts := zap.Options{
+	customLogProcessor := zaplog.WrapCore(utillogging.NewCustomLogProcessor)
+
+	zapOptions := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
-		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
+		ZapOpts:     []zaplog.Option{zaplog.AddCaller(), customLogProcessor},
 	}
-	opts.BindFlags(flag.CommandLine)
+	zapOptions.BindFlags(flag.CommandLine)
 	flag.Parse()
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	logger := zap.New(zap.UseFlagOptions(&zapOptions))
+	ctrl.SetLogger(logger)
 
 	options, cfg, err := apply(configFile)
 	if err != nil {
@@ -134,21 +150,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := config.ValidateFeatureGates(featureGates, cfg.FeatureGates); err != nil {
+	if err := config.LoadAndValidateFeatureGates(featureGates, cfg.FeatureGates).ToAggregate(); err != nil {
 		setupLog.Error(err, "conflicting feature gates detected")
 		os.Exit(1)
 	}
 
-	if featureGates != "" {
-		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGates); err != nil {
-			setupLog.Error(err, "Unable to set flag gates for known features")
-			os.Exit(1)
-		}
-	} else {
-		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(cfg.FeatureGates); err != nil {
-			setupLog.Error(err, "Unable to set flag gates for known features")
-			os.Exit(1)
-		}
+	// Validates the configuration after it has been loaded and feature gates have been set.
+	if err := config.Validate(&cfg, scheme).ToAggregate(); err != nil {
+		setupLog.Error(err, "Unable to validate the configuration")
+		os.Exit(1)
 	}
 
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit, "buildDate", version.BuildDate)
@@ -165,13 +175,32 @@ func main() {
 		FilterProvider: filters.WithAuthenticationAndAuthorization,
 	}
 
+	parsedTLSConfig := &tlsconfig.TLS{}
+	if features.Enabled(features.TLSOptions) {
+		var err error
+		parsedTLSConfig, err = tlsconfig.ParseTLSOptions(cfg.TLS)
+		if err != nil {
+			setupLog.Error(err, "Unable to parse TLS options from configuration")
+			os.Exit(1)
+		}
+	}
+
+	// Apply TLS configuration from config
+	if parsedTLSConfig != nil {
+		tlsOpts := tlsconfig.BuildTLSOptions(parsedTLSConfig)
+		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, tlsOpts...)
+	}
+
+	config.AddWebhookSettingsTo(&options, &cfg)
+
+	var metricsCertWatcher *certwatcher.CertWatcher
 	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
 		metricsCertPath := "/etc/kueue/metrics/certs"
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath)
 
 		var err error
-		metricsCertWatcher, err := certwatcher.New(
+		metricsCertWatcher, err = certwatcher.New(
 			filepath.Join(metricsCertPath, "tls.crt"),
 			filepath.Join(metricsCertPath, "tls.key"),
 		)
@@ -186,6 +215,14 @@ func main() {
 	}
 	options.Metrics = metricsServerOptions
 
+	lqMetrics := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
+
+	var customLabels *metrics.CustomLabels
+	if features.Enabled(features.CustomMetricLabels) {
+		customLabels = metrics.NewCustomLabels(cfg.Metrics.CustomLabels)
+	} else if len(cfg.Metrics.CustomLabels) > 0 {
+		setupLog.Info("metrics.customLabels is configured but CustomMetricLabels feature gate is disabled; custom labels will have no effect")
+	}
 	metrics.Register()
 
 	kubeConfig := ctrl.GetConfigOrDie()
@@ -201,11 +238,31 @@ func main() {
 		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))
 	}
 	setupLog.V(2).Info("K8S Client", "qps", *cfg.ClientConnection.QPS, "burst", *cfg.ClientConnection.Burst)
+
+	ctx := ctrl.SetupSignalHandler()
+	// Bootstrap certificates before creating the main manager
+	// This ensures certs are ready and CA bundles are injected into conversion CRDs
+	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
+		if err := cert.BootstrapCerts(ctx, kubeConfig, cfg); err != nil {
+			setupLog.Error(err, "Unable to bootstrap certificates")
+			os.Exit(1)
+		}
+	}
+
+	if features.Enabled(features.MultiKueueClusterProfile) {
+		if err := config.ConfigureClusterProfileCache(ctx, setupLog, &options, kubeConfig, cfg); err != nil {
+			setupLog.Error(err, "Unable to configure cluster profile")
+			os.Exit(1)
+		}
+	}
+
 	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
 		setupLog.Error(err, "Unable to start manager")
 		os.Exit(1)
 	}
+
+	roleTracker := setupRoleTracker(ctx, mgr, &cfg)
 
 	certsReady := make(chan struct{})
 
@@ -217,17 +274,29 @@ func main() {
 	} else {
 		close(certsReady)
 	}
-	cacheOptions := []schdcache.Option{schdcache.WithPodsReadyTracking(blockForPodsReady(&cfg))}
-	queueOptions := []qcache.Option{qcache.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg))}
+	cacheOptions := []schdcache.Option{
+		schdcache.WithPodsReadyTracking(blockForPodsReady(&cfg)),
+		schdcache.WithRoleTracker(roleTracker),
+		schdcache.WithResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
+		schdcache.WithCustomLabels(customLabels),
+		schdcache.WithLocalQueueMetrics(lqMetrics),
+	}
+	queueOptions := []qcache.Option{
+		qcache.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg)),
+		qcache.WithRoleTracker(roleTracker),
+		qcache.WithCustomLabels(customLabels),
+		qcache.WithLocalQueueMetrics(lqMetrics),
+		qcache.WithResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
+	}
 	if cfg.Resources != nil && len(cfg.Resources.ExcludeResourcePrefixes) > 0 {
 		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 		queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 	}
-	if features.Enabled(features.ConfigurableResourceTransformations) && cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
+	if cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
 		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
 		queueOptions = append(queueOptions, qcache.WithResourceTransformations(cfg.Resources.Transformations))
 	}
-	if features.Enabled(features.DynamicResourceAllocation) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
+	if features.Enabled(features.KueueDRAIntegration) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
 		if err := dra.CreateMapperFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
 			setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
 			os.Exit(1)
@@ -235,16 +304,25 @@ func main() {
 		setupLog.Info("DRA mapper initialized from configuration")
 	}
 	if cfg.FairSharing != nil {
-		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(cfg.FairSharing.Enable))
+		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(fairsharing.Enabled(cfg.FairSharing)))
 	}
 	if cfg.AdmissionFairSharing != nil {
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
-	queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
-	ctx := ctrl.SetupSignalHandler()
+	// setup inadmissible workload requeuer
+	requeuer := qcache.NewRequeuer()
+	if err := mgr.Add(requeuer); err != nil {
+		setupLog.Error(err, "Unable to add workloadRequeuer to manager")
+		os.Exit(1)
+	}
+
+	preemptionExpectations := preemptexpectations.New()
+	queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
+	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions...)
+
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
 		setupLog.Error(err, "Unable to setup indexes")
 		os.Exit(1)
@@ -257,34 +335,49 @@ func main() {
 		os.Exit(1)
 	}
 
+	if metricsCertWatcher != nil {
+		if err := mgr.Add(metricsCertWatcher); err != nil {
+			setupLog.Error(err, "Unable to start metrics certificate watcher")
+			os.Exit(1)
+		}
+	}
+
 	if err := setupProbeEndpoints(mgr, certsReady); err != nil {
 		setupLog.Error(err, "Unable to setup probe endpoints")
 		os.Exit(1)
 	}
 
-	// Cert won't be ready until manager starts, so start a goroutine here which
-	// will block until the cert is ready before setting up the controllers.
-	// Controllers who register after manager starts will start directly.
-	go func() {
-		if err := setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher); err != nil {
-			setupLog.Error(err, "Unable to setup controllers")
-			os.Exit(1)
-		}
-	}()
+	if roleTracker != nil {
+		roleTracker.OnElected(func() {
+			metrics.ClearGaugeMetricsForRole(roletracker.RoleFollower)
+			cCache.ResyncGaugeMetrics(setupLog)
+			queues.ResyncGaugeMetrics()
+		})
+	}
+
+	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, roleTracker, preemptionExpectations, customLabels); err != nil {
+		setupLog.Error(err, "Unable to setup controllers")
+		os.Exit(1)
+	}
+
+	if failedWebhook, err := webhooks.Setup(mgr, roleTracker); err != nil {
+		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
+		os.Exit(1)
+	}
 
 	go queues.CleanUpOnContext(ctx)
 	go cCache.CleanUpOnContext(ctx)
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable, kubeConfig); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, &cfg, kubeConfig, parsedTLSConfig); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}
 		}()
 	}
 
-	if err := setupScheduler(mgr, cCache, queues, &cfg); err != nil {
+	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker, preemptionExpectations, customLabels); err != nil {
 		setupLog.Error(err, "Could not setup scheduler")
 		os.Exit(1)
 	}
@@ -327,20 +420,23 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
-	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
-	// certs are all in place.
-	cert.WaitForCertsReady(setupLog, certsReady)
-
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager,
+	cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher, roleTracker *roletracker.RoleTracker,
+	preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels) error {
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, roleTracker, preemptionExpectations, customLabels); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
+	}
+	if features.Enabled(features.FailureRecoveryPolicy) {
+		if failedCtrlName, err := failurerecovery.SetupControllers(mgr, cfg, roleTracker); err != nil {
+			return fmt.Errorf("could not setup FailureRecovery controller %s: %w", failedCtrlName, err)
+		}
 	}
 
 	// setup provision admission check controller
 	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
 		setupLog.Info("Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
 	} else {
-		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-provisioning-request-controller"), roleTracker)
 		if err != nil {
 			return fmt.Errorf("could not create the provisioning controller: %w", err)
 		}
@@ -376,23 +472,33 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
 			multikueue.WithAdapters(adapters),
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
+			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfile),
+			multikueue.WithRoleTracker(roleTracker),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}
 
-		if failedDispatcher, err := dispatcher.SetupControllers(mgr, cfg, ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)); err != nil {
+		if failedDispatcher, err := workloaddispatcher.SetupControllers(mgr, cfg, roleTracker); err != nil {
 			return fmt.Errorf("could not setup Dispatcher controller %q for MultiKueue: %w", failedDispatcher, err)
 		}
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg); err != nil {
+		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg, roleTracker); err != nil {
 			return fmt.Errorf("could not setup TAS controller %s: %w", failedCtrl, err)
 		}
 	}
 
-	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
-		return fmt.Errorf("unable to create webhook %s: %w", failedWebhook, err)
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if failedCtrl, err := elasticjobs.SetupWithManager(mgr, cfg, roleTracker); err != nil {
+			return fmt.Errorf("could not setup %s controller: %w", failedCtrl, err)
+		}
+	}
+
+	if features.Enabled(features.ConcurrentAdmission) {
+		if failedCtrl, err := concurrentadmission.SetupControllers(mgr, queues, cfg, roleTracker); err != nil {
+			return fmt.Errorf("could not setup ConcurrentAdmission controller %s: %w", failedCtrl, err)
+		}
 	}
 
 	opts := []jobframework.Option{
@@ -406,9 +512,8 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
-	}
-	if cfg.Integrations.PodOptions != nil {
-		opts = append(opts, jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions))
+		jobframework.WithRoleTracker(roleTracker),
+		jobframework.WithCustomLabels(customLabels),
 	}
 	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
 	if err != nil {
@@ -452,15 +557,21 @@ func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) error {
 	return nil
 }
 
-func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration) error {
+func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration,
+	roleTracker *roletracker.RoleTracker, preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels,
+) error {
 	sched := scheduler.New(
 		queues,
 		cCache,
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.AdmissionName),
+		mgr.GetEventRecorder(constants.AdmissionName),
 		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 		scheduler.WithFairSharing(cfg.FairSharing),
 		scheduler.WithAdmissionFairSharing(cfg.AdmissionFairSharing),
+		scheduler.WithQuotaCheckStrategy(quotaCheckStrategy(cfg)),
+		scheduler.WithRoleTracker(roleTracker),
+		scheduler.WithPreemptionExpectations(preemptionExpectations),
+		scheduler.WithCustomLabels(customLabels),
 	)
 	if err := mgr.Add(sched); err != nil {
 		return fmt.Errorf("unable to add scheduler to manager: %w", err)
@@ -487,8 +598,21 @@ func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) (*kube
 	return serverVersionFetcher, nil
 }
 
+func setupRoleTracker(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) *roletracker.RoleTracker {
+	if cfg.LeaderElection != nil && ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
+		tracker := roletracker.NewRoleTracker(mgr.Elected())
+		go tracker.Start(ctx, setupLog)
+		setupLog.Info("RoleTracker: leader election enabled")
+		return tracker
+	}
+	setupLog.Info("RoleTracker: running in standalone mode")
+	return nil
+}
+
 func blockForPodsReady(cfg *configapi.Configuration) bool {
-	return config.WaitForPodsReadyIsEnabled(cfg) && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission
+	return waitforpodsready.Enabled(cfg.WaitForPodsReady) &&
+		cfg.WaitForPodsReady.BlockAdmission != nil &&
+		*cfg.WaitForPodsReady.BlockAdmission
 }
 
 func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.RequeuingTimestamp {
@@ -497,6 +621,13 @@ func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.Requeui
 		return *cfg.WaitForPodsReady.RequeuingStrategy.Timestamp
 	}
 	return configapi.EvictionTimestamp
+}
+
+func quotaCheckStrategy(cfg *configapi.Configuration) configapi.QuotaCheckStrategy {
+	if features.Enabled(features.QuotaCheckStrategy) && cfg.Resources != nil && cfg.Resources.QuotaCheckStrategy != nil {
+		return *cfg.Resources.QuotaCheckStrategy
+	}
+	return configapi.QuotaCheckBlockUndeclared
 }
 
 func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
@@ -508,6 +639,6 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 	if err != nil {
 		return options, cfg, err
 	}
-	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
+	setupLog.Info("Configuration loaded", "config", cfgStr)
 	return options, cfg, nil
 }

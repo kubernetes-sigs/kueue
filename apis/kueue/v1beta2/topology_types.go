@@ -59,6 +59,15 @@ const (
 	// is defined.
 	PodSetSliceSizeAnnotation = "kueue.x-k8s.io/podset-slice-size"
 
+	// PodSetSliceRequiredTopologyConstraintsAnnotation contains a JSON-encoded
+	// array of topology constraints for multi-level slice subdivision.
+	// Each entry specifies a topology level and slice size. This annotation
+	// is mutually exclusive with PodSetSliceRequiredTopologyAnnotation and
+	// PodSetSliceSizeAnnotation.
+	//
+	// This annotation is alpha-level for the TASMultiLayerTopology feature gate.
+	PodSetSliceRequiredTopologyConstraintsAnnotation = "kueue.x-k8s.io/podset-slice-required-topology-constraints"
+
 	// TopologySchedulingGate is used to delay scheduling of a Pod until the
 	// nodeSelectors corresponding to the assigned topology domain are injected
 	// into the Pod. For the Pod-based integrations the gate is added in webhook
@@ -70,13 +79,10 @@ const (
 	// annotation is set when starting the Job, and removed on stopping the Job.
 	WorkloadAnnotation = "kueue.x-k8s.io/workload"
 
-	// TASLabel is a label set on the Job's PodTemplate to indicate that the
-	// PodSet is admitted using TopologyAwareScheduling, and all Pods created
-	// from the Job's PodTemplate also have the label. For the Pod-based
-	// integrations the label is added in webhook during the Pod creation.
-	// Depracted. This label is no longer added by TAS to Pod. The constant is
-	// only kept to support "reading" the label until 0.16.
-	TASLabel = "kueue.x-k8s.io/tas"
+	// PodIndexOffsetAnnotation is an annotation on the Pod's metadata
+	// belonging to a Workload. It indicates an offset which represents starting index number
+	// within the same replica.
+	PodIndexOffsetAnnotation = "kueue.x-k8s.io/pod-index-offset"
 
 	// PodGroupPodIndexLabel is a label set on the Pod's metadata belonging
 	// to a Pod group. It indicates the Pod's index within the group.
@@ -90,6 +96,12 @@ const (
 	// PodSetGroupName is an annotation indicating the name of the group of PodSets. PodSet Group
 	// is a unit flavor assignment and topology domain fitting.
 	PodSetGroupName = "kueue.x-k8s.io/podset-group-name"
+
+	// WorkloadSliceNameAnnotation identifies the original workload name in a slice chain.
+	// It is set on every Workload created in the chain of the workloads, as well as on the Pods
+	// associated with that Workload.
+	// This annotation is alpha-level for the ElasticJobsViaWorkloadSlices feature gate.
+	WorkloadSliceNameAnnotation = "kueue.x-k8s.io/workload-slice-name"
 )
 
 // TopologySpec defines the desired state of Topology
@@ -116,26 +128,28 @@ type TopologyLevel struct {
 	// - cloud.provider.com/topology-rack
 	//
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=316
 	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
-	NodeLabel string `json:"nodeLabel"`
+	NodeLabel string `json:"nodeLabel,omitempty"`
 }
 
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:storageversion
+// +kubebuilder:resource:scope=Cluster,shortName={topo}
 
 // Topology is the Schema for the topology API
 type Topology struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the Topology.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the Topology.
-	Spec TopologySpec `json:"spec,omitempty"`
+	// +optional
+	Spec TopologySpec `json:"spec"`
 }
 
 // +kubebuilder:object:root=true

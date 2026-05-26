@@ -21,7 +21,6 @@ import (
 
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,10 +28,9 @@ import (
 
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
 type TrainJobWebhook struct {
@@ -54,47 +52,54 @@ func SetupTrainJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		cache:                        options.Cache,
 	}
 	obj := &kftrainerapi.TrainJob{}
-	return webhook.WebhookManagedBy(mgr).
-		For(obj).
-		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
+	if options.NoopWebhook {
+		return webhook.SetupNoopWebhook(mgr, obj)
+	}
+	return ctrl.NewWebhookManagedBy(mgr, obj).
+		WithDefaulter(wh).
 		WithValidator(wh).
+		WithLogConstructor(jobframework.WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-trainer-kubeflow-org-v1alpha1-trainjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=trainer.kubeflow.org,resources=trainjobs,verbs=create,versions=v1alpha1,name=mtrainjob.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomDefaulter = &TrainJobWebhook{}
+var _ admission.Defaulter[*kftrainerapi.TrainJob] = &TrainJobWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *TrainJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
+func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJob) error {
 	trainJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(trainJob.Object(), w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, trainJob.Object())
 	jobframework.ApplyDefaultForManagedBy(trainJob, w.queues, w.cache, log)
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, trainJob.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
 	if err != nil {
 		return err
 	}
+	runtimePatch := kftrainerapi.RuntimePatch{
+		Manager: runtimePatchManagerName,
+		TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
+			Template: &kftrainerapi.JobSetTemplatePatch{
+				Spec: &kftrainerapi.JobSetSpecPatch{},
+			},
+		},
+	}
 	if suspend {
 		trainJob.Suspend()
-		if trainJobQueueName := jobframework.QueueNameForObject(trainJob.Object()); trainJobQueueName != "" {
-			if trainJob.Spec.Labels == nil {
-				trainJob.Spec.Labels = make(map[string]string, 1)
-			}
-			trainJob.Spec.Labels[controllerconstants.QueueLabel] = string(trainJobQueueName)
-		}
 	}
+	trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, runtimePatch)
 	return nil
 }
 
 // +kubebuilder:webhook:path=/validate-trainer-kubeflow-org-v1alpha1-trainjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=trainer.kubeflow.org,resources=trainjobs,verbs=create;update,versions=v1alpha1,name=vtrainjob.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomValidator = &TrainJobWebhook{}
+var _ admission.Validator[*kftrainerapi.TrainJob] = &TrainJobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj *kftrainerapi.TrainJob) (admission.Warnings, error) {
 	trainjob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
 	log.Info("Validating create")
@@ -106,7 +111,7 @@ func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *TrainJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (w *TrainJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *kftrainerapi.TrainJob) (admission.Warnings, error) {
 	oldTrainJob := fromObject(oldObj)
 	newTrainJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
@@ -145,7 +150,7 @@ func (w *TrainJobWebhook) validateCreate(ctx context.Context, trainjob *TrainJob
 func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob *TrainJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := podSets(ctx, trainJob)
+	podSets, podSetsErr := podSets(ctx, w.client, trainJob)
 	for _, p := range podSets {
 		jobPath := field.NewPath("job").Key(string(p.Name))
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(jobPath, &p.Template.ObjectMeta)...)
@@ -154,7 +159,7 @@ func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob 
 
 	if len(allErrs) > 0 {
 		for _, err := range allErrs {
-			err.Detail += `. Adjust either the "TrainJob.spec.podTemplateOverrides" or the "TrainingRuntime.Template" annotations for the corresponding Job`
+			err.Detail += `. Adjust either the "TrainJob.spec.runtimePatches" or the "TrainingRuntime.Template" annotations for the corresponding Job`
 		}
 		return allErrs, nil
 	}
@@ -163,6 +168,6 @@ func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob 
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *TrainJobWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (w *TrainJobWebhook) ValidateDelete(_ context.Context, _ *kftrainerapi.TrainJob) (admission.Warnings, error) {
 	return nil, nil
 }

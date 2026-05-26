@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package testing
+package job
 
 import (
 	"time"
@@ -29,7 +29,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // JobWrapper wraps a Job.
@@ -45,14 +46,14 @@ func MakeJob(name, ns string) *JobWrapper {
 		},
 		Spec: batchv1.JobSpec{
 			Parallelism: ptr.To[int32](1),
-			Suspend:     ptr.To(true),
+			Suspend:     new(true),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
 							Name:      "c",
-							Image:     "pause",
+							Image:     utiltestingjobs.TestDefaultContainerImage,
 							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}},
 						},
 					},
@@ -64,6 +65,11 @@ func MakeJob(name, ns string) *JobWrapper {
 }
 
 // Obj returns the inner Job.
+func (j *JobWrapper) SchedulingGate(name string) *JobWrapper {
+	j.Spec.Template.Spec.SchedulingGates = append(j.Spec.Template.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: name})
+	return j
+}
+
 func (j *JobWrapper) Obj() *batchv1.Job {
 	return &j.Job
 }
@@ -73,13 +79,33 @@ func (j *JobWrapper) Clone() *JobWrapper {
 	return &JobWrapper{Job: *j.DeepCopy()}
 }
 
+// GeneratedName sets the prefix for the server to generate unique name.
+func (j *JobWrapper) GeneratedName(name string) *JobWrapper {
+	j.GenerateName = name
+	j.Name = ""
+
+	return j
+}
+
+// DeletionTimestamp sets the deletionTimestamp.
+func (j *JobWrapper) DeletionTimestamp(t time.Time) *JobWrapper {
+	j.ObjectMeta.DeletionTimestamp = new(metav1.NewTime(t))
+	return j
+}
+
+// Finalizers sets the finalizers.
+func (j *JobWrapper) Finalizers(finalizers ...string) *JobWrapper {
+	j.ObjectMeta.Finalizers = finalizers
+	return j
+}
+
 func (j *JobWrapper) BackoffLimit(limit int32) *JobWrapper {
-	j.Spec.BackoffLimit = ptr.To(limit)
+	j.Spec.BackoffLimit = new(limit)
 	return j
 }
 
 func (j *JobWrapper) BackoffLimitPerIndex(limit int32) *JobWrapper {
-	j.Spec.BackoffLimitPerIndex = ptr.To(limit)
+	j.Spec.BackoffLimitPerIndex = new(limit)
 	return j
 }
 
@@ -89,25 +115,25 @@ func (j *JobWrapper) CompletionMode(mode batchv1.CompletionMode) *JobWrapper {
 }
 
 func (j *JobWrapper) TerminationGracePeriod(seconds int64) *JobWrapper {
-	j.Spec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	j.Spec.Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	return j
 }
 
 // Suspend updates the suspend status of the job
 func (j *JobWrapper) Suspend(s bool) *JobWrapper {
-	j.Spec.Suspend = ptr.To(s)
+	j.Spec.Suspend = new(s)
 	return j
 }
 
 // Parallelism updates job parallelism.
 func (j *JobWrapper) Parallelism(p int32) *JobWrapper {
-	j.Spec.Parallelism = ptr.To(p)
+	j.Spec.Parallelism = new(p)
 	return j
 }
 
 // Completions updates job completions.
 func (j *JobWrapper) Completions(p int32) *JobWrapper {
-	j.Spec.Completions = ptr.To(p)
+	j.Spec.Completions = new(p)
 	return j
 }
 
@@ -137,6 +163,16 @@ func (j *JobWrapper) Queue(queue kueue.LocalQueueName) *JobWrapper {
 	return j.Label(constants.QueueLabel, string(queue))
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *JobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *JobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *JobWrapper {
+	return j.SetAnnotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
+}
+
 // Label sets the label key and value
 func (j *JobWrapper) Label(key, value string) *JobWrapper {
 	if j.Labels == nil {
@@ -147,6 +183,9 @@ func (j *JobWrapper) Label(key, value string) *JobWrapper {
 }
 
 func (j *JobWrapper) SetAnnotation(key, content string) *JobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string, 1)
+	}
 	j.Annotations[key] = content
 	return j
 }
@@ -169,6 +208,12 @@ func (j *JobWrapper) NodeSelector(k, v string) *JobWrapper {
 	return j
 }
 
+// PodReplacementPolicy sets the pod replacement policy on the job object.
+func (j *JobWrapper) PodReplacementPolicy(policy *batchv1.PodReplacementPolicy) *JobWrapper {
+	j.Spec.PodReplacementPolicy = policy
+	return j
+}
+
 // PodAnnotation sets annotation at the pod template level
 func (j *JobWrapper) PodAnnotation(k, v string) *JobWrapper {
 	if j.Spec.Template.Annotations == nil {
@@ -184,6 +229,12 @@ func (j *JobWrapper) PodLabel(k, v string) *JobWrapper {
 		j.Spec.Template.Labels = make(map[string]string)
 	}
 	j.Spec.Template.Labels[k] = v
+	return j
+}
+
+// PodAffinity sets the pod affinity at the pod template level
+func (j *JobWrapper) PodAffinity(affinity *corev1.Affinity) *JobWrapper {
+	j.Spec.Template.Spec.Affinity = affinity
 	return j
 }
 
@@ -204,6 +255,12 @@ func (j *JobWrapper) RequestAndLimit(r corev1.ResourceName, v string) *JobWrappe
 	return j.Request(r, v).Limit(r, v)
 }
 
+// SuccessPolicy sets the successPolicy
+func (j *JobWrapper) SuccessPolicy(policy *batchv1.SuccessPolicy) *JobWrapper {
+	j.Spec.SuccessPolicy = policy
+	return j
+}
+
 func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 	j.Spec.Template.Spec.Containers[0].Image = image
 	j.Spec.Template.Spec.Containers[0].Args = args
@@ -212,12 +269,18 @@ func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobWrapper {
-	testing.AppendOwnerReference(&j.Job, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&j.Job, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return j
 }
 
 func (j *JobWrapper) Containers(containers ...corev1.Container) *JobWrapper {
 	j.Spec.Template.Spec.Containers = containers
+	return j
+}
+
+// InitContainers sets the init containers for the pod template.
+func (j *JobWrapper) InitContainers(containers ...corev1.Container) *JobWrapper {
+	j.Spec.Template.Spec.InitContainers = containers
 	return j
 }
 
@@ -286,5 +349,21 @@ func (j *JobWrapper) ManagedBy(c string) *JobWrapper {
 func (j *JobWrapper) SetTypeMeta() *JobWrapper {
 	j.APIVersion = batchv1.SchemeGroupVersion.String()
 	j.Kind = "Job"
+	return j
+}
+
+// ResourceClaimTemplate adds a resource claim using a ResourceClaimTemplate to the pod spec
+// and references it from the first container.
+func (j *JobWrapper) ResourceClaimTemplate(claimName, templateName string) *JobWrapper {
+	j.Spec.Template.Spec.ResourceClaims = append(j.Spec.Template.Spec.ResourceClaims,
+		corev1.PodResourceClaim{
+			Name:                      claimName,
+			ResourceClaimTemplateName: new(templateName),
+		})
+	if len(j.Spec.Template.Spec.Containers) > 0 {
+		j.Spec.Template.Spec.Containers[0].Resources.Claims = append(
+			j.Spec.Template.Spec.Containers[0].Resources.Claims,
+			corev1.ResourceClaim{Name: claimName})
+	}
 	return j
 }

@@ -6,12 +6,50 @@ description: >
   Running and debugging tests
 ---
 
-## Running presubmission verification tests
+## Quick start
+
+The most common development workflows:
+
 ```shell
-make verify
+# Unit tests
+make test
+
+# Integration tests
+make test-integration
+
+# E2E: build image and run
+# Note: PLATFORM=linux/arm64 is only needed on Apple Silicon (arm64).
+# On amd64, run: make kind-image-build test-e2e-baseline
+PLATFORM=linux/arm64 make kind-image-build test-e2e-baseline
+
+# E2E: build, run, and keep the kind cluster alive between runs
+E2E_MODE=dev PLATFORM=linux/arm64 make kind-image-build test-e2e-baseline
 ```
 
+### Quick filter reference
+
+```shell
+# Focus on tests matching a name pattern
+GINKGO_ARGS="--focus=Scheduler" make test-integration
+GINKGO_ARGS="--focus='Creating a Pod requesting TAS'" make test-e2e-baseline
+
+# Filter integration tests by label
+INTEGRATION_FILTERS="--label-filter=controller:workload" make test-integration
+INTEGRATION_FILTERS="--label-filter=area:jobs" make test-integration
+
+# Filter e2e tests by label
+GINKGO_ARGS="--label-filter=feature:jobset" make test-e2e-extended
+
+# Run only a specific integration test directory
+INTEGRATION_TARGET='test/integration/singlecluster/scheduler' make test-integration
+```
+
+For the full label taxonomy and more examples, see [Running a subset of tests](#running-subset-of-integration-or-e2e-tests).
+
+---
+
 ## Running unit tests
+
 To run all unit tests:
 ```shell
 make test
@@ -53,74 +91,108 @@ make test-integration
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
 
-## Running e2e tests using custom build
+## Running e2e tests
+
+E2E tests build a Kueue image and load it into a local Kind cluster. The build step must run before the test target:
+
 ```shell
 make kind-image-build
-make test-e2e
-make test-tas-e2e
-make test-e2e-customconfigs
-make test-e2e-certmanager
-make test-e2e-kueueviz
-make test-multikueue-e2e
 ```
 
-You can specify the Kubernetes version used for running the e2e tests by setting the `E2E_K8S_FULL_VERSION` variable:
+On Apple Silicon (arm64), set `PLATFORM`:
 ```shell
-E2E_K8S_FULL_VERSION=1.34.1 make test-e2e
+PLATFORM=linux/arm64 make kind-image-build
+```
+
+Then run the desired test target:
+```shell
+make test-e2e-baseline
+make test-e2e-extended
+make test-e2e-sequential-baseline
+make test-e2e-sequential-extended
+make test-e2e-certmanager
+make test-e2e-kueueviz
+make test-tas-e2e-baseline
+make test-tas-e2e-extended
+make test-multikueue-e2e-main
+make test-multikueue-e2e-sequential
+```
+
+You can specify the Kubernetes version:
+```shell
+E2E_K8S_FULL_VERSION=1.35.0 make test-e2e-baseline
 ```
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
 
-## Increase logging verbosity
-`TEST_LOG_LEVEL` controls test logging uniformly for all targets:
+### DEV mode (keep the cluster)
 
-- `go test`, `make test` (unit tests)
-- `make test-integration` (integration tests)
-- `make test-*-e2e` (e2e tests)
+Use `E2E_MODE=dev` to create-or-reuse a kind cluster, rebuild/redeploy Kueue, run tests, and keep the cluster running for fast reruns and post-test investigation:
 
-Use more negative values for more verbose logs and higher (positive) values for quieter logs. For example:
 ```shell
-TEST_LOG_LEVEL=-5 make test-integration   # more verbose
-TEST_LOG_LEVEL=-1 make test               # less verbose than default
-```
-Default is `TEST_LOG_LEVEL=-3`.
+# Create if missing, otherwise reuse cluster. Rebuild image, run tests, keep the cluster.
+E2E_MODE=dev make kind-image-build test-e2e-baseline
 
-## Debug tests in VSCode
-It is possible to debug unit and integration tests in VSCode.
-You need to have the [Go extension](https://marketplace.visualstudio.com/items?itemName=golang.Go) installed.
-Now you will have `run test | debug test` text buttons above lines like
-```go
-func TestValidateClusterQueue(t *testing.T) {
-```
-You can click on the `debug test` to debug a specific test.
+# MultiKueue dev mode
+E2E_MODE=dev make kind-image-build test-multikueue-e2e-main
 
-For integration tests, an additional step is needed.  In settings.json, you need to add two variables inside `go.testEnvVars`:
-- Run `ENVTEST_K8S_VERSION=1.34 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
-- Set `KUEUE_BIN` to the `bin` directory within your cloned Kueue repository
-```json
-"go.testEnvVars": {
-    "KUBEBUILDER_ASSETS": "<path from output above>",
-    "KUEUE_BIN": "<path-to-your-kueue-folder>/bin",
-  },
+# Loop a suite (until it fails) while keeping the cluster
+E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build test-e2e-baseline
+
+# Skip reinstallation of kueue (works only in dev mode)
+E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-e2e-baseline
+E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e-main
+
+# Skip re-pulling dependency images and re-importing them into kind when already present (dev mode only)
+E2E_MODE=dev E2E_SKIP_IMAGE_RELOAD=true make kind-image-build test-e2e-baseline
 ```
 
-For e2e tests, you can also use [Ginkgo Test Explorer](https://marketplace.visualstudio.com/items?itemName=joselitofilho.ginkgotestexplorer).  You need to add the following variables to settings.json:
-```json
- "ginkgotestexplorer.testEnvVars": {
-        "KIND_CLUSTER_NAME": "kind",
-        "WORKER1_KIND_CLUSTER_NAME": "kind-worker1",
-        "MANAGER_KIND_CLUSTER_NAME": "kind-manager",
-        "WORKER2_KIND_CLUSTER_NAME": "kind-worker2",
-        "KIND": "<your_kueue_path>/bin/kind",
-    },
+{{% alert title="Note" color="primary" %}}
+When reusing a kept cluster in `E2E_MODE=dev`, external operators (MPI, KubeRay, etc.) are installed only once.
+To force re-installing them on every run, set `E2E_ENFORCE_OPERATOR_UPDATE=true`.
+
+Set `E2E_SKIP_IMAGE_RELOAD` to a truthy value (for example `true`) to skip `docker pull` for dependency images
+that are already in your local Docker cache, and to skip loading an image into kind worker nodes when that
+image reference is already present in the node containerd store.
+That makes repeat runs faster, especially on multi-node clusters.
+
+The Kueue controller image is always reloaded into the cluster unless `E2E_SKIP_REINSTALL=true`, because you may
+rebuild it with `make kind-image-build` under the same tag.
+{{% /alert %}}
+
+To delete the kept cluster(s) afterwards:
+- For regular e2e tests, run:
+    ```shell
+    kind delete clusters kind
+    ```
+- For MultiKueue tests, run:
+    ```shell
+    kind delete clusters kind kind-manager kind-worker1 kind-worker2
+    ```
+
+### Using a released or staging image
+
+To use a **released** or **staging** Kueue image instead of building from source (no `kind-image-build` needed), pass `IMAGE_TAG`:
+
+```shell
+# Released version
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e-baseline
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e-main
+
+# Staging image (e.g. from a PR or nightly)
+E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-e2e-baseline
 ```
-and then you can use GUI of the Ginkgo Test Explorer to run individual tests, provided you started kind clanter (see [here](#attaching-e2e-tests-to-an-existing-kind-cluster) for the instructions).
 
-## Attaching e2e tests to an existing kind cluster
-You can use the following approach to start up a kind cluster and then run e2e tests from commandline or VSCode,
-attaching them to the existing cluster. For example, suppose you want to test some of the multikueue-e2e tests.
+**Using a released version with matching manifests:** The e2e framework deploys CRDs and other resources from the repo's config and overrides only the controller image via `IMAGE_TAG`. To run e2e against a specific release with manifests that match that image:
 
-Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` and wait for the `Do you want to cleanup? [Y/n] ` to appear.
+1. Check out that version's tag (e.g. `git checkout v0.16.0`). The CRD and deployment config in the repo are committed at each release, so no `make manifests` step is needed.
+2. Run the command above with the same image tag, e.g. `E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e-baseline`.
+
+This is useful to reproduce issues on a specific released version (e.g. for on-call debugging). For installing a released version into a real cluster (not e2e), see [Install a released version](/docs/installation/#install-a-released-version).
+
+### Legacy: interactive attach mode
+
+Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-main` and wait for the `Do you want to cleanup? [Y/n] ` to appear (CI-style behavior).
 
 The cluster is ready, and now you can run tests from another terminal:
 ```shell
@@ -129,11 +201,82 @@ The cluster is ready, and now you can run tests from another terminal:
 or from VSCode.
 
 ## Running subset of integration or e2e tests
+
+### Use label filters for integration tests
+Integration tests are labeled by controller, job type, feature, and area to enable targeted test execution. You can use `INTEGRATION_FILTERS` with `--label-filter` to run specific test subsets:
+
+**Label Taxonomy:**
+- Controllers: `controller:workload`, `controller:localqueue`, `controller:clusterqueue`, `controller:admissioncheck`, `controller:resourceflavor`, `controller:provisioning`
+- Job Types: `job:batch`, `job:pod`, `job:jobset`, `job:pytorch`, `job:tensorflow`, `job:mpi`, `job:paddle`, `job:xgboost`, `job:jax`, `job:train`, `job:ray`, `job:appwrapper`, `job:sparkapplication`
+- Features: `feature:tas`, `feature:multikueue`, `feature:provisioning`, `feature:fairsharing`, `feature:admissionfairsharing`
+- Areas: `area:core`, `area:jobs`, `area:admissionchecks`, `area:multikueue`
+
+**Examples:**
+```shell
+# Run only LocalQueue tests
+INTEGRATION_FILTERS="--label-filter=controller:localqueue" make test-integration
+
+# Run all job tests
+INTEGRATION_FILTERS="--label-filter=area:jobs" make test-integration
+
+# Run PyTorch job tests
+INTEGRATION_FILTERS="--label-filter=job:pytorch" make test-integration
+
+# Run all tests except slow
+INTEGRATION_FILTERS="--label-filter=!slow" make test-integration
+
+# Run core tests except slow
+INTEGRATION_FILTERS="--label-filter=area:core && !slow" make test-integration
+
+# Run TAS-related tests
+INTEGRATION_FILTERS="--label-filter=feature:tas" make test-integration
+
+# Run FairSharing tests
+INTEGRATION_FILTERS="--label-filter=feature:fairsharing" make test-integration
+```
+
+### Use label filters for e2e singlecluster tests
+SingleCluster tests are labeled by feature and area. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
+
+**Label Taxonomy:**
+- Features: `appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1,ha`
+
+**Examples:**
+```shell
+# Run only appwrapper tests
+GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
+
+# Run only deployment tests with helm
+GINKGO_ARGS="--label-filter=feature:deployment" make test-e2e-baseline-helm
+
+# Run only jobset and trainjob tests with helm
+GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e-extended
+```
+
+### Use label filters for e2e sequential tests
+Sequential tests (Baseline and Extended) are labeled by feature. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
+
+**Label Taxonomy (Baseline):**
+- Features: `admissionfairsharing, certs, failurerecoverypolicy, localqueuemetrics, objectretentionpolicies, podintegrationautoenablement, reconcile, visibility, waitforpodsready`
+
+**Label Taxonomy (Extended):**
+- Features: `managejobswithoutqueuename, spark`
+
+**Examples:**
+```shell
+# Run only admissionfairsharing tests (Baseline)
+GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequential-baseline
+
+# Run only spark tests (Extended)
+GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
+```
+
 ### Use Ginkgo --focus arg
 ```shell
 GINKGO_ARGS="--focus=Scheduler" make test-integration
-GINKGO_ARGS="--focus='Creating a Pod requesting TAS'" make test-e2e
+GINKGO_ARGS="--focus='Creating a Pod requesting TAS'" make test-e2e-baseline
 ```
+
 ### Use ginkgo.FIt
 If you want to focus on specific tests, you can change
 `ginkgo.It` to `ginkgo.FIt` for these tests.
@@ -150,7 +293,8 @@ ginkgo.FIt("Should place pods based on the ranks-ordering", func() {
 and then run
 ```shell
 # build and pull image
-make test-tas-e2e
+make test-tas-e2e-baseline
+make test-tas-e2e-extended
 ```
 to test a particular TAS e2e test.
 
@@ -163,7 +307,7 @@ INTEGRATION_TARGET='test/integration/singlecluster/scheduler' make test-integrat
 You can use --until-it-fails or --repeat=N arguments to Ginkgo to run tests repeatedly, such as:
 ```shell
 GINKGO_ARGS="--until-it-fails" make test-integration
-GINKGO_ARGS="--repeat=10" make test-e2e
+GINKGO_ARGS="--repeat=10" make test-e2e-baseline
 ```
 See more [here](https://onsi.github.io/ginkgo/#repeating-spec-runs-and-managing-flaky-specs)
 
@@ -183,7 +327,70 @@ For each log message you can from which file and line the message is coming from
 ```log
 2025-02-03T15:51:51.502425029Z stderr F 2025-02-03T15:51:51.502117824Z	LEVEL(-2)	cluster-queue-reconciler	core/clusterqueue_controller.go:341	ClusterQueue update event	{"clusterQueue": {"name":"cluster-queue"}}
 ```
-Here, it's `core/clusterqueue_controller.go:341`.
+
+---
+
+## Advanced
+
+### Running presubmission verification tests
+```shell
+make verify
+```
+
+### Increase logging verbosity
+`TEST_LOG_LEVEL` controls test logging uniformly for all targets:
+
+- `go test`, `make test` (unit tests)
+- `make test-integration` (integration tests)
+- `make test-*-e2e` (e2e tests)
+
+Use more negative values for more verbose logs and higher (positive) values for quieter logs. For example:
+```shell
+TEST_LOG_LEVEL=-5 make test-integration   # more verbose
+TEST_LOG_LEVEL=-1 make test               # less verbose than default
+```
+Default is `TEST_LOG_LEVEL=-3`.
+
+### Debug tests in VSCode
+It is possible to debug unit and integration tests in VSCode.
+You need to have the [Go extension](https://marketplace.visualstudio.com/items?itemName=golang.Go) installed.
+Now you will have `run test | debug test` text buttons above lines like
+```go
+func TestValidateClusterQueue(t *testing.T) {
+```
+You can click on the `debug test` to debug a specific test.
+
+For integration tests, an additional step is needed.  In settings.json, you need to add two variables inside `go.testEnvVars`:
+- Run `ENVTEST_K8S_VERSION=1.35 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
+- Set `KUEUE_BIN` to the `bin` directory within your cloned Kueue repository
+```json
+"go.testEnvVars": {
+    "KUBEBUILDER_ASSETS": "<path from output above>",
+    "KUEUE_BIN": "<path-to-your-kueue-folder>/bin",
+  },
+```
+
+For e2e tests, you can also use [Ginkgo Test Explorer](https://marketplace.visualstudio.com/items?itemName=joselitofilho.ginkgotestexplorer).  You need to add the following variables to settings.json:
+```json
+ "ginkgotestexplorer.testEnvVars": {
+        "KIND_CLUSTER_NAME": "kind",
+        "WORKER1_KIND_CLUSTER_NAME": "kind-worker1",
+        "MANAGER_KIND_CLUSTER_NAME": "kind-manager",
+        "WORKER2_KIND_CLUSTER_NAME": "kind-worker2",
+        "KIND": "<your_kueue_path>/bin/kind",
+    },
+```
+and then you can use GUI of the Ginkgo Test Explorer to run individual tests, provided you started kind cluster (see [here](#legacy-interactive-attach-mode) for the instructions).
+
+### Debugging metrics with Prometheus
+
+To provision a Kind cluster with Prometheus pre-configured for metrics debugging:
+
+```shell
+E2E_MODE=dev GINKGO_ARGS="--label-filter=feature:prometheus" make kind-image-build test-e2e-baseline
+```
+
+For more details, see [Setup Dev Monitoring](/docs/tasks/dev/setup_dev_monitoring).
 
 ### See also
 - [Kubernetes testing guide](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/testing.md)

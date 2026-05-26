@@ -39,7 +39,7 @@ const (
 func TestSetDefaults_Configuration(t *testing.T) {
 	defaultCtrlManagerConfigurationSpec := ControllerManager{
 		LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-			LeaderElect:   ptr.To(true),
+			LeaderElect:   new(true),
 			LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
 			RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
 			RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
@@ -47,19 +47,22 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
 		},
 		Webhook: ControllerWebhook{
-			Port:    ptr.To(DefaultWebhookPort),
+			Port:    new(DefaultWebhookPort),
 			CertDir: DefaultWebhookCertDir,
 		},
 		Metrics: ControllerMetrics{
 			BindAddress: DefaultMetricsBindAddress,
+			LocalQueueMetrics: &LocalQueueMetrics{
+				Enable: true,
+			},
 		},
 		Health: ControllerHealth{
 			HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 		},
 	}
 	defaultClientConnection := &ClientConnection{
-		QPS:   ptr.To(DefaultClientConnectionQPS),
-		Burst: ptr.To(DefaultClientConnectionBurst),
+		QPS:   new(DefaultClientConnectionQPS),
+		Burst: new(DefaultClientConnectionBurst),
 	}
 	defaultIntegrations := &Integrations{
 		Frameworks: []string{defaultJobFrameworkName},
@@ -90,13 +93,17 @@ func TestSetDefaults_Configuration(t *testing.T) {
 
 	defaultMultiKueue := &MultiKueue{
 		GCInterval:        &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
-		Origin:            ptr.To(DefaultMultiKueueOrigin),
+		Origin:            new(DefaultMultiKueueOrigin),
 		WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:    ptr.To(MultiKueueDispatcherModeAllAtOnce),
+		DispatcherName:    new(MultiKueueDispatcherModeAllAtOnce),
 	}
 
-	podsReadyTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
+	defaultVisibilityServer := &VisibilityServerConfiguration{
+		BindPort: ptr.To[int32](8082),
+	}
+
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
+	customTimeout := metav1.Duration{Duration: 5 * time.Minute}
 
 	testCases := map[string]struct {
 		original *Configuration
@@ -105,48 +112,51 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		"defaulting namespace": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 			},
 			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"defaulting ControllerManager": {
 			original: &Configuration{
 				ControllerManager: ControllerManager{
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect: ptr.To(true),
+						LeaderElect: new(true),
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 			},
 			want: &Configuration{
-				Namespace: ptr.To(DefaultNamespace),
+				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port:    ptr.To(DefaultWebhookPort),
+						Port:    new(DefaultWebhookPort),
 						CertDir: DefaultWebhookCertDir,
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: DefaultMetricsBindAddress,
+						LocalQueueMetrics: &LocalQueueMetrics{
+							Enable: true,
+						},
 					},
 					Health: ControllerHealth{
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   ptr.To(true),
+						LeaderElect:   new(true),
 						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
 						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
 						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
@@ -155,30 +165,33 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"should not default ControllerManager": {
 			original: &Configuration{
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port:    ptr.To(overwriteWebhookPort),
+						Port:    new(overwriteWebhookPort),
 						CertDir: overwriteWebhookCertDir,
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
+						LocalQueueMetrics: &LocalQueueMetrics{
+							Enable: false,
+						},
 					},
 					Health: ControllerHealth{
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   ptr.To(true),
+						LeaderElect:   new(true),
 						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
 						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
 						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
@@ -187,25 +200,29 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
-				Integrations: defaultIntegrations,
+				Integrations:     defaultIntegrations,
+				VisibilityServer: defaultVisibilityServer,
 			},
 			want: &Configuration{
-				Namespace: ptr.To(DefaultNamespace),
+				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port:    ptr.To(overwriteWebhookPort),
+						Port:    new(overwriteWebhookPort),
 						CertDir: overwriteWebhookCertDir,
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
+						LocalQueueMetrics: &LocalQueueMetrics{
+							Enable: false,
+						},
 					},
 					Health: ControllerHealth{
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   ptr.To(true),
+						LeaderElect:   new(true),
 						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
 						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
 						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
@@ -214,41 +231,44 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"should not set LeaderElectionID": {
 			original: &Configuration{
 				ControllerManager: ControllerManager{
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect: ptr.To(false),
+						LeaderElect: new(false),
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 			},
 			want: &Configuration{
-				Namespace: ptr.To(DefaultNamespace),
+				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port:    ptr.To(DefaultWebhookPort),
+						Port:    new(DefaultWebhookPort),
 						CertDir: DefaultWebhookCertDir,
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: DefaultMetricsBindAddress,
+						LocalQueueMetrics: &LocalQueueMetrics{
+							Enable: true,
+						},
 					},
 					Health: ControllerHealth{
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   ptr.To(false),
+						LeaderElect:   new(false),
 						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
 						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
 						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
@@ -257,59 +277,59 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"defaulting InternalCertManagement": {
 			original: &Configuration{
-				Namespace: ptr.To(overwriteNamespace),
+				Namespace: new(overwriteNamespace),
 			},
 			want: &Configuration{
-				Namespace:         ptr.To(overwriteNamespace),
+				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable:             ptr.To(true),
-					WebhookServiceName: ptr.To(DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(DefaultWebhookSecretName),
+					Enable:             new(true),
+					WebhookServiceName: new(DefaultWebhookServiceName),
+					WebhookSecretName:  new(DefaultWebhookSecretName),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 overwriteNamespaceIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"should not default InternalCertManagement": {
 			original: &Configuration{
-				Namespace: ptr.To(overwriteNamespace),
+				Namespace: new(overwriteNamespace),
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 			},
 			want: &Configuration{
-				Namespace:         ptr.To(overwriteNamespace),
+				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 overwriteNamespaceIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"should not default values in custom ClientConnection": {
 			original: &Configuration{
-				Namespace: ptr.To(overwriteNamespace),
+				Namespace: new(overwriteNamespace),
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection: &ClientConnection{
 					QPS:   ptr.To[float32](123.0),
@@ -317,10 +337,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Namespace:         ptr.To(overwriteNamespace),
+				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection: &ClientConnection{
 					QPS:   ptr.To[float32](123.0),
@@ -329,139 +349,176 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:                 overwriteNamespaceIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"should default empty custom ClientConnection": {
 			original: &Configuration{
-				Namespace: ptr.To(overwriteNamespace),
+				Namespace: new(overwriteNamespace),
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection: &ClientConnection{},
 			},
 			want: &Configuration{
-				Namespace:         ptr.To(overwriteNamespace),
+				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 overwriteNamespaceIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"defaulting waitForPodsReady values": {
 			original: &Configuration{
-				WaitForPodsReady: &WaitForPodsReady{
-					Enable: true,
-				},
+				WaitForPodsReady: &WaitForPodsReady{},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:          true,
-					BlockAdmission:  ptr.To(true),
-					Timeout:         &podsReadyTimeout,
-					RecoveryTimeout: nil,
+					BlockAdmission:  new(false),
+					RecoveryTimeout: &metav1.Duration{},
 					RequeuingStrategy: &RequeuingStrategy{
-						Timestamp:          ptr.To(EvictionTimestamp),
+						Timestamp:          new(EvictionTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
 						BackoffMaxSeconds:  ptr.To[int32](DefaultRequeuingBackoffMaxSeconds),
 					},
 				},
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
-		"set waitForPodsReady.blockAdmission to false, and waitForPodsReady.recoveryTimeout to nil when enable is false": {
+		"defaulting waitForPodsReady recoveryTimeout to timeout": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable: false,
+					Timeout: customTimeout,
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable: false,
+					Timeout:         customTimeout,
+					BlockAdmission:  new(false),
+					RecoveryTimeout: &customTimeout,
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp:          new(EvictionTimestamp),
+						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
+						BackoffMaxSeconds:  ptr.To[int32](DefaultRequeuingBackoffMaxSeconds),
+					},
 				},
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"respecting provided waitForPodsReady values": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:  true,
-					Timeout: &podsReadyTimeoutOverwrite,
+					Timeout: podsReadyTimeoutOverwrite,
 					RequeuingStrategy: &RequeuingStrategy{
-						Timestamp:          ptr.To(CreationTimestamp),
+						Timestamp:          new(CreationTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](63),
 						BackoffMaxSeconds:  ptr.To[int32](1800),
 					},
 					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:          true,
-					BlockAdmission:  ptr.To(true),
-					Timeout:         &podsReadyTimeoutOverwrite,
+					BlockAdmission:  new(false),
+					Timeout:         podsReadyTimeoutOverwrite,
 					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
 					RequeuingStrategy: &RequeuingStrategy{
-						Timestamp:          ptr.To(CreationTimestamp),
+						Timestamp:          new(CreationTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](63),
 						BackoffMaxSeconds:  ptr.To[int32](1800),
 					},
 				},
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+			},
+		},
+		"disabling waitForPodsReady recoveryTimeout with zero value": {
+			original: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Timeout:         customTimeout,
+					RecoveryTimeout: &metav1.Duration{Duration: 0},
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+			},
+			want: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Timeout:         customTimeout,
+					BlockAdmission:  new(false),
+					RecoveryTimeout: &metav1.Duration{Duration: 0},
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp:          new(EvictionTimestamp),
+						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
+						BackoffMaxSeconds:  ptr.To[int32](DefaultRequeuingBackoffMaxSeconds),
+					},
+				},
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"integrations": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				Integrations: &Integrations{
 					Frameworks: []string{"a", "b"},
 				},
 			},
 			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations: &Integrations{
@@ -469,127 +526,101 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"multiKueue": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				MultiKueue: &MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            ptr.To("multikueue-manager1"),
+					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
-					DispatcherName:    ptr.To(MultiKueueDispatcherModeIncremental),
+					DispatcherName:    new(MultiKueueDispatcherModeIncremental),
 				},
 			},
 			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				MultiKueue: &MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            ptr.To("multikueue-manager1"),
+					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
-					DispatcherName:    ptr.To(MultiKueueDispatcherModeIncremental),
+					DispatcherName:    new(MultiKueueDispatcherModeIncremental),
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"multiKueue origin is an empty value": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				MultiKueue: &MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            ptr.To(""),
+					Origin:            new(""),
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
 					DispatcherName:    defaultMultiKueue.DispatcherName,
 				},
 			},
 			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				MultiKueue: &MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            ptr.To(DefaultMultiKueueOrigin),
+					Origin:            new(DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
 					DispatcherName:    defaultMultiKueue.DispatcherName,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"multiKueue GCInterval 0": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				MultiKueue: &MultiKueue{
 					GCInterval: &metav1.Duration{},
-					Origin:     ptr.To("multikueue-manager1"),
+					Origin:     new("multikueue-manager1"),
 				},
 			},
 			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				MultiKueue: &MultiKueue{
 					GCInterval:        &metav1.Duration{},
-					Origin:            ptr.To("multikueue-manager1"),
+					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 15 * time.Minute},
 					DispatcherName:    defaultMultiKueue.DispatcherName,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
-			},
-		},
-		"add default fair sharing configuration when enabled": {
-			original: &Configuration{
-				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
-				},
-				FairSharing: &FairSharing{
-					Enable: true,
-				},
-			},
-			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
-				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
-				},
-				ClientConnection:             defaultClientConnection,
-				Integrations:                 defaultIntegrations,
-				MultiKueue:                   defaultMultiKueue,
-				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				FairSharing: &FairSharing{
-					Enable:               true,
-					PreemptionStrategies: []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare},
-				},
-				WaitForPodsReady: &WaitForPodsReady{},
+				VisibilityServer:             defaultVisibilityServer,
 			},
 		},
 		"set object retention policy for workloads": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ObjectRetentionPolicies: &ObjectRetentionPolicies{
 					Workloads: &WorkloadRetentionPolicy{
@@ -599,10 +630,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
@@ -614,27 +645,27 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
 					},
 				},
-				WaitForPodsReady: &WaitForPodsReady{},
+				VisibilityServer: defaultVisibilityServer,
 			},
 		},
 		"resources.transformations strategy": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				Resources: &Resources{
 					Transformations: []ResourceTransformation{
 						{Input: corev1.ResourceCPU},
-						{Input: corev1.ResourceMemory, Strategy: ptr.To(Replace)},
+						{Input: corev1.ResourceMemory, Strategy: new(Replace)},
 						{Input: corev1.ResourceEphemeralStorage, Strategy: ptr.To[ResourceTransformationStrategy]("")},
 					},
 				},
 			},
 			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
+					Enable: new(false),
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
@@ -642,12 +673,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				Resources: &Resources{
 					Transformations: []ResourceTransformation{
-						{Input: corev1.ResourceCPU, Strategy: ptr.To(DefaultResourceTransformationStrategy)},
-						{Input: corev1.ResourceMemory, Strategy: ptr.To(Replace)},
-						{Input: corev1.ResourceEphemeralStorage, Strategy: ptr.To(DefaultResourceTransformationStrategy)},
+						{Input: corev1.ResourceCPU, Strategy: new(DefaultResourceTransformationStrategy)},
+						{Input: corev1.ResourceMemory, Strategy: new(Replace)},
+						{Input: corev1.ResourceEphemeralStorage, Strategy: new(DefaultResourceTransformationStrategy)},
 					},
 				},
-				WaitForPodsReady: &WaitForPodsReady{},
+				VisibilityServer: defaultVisibilityServer,
 			},
 		},
 	}

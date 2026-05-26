@@ -28,9 +28,20 @@ const (
 	// of multikueue remote objects.
 	MultiKueueOriginLabel = "kueue.x-k8s.io/multikueue-origin"
 
+	// MultiKueueOriginUIDAnnotation stores the UID of the original object from
+	// the management cluster on remote objects.
+	MultiKueueOriginUIDAnnotation = "kueue.x-k8s.io/multikueue-origin-uid"
+
 	// MultiKueueControllerName is the name used by the MultiKueue
 	// admission check controller.
 	MultiKueueControllerName = "kueue.x-k8s.io/multikueue"
+
+	// MultiKueueWorkerWorkloadPodLabel indicates that pod is running on the MK worker
+	// cluster and has MultiKueue origin.
+	MultiKueueWorkerWorkloadPodLabel = "kueue.x-k8s.io/multikueue-worker-workload-pod"
+
+	// MultiKueueWorkerWorkloadPodValue is the value of MultiKueueWorkerWorkloadPodLabel.
+	MultiKueueWorkerWorkloadPodValue = "true"
 )
 
 type LocationType string
@@ -50,18 +61,41 @@ type KubeConfig struct {
 	// If LocationType is Secret then Location is the name of the secret inside the namespace in
 	// which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
 	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:MinLength=1
+	// +required
 	Location string `json:"location"`
 
 	// locationType of the KubeConfig.
 	//
 	// +kubebuilder:default=Secret
+	// +optional
 	// +kubebuilder:validation:Enum=Secret;Path
-	LocationType LocationType `json:"locationType"`
+	LocationType LocationType `json:"locationType,omitempty"`
 }
 
 type MultiKueueClusterSpec struct {
+	// clusterSource is the source to connect to the cluster.
+	// +required
+	ClusterSource ClusterSource `json:"clusterSource,omitempty"`
+}
+
+// +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfileRef
+type ClusterSource struct {
 	// kubeConfig is information on how to connect to the cluster.
-	KubeConfig KubeConfig `json:"kubeConfig"`
+	// +optional
+	KubeConfig *KubeConfig `json:"kubeConfig,omitempty,omitzero"`
+
+	// clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.
+	// +optional
+	ClusterProfileRef *ClusterProfileReference `json:"clusterProfileRef,omitempty"`
+}
+
+type ClusterProfileReference struct {
+	// name of the ClusterProfile.
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Name string `json:"name,omitempty"`
 }
 
 type MultiKueueClusterStatus struct {
@@ -80,8 +114,9 @@ type MultiKueueClusterStatus struct {
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={mkc}
 
 // +kubebuilder:printcolumn:name="Connected",JSONPath=".status.conditions[?(@.type=='Active')].status",type="string",description="MultiKueueCluster is connected"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
@@ -89,12 +124,15 @@ type MultiKueueClusterStatus struct {
 type MultiKueueCluster struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the MultiKueueCluster.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the MultiKueueCluster.
-	Spec MultiKueueClusterSpec `json:"spec,omitempty"`
+	// +optional
+	Spec MultiKueueClusterSpec `json:"spec,omitempty,omitzero"`
 
 	// status is the status of the MultiKueueCluster.
+	// +optional
 	Status MultiKueueClusterStatus `json:"status,omitempty"`
 }
 
@@ -113,23 +151,48 @@ type MultiKueueConfigSpec struct {
 	//
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=20
 	// +kubebuilder:validation:items:MaxLength=256
-	Clusters []string `json:"clusters"`
+	// +required
+	Clusters []string `json:"clusters,omitempty,omitzero"`
+
+	// quotaManagement specifies the management of ClusterQueue quotas
+	// in the manager cluster.
+	// Supported modes:
+	// - `Manual`: Quota automation is manual.
+	// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+	// If unspecified, defaults to `Manual`.
+	// +optional
+	QuotaManagement *MultiKueueConfigQuotaManagementMode `json:"quotaManagement,omitempty"`
 }
+
+// MultiKueueConfigQuotaManagementMode specifies the automation mode.
+// Supported modes:
+// - `Manual`: Quota automation is manual.
+// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+// +kubebuilder:validation:Enum=Manual;Automated
+type MultiKueueConfigQuotaManagementMode string
+
+const (
+	QuotaManagementManual    MultiKueueConfigQuotaManagementMode = "Manual"
+	QuotaManagementAutomated MultiKueueConfigQuotaManagementMode = "Automated"
+)
 
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:storageversion
+// +kubebuilder:resource:scope=Cluster,shortName={mkconf}
 
 // MultiKueueConfig is the Schema for the multikueue API
 type MultiKueueConfig struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the MultiKueueConfig.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the MultiKueueConfig.
+	// +optional
 	Spec MultiKueueConfigSpec `json:"spec,omitempty"`
 }
 
@@ -145,3 +208,5 @@ type MultiKueueConfigList struct {
 func init() {
 	SchemeBuilder.Register(&MultiKueueConfig{}, &MultiKueueConfigList{}, &MultiKueueCluster{}, &MultiKueueClusterList{})
 }
+
+func (*MultiKueueCluster) Hub() {}

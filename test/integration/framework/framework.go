@@ -28,19 +28,22 @@ import (
 	"time"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"go.uber.org/zap/zaptest/observer"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -48,6 +51,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -57,6 +61,20 @@ import (
 )
 
 type ManagerSetup func(context.Context, manager.Manager)
+
+type ManagerOption func(*manager.Options)
+
+func WithNewClient(c client.NewClientFunc) ManagerOption {
+	return func(o *manager.Options) {
+		o.NewClient = c
+	}
+}
+
+func WithNewCache(c cache.NewCacheFunc) ManagerOption {
+	return func(o *manager.Options) {
+		o.NewCache = c
+	}
+}
 
 type Framework struct {
 	DepCRDPaths            []string
@@ -69,17 +87,20 @@ type Framework struct {
 
 	managerCancel context.CancelFunc
 	managerDone   <-chan struct{}
+
+	ObservedLogs *observer.ObservedLogs
 }
 
 func (f *Framework) Init() *rest.Config {
-	util.SetupLogger()
+	f.ObservedLogs = util.SetupLoggerGetObservedLogs()
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
-		baseCrdPath := filepath.Join(util.GetProjectBaseDir(), "config", "components", "crd", "_output")
+		baseCrdPath := filepath.Join(util.ProjectBaseDir, "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
-			CRDDirectoryPaths:     append(f.DepCRDPaths, baseCrdPath),
-			ErrorIfCRDPathMissing: true,
+			CRDDirectoryPaths:       append(f.DepCRDPaths, baseCrdPath),
+			ErrorIfCRDPathMissing:   true,
+			ControlPlaneStopTimeout: 90 * time.Second,
 		}
 		var err error
 		f.testEnv.Scheme = scheme.Scheme
@@ -116,7 +137,7 @@ func (f *Framework) Init() *rest.Config {
 	return cfg
 }
 
-func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Client) {
+func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithWatch) {
 	err := config.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
@@ -150,7 +171,16 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	err = resourcev1.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	k8sClient, err := client.New(cfg, client.Options{Scheme: f.scheme})
+	err = inventoryv1alpha1.AddToScheme(f.scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = leaderworkersetv1.AddToScheme(f.scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = sparkv1beta2.AddToScheme(f.scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	k8sClient, err := client.NewWithWatch(cfg, client.Options{Scheme: f.scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
 
@@ -160,10 +190,10 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	return ctx, k8sClient
 }
 
-func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup) {
+func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup, opts ...ManagerOption) {
 	ginkgo.By("starting the manager", func() {
 		webhookInstallOptions := &f.testEnv.WebhookInstallOptions
-		mgrOpts := manager.Options{
+		mgrOptions := manager.Options{
 			Scheme: f.scheme,
 			Metrics: metricsserver.Options{
 				BindAddress: "0", // disable metrics to avoid conflicts between packages.
@@ -175,10 +205,13 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 					CertDir: webhookInstallOptions.LocalServingCertDir,
 				}),
 			Controller: crconfig.Controller{
-				SkipNameValidation: ptr.To(true),
+				SkipNameValidation: new(true),
 			},
 		}
-		mgr, err := ctrl.NewManager(cfg, mgrOpts)
+		for _, opt := range opts {
+			opt(&mgrOptions)
+		}
+		mgr, err := ctrl.NewManager(cfg, mgrOptions)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
 		managerCtx, managerCancel := context.WithCancel(ctx)
@@ -196,16 +229,14 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to run manager")
 		}()
 
-		if len(f.WebhookPath) > 0 {
-			// wait for the webhook server to get ready
-			dialer := &net.Dialer{Timeout: time.Second}
-			addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
-			gomega.Eventually(func(g gomega.Gomega) {
-				conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				conn.Close()
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		}
+		// wait for the webhook server to get ready
+		dialer := &net.Dialer{Timeout: time.Second}
+		addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
+		gomega.Eventually(func(g gomega.Gomega) {
+			conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			conn.Close()
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 }
 
@@ -232,6 +263,7 @@ func (f *Framework) Teardown() {
 	}
 	err := f.testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	util.VerifyLogs(f.ObservedLogs)
 }
 
 var (
@@ -242,7 +274,7 @@ var (
 	//  curl https://storage.googleapis.com/kubernetes-jenkins/pr-logs/pull/kubernetes-sigs_kueue/3054/pull-kueue-test-integration-main/1836045641336229888/artifacts/integration-top.yaml \
 	// | yq '.[] | select(.name != "") | .f.duration = .duration | .f.name = .name | .f.suite=.suite | .f | [] + .' | yq '.[0:30]' -oc
 	//
-	// taking the item which run for more then 5 sec
+	// taking the item which run for more than 5 sec
 	SlowSpec = ginkgo.Label("slow")
 
 	// RedundantSpec label used to decorate test specs that largely cover generic code covered by other specs also. (eg. Kubeflow jobs)

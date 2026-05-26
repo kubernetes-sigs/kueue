@@ -24,9 +24,9 @@ import (
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
@@ -35,7 +35,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 )
 
 var (
@@ -64,7 +65,7 @@ var (
 type ResourceFlavorOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
-	DryRunStrategy util.DryRunStrategy
+	DryRunStrategy dryrun.Strategy
 	Name           string
 	NodeLabels     map[string]string
 	NodeTaints     []corev1.Taint
@@ -87,7 +88,7 @@ func NewResourceFlavorOptions(streams genericiooptions.IOStreams) *ResourceFlavo
 	}
 }
 
-func NewResourceFlavorCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewResourceFlavorCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewResourceFlavorOptions(streams)
 
 	cmd := &cobra.Command{
@@ -125,7 +126,7 @@ func NewResourceFlavorCmd(clientGetter util.ClientGetter, streams genericiooptio
 }
 
 // Complete completes all the required options
-func (o *ResourceFlavorOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *ResourceFlavorOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
 	o.Name = args[0]
 
 	var err error
@@ -147,12 +148,12 @@ func (o *ResourceFlavorOptions) Complete(clientGetter util.ClientGetter, cmd *co
 
 	o.Client = clientset.KueueV1beta2()
 
-	o.DryRunStrategy, err = util.GetDryRunStrategy(cmd)
+	o.DryRunStrategy, err = dryrun.GetStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	err = util.PrintFlagsWithDryRunStrategy(o.PrintFlags, o.DryRunStrategy)
+	err = dryrun.PrintFlagsWithStrategy(o.PrintFlags, o.DryRunStrategy)
 	if err != nil {
 		return err
 	}
@@ -170,12 +171,12 @@ func (o *ResourceFlavorOptions) Complete(clientGetter util.ClientGetter, cmd *co
 // Run create a resource
 func (o *ResourceFlavorOptions) Run(ctx context.Context) error {
 	rf := o.createResourceFlavor()
-	if o.DryRunStrategy != util.DryRunClient {
+	if o.DryRunStrategy != dryrun.Client {
 		var (
 			createOptions metav1.CreateOptions
 			err           error
 		)
-		if o.DryRunStrategy == util.DryRunServer {
+		if o.DryRunStrategy == dryrun.Server {
 			createOptions.DryRun = []string{metav1.DryRunAll}
 		}
 		rf, err = o.Client.ResourceFlavors().Create(ctx, rf, createOptions)
@@ -278,12 +279,12 @@ func parseTaint(str string) (corev1.Taint, error) {
 		return taint, err
 	}
 
-	if errs := validation.IsQualifiedName(key); len(errs) > 0 {
+	if errs := content.IsLabelKey(key); len(errs) > 0 {
 		return taint, fmt.Errorf("invalid taint spec: %v, %s", str, strings.Join(errs, "; "))
 	}
 
 	if len(value) > 0 {
-		if errs := validation.IsValidLabelValue(value); len(errs) > 0 {
+		if errs := content.IsLabelValue(value); len(errs) > 0 {
 			return taint, fmt.Errorf("invalid taint spec: %v, %s", str, strings.Join(errs, "; "))
 		}
 	}
@@ -344,13 +345,13 @@ func parseToleration(str string) (corev1.Toleration, error) {
 	}
 
 	if len(key) > 0 {
-		if errs := validation.IsQualifiedName(key); len(errs) > 0 {
+		if errs := content.IsLabelKey(key); len(errs) > 0 {
 			return toleration, fmt.Errorf("invalid toleration spec: %v, %s", str, strings.Join(errs, "; "))
 		}
 	}
 
 	if len(value) > 0 {
-		if errs := validation.IsValidLabelValue(value); len(errs) > 0 {
+		if errs := content.IsLabelValue(value); len(errs) > 0 {
 			return toleration, fmt.Errorf("invalid toleration spec: %v, %s", str, strings.Join(errs, "; "))
 		}
 	}

@@ -13,7 +13,7 @@ description: >
 本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-CN/docs/tasks#batch-user)。
 欲了解更多，请参阅 [Kueue 概述](/zh-CN/docs/overview)。
 
-我们将演示如何基于 [Plain Pod](/zh-CN/docs/tasks/run_plain_pods) 集成，
+我们将演示如何基于 [Plain Pod](/zh-CN/docs/tasks/run/plain_pods) 集成，
 在 Kueue 中支持 Tekton Pipeline 任务的调度，其中来自 Pipeline 的每个 Pod 都表现为单个独立的 Plain Pod。
 
 ## 开始之前

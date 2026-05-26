@@ -24,7 +24,7 @@ kueuectl delete workload NAME [--yes] [--all] [--dry-run STRATEGY]
 
 ```
   # Delete the Workload
-  kueuectl delete workload my-workload
+  kueuectl delete kueueworkload my-workload
 ```
 
 
@@ -119,6 +119,15 @@ kueuectl delete workload NAME [--yes] [--all] [--dry-run STRATEGY]
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>UID to impersonate for the operation.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--as-user-extra strings</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>User extras to impersonate for the operation, this flag can be repeated to specify multiple values for the same key.</p>
         </td>
     </tr>
     <tr>

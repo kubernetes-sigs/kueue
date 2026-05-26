@@ -31,6 +31,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Story 1](#story-1)
     - [Story 2](#story-2)
     - [Story 3](#story-3)
+    - [Story 4](#story-4)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [DDoS](#ddos)
     - [Payload size](#payload-size)
@@ -41,6 +42,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [List pending workloads in LocalQueue](#list-pending-workloads-in-localqueue)
   - [API Objects:](#api-objects)
   - [Future extensions](#future-extensions)
+  - [Technical Details](#technical-details)
   - [Test Plan](#test-plan)
     - [Overview](#overview)
     - [Unit Tests](#unit-tests)
@@ -127,6 +129,9 @@ As a developer who uses Kueue, I would like to be able to monitor the state of m
 
 Provided by the [ClusterQueue endpoint](#list-all-pending-workloads-in-clusterqueue) and the [LocalQueue endpoint](#list-all-pending-workloads-in-localqueue).
 
+#### Story 4 
+
+As a platform administrator, I would like to configure the `BindAddress` and `BindPort` of the visibility server to comply with the cluster network policy and avoid potential port conflicts.
 
 ### Risks and Mitigations
 
@@ -226,6 +231,13 @@ The introduced API uses mechanism of subresources. It means, that in the future 
 ```
 GET /apis/visibility.kueue.x-k8s.io/VERSION/clusterqueues/CQ_NAME/admitted_workloads?offset=0&limit=1000
 ```
+
+### Technical Details
+
+The Visibility server can be configured in the `kueueconfigurations` API under `visibilityServer`. The following options are available:
+
+- `bindAddress`: The IP address on which to listen for the visibility server. If not specified, the server will listen on all available network interfaces.
+- `bindPort`: The port on which to listen for the visibility server. Defaults to `8082`.
 
 ### Test Plan
 

@@ -25,23 +25,19 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("AppWrapper Webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("AppWrapper Webhook", func() {
 	var ns *corev1.Namespace
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(appwrapper.SetupAppWrapperWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
-	})
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(appwrapper.SetupAppWrapperWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
 
@@ -61,6 +57,6 @@ var _ = ginkgo.Describe("AppWrapper Webhook", ginkgo.Ordered, func() {
 		appwrapper := testingaw.MakeAppWrapper("aw-with-invalid-queue", ns.Name).Queue("indexed_job").Obj()
 		err := k8sClient.Create(ctx, appwrapper)
 		gomega.Expect(err).Should(gomega.HaveOccurred())
-		gomega.Expect(err).Should(testing.BeForbiddenError())
+		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 	})
 })

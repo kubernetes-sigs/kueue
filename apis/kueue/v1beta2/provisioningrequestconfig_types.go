@@ -37,10 +37,11 @@ type ProvisioningRequestConfigSpec struct {
 	// provisioningClassName describes the different modes of provisioning the resources.
 	// Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName for details.
 	//
-	// +kubebuilder:validation:Required
+	// +required
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +kubebuilder:validation:MaxLength=253
-	ProvisioningClassName string `json:"provisioningClassName"`
+	// +kubebuilder:validation:MinLength=1
+	ProvisioningClassName string `json:"provisioningClassName,omitempty"`
 
 	// parameters contains all other parameters classes may require.
 	//
@@ -85,6 +86,10 @@ type ProvisioningRequestConfigSpec struct {
 	// podSetMergePolicy specifies the policy for merging PodSets before being passed
 	// to the cluster autoscaler.
 	//
+	// The possible policies are:
+	// - `IdenticalPodTemplates`: Merges only identical PodTemplates.
+	// - `IdenticalWorkloadSchedulingRequirements`: Merges PodTemplates with identical fields that are considered when defining the workload scheduling requirements.
+	//
 	// +optional
 	// +kubebuilder:validation:Enum=IdenticalPodTemplates;IdenticalWorkloadSchedulingRequirements
 	PodSetMergePolicy *ProvisioningRequestConfigPodSetMergePolicy `json:"podSetMergePolicy,omitempty"`
@@ -107,7 +112,7 @@ type ProvisioningRequestPodSetUpdatesNodeSelector struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=317
 	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
-	Key string `json:"key"`
+	Key string `json:"key,omitempty"`
 
 	// valueFromProvisioningClassDetail specifies the key of the
 	// ProvisioningRequest.status.provisioningClassDetails from which the value
@@ -116,7 +121,7 @@ type ProvisioningRequestPodSetUpdatesNodeSelector struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32768
-	ValueFromProvisioningClassDetail string `json:"valueFromProvisioningClassDetail"`
+	ValueFromProvisioningClassDetail string `json:"valueFromProvisioningClassDetail,omitempty"`
 }
 
 type ProvisioningRequestRetryStrategy struct {
@@ -159,16 +164,19 @@ type Parameter string
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:storageversion
+// +kubebuilder:resource:scope=Cluster,shortName={prc}
 
 // ProvisioningRequestConfig is the Schema for the provisioningrequestconfig API
 type ProvisioningRequestConfig struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the standard object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the ProvisioningRequestConfig.
-	Spec ProvisioningRequestConfigSpec `json:"spec,omitempty"`
+	// +optional
+	Spec ProvisioningRequestConfigSpec `json:"spec"`
 }
 
 // +kubebuilder:object:root=true

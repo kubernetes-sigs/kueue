@@ -18,18 +18,23 @@ package core
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -202,7 +207,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()
 			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManager(cl, cqCache)
+			options := qcache.WithPreemptionExpectations(preemptexpectations.New())
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, options)
 			if tc.insertCqIntoCache {
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 					t.Fatalf("Inserting clusterQueue in cache: %v", err)
@@ -221,12 +227,12 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			}
 			r := &ClusterQueueReconciler{
 				client:   cl,
-				log:      log,
+				logName:  "cluster-queue-reconciler",
 				cache:    cqCache,
 				qManager: qManager,
 			}
 			if tc.newWl != nil {
-				if err := r.qManager.AddOrUpdateWorkload(tc.newWl); err != nil {
+				if err := r.qManager.AddOrUpdateWorkload(log, tc.newWl); err != nil {
 					t.Fatalf("Failed to add or update workload : %v", err)
 				}
 			}
@@ -240,6 +246,62 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantCqStatus, cq.Status, configCmpOpts...); len(diff) != 0 {
 				t.Errorf("unexpected ClusterQueueStatus (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestReconcileRemovesFinalizerWithFinishedWorkloads(t *testing.T) {
+	testCases := map[string]struct {
+		cqName string
+		wlName string
+	}{
+		"finished workload should not block deletion": {
+			cqName: "cq",
+			wlName: "wl",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			now := time.Now()
+
+			cq := utiltestingapi.MakeClusterQueue(tc.cqName).Obj()
+			cq.Finalizers = []string{kueue.ResourceInUseFinalizerName}
+
+			cl := utiltesting.NewClientBuilder().WithObjects(cq).Build()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Inserting clusterQueue in cache: %v", err)
+			}
+
+			finishedWl := utiltestingapi.MakeWorkload(tc.wlName, "").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: kueue.ClusterQueueReference(tc.cqName),
+			}, now).FinishedAt(now).Obj()
+			cqCache.AddOrUpdateWorkload(log, finishedWl)
+
+			r := &ClusterQueueReconciler{
+				client:   cl,
+				logName:  "cluster-queue-reconciler",
+				cache:    cqCache,
+				qManager: qManager,
+			}
+
+			if err := cl.Delete(ctx, cq); err != nil {
+				t.Fatalf("Failed to delete ClusterQueue: %v", err)
+			}
+
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: tc.cqName}})
+			if err != nil {
+				t.Fatalf("Reconcile failed: %v", err)
+			}
+
+			got := &kueue.ClusterQueue{}
+			err = cl.Get(ctx, types.NamespacedName{Name: tc.cqName}, got)
+			if !apierrors.IsNotFound(err) {
+				t.Fatalf("Expected ClusterQueue to be deleted after finalizer removal, but got: %v", err)
 			}
 		})
 	}
@@ -266,9 +328,28 @@ func resourceDataPoint(cohort, name, flavor, res string, v float64) testingmetri
 			"cluster_queue": name,
 			"flavor":        flavor,
 			"resource":      res,
+			"replica_role":  roletracker.RoleStandalone,
 		},
 		Value: v,
 	}
+}
+
+func workloadForReservation(cqName string, reservation []kueue.FlavorUsage) *kueue.Workload {
+	now := time.Now()
+	psa := utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName)
+	for _, fu := range reservation {
+		for _, ru := range fu.Resources {
+			psa = psa.Assignment(ru.Name, fu.Name, ru.Total.String())
+		}
+	}
+	return utiltestingapi.MakeWorkload("test-wl", "").
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cqName)).
+				PodSets(psa.Obj()).Obj(),
+			now,
+		).
+		AdmittedAt(true, now).
+		Obj()
 }
 
 func TestRecordResourceMetrics(t *testing.T) {
@@ -288,7 +369,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 								{
 									Name:           corev1.ResourceCPU,
 									NominalQuota:   resource.MustParse("1"),
-									BorrowingLimit: ptr.To(resource.MustParse("2")),
+									BorrowingLimit: new(resource.MustParse("2")),
 								},
 							},
 						},
@@ -348,7 +429,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
-				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].BorrowingLimit = ptr.To(resource.MustParse("1"))
+				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].BorrowingLimit = new(resource.MustParse("1"))
 				ret.Status.FlavorsReservation[0].Resources[0].Total = resource.MustParse("3")
 				return ret
 			}(),
@@ -481,6 +562,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
+				UsageDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 0),
+				},
 			},
 		},
 	}
@@ -492,14 +576,32 @@ func TestRecordResourceMetrics(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			recordResourceMetrics(tc.queue)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			cl := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cl)
+			r := &ClusterQueueReconciler{cache: cqCache}
+			err := cqCache.AddClusterQueue(ctx, tc.queue)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			wl := workloadForReservation("name", tc.queue.Status.FlavorsReservation)
+			cqCache.AddOrUpdateWorkload(log, wl)
+
+			cqCache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(tc.queue.Name))
 			gotMetrics := allMetricsForQueue(tc.queue.Name)
 			if diff := cmp.Diff(tc.wantMetrics, gotMetrics, opts...); len(diff) != 0 {
 				t.Errorf("Unexpected metrics (-want,+got):\n%s", diff)
 			}
 
 			if tc.updatedQueue != nil {
-				updateResourceMetrics(tc.queue, tc.updatedQueue)
+				wl := workloadForReservation("name", tc.updatedQueue.Status.FlavorsReservation)
+				cqCache.AddOrUpdateWorkload(log, wl)
+				if err := cqCache.UpdateClusterQueue(log, tc.updatedQueue); err != nil {
+					t.Fatalf("Updating clusterQueue in cache: %v", err)
+				}
+				r.updateResourceMetrics(log, tc.queue, tc.updatedQueue)
 				gotMetricsAfterUpdate := allMetricsForQueue(tc.queue.Name)
 				if diff := cmp.Diff(tc.wantUpdatedMetrics, gotMetricsAfterUpdate, opts...); len(diff) != 0 {
 					t.Errorf("Unexpected metrics (-want,+got):\n%s", diff)

@@ -61,6 +61,21 @@ type KubeConfig struct {
 type MultiKueueClusterSpec struct {
 	// kubeConfig is information on how to connect to the cluster.
 	KubeConfig KubeConfig `json:"kubeConfig"`
+
+	// clusterProfileRef is the reference to the ClusterProfile object used to connect to the cluster.
+	//
+	// This is only used to prevent data loss when converting between v1beta2 and v1beta1.
+	// It has no effect in v1beta1.
+	// +optional
+	ClusterProfileRef *ClusterProfileReference `json:"clusterProfileRef,omitempty"`
+}
+
+type ClusterProfileReference struct {
+	// name of the ClusterProfile.
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Name string `json:"name,omitempty"`
 }
 
 type MultiKueueClusterStatus struct {
@@ -77,9 +92,9 @@ type MultiKueueClusterStatus struct {
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
+// +kubebuilder:deprecatedversion:warning="This version is deprecated. Use v1beta2 instead."
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={mkc}
 
 // +kubebuilder:printcolumn:name="Connected",JSONPath=".status.conditions[?(@.type=='Active')].status",type="string",description="MultiKueueCluster is connected"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
@@ -111,15 +126,14 @@ type MultiKueueConfigSpec struct {
 	//
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=20
 	Clusters []string `json:"clusters"`
 }
 
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={mkconf}
 
 // MultiKueueConfig is the Schema for the multikueue API
 type MultiKueueConfig struct {

@@ -24,10 +24,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -65,7 +67,7 @@ func TestFromAssignment(t *testing.T) {
 		Obj()
 
 	cases := map[string]struct {
-		enableTopologyAwareScheduling bool
+		featureGates map[featuregate.Feature]bool
 
 		assignment   *kueue.PodSetAssignment
 		defaultCount int32
@@ -168,21 +170,21 @@ func TestFromAssignment(t *testing.T) {
 			},
 		},
 		"with topology assignment; TopologyAwareScheduling enabled - scheduling gate added": {
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			assignment: &kueue.PodSetAssignment{
 				Name: "name",
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 				},
-				TopologyAssignment: &kueue.TopologyAssignment{
+				TopologyAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
 					Levels: []string{"cloud.com/rack"},
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Values: []string{"rack1"},
 							Count:  4,
 						},
 					},
-				},
+				}),
 			},
 			defaultCount: 4,
 			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy()},
@@ -205,20 +207,21 @@ func TestFromAssignment(t *testing.T) {
 			},
 		},
 		"with topology assignment; TopologyAwareScheduling disabled - no scheduling gate added": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			assignment: &kueue.PodSetAssignment{
 				Name: "name",
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 				},
-				TopologyAssignment: &kueue.TopologyAssignment{
+				TopologyAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
 					Levels: []string{"cloud.com/rack"},
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Values: []string{"rack1"},
 							Count:  4,
 						},
 					},
-				},
+				}),
 			},
 			defaultCount: 4,
 			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy()},
@@ -236,7 +239,7 @@ func TestFromAssignment(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			client := utiltesting.NewClientBuilder().WithLists(&kueue.ResourceFlavorList{Items: tc.flavors}).Build()
 
 			podSet := kueue.PodSet{
@@ -434,25 +437,6 @@ func TestMergeRestore(t *testing.T) {
 				}).
 				Obj(),
 			wantRestoreChanges: true,
-		},
-		"podset with tas label; empty info": {
-			podSet: utiltestingapi.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
-				Obj(),
-			wantPodSet: utiltestingapi.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
-				Obj(),
-		},
-		"podset with tas label; info re-adds the same": {
-			podSet: utiltestingapi.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
-				Obj(),
-			info: PodSetInfo{
-				Labels: map[string]string{kueue.TASLabel: "true"},
-			},
-			wantPodSet: utiltestingapi.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
-				Obj(),
 		},
 	}
 

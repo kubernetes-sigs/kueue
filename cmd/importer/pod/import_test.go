@@ -18,6 +18,7 @@ package pod
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -26,15 +27,17 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/cmd/importer/util"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/cmd/importer/cache"
+	"sigs.k8s.io/kueue/cmd/importer/mapping"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 func TestImportNamespace(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	basePodWrapper := testingpod.MakePod("pod", testingNamespace).
 		UID("pod").
 		Label(testingQueueLabel, "q1").
@@ -51,11 +54,11 @@ func TestImportNamespace(t *testing.T) {
 			Request(corev1.ResourceCPU, "1").
 			PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 			Obj()).
-		ReserveQuota(utiltestingapi.MakeAdmission("cq1").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").
 			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 				Assignment(corev1.ResourceCPU, "f1", "1").
 				Obj()).
-			Obj()).
+			Obj(), now).
 		Condition(metav1.Condition{
 			Type:    kueue.WorkloadQuotaReserved,
 			Status:  metav1.ConditionTrue,
@@ -89,7 +92,7 @@ func TestImportNamespace(t *testing.T) {
 		pods          []corev1.Pod
 		clusterQueues []kueue.ClusterQueue
 		localQueues   []kueue.LocalQueue
-		mapping       util.MappingRules
+		mapping       mapping.Rules
 		addLabels     map[string]string
 
 		wantPods      []corev1.Pod
@@ -99,11 +102,11 @@ func TestImportNamespace(t *testing.T) {
 
 		"create one": {
 			pods: []corev1.Pod{
-				*basePodWrapper.Clone().Obj(),
+				*basePodWrapper.DeepCopy(),
 			},
-			mapping: util.MappingRules{
-				util.MappingRule{
-					Match: util.MappingMatch{
+			mapping: mapping.Rules{
+				mapping.Rule{
+					Match: mapping.Match{
 						PriorityClassName: "",
 						Labels: map[string]string{
 							testingQueueLabel: "q1",
@@ -127,16 +130,16 @@ func TestImportNamespace(t *testing.T) {
 			},
 
 			wantWorkloads: []kueue.Workload{
-				*baseWlWrapper.Clone().Obj(),
+				*baseWlWrapper.DeepCopy(),
 			},
 		},
 		"create one, add labels": {
 			pods: []corev1.Pod{
-				*basePodWrapper.Clone().Obj(),
+				*basePodWrapper.DeepCopy(),
 			},
-			mapping: util.MappingRules{
-				util.MappingRule{
-					Match: util.MappingMatch{
+			mapping: mapping.Rules{
+				mapping.Rule{
+					Match: mapping.Match{
 						PriorityClassName: "",
 						Labels: map[string]string{
 							testingQueueLabel: "q1",
@@ -184,7 +187,7 @@ func TestImportNamespace(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			mpc, _ := util.LoadImportCache(ctx, client, []string{testingNamespace}, tc.mapping, tc.addLabels)
+			mpc, _ := cache.Load(ctx, client, []string{testingNamespace}, tc.mapping, tc.addLabels)
 			gotErr := Import(ctx, client, mpc, 8)
 
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {

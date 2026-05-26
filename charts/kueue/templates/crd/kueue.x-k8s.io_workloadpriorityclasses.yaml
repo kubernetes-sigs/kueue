@@ -25,7 +25,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.20.1
   name: workloadpriorityclasses.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -33,6 +33,8 @@ spec:
     kind: WorkloadPriorityClass
     listKind: WorkloadPriorityClassList
     plural: workloadpriorityclasses
+    shortNames:
+      - wpc
     singular: workloadpriorityclass
   scope: Cluster
   versions:
@@ -41,6 +43,8 @@ spec:
           jsonPath: .value
           name: Value
           type: integer
+      deprecated: true
+      deprecationWarning: This version is deprecated. Use v1beta2 instead.
       name: v1beta1
       schema:
         openAPIV3Schema:
@@ -79,7 +83,7 @@ spec:
             - value
           type: object
       served: true
-      storage: true
+      storage: false
       subresources: {}
     - additionalPrinterColumns:
         - description: Value of workloadPriorityClass's Priority
@@ -126,5 +130,5 @@ spec:
             - value
           type: object
       served: true
-      storage: false
+      storage: true
       subresources: {}

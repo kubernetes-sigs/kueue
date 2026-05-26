@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package preemptioncommon
+package common
 
 import (
 	"cmp"
@@ -42,8 +42,8 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 	return cmputil.LazyOr(
 		func() int {
 			return cmputil.CompareBool(
-				meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted),
-				meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted),
+				workload.IsEvicted(a.Obj),
+				workload.IsEvicted(b.Obj),
 			)
 		},
 		func() int {
@@ -65,8 +65,8 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 		},
 		func() int {
 			return cmp.Compare(
-				priority.Priority(a.Obj),
-				priority.Priority(b.Obj),
+				priority.EffectivePriority(log, a.Obj),
+				priority.EffectivePriority(log, b.Obj),
 			)
 		},
 		func() int {

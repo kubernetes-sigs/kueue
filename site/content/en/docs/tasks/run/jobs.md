@@ -47,13 +47,14 @@ Queue.
 ## 1. Define the Job
 
 Running a Job in Kueue is similar to [running a Job in a Kubernetes cluster](https://kubernetes.io/docs/tasks/job/)
-without Kueue. However, you must consider the following differences:
+without Kueue. However, you must set the `kueue.x-k8s.io/queue-name` label selecting the LocalQueue you want to submit the Job to.
+You can also skip setting the "queue name" label if you use [LocalQueue defaulting](/docs/tasks/manage/enforce_job_management/setup_default_local_queue).
 
-- You should create the Job in a [suspended state](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job),
-  as Kueue will decide when it's the best time to start the Job.
-- You have to set the Queue you want to submit the Job to. Use the
- `kueue.x-k8s.io/queue-name` label.
-- You should include the resource requests for each Job Pod.
+You should specify [resource requests or limits](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/) for each Job Pod.
+If you specify only limits, Kueue will treat the limit values as requests. See [how Kueue uses resource requests](/docs/concepts/workload#resource-requests) for details.
+
+Note that you do not need to create the Job in a [suspended state](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job).
+Kueue automatically manages the Job's suspension via webhook and decides when it's the best time to start the Job.
 
 Here is a sample Job with three Pods that just sleep for a few seconds.
 
@@ -71,7 +72,7 @@ Internally, Kueue will create a corresponding [Workload](/docs/concepts/workload
 for this Job with a matching name.
 
 ```shell
-kubectl -n default get workloads
+kubectl -n default get workloads.kueue.x-k8s.io
 ```
 
 The output will be similar to the following:
@@ -118,7 +119,7 @@ When the ClusterQueue has enough quota to run the Workload, it will admit
 the Workload. To see if the Workload was admitted, run the following command:
 
 ```shell
-kubectl -n default get workloads
+kubectl -n default get workloads.kueue.x-k8s.io
 ```
 
 The output is similar to the following:
@@ -204,11 +205,11 @@ be listed in a slightly different order from which they actually occurred.
 
 {{< feature-state state="beta" for_version="v0.5" >}}
 
-Kueue provides the ability for a batch user to create Jobs that ideally will run with a parallelism `P0` but can accept a smaller parallelism, `Pn`, if the Job dose not fit within the available quota.
+Kueue provides the ability for a batch user to create Jobs that ideally will run with a parallelism `P0` but can accept a smaller parallelism, `Pn`, if the Job does not fit within the available quota.
 
 Kueue will only attempt to decrease the parallelism after both _borrowing_ and _preemption_ was taken into account in the admission process, and none of them are feasible.
 
-To allow partial admission you can provide the minimum acceptable parallelism `Pmin` in `kueue.x-k8s.io/job-min-parallelism` annotation of the Job, `Pn` should be grater that 0 and less that `P0`. When a Job is partially admitted its parallelism will be set to `Pn`, `Pn` will be set to the maximum acceptable value between `Pmin` and `P0`. The Job's completions count will not be changed.
+To allow partial admission you can provide the minimum acceptable parallelism `Pmin` in `kueue.x-k8s.io/job-min-parallelism` annotation of the Job, `Pn` should be greater than 0 and less than `P0`. When a Job is partially admitted its parallelism will be set to `Pn`, `Pn` will be set to the maximum acceptable value between `Pmin` and `P0`. The Job's completions count will not be changed.
 
 For example, a Job defined by the following manifest:
 

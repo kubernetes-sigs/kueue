@@ -609,8 +609,8 @@ type ACMEIssuerDNS01ProviderRoute53 struct {
 
 	// The AccessKeyID is used for authentication.
 	// Cannot be set when SecretAccessKeyID is set.
-	// If neither the Access Key nor Key ID are set, we fall-back to using env
-	// vars, shared credentials file or AWS Instance metadata,
+	// If neither the Access Key nor Key ID are set, we fall back to using env
+	// vars, shared credentials file, or AWS Instance metadata,
 	// see: https://docs.aws.amazon.com/sdk-for-go/v1/developer-guide/configuring-sdk.html#specifying-credentials
 	// +optional
 	AccessKeyID string `json:"accessKeyID,omitempty"`
@@ -618,15 +618,15 @@ type ACMEIssuerDNS01ProviderRoute53 struct {
 	// The SecretAccessKey is used for authentication. If set, pull the AWS
 	// access key ID from a key within a Kubernetes Secret.
 	// Cannot be set when AccessKeyID is set.
-	// If neither the Access Key nor Key ID are set, we fall-back to using env
-	// vars, shared credentials file or AWS Instance metadata,
+	// If neither the Access Key nor Key ID are set, we fall back to using env
+	// vars, shared credentials file, or AWS Instance metadata,
 	// see: https://docs.aws.amazon.com/sdk-for-go/v1/developer-guide/configuring-sdk.html#specifying-credentials
 	// +optional
 	SecretAccessKeyID *cmmeta.SecretKeySelector `json:"accessKeyIDSecretRef,omitempty"`
 
 	// The SecretAccessKey is used for authentication.
-	// If neither the Access Key nor Key ID are set, we fall-back to using env
-	// vars, shared credentials file or AWS Instance metadata,
+	// If neither the Access Key nor Key ID are set, we fall back to using env
+	// vars, shared credentials file, or AWS Instance metadata,
 	// see: https://docs.aws.amazon.com/sdk-for-go/v1/developer-guide/configuring-sdk.html#specifying-credentials
 	// +optional
 	SecretAccessKey cmmeta.SecretKeySelector `json:"secretAccessKeySecretRef"`
@@ -738,11 +738,32 @@ type ACMEIssuerDNS01ProviderAzureDNS struct {
 	// If set, ClientID, ClientSecret and TenantID must not be set.
 	// +optional
 	ManagedIdentity *AzureManagedIdentity `json:"managedIdentity,omitempty"`
+
+	// ZoneType determines which type of Azure DNS zone to use.
+	//
+	// Valid values are:
+	//   - AzurePublicZone  (default): Use a public Azure DNS zone.
+	//   - AzurePrivateZone: Use an Azure Private DNS zone.
+	//
+	// If not specified, AzurePublicZone is used.
+	//
+	// Support for Azure Private DNS zones is currently
+	// experimental and may change in future releases.
+	// +optional
+	ZoneType AzureZoneType `json:"zoneType,omitempty"`
 }
+
+// +kubebuilder:validation:Enum=AzurePublicZone;AzurePrivateZone
+type AzureZoneType string
+
+const (
+	PrivateAzureZone AzureZoneType = "AzurePrivateZone"
+	PublicAzureZone  AzureZoneType = "AzurePublicZone"
+)
 
 // AzureManagedIdentity contains the configuration for Azure Workload Identity or Azure Managed Service Identity
 // If the AZURE_FEDERATED_TOKEN_FILE environment variable is set, the Azure Workload Identity will be used.
-// Otherwise, we fall-back to using Azure Managed Service Identity.
+// Otherwise, we fall back to using Azure Managed Service Identity.
 type AzureManagedIdentity struct {
 	// client ID of the managed identity, cannot be used at the same time as resourceID
 	// +optional
@@ -781,7 +802,7 @@ type ACMEIssuerDNS01ProviderAcmeDNS struct {
 type ACMEIssuerDNS01ProviderRFC2136 struct {
 	// The IP address or hostname of an authoritative DNS server supporting
 	// RFC2136 in the form host:port. If the host is an IPv6 address it must be
-	// enclosed in square brackets (e.g [2001:db8::1]) ; port is optional.
+	// enclosed in square brackets (e.g [2001:db8::1]); port is optional.
 	// This field is required.
 	Nameserver string `json:"nameserver"`
 

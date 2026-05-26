@@ -21,9 +21,10 @@ For more information, see [Kueue's overview](/docs/overview).
 
 ## Before you begin
 
-1. Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version).
+1. The `leaderworkerset.x-k8s.io/leaderworkerset` integration is enabled by default.
 
-2. Ensure that you have the `leaderworkerset.x-k8s.io/leaderworkerset` integration enabled, for example:
+2. For Kueue v0.15 and earlier, learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version)
+   and ensure that you have the `leaderworkerset.x-k8s.io/leaderworkerset` integration enabled, for example:
    ```yaml
    apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
@@ -51,8 +52,8 @@ The target [local queue](/docs/concepts/local_queue) should be specified in the 
 
 ```yaml
 metadata:
-   labels:
-      kueue.x-k8s.io/queue-name: user-queue
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
 ```
 
 ### b. Configure the resource needs
@@ -60,19 +61,19 @@ The resource needs of the workload can be configured in the `spec.template.spec.
 
 ```yaml
 spec:
-   leaderWorkerTemplate:
-      leaderTemplate:
-         spec:
-            containers:
-               - resources:
-                    requests:
-                       cpu: "100m"
-      workerTemplate:
-         spec:
-            containers:
-               - resources:
-                    requests:
-                       cpu: "100m"
+  leaderWorkerTemplate:
+    leaderTemplate:
+      spec:
+        containers:
+          - resources:
+              requests:
+                cpu: "100m"
+    workerTemplate:
+      spec:
+        containers:
+          - resources:
+              requests:
+                cpu: "100m"
 ```
 
 ### c. Scaling
@@ -93,3 +94,43 @@ You can create the LeaderWorkerSet using the following command:
 ```sh
 kubectl create -f sample-leaderworkerset.yaml
 ```
+
+## Configure Topology Aware Scheduling
+
+For performance-sensitive workloads like large-scale inference or distributed training, you may require the Leader and Worker pods to be co-located within a specific network topology domain (e.g., a rack or a data center block) to minimize latency.
+
+Kueue supports Topology Aware Scheduling (TAS) for LeaderWorkerSet by reading annotations from the Pod templates. To enable this:
+
+- [Configure the cluster for Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling).
+- Add the `kueue.x-k8s.io/podset-required-topology` annotation to both the `leaderTemplate` and the `workerTemplate`.
+- Add the `kueue.x-k8s.io/podset-group-name` annotation to both the `leaderTemplate` and the `workerTemplate` with the same value. This ensures that the Leader and Workers are scheduled in the same topology domain.
+
+### Example: Rack-Level Co-location
+
+The following example uses the `podset-group-name` annotation to ensure that the Leader and all Workers are scheduled within the same rack (represented by the `cloud.provider.com/topology-rack` label).
+
+{{< include "examples/serving-workloads/sample-leaderworkerset-tas.yaml" "yaml" >}}
+
+When `replicas` is greater than 1 (as in the example above where `replicas: 2`), the topology constraints apply to each replica individually. This means that for each replica, the Leader and its Workers will be co-located in the same topology domain (e.g., rack), but different replicas may be assigned to different topology domains.
+
+## Multikueue
+Check [MultiKueue](/docs/tasks/run/multikueue/leaderworkerset) for details on running LeaderWorkerSets in MultiKueue environment.
+
+## Troubleshooting
+
+For general troubleshooting guidance, see the [Kueue troubleshooting guide](/docs/tasks/troubleshooting).
+
+### Long LeaderWorkerSet names
+
+By default, Kueue stores the pod-group identifier in the
+`kueue.x-k8s.io/pod-group-name` label, which inherits Kubernetes'
+63-character label value limit. Because Kueue derives this value by appending
+a group suffix to the LeaderWorkerSet name, the effective LWS name limit is
+**39 characters**.
+
+Enable the alpha
+[`WorkloadIdentifierAnnotations`](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features)
+feature gate to store the identifier in an annotation instead, removing
+Kueue's label-length constraint. With the feature gate enabled, the effective
+limit shifts to the upstream LWS constraint of **51 characters**
+(see [Unable to Create LWS Object with a Name Exceeding 51 Characters](https://lws.sigs.k8s.io/docs/troubleshooting/#3-unable-to-create-lws-object-with-a-name-exceeding-51-characters) in the LWS troubleshooting guide).

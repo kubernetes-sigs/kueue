@@ -23,15 +23,16 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
-    - [Story 1](#story-1)
-    - [Story 2](#story-2)
+    - [Story 1 (Optional)](#story-1-optional)
+    - [Story 2 (Optional)](#story-2-optional)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Test Plan](#test-plan)
-      - [Prerequisite testing updates](#prerequisite-testing-updates)
-    - [Unit Tests](#unit-tests)
+    - [Prerequisite testing updates](#prerequisite-testing-updates)
+    - [Unit tests](#unit-tests)
     - [Integration tests](#integration-tests)
+    - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
@@ -104,9 +105,9 @@ the system. The goal here is to make this feel real for users without getting
 bogged down.
 -->
 
-#### Story 1
+#### Story 1 (Optional)
 
-#### Story 2
+#### Story 2 (Optional)
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -157,14 +158,14 @@ when drafting this test plan.
 existing tests to make this code solid enough prior to committing the changes necessary
 to implement this enhancement.
 
-##### Prerequisite testing updates
+#### Prerequisite testing updates
 
 <!--
 Based on reviewers feedback describe what additional tests need to be added prior
 implementing this enhancement to ensure the enhancements have also solid foundations.
 -->
 
-#### Unit Tests
+#### Unit tests
 
 <!--
 In principle every added code should have complete unit test coverage, so providing
@@ -191,6 +192,21 @@ extending the production code to implement this enhancement.
 Describe what tests will be added to ensure proper quality of the enhancement.
 
 After the implementation PR is merged, add the names of the tests here.
+-->
+
+#### e2e tests
+
+<!--
+This question should be filled when targeting a release.
+For Alpha, describe what tests will be added to ensure proper quality of the enhancement.
+
+For Beta and GA, document that tests have been written,
+have been executed regularly, and have been stable.
+This can be done with:
+- permalinks to the GitHub source code
+- links to the periodic job (typically a job owned by the SIG responsible for the feature), filtered by the test name
+
+If e2e tests are not necessary or useful, explain why.
 -->
 
 ### Graduation Criteria

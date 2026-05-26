@@ -26,11 +26,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -56,9 +57,19 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 	podGroupWithWl := basePodBuilder.
 		Clone().
-		Label(constants.PrebuiltWorkloadLabel, "wl1").
+		PrebuiltWorkloadLabel("wl1").
 		Label(kueue.MultiKueueOriginLabel, "origin1").
 		MakePodGroupWrappers(groupSize)
+
+	podGroupWithWlAnnotations := basePodBuilder.
+		Clone().
+		MakePodGroupWrappersWithWorkloadAnnotations(groupSize)
+
+	workerPodGroupWithAnnotations := basePodBuilder.
+		Clone().
+		PrebuiltWorkloadAnnotation("wl1").
+		Label(kueue.MultiKueueOriginLabel, "origin1").
+		MakePodGroupWrappersWithWorkloadAnnotations(groupSize)
 
 	cases := map[string]struct {
 		managersPods []corev1.Pod
@@ -69,32 +80,35 @@ func TestMultiKueueAdapter(t *testing.T) {
 		wantError        error
 		wantManagersPods []corev1.Pod
 		wantWorkerPods   []corev1.Pod
+		featureGates     map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote pod": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
-				*basePodBuilder.Clone().Obj(),
+				*basePodBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
 			wantManagersPods: []corev1.Pod{
-				*basePodBuilder.Clone().Obj(),
+				*basePodBuilder.DeepCopy(),
 			},
 			wantWorkerPods: []corev1.Pod{
 				*basePodBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 		},
 		"sync status from remote pod": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
 				*basePodBuilder.DeepCopy(),
 			},
 			workerPods: []corev1.Pod{
 				*basePodBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusPhase(corev1.PodRunning).
 					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
@@ -112,7 +126,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerPods: []corev1.Pod{
 				*basePodBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusPhase(corev1.PodRunning).
 					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
@@ -120,19 +134,21 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"remote pod is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerPods: []corev1.Pod{
 				*basePodBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace})
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace})
 			},
 		},
 		"pod managedBy multikueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
-				*basePodBuilder.Clone().Obj(),
+				*basePodBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}); !isManged {
@@ -141,38 +157,40 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return nil
 			},
 			wantManagersPods: []corev1.Pod{
-				*basePodBuilder.Clone().Obj(),
+				*basePodBuilder.DeepCopy(),
 			},
 		},
 		"sync creates missing remote pods of the group": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
-				*podGroup[0].Clone().Obj(),
-				*podGroup[1].Clone().Obj(),
-				*podGroup[2].Clone().Obj(),
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
 			},
 			wantManagersPods: []corev1.Pod{
-				*podGroup[0].Clone().Obj(),
-				*podGroup[1].Clone().Obj(),
-				*podGroup[2].Clone().Obj(),
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
 			},
 			wantWorkerPods: []corev1.Pod{
-				*podGroupWithWl[0].Clone().Obj(),
-				*podGroupWithWl[1].Clone().Obj(),
-				*podGroupWithWl[2].Clone().Obj(),
+				*podGroupWithWl[0].DeepCopy(),
+				*podGroupWithWl[1].DeepCopy(),
+				*podGroupWithWl[2].DeepCopy(),
 			},
 		},
 		"sync status from remote pod group": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
-				*podGroup[0].Clone().Obj(),
-				*podGroup[1].Clone().Obj(),
-				*podGroup[2].Clone().Obj(),
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
 			},
 			workerPods: []corev1.Pod{
-				*podGroupWithWl[0].Clone().Obj(),
-				*podGroupWithWl[1].Clone().Obj(),
+				*podGroupWithWl[0].DeepCopy(),
+				*podGroupWithWl[1].DeepCopy(),
 				*podGroupWithWl[2].Clone().
 					StatusPhase(corev1.PodRunning).
 					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
@@ -182,16 +200,16 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
 			},
 			wantManagersPods: []corev1.Pod{
-				*podGroup[0].Clone().Obj(),
-				*podGroup[1].Clone().Obj(),
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
 				*podGroup[2].Clone().
 					StatusPhase(corev1.PodRunning).
 					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
 			wantWorkerPods: []corev1.Pod{
-				*podGroupWithWl[0].Clone().Obj(),
-				*podGroupWithWl[1].Clone().Obj(),
+				*podGroupWithWl[0].DeepCopy(),
+				*podGroupWithWl[1].DeepCopy(),
 				*podGroupWithWl[2].Clone().
 					StatusPhase(corev1.PodRunning).
 					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
@@ -199,24 +217,79 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"remote pod group is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
+			},
 			workerPods: []corev1.Pod{
-				*podGroupWithWl[0].Clone().Obj(),
-				*podGroupWithWl[1].Clone().Obj(),
-				*podGroupWithWl[2].Clone().Obj(),
+				*podGroupWithWl[0].DeepCopy(),
+				*podGroupWithWl[1].DeepCopy(),
+				*podGroupWithWl[2].DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace})
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace})
+			},
+			wantManagersPods: []corev1.Pod{
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
+			},
+		},
+		"sync creates missing remote pod, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersPods: []corev1.Pod{
+				*basePodBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.DeepCopy(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					PrebuiltWorkloadAnnotation("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
+		"sync creates missing remote pods of the group, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersPods: []corev1.Pod{
+				*podGroupWithWlAnnotations[0].DeepCopy(),
+				*podGroupWithWlAnnotations[1].DeepCopy(),
+				*podGroupWithWlAnnotations[2].DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersPods: []corev1.Pod{
+				*podGroupWithWlAnnotations[0].DeepCopy(),
+				*podGroupWithWlAnnotations[1].DeepCopy(),
+				*podGroupWithWlAnnotations[2].DeepCopy(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*workerPodGroupWithAnnotations[0].DeepCopy(),
+				*workerPodGroupWithAnnotations[1].DeepCopy(),
+				*workerPodGroupWithAnnotations[2].DeepCopy(),
 			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			managerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			managerBuilder := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName)
 			managerBuilder = managerBuilder.WithLists(&corev1.PodList{Items: tc.managersPods})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersPods, func(w *corev1.Pod) client.Object { return w })...)
 			managerClient := managerBuilder.Build()
 
-			workerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			workerBuilder := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName)
 			workerBuilder = workerBuilder.WithLists(&corev1.PodList{Items: tc.workerPods})
 			workerClient := workerBuilder.Build()
 

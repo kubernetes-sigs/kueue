@@ -14,22 +14,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package dispatcher
+package workloaddispatcher
 
 import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration, dispatcherName string) (string, error) {
+func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
+	if *cfg.MultiKueue.DispatcherName != configapi.MultiKueueDispatcherModeIncremental {
+		return "", nil
+	}
+
 	helper, err := admissioncheck.NewMultiKueueStoreHelper(mgr.GetClient())
 	if err != nil {
 		return "", err
 	}
 
-	idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, dispatcherName)
+	idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, roleTracker)
 	err = idRec.SetupWithManager(mgr, cfg)
 	if err != nil {
 		return "multikueue-incremental-dispatcher", err

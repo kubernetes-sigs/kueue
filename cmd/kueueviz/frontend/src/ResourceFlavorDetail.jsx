@@ -16,7 +16,7 @@ limitations under the License.
 
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress, Box } from '@mui/material';
+import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress, Box, Switch, FormControlLabel, Chip } from '@mui/material';
 import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
@@ -27,6 +27,7 @@ const ResourceFlavorDetail = () => {
   const { data: flavorData, error } = useWebSocket(url);
 
   const [flavor, setFlavor] = useState(null);
+  const [showLabels, setShowLabels] = useState(false);
 
   useEffect(() => {
     if (flavorData && flavorData.name) {
@@ -47,6 +48,8 @@ const ResourceFlavorDetail = () => {
   }
 
   const { details, queues, nodes } = flavor;
+  const sortedNodes = [...(nodes || [])].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const sortedQueues = [...(queues || [])].sort((a, b) => (a.queueName || '').localeCompare(b.queueName || ''));
 
   return (
     <Paper className="parentContainer">
@@ -54,48 +57,52 @@ const ResourceFlavorDetail = () => {
       {/* Display Flavor Details */}
       <Box mt={3} width="100%">
         <Typography variant="h5" gutterBottom>Flavor Details</Typography>
-        <Typography variant="body1"><strong>Node Labels:</strong></Typography>
-        {details.nodeLabels ? (
-          <ul>
-            {Object.entries(details.nodeLabels)?.map(([key, value]) => (
-              <li key={key}>{key}: {value}</li>
-            ))}
-          </ul>
-        ) : (
-          <Typography variant="body2">No specific node labels.</Typography>
-        )}
-
-        <Typography variant="body1" mt={2}><strong>Node Taints:</strong></Typography>
-        {details.nodeTaints?.length ? (
-          <ul>
-            {details.nodeTaints?.map((taint, index) => (
-              <li key={index}>
-                {taint.key}={taint.value} ({taint.effect})
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <Typography variant="body2">No specific node taints.</Typography>
-        )}
-
-        <Typography variant="body1" mt={2}><strong>Tolerations:</strong></Typography>
-        {details.tolerations?.length ? (
-          <ul>
-            {details.tolerations?.map((toleration, index) => (
-              <li key={index}>
-                {toleration.key} ({toleration.operator}): {toleration.effect}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <Typography variant="body2">No specific tolerations.</Typography>
-        )}
+        <Box display="flex" flexDirection="column" gap={1.5}>
+          <Box>
+            <Typography variant="body2" color="text.secondary" gutterBottom><strong>Node Labels</strong></Typography>
+            {details.nodeLabels && Object.keys(details.nodeLabels).length > 0 ? (
+              <Box display="flex" flexWrap="wrap" gap={0.5}>
+                {Object.entries(details.nodeLabels).map(([key, value]) => (
+                  <Chip key={key} label={`${key}: ${value}`} size="small" variant="outlined" />
+                ))}
+              </Box>
+            ) : (
+              <Typography variant="body2" color="text.secondary">None</Typography>
+            )}
+          </Box>
+          <Box>
+            <Typography variant="body2" color="text.secondary" gutterBottom><strong>Node Taints</strong></Typography>
+            {details.nodeTaints?.length ? (
+              <Box display="flex" flexWrap="wrap" gap={0.5}>
+                {details.nodeTaints.map((taint, index) => (
+                  <Chip key={index} label={`${taint.key}=${taint.value} (${taint.effect})`} size="small" color="warning" variant="outlined" />
+                ))}
+              </Box>
+            ) : (
+              <Typography variant="body2" color="text.secondary">None</Typography>
+            )}
+          </Box>
+          <Box>
+            <Typography variant="body2" color="text.secondary" gutterBottom><strong>Tolerations</strong></Typography>
+            {details.tolerations?.length ? (
+              <Box display="flex" flexWrap="wrap" gap={0.5}>
+                {details.tolerations.map((toleration, index) => (
+                  <Chip key={index} label={`${toleration.key} (${toleration.operator}): ${toleration.effect}`} size="small" variant="outlined" />
+                ))}
+              </Box>
+            ) : (
+              <Typography variant="body2" color="text.secondary">None</Typography>
+            )}
+          </Box>
+        </Box>
       </Box>
 
       {/* Display Queues Using This Flavor */}
       <Box mt={5} width="100%">
-        <Typography variant="h5" gutterBottom>Queues Using This Flavor</Typography>
-        {queues && queues.length === 0 ? (
+        <Typography variant="h5" gutterBottom>
+          Queues Using This Flavor {sortedQueues.length > 0 && <Chip label={sortedQueues.length} size="small" sx={{ ml: 1 }} />}
+        </Typography>
+        {sortedQueues.length === 0 ? (
           <Typography>No cluster queues are using this flavor.</Typography>
         ) : (
           <TableContainer component={Paper} className="tableContainerWithBorder">
@@ -108,7 +115,7 @@ const ResourceFlavorDetail = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {queues?.map((queue) => (
+                {sortedQueues.map((queue) => (
                   <React.Fragment key={queue.queueName}>
                     <TableRow>
                       <TableCell rowSpan={queue.quota.length}>
@@ -133,41 +140,50 @@ const ResourceFlavorDetail = () => {
 
       {/* Display Nodes Matching This Flavor */}
       <Box mt={5} width="100%">
-        <Typography variant="h5" gutterBottom>Nodes Matching This Flavor</Typography>
-        {nodes && nodes.length === 0 ? (
+        <Box display="flex" alignItems="center" gap={2} mb={1}>
+          <Typography variant="h5" sx={{ mb: 0 }}>
+            Nodes Matching This Flavor {sortedNodes.length > 0 && <Chip label={sortedNodes.length} size="small" sx={{ ml: 1 }} />}
+          </Typography>
+          <FormControlLabel
+            control={<Switch checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} size="small" />}
+            label="Show Labels"
+            sx={{ ml: 1 }}
+          />
+        </Box>
+        {sortedNodes.length === 0 ? (
           <Typography>No nodes match this flavor.</Typography>
         ) : (
           <TableContainer component={Paper} className="tableContainerWithBorder">
-            <Table>
+            <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>Node Name</TableCell>
-                  <TableCell>Labels</TableCell>
+                  {showLabels && <TableCell>Labels</TableCell>}
                   <TableCell>Taints</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {nodes?.map((node) => (
+                {sortedNodes.map((node) => (
                   <TableRow key={node.name}>
                     <TableCell>{node.name}</TableCell>
-                    <TableCell>
-                      <ul>
-                        {Object.entries(node.labels).map(([key, value]) => (
-                          <li key={key}>{key}: {value}</li>
-                        ))}
-                      </ul>
-                    </TableCell>
-                    <TableCell>
-                      {node.taints.length > 0 ? (
-                        <ul>
-                          {node.taints.map((taint, index) => (
-                            <li key={index}>
-                              {taint.key}={taint.value} ({taint.effect})
-                            </li>
+                    {showLabels && (
+                      <TableCell>
+                        <Box display="flex" flexWrap="wrap" gap={0.5}>
+                          {Object.entries(node.labels).map(([key, value]) => (
+                            <Chip key={key} label={`${key}: ${value}`} size="small" variant="outlined" />
                           ))}
-                        </ul>
+                        </Box>
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      {node.taints?.length > 0 ? (
+                        <Box display="flex" flexWrap="wrap" gap={0.5}>
+                          {node.taints.map((taint, index) => (
+                            <Chip key={index} label={`${taint.key}=${taint.value} (${taint.effect})`} size="small" color="warning" variant="outlined" />
+                          ))}
+                        </Box>
                       ) : (
-                        <Typography variant="body2">No taints</Typography>
+                        <Typography variant="body2" color="text.secondary">—</Typography>
                       )}
                     </TableCell>
                   </TableRow>

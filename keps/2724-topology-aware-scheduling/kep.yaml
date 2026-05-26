@@ -3,6 +3,7 @@ kep-number: 2724
 authors:
   - "@mimowo"
   - "@mwielgus"
+  - "@olekzabl"
   - "@pbundyra"
 status: provisional
 creation-date: 2023-07-30
@@ -16,6 +17,7 @@ approvers:
 
 see-also:
   - "/keps/1136-provisioning-request-support"
+  - "/keps/77-dynamically-sized-jobs"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: beta
@@ -23,7 +25,7 @@ stage: beta
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.15"
+latest-milestone: "v0.17"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
@@ -37,11 +39,15 @@ feature-gates:
   - name: TopologyAwareScheduling
   - name: TASProfileMixed
   - name: TASProfileBestFit
-  - name: TASProfileLeastFreeCapacity
   - name: TASProfileMostFreeCapacity # deleted in 0.13
+  - name: TASProfileLeastFreeCapacity # deleted in 0.17
   - name: TASFailedNodeReplacement
   - name: TASFailedNodeReplacementFailFast
   - name: TASReplaceNodeOnPodTermination
+  - name: TASBalancedPlacement
+  - name: TASReplaceNodeOnNodeTaints
+  - name: TASMultiLayerTopology
+  - name: TASRespectNodeAffinityPreferred
 disable-supported: true
 
 # The following PRR answers are required at beta release

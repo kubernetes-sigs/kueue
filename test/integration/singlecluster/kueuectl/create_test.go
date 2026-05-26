@@ -28,17 +28,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Kueuectl Create", func() {
 	var (
 		ns *corev1.Namespace
 		cq *kueue.ClusterQueue
@@ -115,7 +114,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -153,7 +152,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -182,7 +181,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -231,7 +230,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -272,7 +271,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -321,7 +320,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -365,7 +364,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
-				configFlags.Namespace = ptr.To(ns.Name)
+				configFlags.Namespace = new(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -548,7 +547,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				var resourceFlavor kueue.ResourceFlavor
 				gomega.Eventually(func(g gomega.Gomega) {
 					rfKey := types.NamespacedName{Name: rfName, Namespace: ns.Name}
-					g.Expect(k8sClient.Get(ctx, rfKey, &resourceFlavor)).Should(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, rfKey, &resourceFlavor)).Should(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

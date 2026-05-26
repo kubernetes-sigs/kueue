@@ -66,13 +66,15 @@ func getOperatorNamespace() string {
 //
 //nolint:revive // format required by generated code for defaulting
 func SetDefaults_Configuration(cfg *Configuration) {
-	cfg.Namespace = cmp.Or(cfg.Namespace, ptr.To(getOperatorNamespace()))
-	cfg.Webhook.Port = cmp.Or(cfg.Webhook.Port, ptr.To(DefaultWebhookPort))
+	cfg.Namespace = cmp.Or(cfg.Namespace, new(getOperatorNamespace()))
+	cfg.Webhook.Port = cmp.Or(cfg.Webhook.Port, new(DefaultWebhookPort))
 	cfg.Webhook.CertDir = cmp.Or(cfg.Webhook.CertDir, DefaultWebhookCertDir)
 	cfg.Metrics.BindAddress = cmp.Or(cfg.Metrics.BindAddress, DefaultMetricsBindAddress)
 	cfg.Health.HealthProbeBindAddress = cmp.Or(cfg.Health.HealthProbeBindAddress, DefaultHealthProbeBindAddress)
 	cfg.LeaderElection = cmp.Or(cfg.LeaderElection, &configv1alpha1.LeaderElectionConfiguration{})
 	cfg.LeaderElection.ResourceName = cmp.Or(cfg.LeaderElection.ResourceName, DefaultLeaderElectionID)
+
+	cfg.Metrics.LocalQueueMetrics = cmp.Or(cfg.Metrics.LocalQueueMetrics, &LocalQueueMetrics{Enable: true})
 
 	// Default to Lease as component-base still defaults to endpoint resources
 	// until core components migrate to using Leases. See k/k #80289 for more details.
@@ -82,22 +84,23 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	configv1alpha1.RecommendedDefaultLeaderElectionConfiguration(cfg.LeaderElection)
 
 	cfg.InternalCertManagement = cmp.Or(cfg.InternalCertManagement, &InternalCertManagement{})
-	cfg.InternalCertManagement.Enable = cmp.Or(cfg.InternalCertManagement.Enable, ptr.To(true))
+	cfg.InternalCertManagement.Enable = cmp.Or(cfg.InternalCertManagement.Enable, new(true))
 	if *cfg.InternalCertManagement.Enable {
-		cfg.InternalCertManagement.WebhookServiceName = cmp.Or(cfg.InternalCertManagement.WebhookServiceName, ptr.To(DefaultWebhookServiceName))
-		cfg.InternalCertManagement.WebhookSecretName = cmp.Or(cfg.InternalCertManagement.WebhookSecretName, ptr.To(DefaultWebhookSecretName))
+		cfg.InternalCertManagement.WebhookServiceName = cmp.Or(cfg.InternalCertManagement.WebhookServiceName, new(DefaultWebhookServiceName))
+		cfg.InternalCertManagement.WebhookSecretName = cmp.Or(cfg.InternalCertManagement.WebhookSecretName, new(DefaultWebhookSecretName))
 	}
 
 	cfg.ClientConnection = cmp.Or(cfg.ClientConnection, &ClientConnection{})
-	cfg.ClientConnection.QPS = cmp.Or(cfg.ClientConnection.QPS, ptr.To(DefaultClientConnectionQPS))
-	cfg.ClientConnection.Burst = cmp.Or(cfg.ClientConnection.Burst, ptr.To(DefaultClientConnectionBurst))
+	cfg.ClientConnection.QPS = cmp.Or(cfg.ClientConnection.QPS, new(DefaultClientConnectionQPS))
+	cfg.ClientConnection.Burst = cmp.Or(cfg.ClientConnection.Burst, new(DefaultClientConnectionBurst))
 
 	cfg.WaitForPodsReady = cmp.Or(cfg.WaitForPodsReady, &WaitForPodsReady{Enable: false})
 	if cfg.WaitForPodsReady.Enable {
 		cfg.WaitForPodsReady.Timeout = cmp.Or(cfg.WaitForPodsReady.Timeout, &metav1.Duration{Duration: defaultPodsReadyTimeout})
+		cfg.WaitForPodsReady.RecoveryTimeout = cmp.Or(cfg.WaitForPodsReady.RecoveryTimeout, cfg.WaitForPodsReady.Timeout)
 		cfg.WaitForPodsReady.BlockAdmission = cmp.Or(cfg.WaitForPodsReady.BlockAdmission, &cfg.WaitForPodsReady.Enable)
 		cfg.WaitForPodsReady.RequeuingStrategy = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy, &RequeuingStrategy{})
-		cfg.WaitForPodsReady.RequeuingStrategy.Timestamp = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.Timestamp, ptr.To(EvictionTimestamp))
+		cfg.WaitForPodsReady.RequeuingStrategy.Timestamp = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.Timestamp, new(EvictionTimestamp))
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds, ptr.To[int32](DefaultRequeuingBackoffBaseSeconds))
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds, ptr.To[int32](DefaultRequeuingBackoffMaxSeconds))
 	}
@@ -119,9 +122,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	cfg.MultiKueue = cmp.Or(cfg.MultiKueue, &MultiKueue{})
 	cfg.MultiKueue.GCInterval = cmp.Or(cfg.MultiKueue.GCInterval, &metav1.Duration{Duration: DefaultMultiKueueGCInterval})
-	cfg.MultiKueue.Origin = ptr.To(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
+	cfg.MultiKueue.Origin = new(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
 	cfg.MultiKueue.WorkerLostTimeout = cmp.Or(cfg.MultiKueue.WorkerLostTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout})
-	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, ptr.To(MultiKueueDispatcherModeAllAtOnce))
+	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, new(MultiKueueDispatcherModeAllAtOnce))
 
 	if fs := cfg.FairSharing; fs != nil && fs.Enable && len(fs.PreemptionStrategies) == 0 {
 		fs.PreemptionStrategies = []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare}
@@ -132,7 +135,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	if cfg.Resources != nil {
 		for idx := range cfg.Resources.Transformations {
-			cfg.Resources.Transformations[idx].Strategy = ptr.To(cmp.Or(ptr.Deref(cfg.Resources.Transformations[idx].Strategy, ""), DefaultResourceTransformationStrategy))
+			cfg.Resources.Transformations[idx].Strategy = new(cmp.Or(ptr.Deref(cfg.Resources.Transformations[idx].Strategy, ""), DefaultResourceTransformationStrategy))
 		}
 	}
 }

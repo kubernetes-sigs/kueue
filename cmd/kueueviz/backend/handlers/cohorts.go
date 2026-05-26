@@ -21,109 +21,123 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
-	"k8s.io/client-go/dynamic"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // CohortsWebSocketHandler streams all cohorts
-func CohortsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-		return fetchCohorts(ctx, dynamicClient)
-	})
+func (h *Handlers) CohortsWebSocketHandler() gin.HandlerFunc {
+	// Cohorts are derived from ClusterQueues, so use ClusterQueue informer
+	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+		return h.fetchCohorts(ctx)
+	}, ClusterQueuesGVK())
 }
 
 // CohortDetailsWebSocketHandler streams details for a specific cohort
-func CohortDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
+func (h *Handlers) CohortDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cohortName := c.Param("cohort_name")
 
-		GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-			return fetchCohortDetails(ctx, dynamicClient, cohortName)
-		})(c)
+		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return h.fetchCohortDetails(ctx, cohortName)
+		}, ClusterQueuesGVK())(c)
 	}
 }
 
 // Fetch all cohorts
-func fetchCohorts(ctx context.Context, dynamicClient dynamic.Interface) (any, error) {
-	clusterQueues, err := fetchClusterQueuesList(ctx, dynamicClient)
-
-	if err != nil {
+func (h *Handlers) fetchCohorts(ctx context.Context) (any, error) {
+	// Fetch all Cohort CRD objects directly
+	cohortList := &kueueapi.CohortList{}
+	if err := h.client.List(ctx, cohortList); err != nil {
 		return nil, fmt.Errorf("error fetching cohorts: %v", err)
 	}
-	cohorts := make(map[string]map[string]any)
 
-	// Iterate through cluster queue items
-	for _, item := range clusterQueues.Items {
-		// Extract spec and metadata
-		spec, specExists := item.Object["spec"].(map[string]any)
-		metadata, metadataExists := item.Object["metadata"].(map[string]any)
-		if !specExists || !metadataExists {
-			continue
-		}
-
-		// Get cohort name from the spec
-		cohortName, cohortExists := spec["cohort"].(string)
-		if !cohortExists || cohortName == "" {
-			continue
-		}
-
-		// Get cluster queue name
-		queueName, queueNameExists := metadata["name"].(string)
-		if !queueNameExists {
-			continue
-		}
-
-		// Initialize the cohort in the map if it doesn't exist
-		if _, exists := cohorts[cohortName]; !exists {
-			cohorts[cohortName] = map[string]any{
-				"name":          cohortName,
-				"clusterQueues": []map[string]any{},
-			}
-		}
-
-		// Add the current cluster queue to the cohort
-		clusterQueuesList := cohorts[cohortName]["clusterQueues"].([]map[string]any)
-		clusterQueuesList = append(clusterQueuesList, map[string]any{
-			"name": queueName,
-		})
-		cohorts[cohortName]["clusterQueues"] = clusterQueuesList
+	// Fetch all ClusterQueues to map them to cohorts
+	cql := &kueueapi.ClusterQueueList{}
+	if err := h.client.List(ctx, cql); err != nil {
+		return nil, fmt.Errorf("error fetching cluster queues: %v", err)
 	}
 
-	// Convert the cohorts map to a list
+	// Build a map of cohort name to ClusterQueues
+	cohortQueues := make(map[string][]map[string]any)
+	for _, cq := range cql.Items {
+		cohortName := string(cq.Spec.CohortName)
+		if cohortName == "" {
+			continue
+		}
+		cohortQueues[cohortName] = append(cohortQueues[cohortName], map[string]any{
+			"name": cq.Name,
+		})
+	}
+
+	// Build result from Cohort CRD objects
 	var result []map[string]any
-	for _, cohort := range cohorts {
-		result = append(result, cohort)
+	for _, cohort := range cohortList.Items {
+		queues := cohortQueues[cohort.Name]
+		if queues == nil {
+			queues = []map[string]any{}
+		}
+		item := map[string]any{
+			"name":          cohort.Name,
+			"clusterQueues": queues,
+		}
+		if cohort.Spec.ParentName != "" {
+			item["parentName"] = string(cohort.Spec.ParentName)
+		}
+		result = append(result, item)
 	}
 
 	return result, nil
 }
 
 // Fetch details for a specific cohort
-func fetchCohortDetails(ctx context.Context, dynamicClient dynamic.Interface, cohortName string) (map[string]any, error) {
-	// Retrieve all cluster queues
-	clusterQueues, err := fetchClusterQueuesList(ctx, dynamicClient)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching cohort details: %v", err)
+func (h *Handlers) fetchCohortDetails(ctx context.Context, cohortName string) (map[string]any, error) {
+	// Fetch the specific Cohort CRD
+	cohort := &kueueapi.Cohort{}
+	if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: cohortName}, cohort); err != nil {
+		return nil, fmt.Errorf("error fetching cohort %s: %v", cohortName, err)
 	}
 
-	// Prepare the result
-	cohortDetails := make(map[string]any)
-	cohortDetails["cohort"] = cohortName
-	cohortDetails["clusterQueues"] = []map[string]any{}
+	// Retrieve all cluster queues
+	cql := &kueueapi.ClusterQueueList{}
+	if err := h.client.List(ctx, cql); err != nil {
+		return nil, fmt.Errorf("error fetching cluster queues: %v", err)
+	}
 
-	// Iterate through the cluster queues and filter by cohort name
-	for _, item := range clusterQueues.Items {
-		queue := item.Object
-		if queueSpec, ok := queue["spec"].(map[string]any); ok {
-			if queueSpec["cohort"] == cohortName {
-				queueDetails := map[string]any{
-					"name":   item.GetName(),
-					"spec":   queueSpec,
-					"status": queue["status"],
-				}
-				cohortDetails["clusterQueues"] = append(cohortDetails["clusterQueues"].([]map[string]any), queueDetails)
-			}
+	// Filter ClusterQueues by cohort name
+	var clusterQueues []map[string]any
+	for _, item := range cql.Items {
+		if string(item.Spec.CohortName) == cohortName {
+			clusterQueues = append(clusterQueues, map[string]any{
+				"name": item.GetName(),
+				"spec": map[string]any{
+					"cohortName":        string(item.Spec.CohortName),
+					"resourceGroups":    convertResourceGroups(item.Spec.ResourceGroups),
+					"preemption":        item.Spec.Preemption,
+					"flavorFungibility": item.Spec.FlavorFungibility,
+					"queueingStrategy":  item.Spec.QueueingStrategy,
+				},
+				"status": map[string]any{
+					"admittedWorkloads":  item.Status.AdmittedWorkloads,
+					"reservingWorkloads": item.Status.ReservingWorkloads,
+					"pendingWorkloads":   item.Status.PendingWorkloads,
+					"flavorsUsage":       convertFlavorsUsage(item.Status.FlavorsUsage),
+					"flavorsReservation": convertFlavorsUsage(item.Status.FlavorsReservation),
+					"fairSharing":        item.Status.FairSharing,
+				},
+			})
 		}
 	}
 
-	return cohortDetails, nil
+	if clusterQueues == nil {
+		clusterQueues = []map[string]any{}
+	}
+
+	return map[string]any{
+		"cohort":        cohortName,
+		"spec":          cohort.Spec,
+		"status":        cohort.Status,
+		"clusterQueues": clusterQueues,
+	}, nil
 }

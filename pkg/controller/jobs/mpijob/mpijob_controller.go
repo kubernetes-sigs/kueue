@@ -54,7 +54,7 @@ func init() {
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/finalizers,verbs=get;update
@@ -98,7 +98,7 @@ func (j *MPIJob) IsActive() bool {
 }
 
 func (j *MPIJob) Suspend() {
-	j.Spec.RunPolicy.Suspend = ptr.To(true)
+	j.Spec.RunPolicy.Suspend = new(true)
 }
 
 func (j *MPIJob) GVK() schema.GroupVersionKind {
@@ -109,7 +109,7 @@ func (j *MPIJob) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s,%s=%s", kfmpi.JobNameLabel, j.Name, kfmpi.OperatorNameLabel, kfmpi.OperatorName)
 }
 
-func (j *MPIJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *MPIJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	replicaTypes := orderedReplicaTypes(&j.Spec)
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, mpiReplicaType := range replicaTypes {
@@ -131,8 +131,8 @@ func (j *MPIJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
-	j.Spec.RunPolicy.Suspend = ptr.To(false)
+func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
+	j.Spec.RunPolicy.Suspend = new(false)
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 
 	if len(podSetsInfo) != len(orderedReplicaTypes) {
@@ -191,7 +191,7 @@ func (j *MPIJob) PriorityClass() string {
 	return ""
 }
 
-func (j *MPIJob) PodsReady(ctx context.Context) bool {
+func (j *MPIJob) PodsReady(ctx context.Context, _ client.Client) bool {
 	for _, c := range j.Status.Conditions {
 		if c.Type == kfmpi.JobRunning && c.Status == corev1.ConditionTrue {
 			return true

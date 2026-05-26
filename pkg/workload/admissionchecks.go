@@ -19,14 +19,19 @@ package workload
 import (
 	"time"
 
+	"github.com/go-logr/logr"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/wait"
 )
+
+type AdmissionChecks = map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
 
 // SyncAdmittedCondition sync the state of the Admitted condition based on the
 // state of QuotaReserved, AdmissionChecks and DelayedTopologyRequests.
@@ -70,7 +75,7 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	// Accumulate the admitted time if needed
 	if isAdmitted && newCondition.Status == metav1.ConditionFalse {
 		oldCondition := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadAdmitted)
-		// in practice the oldCondition cannot be nil, however we should try to avoid nil ptr deref.
+		// in practice the oldCondition cannot be nil; however, we should try to avoid nil ptr deref.
 		if oldCondition != nil {
 			d := int32(now.Sub(oldCondition.LastTransitionTime.Time).Seconds())
 			if w.Status.AccumulatedPastExecutionTimeSeconds != nil {
@@ -90,11 +95,18 @@ func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
 		if checks[i].State == kueue.CheckStatePending {
 			continue
 		}
+		var retryCount *int32
+		if checks[i].State == kueue.CheckStateRetry {
+			tmpRetryCount := ptr.Deref(checks[i].RetryCount, 0) + 1
+			retryCount = new(tmpRetryCount)
+		}
 		checks[i] = kueue.AdmissionCheckState{
-			Name:               checks[i].Name,
-			State:              kueue.CheckStatePending,
-			LastTransitionTime: metav1.NewTime(now),
-			Message:            "Reset to Pending after eviction. Previously: " + string(checks[i].State),
+			Name:                checks[i].Name,
+			State:               kueue.CheckStatePending,
+			Message:             "Reset to Pending after eviction. Previously: " + string(checks[i].State),
+			LastTransitionTime:  metav1.NewTime(now),
+			RequeueAfterSeconds: checks[i].RequeueAfterSeconds,
+			RetryCount:          retryCount,
 		}
 	}
 }
@@ -123,19 +135,30 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	}
 	existingCondition.Message = newCheck.Message
 	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
+	existingCondition.RequeueAfterSeconds = newCheck.RequeueAfterSeconds
 	return true
+}
+
+// matchingChecks returns the list of admission checks in the given state.
+func matchingChecks(wl *kueue.Workload, s kueue.CheckState) []kueue.AdmissionCheckState {
+	matching := make([]kueue.AdmissionCheckState, 0, len(wl.Status.AdmissionChecks))
+	for i := range wl.Status.AdmissionChecks {
+		ac := wl.Status.AdmissionChecks[i]
+		if ac.State == s {
+			matching = append(matching, ac)
+		}
+	}
+	return matching
 }
 
 // RejectedChecks returns the list of Rejected admission checks
 func RejectedChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
-	rejectedChecks := make([]kueue.AdmissionCheckState, 0, len(wl.Status.AdmissionChecks))
-	for i := range wl.Status.AdmissionChecks {
-		ac := wl.Status.AdmissionChecks[i]
-		if ac.State == kueue.CheckStateRejected {
-			rejectedChecks = append(rejectedChecks, ac)
-		}
-	}
-	return rejectedChecks
+	return matchingChecks(wl, kueue.CheckStateRejected)
+}
+
+// RetryChecks returns the list of Retry admission checks
+func RetryChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
+	return matchingChecks(wl, kueue.CheckStateRetry)
 }
 
 // HasAllChecksReady returns true if all the checks of the workload are ready.
@@ -148,8 +171,12 @@ func HasAllChecksReady(wl *kueue.Workload) bool {
 	return true
 }
 
-// HasAllChecks returns true if all the mustHaveChecks are present in the workload.
-func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[kueue.AdmissionCheckReference]) bool {
+// HasAllRequiredChecks returns true if all the relevant checks are present in the workload.
+// (They don't have to be in the Ready state; for that, see HasAllChecksReady).
+// The workload is expected to have an admission.
+func HasAllRequiredChecks(log logr.Logger, wl *kueue.Workload, allChecks AdmissionChecks) bool {
+	mustHaveChecks := admissionChecksForAdmission(log, allChecks, *wl.Status.Admission)
+
 	if mustHaveChecks.Len() == 0 {
 		return true
 	}
@@ -158,7 +185,6 @@ func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[kueue.AdmissionChe
 		return false
 	}
 
-	mustHaveChecks = mustHaveChecks.Clone()
 	for i := range wl.Status.AdmissionChecks {
 		mustHaveChecks.Delete(wl.Status.AdmissionChecks[i].Name)
 	}
@@ -185,4 +211,67 @@ func HasRejectedChecks(wl *kueue.Workload) bool {
 		}
 	}
 	return false
+}
+
+// GetMaxRetryTime returns the max retry time from all the admission checks.
+// It will return a zero time if no retry time is found.
+func GetMaxRetryTime(wl *kueue.Workload) metav1.Time {
+	var max time.Time
+	for i := range wl.Status.AdmissionChecks {
+		if wl.Status.AdmissionChecks[i].RequeueAfterSeconds == nil {
+			continue
+		}
+		// This should never happen, but prevents panics
+		if wl.Status.AdmissionChecks[i].LastTransitionTime.IsZero() {
+			continue
+		}
+		if wl.Status.AdmissionChecks[i].State != kueue.CheckStateRetry {
+			continue
+		}
+
+		retryTime := wl.Status.AdmissionChecks[i].LastTransitionTime.Add(time.Duration(*wl.Status.AdmissionChecks[i].RequeueAfterSeconds) * time.Second)
+		if max.Before(retryTime) {
+			max = retryTime
+		}
+	}
+	return metav1.NewTime(max)
+}
+
+// NeedsRequeueAtUpdate checks if the workload needs its RequeueAt time updated
+// based on admission check retry times. It returns the target requeue time if an
+// update should be performed, or nil if no update is needed.
+func NeedsRequeueAtUpdate(wl *kueue.Workload, clock clock.Clock) *metav1.Time {
+	maxTime := GetMaxRetryTime(wl)
+	// No retry time set
+	if maxTime.IsZero() {
+		return nil
+	}
+	// Retry time is in the past
+	if !maxTime.After(clock.Now()) {
+		return nil
+	}
+	// Check if we need to update RequeueState
+	if wl.Status.RequeueState != nil {
+		currentRequeueAt := ptr.Deref(wl.Status.RequeueState.RequeueAt, metav1.NewTime(time.Time{}))
+		if !currentRequeueAt.Before(&maxTime) || currentRequeueAt.Equal(&maxTime) {
+			// Current time is already >= maxTime, no update needed
+			return nil
+		}
+	}
+	return &maxTime
+}
+
+// UpdateAdmissionCheckRequeueState calculates the RequeueAfterSeconds based on the backoff and requeuingCount
+func UpdateAdmissionCheckRequeueState(acState *kueue.AdmissionCheckState, backoffBaseSeconds int32, backoffMaxSeconds int32, clock clock.Clock) {
+	requeuingCount := ptr.Deref(acState.RetryCount, 0) + 1
+
+	// Every backoff duration is about "60s*2^(n-1)+Rand" where:
+	// - "n" represents the "requeuingCount",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is treated as inadmissible and other
+	// workloads will have a chance to be admitted.
+	backoff := wait.NewBackoff(time.Duration(backoffBaseSeconds)*time.Second, time.Duration(backoffMaxSeconds)*time.Second, 2, 0.0001)
+	waitDuration := backoff.WaitTime(int(requeuingCount))
+
+	acState.RequeueAfterSeconds = new(int32(waitDuration.Truncate(time.Second).Seconds()))
 }

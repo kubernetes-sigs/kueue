@@ -16,7 +16,6 @@ Kueue’s memory footprint.
 ## Prerequisites
 
 - A running Kueue installation at **v0.12** or newer.
-- The `ObjectRetentionPolicies` feature-gate enabled in the Kueue controller manager. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 
 ## Set up a retention policy
 
@@ -53,10 +52,9 @@ It contains the following optional fields:
       afterFinished: "1m"
       afterDeactivatedByKueue: "1m"
   waitForPodsReady:
-    enable: true
     timeout: 2m
     recoveryTimeout: 1m
-    blockAdmission: true
+    blockAdmission: false
     requeuingStrategy:
       backoffLimitCount: 0
 ```
@@ -115,7 +113,7 @@ spec:
 
 ```bash
 # ~1m after Finished
-kubectl get workloads -n default
+kubectl get workloads.kueue.x-k8s.io -n default
 # <successful-workload not found>
    
 kubectl get jobs -n default
@@ -185,7 +183,7 @@ spec:
 
 ```bash
 # ~2m after submission
-kubectl get workloads -n default
+kubectl get workloads.kueue.x-k8s.io -n default
 # NAME                    QUEUE    RESERVED IN   ADMITTED   FINISHED   AGE
 # limited-workload                               False                 2m
 ```
@@ -194,7 +192,7 @@ kubectl get workloads -n default
 
 ```bash
 # ~1m after eviction
-kubectl get workloads -n default
+kubectl get workloads.kueue.x-k8s.io -n default
 # <limited-workload not found>
    
 kubectl get jobs -n default

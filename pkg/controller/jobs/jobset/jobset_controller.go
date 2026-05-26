@@ -56,7 +56,7 @@ func init() {
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets/finalizers,verbs=get;update
@@ -100,7 +100,7 @@ func (j *JobSet) IsActive() bool {
 }
 
 func (j *JobSet) Suspend() {
-	j.Spec.Suspend = ptr.To(true)
+	j.Spec.Suspend = new(true)
 }
 
 func (j *JobSet) GVK() schema.GroupVersionKind {
@@ -111,7 +111,7 @@ func (j *JobSet) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", jobsetapi.JobSetNameKey, j.Name)
 }
 
-func (j *JobSet) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *JobSet) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, len(j.Spec.ReplicatedJobs))
 	for index, replicatedJob := range j.Spec.ReplicatedJobs {
 		podSets[index] = kueue.PodSet{
@@ -124,7 +124,7 @@ func (j *JobSet) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 				&replicatedJob.Template.Spec.Template.ObjectMeta).PodIndexLabel(
 				ptr.To(batchv1.JobCompletionIndexAnnotation)).SubGroup(
 				ptr.To(jobsetapi.JobIndexKey),
-				ptr.To(replicatedJob.Replicas)).Build()
+				new(replicatedJob.Replicas)).Build()
 			if err != nil {
 				return nil, err
 			}
@@ -134,8 +134,8 @@ func (j *JobSet) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
-	j.Spec.Suspend = ptr.To(false)
+func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
+	j.Spec.Suspend = new(false)
 	if len(podSetsInfo) != len(j.Spec.ReplicatedJobs) {
 		return podset.BadPodSetsInfoLenError(len(j.Spec.ReplicatedJobs), len(podSetsInfo))
 	}
@@ -175,7 +175,7 @@ func (j *JobSet) Finished(ctx context.Context) (message string, success, finishe
 	return message, success, false
 }
 
-func (j *JobSet) PodsReady(ctx context.Context) bool {
+func (j *JobSet) PodsReady(ctx context.Context, _ client.Client) bool {
 	var replicas int32
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {
 		replicas += replicatedJob.Replicas
@@ -187,7 +187,7 @@ func (j *JobSet) PodsReady(ctx context.Context) bool {
 	return replicas == readyReplicas
 }
 
-func (j *JobSet) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
+func (j *JobSet) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.ReclaimablePod, error) {
 	if len(j.Status.ReplicatedJobsStatus) == 0 {
 		return nil, nil
 	}

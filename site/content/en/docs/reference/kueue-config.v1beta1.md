@@ -1,5 +1,5 @@
 ---
-title: Kueue Configuration API
+title: Kueue Configuration v1beta1 API
 content_type: tool-reference
 package: config.kueue.x-k8s.io/v1beta1
 auto_generated: true
@@ -10,13 +10,171 @@ description: Generated API reference documentation for config.kueue.x-k8s.io/v1b
 ## Resource Types 
 
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
   
+
+## `Configuration`     {#config-kueue-x-k8s-io-v1beta1-Configuration}
+    
+
+
+<p>Configuration is the Schema for the kueueconfigurations API</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>config.kueue.x-k8s.io/v1beta1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>Configuration</code></td></tr>
+    
+  
+<tr><td><code>namespace</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Namespace is the namespace in which kueue is deployed. It is used as part of DNSName of the webhook Service.
+If not set, the value is set from the file /var/run/secrets/kubernetes.io/serviceaccount/namespace
+If the file doesn't exist, default value is kueue-system.</p>
+</td>
+</tr>
+<tr><td><code>ControllerManager</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-ControllerManager"><code>ControllerManager</code></a>
+</td>
+<td>(Members of <code>ControllerManager</code> are embedded into this type.)
+   <p>ControllerManager returns the configurations for controllers</p>
+</td>
+</tr>
+<tr><td><code>manageJobsWithoutQueueName</code> <B>[Required]</B><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>ManageJobsWithoutQueueName controls whether or not Kueue reconciles
+jobs that don't set the label kueue.x-k8s.io/queue-name.
+If set to true, then those jobs will be suspended and never started unless
+they are assigned a queue and eventually admitted. This also applies to
+jobs created before starting the kueue controller.
+Defaults to false; therefore, those jobs are not managed and if they are created
+unsuspended, they will start immediately.</p>
+</td>
+</tr>
+<tr><td><code>managedJobsNamespaceSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>ManagedJobsNamespaceSelector provides a namespace-based mechanism to exempt jobs
+from management by Kueue.</p>
+<p>It provides a strong exemption for the Pod-based integrations (pod, deployment, statefulset, etc.),
+For Pod-based integrations, only jobs whose namespaces match ManagedJobsNamespaceSelector are
+eligible to be managed by Kueue.  Pods, deployments, etc. in non-matching namespaces will
+never be managed by Kueue, even if they have a kueue.x-k8s.io/queue-name label.
+This strong exemption ensures that Kueue will not interfere with the basic operation
+of system namespace.</p>
+<p>For all other integrations, ManagedJobsNamespaceSelector provides a weaker exemption
+by only modulating the effects of ManageJobsWithoutQueueName.  For these integrations,
+a job that has a kueue.x-k8s.io/queue-name label will always be managed by Kueue. Jobs without
+a kueue.x-k8s.io/queue-name label will be managed by Kueue only when ManageJobsWithoutQueueName is
+true and the job's namespace matches ManagedJobsNamespaceSelector.</p>
+</td>
+</tr>
+<tr><td><code>internalCertManagement</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-InternalCertManagement"><code>InternalCertManagement</code></a>
+</td>
+<td>
+   <p>InternalCertManagement is configuration for internalCertManagement</p>
+</td>
+</tr>
+<tr><td><code>waitForPodsReady</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-WaitForPodsReady"><code>WaitForPodsReady</code></a>
+</td>
+<td>
+   <p>WaitForPodsReady is configuration to provide a time-based all-or-nothing
+scheduling semantics for Jobs, by ensuring all pods are ready (running
+and passing the readiness probe) within the specified time. If the timeout
+is exceeded, then the workload is evicted.</p>
+</td>
+</tr>
+<tr><td><code>clientConnection</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-ClientConnection"><code>ClientConnection</code></a>
+</td>
+<td>
+   <p>ClientConnection provides additional configuration options for Kubernetes
+API server client.</p>
+</td>
+</tr>
+<tr><td><code>integrations</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-Integrations"><code>Integrations</code></a>
+</td>
+<td>
+   <p>Integrations provide configuration options for AI/ML/Batch frameworks
+integrations (including K8S job).</p>
+</td>
+</tr>
+<tr><td><code>queueVisibility</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-QueueVisibility"><code>QueueVisibility</code></a>
+</td>
+<td>
+   <p>QueueVisibility is configuration to expose the information about the top
+pending workloads.</p>
+<p>Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
+(https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
+instead.</p>
+</td>
+</tr>
+<tr><td><code>multiKueue</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-MultiKueue"><code>MultiKueue</code></a>
+</td>
+<td>
+   <p>MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.</p>
+</td>
+</tr>
+<tr><td><code>fairSharing</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-FairSharing"><code>FairSharing</code></a>
+</td>
+<td>
+   <p>FairSharing controls the Fair Sharing semantics across the cluster.</p>
+</td>
+</tr>
+<tr><td><code>admissionFairSharing</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-AdmissionFairSharing"><code>AdmissionFairSharing</code></a>
+</td>
+<td>
+   <p>admissionFairSharing indicates configuration of FairSharing with the <code>AdmissionTime</code> mode on</p>
+</td>
+</tr>
+<tr><td><code>resources</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-Resources"><code>Resources</code></a>
+</td>
+<td>
+   <p>Resources provides additional configuration options for handling the resources.</p>
+</td>
+</tr>
+<tr><td><code>featureGates</code> <B>[Required]</B><br/>
+<code>map[string]bool</code>
+</td>
+<td>
+   <p>FeatureGates is a map of feature names to bools that allows to override the
+default enablement status of a feature. The map cannot be used in conjunction
+with passing the list of features via the command line argument &quot;--feature-gates&quot;
+for the Kueue Deployment.</p>
+</td>
+</tr>
+<tr><td><code>objectRetentionPolicies</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-ObjectRetentionPolicies"><code>ObjectRetentionPolicies</code></a>
+</td>
+<td>
+   <p>ObjectRetentionPolicies provides configuration options for automatic deletion
+of Kueue-managed objects. A nil value disables all automatic deletions.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `AdmissionFairSharing`     {#config-kueue-x-k8s-io-v1beta1-AdmissionFairSharing}
     
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 
 
@@ -58,6 +216,7 @@ Defaults to 1.</p>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 
 
@@ -202,6 +361,7 @@ It can be set to &quot;0&quot; or &quot;&quot; to disable serving the health pro
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 
 
@@ -258,6 +418,14 @@ before exposing it to public.</p>
 registered within this manager.</p>
 </td>
 </tr>
+<tr><td><code>tls</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-TLSOptions"><code>TLSOptions</code></a>
+</td>
+<td>
+   <p>TLS contains TLS security settings for all Kueue API servers
+(webhooks, metrics, and visibility).</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -292,6 +460,70 @@ It can be set to &quot;0&quot; to disable the metrics serving.</p>
 <td>
    <p>EnableClusterQueueResources, if true the cluster queue resource usage and quotas
 metrics will be reported.</p>
+</td>
+</tr>
+<tr><td><code>customLabels</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-ControllerMetricsCustomLabel"><code>[]ControllerMetricsCustomLabel</code></a>
+</td>
+<td>
+   <p>CustomLabels is a list of entries whose values will be added as extra
+Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
+Requires the CustomMetricLabels feature gate.</p>
+</td>
+</tr>
+<tr><td><code>localQueueMetrics</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-LocalQueueMetrics"><code>LocalQueueMetrics</code></a>
+</td>
+<td>
+   <p>LocalQueueMetrics is a configuration that provides LocalQueue metrics options.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ControllerMetricsCustomLabel`     {#config-kueue-x-k8s-io-v1beta1-ControllerMetricsCustomLabel}
+    
+
+**Appears in:**
+
+- [ControllerMetrics](#config-kueue-x-k8s-io-v1beta1-ControllerMetrics)
+
+
+<p>ControllerMetricsCustomLabel defines a Kubernetes label or annotation to promote
+as a Prometheus metric label with a &quot;custom_&quot; prefix.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name is used as a suffix to build the Prometheus label: Kueue
+automatically prepends &quot;custom_&quot; (e.g., name: &quot;team&quot; becomes label &quot;custom_team&quot;).
+Must follow Prometheus label naming conventions: [a-zA-Z_][a-zA-Z0-9_]*.</p>
+</td>
+</tr>
+<tr><td><code>sourceLabelKey</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>SourceLabelKey is the Kubernetes label key to read the value from.
+Must be a valid Kubernetes qualified name.
+Mutually exclusive with SourceAnnotationKey.
+If neither is specified, defaults to Name.</p>
+</td>
+</tr>
+<tr><td><code>sourceAnnotationKey</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>SourceAnnotationKey is the Kubernetes annotation key to read the value from.
+Must be a valid Kubernetes qualified name.
+Mutually exclusive with SourceLabelKey.</p>
 </td>
 </tr>
 </tbody>
@@ -393,6 +625,7 @@ The total length of each name must not exceed 253 characters.</p>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 
 
@@ -441,6 +674,7 @@ The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThan
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 
 
@@ -459,6 +693,7 @@ Possible options:</p>
 <li>&quot;batch/job&quot;</li>
 <li>&quot;kubeflow.org/mpijob&quot;</li>
 <li>&quot;ray.io/rayjob&quot;</li>
+<li>&quot;ray.io/rayservice&quot;</li>
 <li>&quot;ray.io/raycluster&quot;</li>
 <li>&quot;jobset.x-k8s.io/jobset&quot;</li>
 <li>&quot;kubeflow.org/paddlejob&quot;</li>
@@ -468,10 +703,11 @@ Possible options:</p>
 <li>&quot;kubeflow.org/jaxjob&quot;</li>
 <li>&quot;trainer.kubeflow.org/trainjob&quot;</li>
 <li>&quot;workload.codeflare.dev/appwrapper&quot;</li>
+<li>&quot;sparkoperator.k8s.io/sparkapplication&quot;</li>
 <li>&quot;pod&quot;</li>
-<li>&quot;deployment&quot; (requires enabling pod integration)</li>
-<li>&quot;statefulset&quot; (requires enabling pod integration)</li>
-<li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot; (requires enabling pod integration)</li>
+<li>&quot;deployment&quot;</li>
+<li>&quot;statefulset&quot;</li>
+<li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot;</li>
 </ul>
 </td>
 </tr>
@@ -487,8 +723,8 @@ the expected format is <code>Kind.version.group.com</code>.</p>
 <a href="#config-kueue-x-k8s-io-v1beta1-PodIntegrationOptions"><code>PodIntegrationOptions</code></a>
 </td>
 <td>
-   <p>PodOptions defines kueue controller behaviour for pod objects
-Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
+   <p>PodOptions defines kueue controller behaviour for pod objects</p>
+<p>Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
 (https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
 instead.</p>
 </td>
@@ -516,6 +752,7 @@ underlying job are changed.</p>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 
 
@@ -560,11 +797,46 @@ Defaults to kueue-webhook-server-cert.</p>
 </tbody>
 </table>
 
+## `LocalQueueMetrics`     {#config-kueue-x-k8s-io-v1beta1-LocalQueueMetrics}
+    
+
+**Appears in:**
+
+- [ControllerMetrics](#config-kueue-x-k8s-io-v1beta1-ControllerMetrics)
+
+
+<p>LocalQueueMetrics defines the configuration options for local queue metrics.
+If left empty, then metrics will expose for all local queues across namespaces.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>enable</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>Enable is a knob to allow metrics to be exposed for local queues. Defaults to true.</p>
+</td>
+</tr>
+<tr><td><code>localQueueSelector</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>LocalQueueSelector can be used to choose the local queues that need metrics to be collected.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `MultiKueue`     {#config-kueue-x-k8s-io-v1beta1-MultiKueue}
     
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 
 
@@ -657,6 +929,7 @@ the expected format is <code>kind.version.group</code>.</p>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 
 <p>ObjectRetentionPolicies holds retention settings for different object types.</p>
@@ -726,6 +999,7 @@ A nil value disables automatic deletion of Workloads.</p>
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 
 
@@ -861,6 +1135,16 @@ re-queuing an evicted workload.</p>
 Defaults to Retain</p>
 </td>
 </tr>
+<tr><td><code>multiplyBy</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>MultiplyBy indicates the resource name requested by a workload, if
+specified.
+The requested amount of the resource is used to multiply the requested
+amount of the resource indicated by the &quot;input&quot; field.</p>
+</td>
+</tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
 </td>
@@ -889,6 +1173,7 @@ An empty Outputs combined with a <code>Replace</code> Strategy causes the Input 
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 
 
@@ -923,11 +1208,51 @@ for Dynamic Resource Allocation support.</p>
 </tbody>
 </table>
 
+## `TLSOptions`     {#config-kueue-x-k8s-io-v1beta1-TLSOptions}
+    
+
+**Appears in:**
+
+- [ControllerManager](#config-kueue-x-k8s-io-v1beta1-ControllerManager)
+
+
+<p>TLSOptions defines TLS security settings for Kueue servers</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>minVersion</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>minVersion is the minimum TLS version supported.
+Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+This field is only valid when TLSOptions is set to true.
+The default would be to not set this value and inherit golang settings.</p>
+</td>
+</tr>
+<tr><td><code>cipherSuites</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>cipherSuites is the list of allowed cipher suites for the server.
+Note that TLS 1.3 ciphersuites are not configurable.
+Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+The default would be to not set this value and inherit golang settings.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `WaitForPodsReady`     {#config-kueue-x-k8s-io-v1beta1-WaitForPodsReady}
     
 
 **Appears in:**
 
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
 
 
 <p>WaitForPodsReady defines configuration for the Wait For Pods Ready feature,
@@ -977,13 +1302,13 @@ This setting is only honored when <code>Enable</code> is set to true.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>RecoveryTimeout defines an opt-in timeout, measured since the
+   <p>RecoveryTimeout defines a timeout, measured since the
 last transition to the PodsReady=false condition after a Workload is Admitted and running.
 Such a transition may happen when a Pod failed and the replacement Pod
 is awaited to be scheduled.
 After exceeding the timeout the corresponding job gets suspended again
 and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-If not set, there is no timeout.</p>
+Defaults to the value of timeout. Setting to &quot;0s&quot; disables recovery timeout checking.</p>
 </td>
 </tr>
 </tbody>

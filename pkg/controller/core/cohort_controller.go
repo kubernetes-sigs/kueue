@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"slices"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -25,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -38,11 +38,15 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 type CohortReconcilerOptions struct {
 	FairSharingEnabled bool
+	roleTracker        *roletracker.RoleTracker
+	customLabels       *metrics.CustomLabels
 }
 
 type CohortReconcilerOption func(*CohortReconcilerOptions)
@@ -53,16 +57,30 @@ func CohortReconcilerWithFairSharing(enabled bool) CohortReconcilerOption {
 	}
 }
 
+func CohortReconcilerWithRoleTracker(tracker *roletracker.RoleTracker) CohortReconcilerOption {
+	return func(o *CohortReconcilerOptions) {
+		o.roleTracker = tracker
+	}
+}
+
+func CohortReconcilerWithCustomLabels(customLabels *metrics.CustomLabels) CohortReconcilerOption {
+	return func(o *CohortReconcilerOptions) {
+		o.customLabels = customLabels
+	}
+}
+
 // CohortReconciler is responsible for synchronizing the in-memory
 // representation of Cohorts in cache.Cache and queue.Manager with
 // Cohort Kubernetes objects.
 type CohortReconciler struct {
 	client             client.Client
-	log                logr.Logger
+	logName            string
 	cache              *schdcache.Cache
 	qManager           *qcache.Manager
 	cqUpdateCh         chan event.GenericEvent
 	fairSharingEnabled bool
+	roleTracker        *roletracker.RoleTracker
+	customLabels       *metrics.CustomLabels
 }
 
 func NewCohortReconciler(
@@ -78,12 +96,18 @@ func NewCohortReconciler(
 
 	return &CohortReconciler{
 		client:             client,
-		log:                ctrl.Log.WithName("cohort-reconciler"),
+		logName:            "cohort-reconciler",
 		cache:              cache,
 		qManager:           qManager,
 		cqUpdateCh:         make(chan event.GenericEvent, updateChBuffer),
 		fairSharingEnabled: options.FairSharingEnabled,
+		roleTracker:        options.roleTracker,
+		customLabels:       options.customLabels,
 	}
+}
+
+func (r *CohortReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
 }
 
 func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
@@ -99,20 +123,34 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 			r,
 		)).
 		WithOptions(controller.Options{
-			NeedLeaderElection:      ptr.To(false),
+			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Cohort").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "cohort-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, cqHandler)).
 		Complete(WithLeadingManager(mgr, r, &kueue.Cohort{}, cfg))
 }
 
-func (r *CohortReconciler) Create(event.TypedCreateEvent[*kueue.Cohort]) bool {
+func (r *CohortReconciler) Create(e event.TypedCreateEvent[*kueue.Cohort]) bool {
+	if e.Object != nil && features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.CohortStore(kueue.CohortReference(e.Object.GetName()), e.Object.GetLabels(), e.Object.GetAnnotations())
+	}
 	return true
 }
 
 func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool {
-	log := r.log.WithValues("cohort", klog.KObj(e.ObjectNew))
-	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) {
+	log := r.logger().WithValues("cohort", klog.KObj(e.ObjectNew))
+
+	var customLabelsChanged bool
+	if features.Enabled(features.CustomMetricLabels) {
+		// Store in Reconcile so labelsUpdated remains true for clear-and-resync.
+		customLabelsChanged = !slices.Equal(
+			r.customLabels.CohortGet(kueue.CohortReference(e.ObjectNew.GetName())),
+			r.customLabels.ExtractValues(e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations()),
+		)
+	}
+
+	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) && !customLabelsChanged {
 		log.V(2).Info("Skip Cohort update event as Cohort unchanged")
 		return false
 	}
@@ -120,7 +158,10 @@ func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool 
 	return true
 }
 
-func (r *CohortReconciler) Delete(event.TypedDeleteEvent[*kueue.Cohort]) bool {
+func (r *CohortReconciler) Delete(e event.TypedDeleteEvent[*kueue.Cohort]) bool {
+	if e.Object != nil && features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.CohortDelete(kueue.CohortReference(e.Object.GetName()))
+	}
 	return true
 }
 
@@ -139,10 +180,23 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.client.Get(ctx, req.NamespacedName, &cohort); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Cohort is being deleted")
+			r.cache.ClearCohortMetrics(log, kueue.CohortReference(req.Name))
 			r.cache.DeleteCohort(kueue.CohortReference(req.Name))
 			r.qManager.DeleteCohort(kueue.CohortReference(req.Name))
+			metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
+			if features.Enabled(features.CustomMetricLabels) {
+				r.customLabels.CohortDelete(kueue.CohortReference(req.Name))
+			}
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	var labelsUpdated bool
+	if features.Enabled(features.CustomMetricLabels) {
+		labelsUpdated = r.customLabels.CohortStore(
+			kueue.CohortReference(cohort.Name),
+			cohort.GetLabels(), cohort.GetAnnotations(),
+		)
 	}
 
 	log.V(2).Info("Cohort is being created or updated", "resources", cohort.Spec.ResourceGroups)
@@ -150,6 +204,12 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.V(2).Error(err, "Error adding or updating cohort in the cache")
 	}
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
+	if labelsUpdated {
+		metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
+		r.cache.ResyncCohortGaugeMetrics(log, kueue.CohortReference(req.Name))
+	} else {
+		r.cache.RecordCohortMetrics(log, kueue.CohortReference(req.Name))
+	}
 
 	err := r.updateCohortStatusIfChanged(ctx, &cohort)
 	return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -167,7 +227,7 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	}
 
 	if r.fairSharingEnabled {
-		metrics.ReportCohortWeightedShare(cohort.Name, stats.WeightedShare)
+		metrics.ReportCohortWeightedShare(kueue.CohortReference(cohort.Name), stats.WeightedShare, r.customLabels.CohortGet(kueue.CohortReference(cohort.Name)), r.roleTracker)
 		if cohort.Status.FairSharing == nil {
 			cohort.Status.FairSharing = &kueue.FairSharingStatus{}
 		}

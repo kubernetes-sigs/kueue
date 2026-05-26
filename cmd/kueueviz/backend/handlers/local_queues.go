@@ -21,55 +21,65 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/dynamic"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // LocalQueuesWebSocketHandler streams all local queues
-func LocalQueuesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-		return fetchLocalQueues(ctx, dynamicClient)
-	})
+func (h *Handlers) LocalQueuesWebSocketHandler() gin.HandlerFunc {
+	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+		return h.fetchLocalQueues(ctx)
+	}, LocalQueuesGVK())
 }
 
 // LocalQueueDetailsWebSocketHandler streams details for a specific local queue
-func LocalQueueDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
+func (h *Handlers) LocalQueueDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		queueName := c.Param("queue_name")
-		GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-			return fetchLocalQueueDetails(ctx, dynamicClient, namespace, queueName)
-		})(c)
+
+		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return h.fetchLocalQueueDetails(ctx, namespace, queueName)
+		}, LocalQueuesGVK())(c)
 	}
 }
 
 // Fetch all local queues
-func fetchLocalQueues(ctx context.Context, dynamicClient dynamic.Interface) (any, error) {
-	result, err := dynamicClient.Resource(LocalQueuesGVR()).List(ctx, metav1.ListOptions{})
+func (h *Handlers) fetchLocalQueues(ctx context.Context) (any, error) {
+	lql := &kueueapi.LocalQueueList{}
+	err := h.client.List(ctx, lql)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching local queues: %v", err)
 	}
 
 	var queues []map[string]any
-	for _, item := range result.Items {
-		queue := item.Object
-		queue["namespace"] = item.GetNamespace()
-		queue["name"] = item.GetName()
-		status, statusExists := item.Object["status"].(map[string]any)
-		// Include the status if it exists
-		if statusExists {
-			queue["status"] = status
-		}
-		queues = append(queues, queue)
+	for _, item := range lql.Items {
+		queues = append(queues, map[string]any{
+			"namespace": item.GetNamespace(),
+			"name":      item.GetName(),
+			"spec": map[string]any{
+				"clusterQueue": string(item.Spec.ClusterQueue),
+			},
+			"status": map[string]any{
+				"admittedWorkloads":  item.Status.AdmittedWorkloads,
+				"pendingWorkloads":   item.Status.PendingWorkloads,
+				"reservingWorkloads": item.Status.ReservingWorkloads,
+				"flavorsUsage":       convertLocalQueueFlavorsUsage(item.Status.FlavorsUsage),
+				"flavorsReservation": convertLocalQueueFlavorsUsage(item.Status.FlavorsReservation),
+				"conditions":         item.Status.Conditions,
+			},
+		})
 	}
 	return queues, nil
 }
 
 // Fetch details for a specific local queue
-func fetchLocalQueueDetails(ctx context.Context, dynamicClient dynamic.Interface, namespace, queueName string) (any, error) {
-	result, err := dynamicClient.Resource(LocalQueuesGVR()).Namespace(namespace).Get(ctx, queueName, metav1.GetOptions{})
+func (h *Handlers) fetchLocalQueueDetails(ctx context.Context, namespace, queueName string) (any, error) {
+	lq := &kueueapi.LocalQueue{}
+	err := h.client.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: queueName}, lq)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching details for local queue %s: %v", queueName, err)
 	}
-	return result.Object, nil
+	return lq, nil
 }

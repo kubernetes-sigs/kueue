@@ -11,7 +11,8 @@ where they will be maintained long term.
 
 ### Existing integrations
 
-- TBD
+- `kueue-populator`
+- `kueue-priority-booster`
 
 ### Adding new integrations
 

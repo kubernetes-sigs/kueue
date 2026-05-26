@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/clock"
 
@@ -65,7 +64,7 @@ func WorkloadUsesResources(wl *workload.Info, frsNeedPreemption sets.Set[resourc
 // assume a prefix of the elements has condition WorkloadEvicted = true
 func splitEvicted(workloads []*candidateElem) ([]*candidateElem, []*candidateElem) {
 	firstFalse := sort.Search(len(workloads), func(i int) bool {
-		return !meta.IsStatusConditionTrue(workloads[i].wl.Obj.Status.Conditions, kueue.WorkloadEvicted)
+		return !workload.IsEvicted(workloads[i].wl.Obj)
 	})
 	return workloads[:firstFalse], workloads[firstFalse:]
 }

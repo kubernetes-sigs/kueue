@@ -33,9 +33,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/importer/util"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/cmd/importer/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -44,26 +43,26 @@ import (
 
 var realClock = clock.RealClock{}
 
-func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs uint) error {
+func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache, jobs uint) error {
 	ch := make(chan corev1.Pod)
 	go func() {
-		err := util.PushPods(ctx, c, cache.Namespaces, ch)
+		err := ListPods(ctx, c, importCache.Namespaces, ch)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "Listing pods")
 		}
 	}()
-	summary := util.ConcurrentProcessPod(ch, jobs, func(p *corev1.Pod) (bool, error) {
+	summary := ProcessConcurrently(ch, jobs, func(p *corev1.Pod) (bool, error) {
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
 		log.V(3).Info("Importing")
 
-		lq, skip, err := cache.LocalQueue(p)
+		lq, skip, err := importCache.LocalQueue(p)
 		if skip || err != nil {
 			return skip, err
 		}
 
 		oldLq, found := p.Labels[controllerconstants.QueueLabel]
 		if !found {
-			if err := addLabels(ctx, c, p, lq.Name, cache.AddLabels); err != nil {
+			if err := addLabels(ctx, c, p, lq.Name, importCache.AddLabels); err != nil {
 				return false, fmt.Errorf("cannot add queue label: %w", err)
 			}
 		} else if oldLq != lq.Name {
@@ -77,29 +76,18 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			return false, fmt.Errorf("construct workload: %w", err)
 		}
 
-		maps.Copy(wl.Labels, cache.AddLabels)
+		maps.Copy(wl.Labels, importCache.AddLabels)
 
-		if pc, found := cache.PriorityClasses[p.Spec.PriorityClassName]; found {
-			wl.Spec.PriorityClassName = pc.Name
+		if pc, found := importCache.PriorityClasses[p.Spec.PriorityClassName]; found {
+			wl.Spec.PriorityClassRef = kueue.NewPodPriorityClassRef(pc.Name)
 			wl.Spec.Priority = &pc.Value
-			wl.Spec.PriorityClassSource = constants.PodPriorityClassSource
 		}
 
-		wlv1beta1 := &kueue.Workload{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Workload",
-				APIVersion: kueue.SchemeGroupVersion.String(),
-			},
-		}
-		if err := kueue.Convert_v1beta2_Workload_To_v1beta1_Workload(wl, wlv1beta1, nil); err != nil {
-			return false, fmt.Errorf("failed to convert workload: %w", err)
-		}
-
-		if err := createWorkload(ctx, c, wlv1beta1); err != nil {
+		if err := createWorkload(ctx, c, wl); err != nil {
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		if err := admitWorkload(ctx, c, wlv1beta1, cache.ClusterQueues[string(lq.Spec.ClusterQueue)]); err != nil {
+		if err := admitWorkload(ctx, c, wl, importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
@@ -127,6 +115,9 @@ func checkError(err error) (retry, reload bool, timeout time.Duration) {
 }
 
 func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string, addLabels map[string]string) error {
+	if p.Labels == nil {
+		p.Labels = make(map[string]string)
+	}
 	p.Labels[controllerconstants.QueueLabel] = queue
 	p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 	maps.Copy(p.Labels, addLabels)
@@ -179,60 +170,53 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 }
 
 func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq *kueue.ClusterQueue) error {
-	// make its admission and update its status
-	// Here we convert temporarily to v1beta2 just so that we can use the helper functions for admission
-	// from the new Kueue.
-	newCQ := &kueuev1beta2.ClusterQueue{}
-	if err := kueue.Convert_v1beta1_ClusterQueue_To_v1beta2_ClusterQueue(cq, newCQ, nil); err != nil {
-		return fmt.Errorf("failed to convert ClusterQueue: %w", err)
-	}
-
-	update := func() (*kueuev1beta2.Workload, bool, error) {
+	update := func(wl *kueue.Workload) (bool, error) {
 		// make its admission and update its status
-		newWl := &kueuev1beta2.Workload{}
-		if err := kueue.Convert_v1beta1_Workload_To_v1beta2_Workload(wl, newWl, nil); err != nil {
-			return nil, false, fmt.Errorf("failed to convert workload: %w", err)
-		}
+		info := workload.NewInfo(wl)
 
-		info := workload.NewInfo(newWl)
-
-		admission := kueuev1beta2.Admission{
-			ClusterQueue: kueuev1beta2.ClusterQueueReference(cq.Name),
-			PodSetAssignments: []kueuev1beta2.PodSetAssignment{
+		admission := kueue.Admission{
+			ClusterQueue: kueue.ClusterQueueReference(cq.Name),
+			PodSetAssignments: []kueue.PodSetAssignment{
 				{
 					Name:          info.TotalRequests[0].Name,
-					Flavors:       make(map[corev1.ResourceName]kueuev1beta2.ResourceFlavorReference),
+					Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(),
 					Count:         ptr.To[int32](1),
 				},
 			},
 		}
-		flv := newCQ.Spec.ResourceGroups[0].Flavors[0].Name
+		flv := cq.Spec.ResourceGroups[0].Flavors[0].Name
 		for r := range info.TotalRequests[0].Requests {
 			admission.PodSetAssignments[0].Flavors[r] = flv
 		}
 
-		newWl.Status.Admission = &admission
+		wl.Status.Admission = &admission
 		reservedCond := metav1.Condition{
 			Type:    kueue.WorkloadQuotaReserved,
 			Status:  metav1.ConditionTrue,
 			Reason:  "Imported",
 			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
 		}
-		apimeta.SetStatusCondition(&newWl.Status.Conditions, reservedCond)
+		apimeta.SetStatusCondition(&wl.Status.Conditions, reservedCond)
 		admittedCond := metav1.Condition{
 			Type:    kueue.WorkloadAdmitted,
 			Status:  metav1.ConditionTrue,
 			Reason:  "Imported",
 			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
 		}
-		apimeta.SetStatusCondition(&newWl.Status.Conditions, admittedCond)
-		return newWl, true, nil
+		apimeta.SetStatusCondition(&wl.Status.Conditions, admittedCond)
+		return true, nil
 	}
 
-	err := patchAdmissionStatus(ctx, c, update)
-	retry, _, timeout := checkError(err)
-	for retry {
+	for {
+		err := workload.PatchAdmissionStatus(ctx, c, wl, realClock, update, workload.WithForceApply())
+		retry, _, timeout := checkError(err)
+		if !retry {
+			if err != nil {
+				return err
+			}
+			break
+		}
 		if timeout >= 0 {
 			select {
 			case <-ctx.Done():
@@ -240,28 +224,7 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 			case <-time.After(timeout):
 			}
 		}
-		err = patchAdmissionStatus(ctx, c, update)
-		retry, _, timeout = checkError(err)
 	}
-	return err
-}
 
-func patchAdmissionStatus(ctx context.Context, c client.Client, update func() (*kueuev1beta2.Workload, bool, error)) error {
-	wPatched, updated, err := update()
-	if err != nil || !updated {
-		return err
-	}
-	wlCopy := workload.PrepareWorkloadPatch(wPatched, true, realClock)
-	// Downgrade the version of the workload API used for Patching to v1beta1 so that it matches the storage version
-	// We use the storage version as importer is running before Kueue is enabled.
-	oldWl := &kueue.Workload{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Workload",
-			APIVersion: kueue.SchemeGroupVersion.String(),
-		},
-	}
-	if err := kueue.Convert_v1beta2_Workload_To_v1beta1_Workload(wlCopy, oldWl, nil); err != nil {
-		return fmt.Errorf("failed to convert workload to v1beta1: %w", err)
-	}
-	return c.Status().Patch(ctx, oldWl, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
+	return nil
 }

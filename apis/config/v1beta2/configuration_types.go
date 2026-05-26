@@ -21,10 +21,13 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 )
 
 // +k8s:defaulter-gen=true
+// The deepcopy-gen marker is required to generate API reference documentation by genref.
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 
 // Configuration is the Schema for the kueueconfigurations API
@@ -104,6 +107,10 @@ type Configuration struct {
 	// of Kueue-managed objects. A nil value disables all automatic deletions.
 	// +optional
 	ObjectRetentionPolicies *ObjectRetentionPolicies `json:"objectRetentionPolicies,omitempty"`
+
+	// VisibilityServer configures the visibility server.
+	// +optional
+	VisibilityServer *VisibilityServerConfiguration `json:"visibilityServer,omitempty"`
 }
 
 type ControllerManager struct {
@@ -136,6 +143,11 @@ type ControllerManager struct {
 	// registered within this manager.
 	// +optional
 	Controller *ControllerConfigurationSpec `json:"controller,omitempty"`
+
+	// TLS contains TLS security settings for all Kueue API servers
+	// (webhooks, metrics, and visibility).
+	// +optional
+	TLS *TLSOptions `json:"tls,omitempty"`
 }
 
 // ControllerWebhook defines the webhook server for the controller.
@@ -170,6 +182,51 @@ type ControllerMetrics struct {
 	// metrics will be reported.
 	// +optional
 	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
+
+	// CustomLabels is a list of entries whose values will be added as extra
+	// Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
+	// Requires the CustomMetricLabels feature gate.
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	CustomLabels []ControllerMetricsCustomLabel `json:"customLabels,omitempty"`
+
+	// LocalQueueMetrics is a configuration that provides LocalQueue metrics options.
+	// +optional
+	LocalQueueMetrics *LocalQueueMetrics `json:"localQueueMetrics,omitempty"`
+}
+
+// ControllerMetricsCustomLabel defines a Kubernetes label or annotation to promote
+// as a Prometheus metric label with a "custom_" prefix.
+type ControllerMetricsCustomLabel struct {
+	// Name is used as a suffix to build the Prometheus label: Kueue
+	// automatically prepends "custom_" (e.g., name: "team" becomes label "custom_team").
+	// Must follow Prometheus label naming conventions: [a-zA-Z_][a-zA-Z0-9_]*.
+	Name string `json:"name"`
+
+	// SourceLabelKey is the Kubernetes label key to read the value from.
+	// Must be a valid Kubernetes qualified name.
+	// Mutually exclusive with SourceAnnotationKey.
+	// If neither is specified, defaults to Name.
+	// +optional
+	SourceLabelKey string `json:"sourceLabelKey,omitempty"`
+
+	// SourceAnnotationKey is the Kubernetes annotation key to read the value from.
+	// Must be a valid Kubernetes qualified name.
+	// Mutually exclusive with SourceLabelKey.
+	// +optional
+	SourceAnnotationKey string `json:"sourceAnnotationKey,omitempty"`
+}
+
+// LocalQueueMetrics defines the configuration options for local queue metrics.
+// If left empty, then metrics will expose for all local queues across namespaces.
+type LocalQueueMetrics struct {
+	// Enable is a knob to allow metrics to be exposed for local queues. Defaults to true.
+	// +optional
+	Enable bool `json:"enable,omitempty"`
+
+	// LocalQueueSelector can be used to choose the local queues that need metrics to be collected.
+	// +optional
+	LocalQueueSelector *metav1.LabelSelector `json:"localQueueSelector,omitempty"`
 }
 
 // ControllerHealth defines the health configs.
@@ -215,33 +272,28 @@ type ControllerConfigurationSpec struct {
 // WaitForPodsReady defines configuration for the Wait For Pods Ready feature,
 // which is used to ensure that all Pods are ready within the specified time.
 type WaitForPodsReady struct {
-	// Enable indicates whether to enable wait for pods ready feature.
-	// Defaults to false.
-	Enable bool `json:"enable,omitempty"`
-
 	// Timeout defines the time for an admitted workload to reach the
 	// PodsReady=true condition. When the timeout is exceeded, the workload
 	// evicted and requeued in the same cluster queue.
-	// Defaults to 5min.
-	// +optional
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	Timeout metav1.Duration `json:"timeout"`
 
-	// BlockAdmission when true, cluster queue will block admissions for all
+	// BlockAdmission when true, the cluster queue will block admissions for all
 	// subsequent jobs until the jobs reach the PodsReady=true condition.
-	// This setting is only honored when `Enable` is set to true.
+	// Defaults to false.
+	// +optional
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 
 	// RequeuingStrategy defines the strategy for requeuing a Workload.
 	// +optional
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 
-	// RecoveryTimeout defines an opt-in timeout, measured since the
+	// RecoveryTimeout defines a timeout, measured since the
 	// last transition to the PodsReady=false condition after a Workload is Admitted and running.
 	// Such a transition may happen when a Pod failed and the replacement Pod
 	// is awaited to be scheduled.
 	// After exceeding the timeout the corresponding job gets suspended again
-	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-	// If not set, there is no timeout.
+	// and requeued after the backoff delay.
+	// Defaults to the value of timeout. Setting to "0s" disables recovery timeout checking.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
 }
@@ -278,6 +330,10 @@ type MultiKueue struct {
 	// GroupVersionKind (GVK) for MultiKueue operations.
 	// +optional
 	ExternalFrameworks []MultiKueueExternalFramework `json:"externalFrameworks,omitempty"`
+
+	// ClusterProfile defines configuration for using the ClusterProfile API.
+	// +optional
+	ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.
@@ -371,6 +427,38 @@ type InternalCertManagement struct {
 	WebhookSecretName *string `json:"webhookSecretName,omitempty"`
 }
 
+// TLSOptions defines TLS security settings for Kueue servers
+type TLSOptions struct {
+	// minVersion is the minimum TLS version supported.
+	// Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+	// This field is only valid when TLSOptions is set to true.
+	// The default would be to not set this value and inherit golang settings.
+	// +optional
+	MinVersion string `json:"minVersion,omitempty"`
+
+	// cipherSuites is the list of allowed cipher suites for the server.
+	// Note that TLS 1.3 ciphersuites are not configurable.
+	// Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
+	// The default would be to not set this value and inherit golang settings.
+	// +optional
+	CipherSuites []string `json:"cipherSuites,omitempty"`
+}
+
+// ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
+type ClusterProfile struct {
+	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
+	// using the ClusterProfile API.
+	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
+}
+
+// ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.
+type ClusterProfileCredentialsProvider struct {
+	// Name is the name of the provider.
+	Name string `json:"name"`
+	//  ExecConfig is the exec configuration to obtain credentials.
+	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
+}
+
 type ClientConnection struct {
 	// QPS controls the number of queries per second allowed for K8S api server
 	// connection.
@@ -388,6 +476,7 @@ type Integrations struct {
 	//  - "batch/job"
 	//  - "kubeflow.org/mpijob"
 	//  - "ray.io/rayjob"
+	//  - "ray.io/rayservice"
 	//  - "ray.io/raycluster"
 	//  - "jobset.x-k8s.io/jobset"
 	//  - "kubeflow.org/paddlejob"
@@ -397,19 +486,15 @@ type Integrations struct {
 	//  - "kubeflow.org/jaxjob"
 	//  - "trainer.kubeflow.org/trainjob"
 	//  - "workload.codeflare.dev/appwrapper"
+	//  - "sparkoperator.k8s.io/sparkapplication"
 	//  - "pod"
-	//  - "deployment" (requires enabling pod integration)
-	//  - "statefulset" (requires enabling pod integration)
-	//  - "leaderworkerset.x-k8s.io/leaderworkerset" (requires enabling pod integration)
+	//  - "deployment"
+	//  - "statefulset"
+	//  - "leaderworkerset.x-k8s.io/leaderworkerset"
 	Frameworks []string `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
-	// PodOptions defines kueue controller behaviour for pod objects
-	// Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
-	// (https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
-	// instead.
-	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`
 
 	// labelKeysToCopy is a list of label keys that should be copied from the job into the
 	// workload object. It is not required for the job to have all the labels from this
@@ -423,14 +508,26 @@ type Integrations struct {
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
 }
 
-type PodIntegrationOptions struct {
-	// NamespaceSelector can be used to omit some namespaces from pod reconciliation
-	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
-	// PodSelector can be used to choose what pods to reconcile
-	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
-}
+// QuotaCheckStrategy determines how Kueue checks resources against quota
+// during admission.
+type QuotaCheckStrategy string
+
+const (
+	// QuotaCheckBlockUndeclared means all resources defined in the workload are checked against quota,
+	// except those matching ExcludeResourcePrefixes.
+	QuotaCheckBlockUndeclared QuotaCheckStrategy = "BlockUndeclared"
+
+	// QuotaCheckIgnoreUndeclared means only resources defined in the workload that are declared in the
+	// ClusterQueue's coveredResources are checked against quota. Resources undeclared in the clusterQueue
+	// are ignored. ExcludeResourcePrefixes is not allowed in combination with this strategy.
+	QuotaCheckIgnoreUndeclared QuotaCheckStrategy = "IgnoreUndeclared"
+)
 
 type Resources struct {
+	// QuotaCheckStrategy determines which resources are considered during quota admission.
+	// +optional
+	QuotaCheckStrategy *QuotaCheckStrategy `json:"quotaCheckStrategy,omitempty"`
+
 	// ExcludedResourcePrefixes defines which resources should be ignored by Kueue
 	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 
@@ -456,6 +553,13 @@ type ResourceTransformation struct {
 	// Strategy specifies if the input resource should be replaced or retained.
 	// Defaults to Retain
 	Strategy *ResourceTransformationStrategy `json:"strategy,omitempty"`
+
+	// MultiplyBy indicates the resource name requested by a workload, if
+	// specified.
+	// The requested amount of the resource is used to multiply the requested
+	// amount of the resource indicated by the "input" field.
+	// +optional
+	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 
 	// Outputs specifies the output resources and quantities per unit of input resource.
 	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.
@@ -492,10 +596,6 @@ const (
 )
 
 type FairSharing struct {
-	// enable indicates whether to enable Fair Sharing for all cohorts.
-	// Defaults to false.
-	Enable bool `json:"enable"`
-
 	// preemptionStrategies indicates which constraints should a preemption satisfy.
 	// The preemption algorithm will only use the next strategy in the list if the
 	// incoming workload (preemptor) doesn't fit after using the previous strategies.
@@ -511,8 +611,7 @@ type FairSharing struct {
 	//   This strategy doesn't depend on the share usage of the workload being preempted.
 	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
 	//   newest start time first.
-	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
-	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
+	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies"`
 }
 
 type AdmissionFairSharing struct {
@@ -559,4 +658,16 @@ type WorkloadRetentionPolicy struct {
 	// Represented using metav1.Duration (e.g. "10m", "1h30m").
 	// +optional
 	AfterDeactivatedByKueue *metav1.Duration `json:"afterDeactivatedByKueue,omitempty"`
+}
+
+type VisibilityServerConfiguration struct {
+	// BindAddress is the IP address the visibility server listens on.
+	// Defaults to 0.0.0.0 (all network interfaces).
+	// +optional
+	BindAddress *string `json:"bindAddress,omitempty"`
+
+	// BindPort is the port the visibility server listens on.
+	// Defaults to 8082.
+	// +optional
+	BindPort *int32 `json:"bindPort,omitempty"`
 }

@@ -1,0 +1,43 @@
+<div id="pagefind-search-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:9999;overflow-y:auto;">
+  <div style="max-width:740px;margin:60px auto;padding:0 16px;">
+    <div id="pagefind-modal-search"></div>
+  </div>
+</div>
+
+<script src="/pagefind/pagefind-ui.js"></script>
+<script>
+window.addEventListener('DOMContentLoaded', function() {
+  if (typeof PagefindUI === 'undefined') return;
+
+  new PagefindUI({ element: "#pagefind-sidebar-search", showImages: false, resetStyles: false });
+
+  var modalUI = new PagefindUI({ element: "#pagefind-modal-search", showImages: false });
+
+  var overlay = document.getElementById('pagefind-search-overlay');
+
+  window.togglePagefindSearch = function() {
+    if (overlay.style.display === 'none') {
+      overlay.style.display = 'block';
+      setTimeout(function() {
+        overlay.querySelector('.pagefind-ui__search-input')?.focus();
+      }, 50);
+    } else {
+      overlay.style.display = 'none';
+    }
+  };
+
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) overlay.style.display = 'none';
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      window.togglePagefindSearch();
+    }
+    if (e.key === 'Escape' && overlay.style.display !== 'none') {
+      overlay.style.display = 'none';
+    }
+  });
+});
+</script>

@@ -37,7 +37,8 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 
 	// Ensure linking of the job controllers.
@@ -89,7 +90,7 @@ func NewPodOptions(streams genericiooptions.IOStreams) *PodOptions {
 	}
 }
 
-func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewPodCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewPodOptions(streams)
 
 	cmd := &cobra.Command{
@@ -117,7 +118,7 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 
 	o.PrintFlags.AddFlags(cmd)
 
-	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
+	flags.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addForObjectFlagVar(cmd, &o.UserSpecifiedForObject)
@@ -128,7 +129,7 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 }
 
 // Complete takes the command arguments and infers any remaining options.
-func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
+func (o *PodOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 	var err error
 
 	o.Limit, err = listRequestLimit()
@@ -188,7 +189,7 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 }
 
 // getForObjectInfos builds and executes a dynamic client query for a resource specified in --for
-func (o *PodOptions) getForObjectInfos(clientGetter util.ClientGetter) ([]*resource.Info, error) {
+func (o *PodOptions) getForObjectInfos(clientGetter clientgetter.ClientGetter) ([]*resource.Info, error) {
 	r := clientGetter.NewResourceBuilder().
 		Unstructured().
 		NamespaceParam(o.Namespace).
@@ -261,7 +262,7 @@ func (t *trackingWriterWrapper) Write(p []byte) (n int, err error) {
 }
 
 // Run prints the pods for a specific Job
-func (o *PodOptions) Run(clientGetter util.ClientGetter) error {
+func (o *PodOptions) Run(clientGetter clientgetter.ClientGetter) error {
 	trackingWriter := &trackingWriterWrapper{Delegate: o.Out}
 	tabWriter := printers.GetNewTabWriter(trackingWriter)
 
@@ -317,7 +318,7 @@ func (o *PodOptions) ToPrinter() (printers.ResourcePrinterFunc, error) {
 }
 
 // getPodsInfos gets the pods raw infos directly from the API server
-func (o *PodOptions) getPodsInfos(clientGetter util.ClientGetter) ([]*resource.Info, error) {
+func (o *PodOptions) getPodsInfos(clientGetter clientgetter.ClientGetter) ([]*resource.Info, error) {
 	namespace := o.Namespace
 	if o.AllNamespaces {
 		namespace = ""

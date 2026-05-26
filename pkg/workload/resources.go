@@ -29,6 +29,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
@@ -139,7 +140,7 @@ func ValidateResources(wi *Info) field.ErrorList {
 		podSpecPath := PodSetsPath.Index(i).Child("template").Child("spec")
 		for i := range ps.Template.Spec.InitContainers {
 			c := ps.Template.Spec.InitContainers[i]
-			if resNames := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(resNames) > 0 {
+			if resNames := resources.NewRequests(c.Resources.Requests).GreaterKeys(resources.NewRequests(c.Resources.Limits)); len(resNames) > 0 {
 				allErrors = append(
 					allErrors,
 					field.Invalid(podSpecPath.Child("initContainers").Index(i), resNames, RequestsMustNotExceedLimitMessage),
@@ -149,7 +150,7 @@ func ValidateResources(wi *Info) field.ErrorList {
 
 		for i := range ps.Template.Spec.Containers {
 			c := ps.Template.Spec.Containers[i]
-			if resNames := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(resNames) > 0 {
+			if resNames := resources.NewRequests(c.Resources.Requests).GreaterKeys(resources.NewRequests(c.Resources.Limits)); len(resNames) > 0 {
 				allErrors = append(
 					allErrors,
 					field.Invalid(podSpecPath.Child("containers").Index(i), resNames, RequestsMustNotExceedLimitMessage),

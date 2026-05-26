@@ -17,7 +17,6 @@ limitations under the License.
 package externalframeworks
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -26,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -35,12 +35,12 @@ import (
 
 func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 	tests := []struct {
-		name           string
-		object         *unstructured.Unstructured
-		featureEnabled bool
-		want           bool
-		wantReason     string
-		wantErr        error
+		name         string
+		object       *unstructured.Unstructured
+		featureGates map[featuregate.Feature]bool
+		want         bool
+		wantReason   string
+		wantErr      error
 	}{
 		{
 			name: "feature gate disabled",
@@ -51,10 +51,10 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 					},
 				},
 			},
-			featureEnabled: false,
-			want:           false,
-			wantReason:     "MultiKueueAdaptersForCustomJobs feature gate is disabled",
-			wantErr:        nil,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueAdaptersForCustomJobs: false},
+			want:         false,
+			wantReason:   "MultiKueueAdaptersForCustomJobs feature gate is disabled",
+			wantErr:      nil,
 		},
 		{
 			name: "managed by kueue with default path",
@@ -65,10 +65,10 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 					},
 				},
 			},
-			featureEnabled: true,
-			want:           true,
-			wantReason:     "",
-			wantErr:        nil,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueAdaptersForCustomJobs: true},
+			want:         true,
+			wantReason:   "",
+			wantErr:      nil,
 		},
 		{
 			name: "not managed by kueue",
@@ -79,10 +79,10 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 					},
 				},
 			},
-			featureEnabled: true,
-			want:           false,
-			wantReason:     "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"other-controller\"",
-			wantErr:        nil,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueAdaptersForCustomJobs: true},
+			want:         false,
+			wantReason:   "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"other-controller\"",
+			wantErr:      nil,
 		},
 		{
 			name: "managedBy field not found",
@@ -93,10 +93,10 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 					},
 				},
 			},
-			featureEnabled: true,
-			want:           false,
-			wantReason:     "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"\"",
-			wantErr:        nil,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueAdaptersForCustomJobs: true},
+			want:         false,
+			wantReason:   "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"\"",
+			wantErr:      nil,
 		},
 		{
 			name: "managedBy value is not a string",
@@ -107,16 +107,16 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 					},
 				},
 			},
-			featureEnabled: true,
-			want:           false,
-			wantReason:     "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"not-a-string\"",
-			wantErr:        nil,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueAdaptersForCustomJobs: true},
+			want:         false,
+			wantReason:   "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"not-a-string\"",
+			wantErr:      nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.MultiKueueAdaptersForCustomJobs, tt.featureEnabled)
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 
 			adapter := &Adapter{
 				gvk: schema.GroupVersionKind{
@@ -134,7 +134,7 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 			client := fake.NewClientBuilder().WithObjects(tt.object).Build()
 			key := types.NamespacedName{Name: "test-job", Namespace: "default"}
 
-			got, gotReason, err := adapter.IsJobManagedByKueue(context.Background(), client, key)
+			got, gotReason, err := adapter.IsJobManagedByKueue(t.Context(), client, key)
 
 			if diff := cmp.Diff(tt.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Adapter.IsJobManagedByKueue() error (-want,+got):\n%s", diff)
@@ -284,12 +284,12 @@ func TestAdapter_GetEmptyList(t *testing.T) {
 	}
 }
 
-func TestAdapter_WorkloadKeyFor(t *testing.T) {
+func TestAdapter_WorkloadKeysFor(t *testing.T) {
 	tests := []struct {
 		name       string
 		gvk        schema.GroupVersionKind
 		object     *unstructured.Unstructured
-		want       types.NamespacedName
+		want       []types.NamespacedName
 		wantErrMsg string
 	}{
 		{
@@ -310,10 +310,10 @@ func TestAdapter_WorkloadKeyFor(t *testing.T) {
 					},
 				},
 			},
-			want: types.NamespacedName{
+			want: []types.NamespacedName{{
 				Name:      "test-workload",
 				Namespace: "test-ns",
-			},
+			}},
 		},
 		{
 			name: "object without prebuilt workload label",
@@ -333,7 +333,7 @@ func TestAdapter_WorkloadKeyFor(t *testing.T) {
 					},
 				},
 			},
-			want:       types.NamespacedName{},
+			want:       nil,
 			wantErrMsg: "no prebuilt workload found for TestJob: test-ns/test-job",
 		},
 	}
@@ -345,7 +345,7 @@ func TestAdapter_WorkloadKeyFor(t *testing.T) {
 			tt.object.SetName("test-job")
 			tt.object.SetNamespace("test-ns")
 
-			result, err := adapter.(*Adapter).WorkloadKeyFor(tt.object)
+			result, err := adapter.(*Adapter).WorkloadKeysFor(tt.object)
 
 			if tt.wantErrMsg != "" {
 				if err == nil {
@@ -359,7 +359,7 @@ func TestAdapter_WorkloadKeyFor(t *testing.T) {
 
 			if tt.wantErrMsg == "" {
 				if diff := cmp.Diff(tt.want, result); diff != "" {
-					t.Errorf("Adapter.WorkloadKeyFor() result (-want,+got):\n%s", diff)
+					t.Errorf("Adapter.WorkloadKeysFor() result (-want,+got):\n%s", diff)
 				}
 			}
 		})

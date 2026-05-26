@@ -24,26 +24,21 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobspaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("PaddleJob Webhook", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("PaddleJob Webhook", func() {
 	var ns *corev1.Namespace
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(paddlejob.SetupPaddleJobWebhook))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(paddlejob.SetupPaddleJobWebhook))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "paddle-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("with TopologyAwareScheduling", func() {
@@ -63,7 +58,7 @@ var _ = ginkgo.Describe("PaddleJob Webhook", ginkgo.Ordered, func() {
 				Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeForbiddenError(), "error: %v", err)
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError(), "error: %v", err)
 		})
 	})
 })

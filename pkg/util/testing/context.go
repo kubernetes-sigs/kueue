@@ -37,7 +37,7 @@ func LogLevelWithDefault(defaultLogLevel int) int {
 	return level
 }
 
-func NewLogger(t *testing.T) logr.Logger {
+func NewLogger(t testing.TB) logr.Logger {
 	// Map TEST_LOG_LEVEL to testr verbosity so that lower (more negative)
 	// values increase verbosity consistently with integration/e2e logging.
 	level := LogLevelWithDefault(DefaultLogLevel)
@@ -45,12 +45,12 @@ func NewLogger(t *testing.T) logr.Logger {
 	// more negative TEST_LOG_LEVEL means more verbose. Translate by negating
 	// the level, so -3 => 3. Positive levels result in negative verbosity
 	// which effectively disables extra V logs.
-	return testr.NewWithOptions(t, testr.Options{
+	return testr.NewWithInterface(t, testr.Options{
 		Verbosity: -level,
 	})
 }
 
-func ContextWithLog(t *testing.T) (context.Context, logr.Logger) {
-	logger := NewLogger(t)
-	return ctrl.LoggerInto(t.Context(), logger), logger
+func ContextWithLog(tb testing.TB) (context.Context, logr.Logger) {
+	logger := NewLogger(tb)
+	return ctrl.LoggerInto(tb.Context(), logger), logger
 }

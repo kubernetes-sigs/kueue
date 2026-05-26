@@ -1,0 +1,24 @@
+{{- $rows := .Page.Site.Data.featuregates.removed_feature_list -}}
+<table class="feature-gates-table">
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Default</th>
+      <th>Stage</th>
+      <th>From</th>
+      <th>To</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{- range $rows }}
+      <tr>
+        <td><code>{{ .feature }}</code></td>
+        <td><code>{{ if .default }}true{{ else }}false{{ end }}</code></td>
+        <td>{{ .stage }}</td>
+        <td>{{ .from }}</td>
+        <td>{{ if .to }}{{ .to }}{{ else }}&mdash;{{ end }}</td>
+      </tr>
+    {{- end }}
+  </tbody>
+</table>
+

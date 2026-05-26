@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	resourceapi "k8s.io/api/resource/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -33,14 +34,19 @@ import (
 )
 
 const (
-	WorkloadQueueKey           = "spec.queueName"
-	WorkloadClusterQueueKey    = "status.admission.clusterQueue"
-	QueueClusterQueueKey       = "spec.clusterQueue"
-	LimitRangeHasContainerType = "spec.hasContainerType"
-	WorkloadQuotaReservedKey   = "status.quotaReserved"
-	WorkloadRuntimeClassKey    = "spec.runtimeClass"
-	OwnerReferenceUID          = "metadata.ownerReferences.uid"
-	WorkloadAdmissionCheckKey  = "status.admissionChecks"
+	WorkloadQueueKey                     = "spec.queueName"
+	WorkloadClusterQueueKey              = "status.admission.clusterQueue"
+	QueueClusterQueueKey                 = "spec.clusterQueue"
+	LimitRangeHasContainerType           = "spec.hasContainerType"
+	WorkloadQuotaReservedKey             = "status.quotaReserved"
+	WorkloadRuntimeClassKey              = "spec.runtimeClass"
+	OwnerReferenceUID                    = "metadata.ownerReferences.uid"
+	WorkloadAdmissionCheckKey            = "status.admissionChecks"
+	WorkloadPriorityClassKey             = "spec.priorityClassRef"
+	DeviceClassExtendedResourceNameIndex = "spec.extendedResourceName"
+	// WorkloadSliceNameKey is an index for pods by their workload slice name annotation.
+	// Used to find pods belonging to an elastic workload slice chain.
+	WorkloadSliceNameKey = "metadata.workloadSliceName"
 
 	// OwnerReferenceGroupKindFmt defines the format string used to construct a field path
 	// for indexing or matching against a specific owner Group and Kind in a Kubernetes object's metadata.
@@ -167,6 +173,25 @@ func IndexOwnerUID(obj client.Object) []string {
 	return slices.Map(obj.GetOwnerReferences(), func(o *metav1.OwnerReference) string { return string(o.UID) })
 }
 
+// IndexPodWorkloadSliceName indexes pods by their workload slice name annotation.
+// Uses WorkloadSliceNameAnnotation if present, otherwise falls back to WorkloadAnnotation
+// for non-elastic workloads.
+func IndexPodWorkloadSliceName(obj client.Object) []string {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+	// Prefer workload slice name annotation for elastic workloads
+	if value, found := pod.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+		return []string{value}
+	}
+	// Fall back to workload annotation for non-elastic workloads
+	if value, found := pod.Annotations[kueue.WorkloadAnnotation]; found {
+		return []string{value}
+	}
+	return nil
+}
+
 func IndexWorkloadAdmissionCheck(obj client.Object) []string {
 	wl, ok := obj.(*kueue.Workload)
 	if !ok || len(wl.Status.AdmissionChecks) == 0 {
@@ -175,6 +200,30 @@ func IndexWorkloadAdmissionCheck(obj client.Object) []string {
 	return slices.Map(wl.Status.AdmissionChecks, func(checkState *kueue.AdmissionCheckState) string {
 		return string(checkState.Name)
 	})
+}
+
+func IndexWorkloadPriorityClass(obj client.Object) []string {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok || wl.Spec.PriorityClassRef == nil {
+		return nil
+	}
+	if wl.Spec.PriorityClassRef.Kind != kueue.WorkloadPriorityClassKind ||
+		wl.Spec.PriorityClassRef.Group != kueue.WorkloadPriorityClassGroup {
+		return nil
+	}
+	return []string{wl.Spec.PriorityClassRef.Name}
+}
+
+// IndexDeviceClassExtendedResourceName indexes DeviceClasses by spec.extendedResourceName.
+func IndexDeviceClassExtendedResourceName(obj client.Object) []string {
+	dc, ok := obj.(*resourceapi.DeviceClass)
+	if !ok {
+		return nil
+	}
+	if dc.Spec.ExtendedResourceName == nil || *dc.Spec.ExtendedResourceName == "" {
+		return nil
+	}
+	return []string{*dc.Spec.ExtendedResourceName}
 }
 
 // Setup sets the index with the given fields for core apis.
@@ -194,6 +243,9 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadAdmissionCheckKey, IndexWorkloadAdmissionCheck); err != nil {
 		return fmt.Errorf("setting index on admissionCheck for Workload: %w", err)
 	}
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadPriorityClassKey, IndexWorkloadPriorityClass); err != nil {
+		return fmt.Errorf("setting index on priorityClass for Workload: %w", err)
+	}
 	if err := indexer.IndexField(ctx, &kueue.LocalQueue{}, QueueClusterQueueKey, IndexQueueClusterQueue); err != nil {
 		return fmt.Errorf("setting index on clusterQueue for localQueue: %w", err)
 	}
@@ -203,11 +255,23 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
 		return fmt.Errorf("setting index on ownerReferences.uid for Workload: %w", err)
 	}
-	// Add pod index to be able to list pods for elastic-jobs, needed to remove scheduling gate on
-	// admitted workload slices.
-	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+	// Add pod indexes for elastic-jobs and TAS. Uses workload slice name annotation to support
+	// JobSet and other workloads where pods are not immediate children of the job.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.TopologyAwareScheduling) {
+		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, IndexPodWorkloadSliceName); err != nil {
+			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
+		}
+		// OwnerReferenceUID index for Pod is for backwards compatibility only.
+		// TODO(sohankunkerkar): remove in 0.18
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
-			return err
+			return fmt.Errorf("setting index on ownerReferences.uid for Pod: %w", err)
+		}
+	}
+	// Index DeviceClasses by extendedResourceName for fast lookup during extended resource translation.
+	// The index is skipped if the DeviceClass API is not available on the cluster.
+	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		if err := indexer.IndexField(ctx, &resourceapi.DeviceClass{}, DeviceClassExtendedResourceNameIndex, IndexDeviceClassExtendedResourceName); err != nil && !apimeta.IsNoMatchError(err) {
+			return fmt.Errorf("setting index on extendedResourceName for DeviceClass: %w", err)
 		}
 	}
 	return nil

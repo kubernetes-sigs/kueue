@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
@@ -36,12 +37,15 @@ var (
 	FrameworkName = "kubeflow.org/tfjob"
 
 	SetupTFJobWebhook = jobframework.BaseWebhookFactory(
-		NewJob(),
-		func(o runtime.Object) jobframework.GenericJob {
+		&kftraining.TFJob{},
+		func(o *kftraining.TFJob) jobframework.GenericJob {
 			return fromObject(o)
 		},
 	)
 )
+
+var _ admission.Defaulter[*kftraining.TFJob] = &jobframework.BaseWebhook[*kftraining.TFJob]{}
+var _ admission.Validator[*kftraining.TFJob] = &jobframework.BaseWebhook[*kftraining.TFJob]{}
 
 // +kubebuilder:webhook:path=/mutate-kubeflow-org-v1-tfjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=tfjobs,verbs=create,versions=v1,name=mtfjob.kb.io,admissionReviewVersions=v1
 // +kubebuilder:webhook:path=/validate-kubeflow-org-v1-tfjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=tfjobs,verbs=create;update,versions=v1,name=vtfjob.kb.io,admissionReviewVersions=v1
@@ -59,7 +63,7 @@ func init() {
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=tfjobs,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=kubeflow.org,resources=tfjobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=tfjobs/finalizers,verbs=get;update

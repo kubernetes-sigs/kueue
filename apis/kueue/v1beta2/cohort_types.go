@@ -32,6 +32,7 @@ type CohortSpec struct {
 	// Cohort, including ClusterQueues, until the cycle is
 	// removed.  We prevent further admission while the cycle
 	// exists.
+	// +optional
 	ParentName CohortReference `json:"parentName,omitempty"`
 
 	// resourceGroups describes groupings of Resources and
@@ -60,6 +61,7 @@ type CohortSpec struct {
 	//
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
+	// +optional
 	ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
 
 	// fairSharing defines the properties of the Cohort when
@@ -79,23 +81,24 @@ type CohortStatus struct {
 }
 
 // +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:storageversion
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={co}
 // +kubebuilder:subresource:status
 
 // Cohort defines the Cohorts API.
-//
-// Hierarchical Cohorts (any Cohort which has a parent) are compatible
-// with Fair Sharing as of v0.11. Using these features together in
-// V0.9 and V0.10 is unsupported, and results in undefined behavior.
 type Cohort struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the Cohort.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the Cohort.
-	Spec CohortSpec `json:"spec,omitempty"`
+	// +optional
+	Spec CohortSpec `json:"spec"`
 	// status is the status of the Cohort.
+	// +optional
 	Status CohortStatus `json:"status,omitempty"`
 }
 
@@ -111,3 +114,5 @@ type CohortList struct {
 func init() {
 	SchemeBuilder.Register(&Cohort{}, &CohortList{})
 }
+
+func (src *Cohort) Hub() {}

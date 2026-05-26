@@ -70,6 +70,12 @@ Kueue assigns the first flavor in the ClusterQueue's `.spec.resourceGroups[*].fl
 list that has enough unused `nominalQuota` quota in the ClusterQueue or the
 ClusterQueue's [cohort](#cohort).
 
+When [Concurrent Admission](/docs/concepts/concurrent_admission) is enabled for
+a ClusterQueue, the order of `.spec.resourceGroups[*].flavors` also defines
+ResourceFlavor preference: the first ResourceFlavor is the most preferred
+ResourceFlavor for migration. Kueue can concurrently pursue admission on
+multiple ResourceFlavors independently.
+
 {{% alert title="Note" color="primary" %}}
 Use the `pods` resource name in the ClusterQueue quotas to limit the number of pods that can be admitted.
 
@@ -358,13 +364,7 @@ To limit the amount of resources that a ClusterQueue can lend in the cohort,
 you can set the `.spec.resourcesGroup[*].flavors[*].resource[*].lendingLimit`
 [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
 
-{{< feature-state state="beta" for_version="v0.9" >}}
-{{% alert title="Note" color="primary" %}}
-
-`LendingLimit` is a Beta feature enabled by default.
-
-You can disable it by setting the `LendingLimit` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-{{% /alert %}}
+{{< feature-state state="stable" for_version="v0.17" >}}
 
 As an example, assume you created the following two ClusterQueues:
 
@@ -441,15 +441,19 @@ The fields above do the following:
   Workloads from other ClusterQueues in the cohort that are using more than
   their nominal quota. The possible values are:
   - `Never` (default): do not preempt Workloads in the cohort.
-  - `LowerPriority`: if the pending Workload fits within the nominal
-    quota of its ClusterQueue, only preempt Workloads in the cohort that have
-    lower priority than the pending Workload.
-  - `Any`: if the pending Workload fits within the nominal quota of its
-    ClusterQueue, preempt any Workload in the cohort, irrespective of
-    priority.
+  - `LowerPriority`: **Classic Preemption** if the pending Workload fits within
+    the nominal quota of its ClusterQueue, only preempt Workloads in the cohort
+    that have lower priority than the pending Workload. **Fair Sharing** only
+    preempt Workloads in the cohort that have lower priority than the pending
+    Workload and that satisfy the Fair Sharing preemption strategies.
+  - `Any`: **Classic Preemption** if the pending Workload fits within the
+    nominal quota of its ClusterQueue, preempt any Workload in the cohort,
+    irrespective of priority. **Fair Sharing** preempt Workloads in the cohort
+    that satisfy the Fair Sharing preemption strategies.
 
 - `borrowWithinCohort` determines whether a pending Workload can preempt
-  Workloads from other ClusterQueues if the workload requires borrowing.
+  Workloads from other ClusterQueues that are using more than their nominal
+  quota, if the workload requires borrowing.
   May only be configured with Classical Preemption, and __not__ with Fair Sharing.
   This field requires to specify `policy` sub-field with possible values:
   - `Never` (default): do not preempt Workloads in the cohort if borrowing is required.
@@ -517,24 +521,13 @@ ResourceFlavors, Kueue selects a one that fits the workload using borrowing
 (without preemptions). If there is no such ResourceFlavor, Kueue selects a Flavor
 that uses preemption and is preferably not borrowing.
 
-By default Kueue avoids preemptions and prefers borrowing when assigning Flavors.
-Borrowing is not disruptive to other workloads but a
-workload that borrows risks being prempted (since it is using nominal quota
-from some other Cluster Queue). If you prefer to preempt rather than borrow when possible,
-you can enable the feature gate `FlavorFungibilityImplicitPreferenceDefault`, which
-changes the default preference as follows: If `.spec.flavorFungibility.whenCanBorrow` is `TryNextFlavor`,
-it assumes that preemption is preferred over borrowing and otherwise it assumes
-that borrowing is preferred over preemption.
+When both policies are set to `TryNextFlavor`, you can steer how those feasible
+assignments are compared by setting `.spec.flavorFungibility.preference`:
 
-{{% alert title="Note" color="primary" %}}
-`FlavorFungibilityImplicitPreferenceDefault` is currently an alpha feature,
-introduced to Kueue in version 0.13 and it is not enabled by default.
-
-To enable the feature, you have to set the `FlavorFungibilityImplicitPreferenceDefault`
-feature gate to `true`. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration)
-guide for details on feature gate configuration.
-{{% /alert %}}
-
+- `BorrowingOverPreemption` (default) keeps the historic behavior:
+  (`Fit`, `NoBorrow`) → (`Fit`, `Borrow`) → (`Preempt`, `NoBorrow`) → (`Preempt`, `Borrow`).
+- `PreemptionOverBorrowing` reverses the tie-breaker to prefer reclaiming quota over borrowing:
+  (`Fit`, `NoBorrow`) → (`Preempt`, `NoBorrow`) → (`Fit`, `Borrow`) → (`Preempt`, `Borrow`).
 
 ## StopPolicy
 

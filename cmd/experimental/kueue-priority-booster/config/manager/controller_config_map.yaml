@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kueue-priority-booster-config
+  namespace: kueue-system
+data:
+  controller_manager_config.yaml: |
+    # timeSharing groups parameters of the time-sharing mode:
+    #   interval:      no annotation while admitted for this interval; after that,
+    #                  a negative priority-boost is set while still admitted
+    #                  (LowerPriority preemption). Set to "0" to disable.
+    #                  Examples: "30m", "1h".
+    #   negativeBoost: magnitude of the negative boost after the interval
+    #                  (annotation value is -negativeBoost).
+    timeSharing:
+      interval: "30m"
+      negativeBoost: 100000
+    # Optional workloadSelector (metav1.LabelSelector) and maxWorkloadPriority — see README.

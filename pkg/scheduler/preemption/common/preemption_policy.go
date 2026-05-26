@@ -14,17 +14,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package preemptioncommon
+package common
 
 import (
+	"time"
+
+	"github.com/go-logr/logr"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func SatisfiesPreemptionPolicy(preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy) bool {
-	preemptorPriority := priority.Priority(preemptor)
-	candidatePriority := priority.Priority(candidate)
+const timestampPreemptionBuffer = 5 * time.Minute
+
+func SatisfiesPreemptionPolicy(log logr.Logger, preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy) bool {
+	preemptorPriority := priority.EffectivePriority(log, preemptor)
+	candidatePriority := priority.EffectivePriority(log, candidate)
 
 	lowerPriority := preemptorPriority > candidatePriority
 	if policy == kueue.PreemptionPolicyLowerPriority {
@@ -34,6 +41,9 @@ func SatisfiesPreemptionPolicy(preemptor, candidate *kueue.Workload, workloadOrd
 		preemptorTS := workloadOrdering.GetQueueOrderTimestamp(preemptor)
 		candidateTS := workloadOrdering.GetQueueOrderTimestamp(candidate)
 		newerEqualPriority := (preemptorPriority == candidatePriority) && preemptorTS.Before(candidateTS)
+		if newerEqualPriority && features.Enabled(features.SchedulerTimestampPreemptionBuffer) {
+			newerEqualPriority = candidateTS.Sub(preemptorTS.Time) > timestampPreemptionBuffer
+		}
 		return lowerPriority || newerEqualPriority
 	}
 	return policy == kueue.PreemptionPolicyAny

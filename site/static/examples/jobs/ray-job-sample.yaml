@@ -5,7 +5,6 @@ metadata:
   labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
-  suspend: true
   shutdownAfterJobFinishes: true
   # submissionMode specifies how RayJob submits the Ray job to the RayCluster.
   # The default value is "K8sJobMode", meaning RayJob will submit the Ray job via a submitter Kubernetes Job.

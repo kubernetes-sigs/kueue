@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package preemptioncommon
+package common
 
 // PreemptionPossibility represents the result
 // of a preemption simulation.
@@ -30,3 +30,15 @@ const (
 	// ClusterQueue.
 	Reclaim
 )
+
+func (p PreemptionPossibility) String() string {
+	switch p {
+	case NoCandidates:
+		return "NoCandidates"
+	case Preempt:
+		return "Preempt"
+	case Reclaim:
+		return "Reclaim"
+	}
+	return "Unknown"
+}

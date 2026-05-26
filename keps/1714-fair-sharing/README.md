@@ -11,6 +11,7 @@
     - [Story 3](#story-3)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
+  - [Nominal-first admission ordering](#nominal-first-admission-ordering)
   - [Share value function and weights](#share-value-function-and-weights)
   - [Preemption algorithm](#preemption-algorithm)
     - [Choosing ClusterQueues to preempt from](#choosing-clusterqueues-to-preempt-from)
@@ -200,6 +201,20 @@ The algorithms take a decision from root-to-leaves. This favors admission from
 suborganizations that, as a whole, still have unused resources, or favors preemptions 
 from suborganizations that, as a whole, are borrowing too much.
 
+### Nominal-first admission ordering
+
+When the `FairSharingPrioritizeNonBorrowing` feature gate is enabled,
+a workload whose subtree is not borrowing is preferred over one whose
+subtree is borrowing, before falling through to the DRS comparison.
+
+This check is **per-flavor**: a subtree that borrows on flavor X but has
+ample quota on flavor Y does not penalize workloads requesting flavor Y.
+
+In hierarchical cohorts, the check is applied at every level of the
+hierarchy (CQ to root). A subtree that fits within its quota at every
+ancestor is preferred over one that borrows at any ancestor, even if the
+borrowing occurs at a higher cohort level rather than the CQ itself.
+
 ### Share value function and weights
 
 The value function is a variation of DRF (see
@@ -374,6 +389,10 @@ metrics
 * Scalability scenarios
 
 ## Implementation History
+
+* 2024.03.18 - KEP created (#1773)
+* 2024.04.24 - Make dominant resource share flavor aware (#2037)
+* 2026.03.27 - Fix nominal-first to check per-flavor borrowing at every hierarchy level (#10149)
 
 ## Drawbacks
 

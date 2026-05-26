@@ -103,6 +103,15 @@ following annotations set at the PodTemplate level:
     topology considerations. In other words, this considers if all pods could be accommodated 
     within any nodes which helps to minimize fragmentation by filling the small gaps
     on nodes across the cluster.
+- `kueue.x-k8s.io/podset-group-name` - indicates the name of the group of PodSets. PodSet Group
+    is a unit of flavor assignment and topology domain fitting. This is useful when you want to
+    ensure that multiple PodSets are scheduled in the same topology domain.
+- `kueue.x-k8s.io/podset-slice-required-topology-constraints` - defines multi-layer slice
+    topology constraints as a JSON-encoded array. Each entry specifies a topology level and
+    slice size, ordered from the outermost (coarsest) to the innermost (finest) layer. At most
+    3 layers are supported. This annotation is mutually exclusive with
+    `kueue.x-k8s.io/podset-slice-required-topology` and `kueue.x-k8s.io/podset-slice-size`.
+    Requires the `TASMultiLayerTopology` feature gate.
 
 #### Example
 
@@ -115,7 +124,7 @@ to a TAS ResourceFlavor.
 ### ClusterAutoscaler support
 
 TAS integrates with the [Kubernetes ClusterAutoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
-through the [Provisioning AdmissionCheck](/docs/admission-check-controllers/provisioning/).
+through the [Provisioning AdmissionCheck](/docs/concepts/admission_check/provisioning_request/).
 
 When a workload is assigned to the TAS ResourceFlavor with Provisioning
 AdmissionCheck, then its admission flow has the following stages:
@@ -127,7 +136,7 @@ AdmissionCheck, then its admission flow has the following stages:
 3. **Topology assignment**: Kueue sets topology assignment, on the Workload
   object, calculated taking into account any newly provisioned nodes.
 
-Check also [PodSet updates in ProvisioningRequestConfig](site/content/en/docs/admission-check-controllers/provisioning.md)
+Check also [PodSet updates in ProvisioningRequestConfig](/docs/concepts/admission_check/provisioning_request/#podset-updates)
 to see how you can configure Kueue if you want to restrict scheduling to the
 newly provisioned nodes (assuming the provisioning class supports it).
 
@@ -239,19 +248,71 @@ The following table summarizes the behavior based on the combination of the feat
 
 We recommend keeping all three feature gates enabled to ensure the fastest feedback loop for workloads affected by node failures.
 
-### Limitations
+#### Balanced Placement
+{{< feature-state state="alpha" for_version="v0.15" >}}
+{{% alert title="Note" color="primary" %}}
+`TASBalancedPlacement` is currently an alpha feature and is disabled by default.
 
-Currently, there are limitations for the compatibility of TAS with other
-features, including:
-- some scheduling directives (e.g. pod affinities and anti-affinities) are ignored,
-- the "podset-required-topology" annotation may fail if the underlying
-  ClusterAutoscaler cannot provision nodes that satisfy the domain constraint,
-- a ClusterQueue for [MultiKueue](multikueue.md) referencing a ResourceFlavor
-with Topology name (`.spec.topologyName`) is marked as inactive.
-- The taints on the nodes are not respected unless `kubernetes.io/hostname` is on the lowest topology level.
+You can enable it by editing the `TASBalancedPlacement` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
 
-These usage scenarios are considered to be supported in the future releases
-of Kueue.
+The balanced placement algorithm provides an alternative to the greedy packing strategies. Instead of
+iterating over the domains sorted from largest to smallest available space (or based on some other criteria)
+and trying to pack as many pods/slices as possible to each domain until the request fits, it first finds the
+optimal set of domains that fit the request and then distributes the pods/slices as evenly as possible across
+these domains.
+
+Greedy placement strategies (such as `BestFit` and `LeastFreeCapacity`) might result in a placement with a small
+number of pods assigned to the last considered domain. For example 12 pods distributed among domains with
+capacities (10,10) will be placed (10,2). However, in some applications, a more balanced placement (6,6) would
+be more efficient. Some examples of such cases would be all-to-all communication procedures (e.g. Allgather)
+since more balanced placement leads to more efficient cross-domain traffic.
+
+To use this feature, use the `kueue.x-k8s.io/podset-preferred-topology` annotation on the Job. Kueue TAS makes 
+sure that the minimum number of pods (or slices) placed on any domain **one level below** the indicated level
+will be maximied. Also (as a second criterion) the number of domains used on the indicated level will be
+minimized. However, if the Job would not fit within a single domain **one level above** the indicated level,
+Kueue will not perform the balanced placement and will fallback to the standard TAS algorithm.
+
+#### Multi-Layer Topology
+{{< feature-state state="alpha" for_version="v0.17" >}}
+{{% alert title="Note" color="primary" %}}
+`TASMultiLayerTopology` is currently an alpha feature and is disabled by default.
+
+You can enable it by editing the `TASMultiLayerTopology` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
+
+Multi-layer topology allows you to define up to 3 layers of slice topology constraints,
+enabling fine-grained placement across deep topology hierarchies. This is useful in data
+centers with multiple topology levels (e.g., datacenter, block, rack) where you need
+different slice sizes at each level.
+
+With the single-layer approach (`kueue.x-k8s.io/podset-slice-required-topology` +
+`kueue.x-k8s.io/podset-slice-size`), you can only specify one topology level and one
+slice size. Multi-layer topology extends this by letting you specify constraints at
+multiple levels simultaneously.
+
+For example, if you have 64 pods and want groups of 32 pods within the same block and
+groups of 16 pods within the same rack, you can express this with a single annotation:
+
+```yaml
+kueue.x-k8s.io/podset-slice-required-topology-constraints: |
+  [
+    {"topology": "cloud.provider.com/topology-block", "size": 32},
+    {"topology": "cloud.provider.com/topology-rack", "size": 16}
+  ]
+```
+
+The constraints are specified as a JSON array ordered from the outermost (coarsest) to
+the innermost (finest) topology layer. Each inner slice size must evenly divide the
+outer slice size.
+
+This annotation is mutually exclusive with `kueue.x-k8s.io/podset-slice-required-topology`
+and `kueue.x-k8s.io/podset-slice-size`.
 
 ## Drawbacks
 

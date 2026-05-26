@@ -26,7 +26,7 @@ import (
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
+	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -36,15 +36,15 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestDefault(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob               *rayv1.RayJob
-		newJob               *rayv1.RayJob
-		manageAll            bool
-		localQueueDefaulting bool
-		defaultLqExist       bool
+		oldJob         *rayv1.RayJob
+		newJob         *rayv1.RayJob
+		manageAll      bool
+		defaultLqExist bool
 	}{
 		"unmanaged": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
@@ -73,26 +73,23 @@ func TestDefault(t *testing.T) {
 				Suspend(true).
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			oldJob:               testingrayutil.MakeJob("test-job", "default").Obj(),
+		"default lq is created, job doesn't have queue label": {
+			defaultLqExist: true,
+			oldJob:         testingrayutil.MakeJob("test-job", "default").Obj(),
 			newJob: testingrayutil.MakeJob("test-job", "default").
 				Queue("default").
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			oldJob:               testingrayutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
+		"default lq is created, job has queue label": {
+			defaultLqExist: true,
+			oldJob:         testingrayutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
 			newJob: testingrayutil.MakeJob("test-job", "").
 				Queue("test-queue").
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       false,
-			oldJob:               testingrayutil.MakeJob("test-job", "").Obj(),
+		"default lq isn't created, job doesn't have queue label": {
+			defaultLqExist: false,
+			oldJob:         testingrayutil.MakeJob("test-job", "").Obj(),
 			newJob: testingrayutil.MakeJob("test-job", "").
 				Obj(),
 		},
@@ -100,12 +97,11 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := utiltesting.NewClientBuilder()
 			cli := builder.Build()
 			cqCache := schdcache.New(cli)
-			queueManager := qcache.NewManager(cli, cqCache)
+			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
@@ -130,33 +126,24 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	worker := rayv1.WorkerGroupSpec{}
-	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker}
+	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker, worker, worker}
 
 	testcases := map[string]struct {
-		job                     *rayv1.RayJob
-		manageAll               bool
-		wantErr                 error
-		localQueueDefaulting    bool
-		topologyAwareScheduling bool
+		job          *rayv1.RayJob
+		manageAll    bool
+		wantErr      error
+		featureGates map[featuregate.Feature]bool
 	}{
 		"invalid unmanaged": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(false).
 				Obj(),
 			wantErr: nil,
 		},
 
-		"valid managed - has cluster selector but no RayClusterSpec": {
-			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
-				ClusterSelector(map[string]string{
-					"k1": "v1",
-				}).
-				RayClusterSpec(nil).
-				Obj(),
-			localQueueDefaulting: false,
-			wantErr:              nil,
-		},
 		"invalid managed - no cluster selector and no RayClusterSpec": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				RayClusterSpec(nil).
 				Obj(),
@@ -165,13 +152,14 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid unmanaged - local queue default": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(false).
 				Obj(),
-			localQueueDefaulting: true,
-			wantErr:              nil,
+			wantErr: nil,
 		},
 		"invalid managed - by config": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(false).
 				Obj(),
@@ -181,6 +169,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid managed - by queue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				ShutdownAfterJobFinishes(false).
 				Obj(),
@@ -189,6 +178,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid managed - has cluster selector and RayClusterSpec": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				ClusterSelector(map[string]string{
 					"k1": "v1",
@@ -200,21 +190,23 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"invalid managed - has auto scaler": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "rayClusterSpec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job should not use autoscaling"),
-			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			wantErr:      nil,
 		},
 		"invalid managed - too many worker groups": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				WithWorkerGroups(bigWorkerGroup...).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs"), 8, 7),
+				field.TooMany(field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs"), 10, 9),
 			}.ToAggregate(),
 		},
 		"worker group uses head name": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				WithWorkerGroups(rayv1.WorkerGroupSpec{
 					GroupName: headGroupPodSetName,
@@ -259,7 +251,7 @@ func TestValidateCreate(t *testing.T) {
 					rayv1.WorkerGroupSpec{GroupName: "wg3"},
 				).
 				Obj(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid topology request": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
@@ -299,7 +291,7 @@ func TestValidateCreate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid slice topology request - slice size larger than number of podsets": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
@@ -317,7 +309,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -330,7 +322,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg2",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -350,7 +342,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[1].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 10"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"valid PodSet grouping request": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
@@ -378,7 +370,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 				).
 				Obj(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid PodSet grouping request - groups of size other than 2": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
@@ -395,7 +387,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -407,7 +399,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg2",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -419,7 +411,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg3",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -441,14 +433,14 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[2].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid PodSet grouping request - no leader in group": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -460,7 +452,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg2",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -478,7 +470,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[1].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 5 replica(s) and 10 replica(s) in the group"),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid PodSet grouping request - required topology does not match": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
@@ -495,7 +487,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -508,10 +500,18 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.rayClusterSpec.headGroupSpec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.headGroupSpec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.rayClusterSpec.headGroupSpec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.headGroupSpec.template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid PodSet grouping request - preferred topology does not match": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
@@ -528,7 +528,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -541,10 +541,18 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.rayClusterSpec.headGroupSpec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.headGroupSpec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.rayClusterSpec.headGroupSpec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.headGroupSpec.template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid PodSet grouping request - different topology annotations within group": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
@@ -561,7 +569,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -574,10 +582,25 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.rayClusterSpec.headGroupSpec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.headGroupSpec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.rayClusterSpec.headGroupSpec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.rayClusterSpec.headGroupSpec.template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"valid with prebuilt workload annotation, WorkloadIdentifierAnnotations enabled": {
+			job: testingrayutil.MakeJob("rayjob", "ns").
+				Queue("queue").
+				PrebuiltWorkloadAnnotation("wl1").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
 	}
 
@@ -586,8 +609,7 @@ func TestValidateCreate(t *testing.T) {
 			wh := &RayJobWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, result := wh.ValidateCreate(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {

@@ -25,13 +25,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -197,9 +196,9 @@ func TestPodSets(t *testing.T) {
 	)
 
 	testCases := map[string]struct {
-		job                           *MPIJob
-		wantPodSets                   []kueue.PodSet
-		enableTopologyAwareScheduling bool
+		job          *MPIJob
+		wantPodSets  []kueue.PodSet
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			job: (*MPIJob)(jobTemplate.DeepCopy()),
@@ -211,7 +210,7 @@ func TestPodSets(t *testing.T) {
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
 					Obj(),
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with required topology annotation": {
 			job: (*MPIJob)(jobTemplate.Clone().
@@ -241,7 +240,7 @@ func TestPodSets(t *testing.T) {
 					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 					Obj(),
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with preferred topology annotation": {
 			job: (*MPIJob)(jobTemplate.Clone().
@@ -271,7 +270,7 @@ func TestPodSets(t *testing.T) {
 					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 					Obj(),
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			job: (*MPIJob)(jobTemplate.Clone().
@@ -297,7 +296,7 @@ func TestPodSets(t *testing.T) {
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					Obj(),
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"without preferred topology annotation if TAS is disabled": {
 			job: (*MPIJob)(jobTemplate.Clone().
@@ -323,14 +322,14 @@ func TestPodSets(t *testing.T) {
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					Obj(),
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.job.PodSets(ctx)
+			gotPodSets, err := tc.job.PodSets(ctx, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -408,8 +407,9 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("worker", 2).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-					).PriorityClass("test-wpc").Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					).
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
 					Obj(),
 			},
 		},
@@ -432,8 +432,9 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("worker", 2).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-					).PriorityClass("test-pc").Priority(200).
-					PriorityClassSource(constants.PodPriorityClassSource).
+					).
+					PodPriorityClassRef("test-pc").
+					Priority(200).
 					Obj(),
 			},
 		},
@@ -458,8 +459,9 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("worker", 2).
 							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
 							Obj(),
-					).PriorityClass("test-wpc").Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					).
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
 					Obj(),
 			},
 		},
@@ -475,7 +477,7 @@ func TestReconciler(t *testing.T) {
 			}
 			objs := append(tc.priorityClasses, tc.job, testNamespace)
 			kClient := clientBuilder.WithObjects(objs...).Build()
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)

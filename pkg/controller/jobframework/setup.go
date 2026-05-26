@@ -105,9 +105,10 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 					return err
 				}
 			}
-		}
-		if err := setupNoopWebhook(mgr, cb.JobType); err != nil {
-			return fmt.Errorf("%s: unable to create noop webhook: %w", fwkNamePrefix, err)
+		} else {
+			if err := cb.SetupWebhook(mgr, WithNoopWebhook(true)); err != nil {
+				return fmt.Errorf("%s: unable to create noop webhook: %w", fwkNamePrefix, err)
+			}
 		}
 		return nil
 	})
@@ -118,7 +119,7 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
+		mgr.GetEventRecorder(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
 		opts...,
 	); err != nil {
 		return fmt.Errorf("%s: %w", fwkNamePrefix, err)
@@ -131,7 +132,7 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
+			mgr.GetEventRecorder(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
 			opts...,
 		); err != nil {
 			return fmt.Errorf("%s: %w", fwkNamePrefix, err)

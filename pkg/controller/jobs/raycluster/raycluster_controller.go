@@ -26,11 +26,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
@@ -52,11 +52,11 @@ func init() {
 		SetupWebhook:      SetupRayClusterWebhook,
 		JobType:           &rayv1.RayCluster{},
 		AddToScheme:       rayv1.AddToScheme,
-		MultiKueueAdapter: &multiKueueAdapter{},
+		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy),
 	}))
 }
 
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters/status,verbs=get;patch;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
@@ -90,7 +90,7 @@ func (j *RayCluster) IsActive() bool {
 }
 
 func (j *RayCluster) Suspend() {
-	j.Spec.Suspend = ptr.To(true)
+	j.Spec.Suspend = new(true)
 }
 
 func (j *RayCluster) GVK() schema.GroupVersionKind {
@@ -101,7 +101,7 @@ func (j *RayCluster) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Name)
 }
 
-func (j *RayCluster) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *RayCluster) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	// len = workerGroups + head
 	podSets := make([]kueue.PodSet, len(j.Spec.WorkerGroupSpecs)+1)
 
@@ -148,30 +148,19 @@ func (j *RayCluster) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := len(j.Spec.WorkerGroupSpecs) + 1
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.Suspend = ptr.To(false)
+	j.Spec.Suspend = new(false)
 
-	// head
-	headPod := &j.Spec.HeadGroupSpec.Template
-	info := podSetsInfo[0]
-	if err := podset.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
+	err := UpdateRayClusterSpecToRunWithPodSetsInfo(&j.Spec, podSetsInfo)
+	if err != nil {
 		return err
 	}
 
-	// workers
-	for index := range j.Spec.WorkerGroupSpecs {
-		workerPod := &j.Spec.WorkerGroupSpecs[index].Template
-
-		info := podSetsInfo[index+1]
-		if err := podset.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -180,17 +169,7 @@ func (j *RayCluster) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		return false
 	}
 
-	// head
-	headPod := &j.Spec.HeadGroupSpec.Template
-	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])
-
-	// workers
-	for index := range j.Spec.WorkerGroupSpecs {
-		workerPod := &j.Spec.WorkerGroupSpecs[index].Template
-		info := podSetsInfo[index+1]
-		changed = podset.RestorePodSpec(&workerPod.ObjectMeta, &workerPod.Spec, info) || changed
-	}
-	return changed
+	return RestorePodSetsInfo(&j.Spec, podSetsInfo)
 }
 
 func (j *RayCluster) Finished(ctx context.Context) (message string, success, finished bool) {
@@ -198,7 +177,7 @@ func (j *RayCluster) Finished(ctx context.Context) (message string, success, fin
 	return j.Status.Reason, j.Status.State != rayv1.Failed, false
 }
 
-func (j *RayCluster) PodsReady(ctx context.Context) bool {
+func (j *RayCluster) PodsReady(ctx context.Context, _ client.Client) bool {
 	return j.Status.State == rayv1.Ready
 }
 

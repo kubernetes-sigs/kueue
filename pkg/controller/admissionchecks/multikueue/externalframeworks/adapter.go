@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -94,14 +93,8 @@ func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Cl
 	// Apply default transformation: remove the managedBy field
 	a.removeManagedByField(remoteObj)
 
-	// Add MultiKueue labels
-	labels := remoteObj.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string)
-	}
-	labels[constants.PrebuiltWorkloadLabel] = workloadName
-	labels[kueue.MultiKueueOriginLabel] = origin
-	remoteObj.SetLabels(labels)
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(remoteObj, workloadName, origin)
 
 	// Create the object in the remote cluster
 	log.V(2).Info("Creating remote object", "gvk", a.gvk, "name", remoteObj.GetName(), "namespace", remoteObj.GetNamespace())
@@ -152,21 +145,12 @@ func (a *Adapter) copyStatusFromRemote(localObj, remoteObj *unstructured.Unstruc
 
 // DeleteRemoteObject deletes the remote object identified by the given key from the remote cluster.
 // It first attempts to retrieve the object, and if found, deletes it with background propagation policy.
-func (a *Adapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (a *Adapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(a.gvk)
-	err := remoteClient.Get(ctx, key, obj)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
+	obj.SetName(key.Name)
+	obj.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, obj, client.PropagationPolicy(metav1.DeletePropagationBackground)))
-}
-
-// KeepAdmissionCheckPending returns false,
-// indicating that admission checks should not be kept pending by default.
-// This can be overridden by specific adapters if needed.
-func (a *Adapter) KeepAdmissionCheckPending() bool {
-	return false
 }
 
 // IsJobManagedByKueue checks if the job object identified by the given key is managed by Kueue.
@@ -217,25 +201,24 @@ func (a *Adapter) GetEmptyList() client.ObjectList {
 	return list
 }
 
-// WorkloadKeyFor returns the key of the workload of interest for the given object.
+// WorkloadKeysFor returns the keys of the workloads of interest for the given object.
 // It checks the labels of the object for the prebuilt workload label and
 // returns the namespaced name of the workload.
-func (a *Adapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (a *Adapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	unstructuredObj, isUnstructured := o.(*unstructured.Unstructured)
 	if !isUnstructured {
-		return types.NamespacedName{}, fmt.Errorf("not an unstructured object, got type: %T", o)
+		return nil, fmt.Errorf("not an unstructured object, got type: %T", o)
 	}
 
 	objGVK := unstructuredObj.GroupVersionKind()
 	if objGVK.Group != a.gvk.Group || objGVK.Version != a.gvk.Version || objGVK.Kind != a.gvk.Kind {
-		return types.NamespacedName{}, fmt.Errorf("unexpected GVK: expected %s, got %s for object %s", a.gvk, objGVK, klog.KObj(unstructuredObj))
+		return nil, fmt.Errorf("unexpected GVK: expected %s, got %s for object %s", a.gvk, objGVK, klog.KObj(unstructuredObj))
 	}
 
-	labels := unstructuredObj.GetLabels()
-	prebuiltWl, hasPrebuiltWorkload := labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(unstructuredObj))
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(unstructuredObj)
+	if prebuiltWorkload == "" {
+		return nil, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(unstructuredObj))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: unstructuredObj.GetNamespace()}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: unstructuredObj.GetNamespace()}}, nil
 }

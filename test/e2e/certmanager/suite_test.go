@@ -18,13 +18,12 @@ package certmanager
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -37,19 +36,13 @@ var (
 	ctx              context.Context
 	cfg              *rest.Config
 	restClient       *rest.RESTClient
+	prometheusClient prometheusv1.API
 	kueueNS          = util.GetKueueNamespace()
 	visibilityClient visibility.VisibilityV1beta2Interface
 )
 
 func TestAPIs(t *testing.T) {
-	suiteName := "End To End Cert Manager Integration Suite"
-	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
-		suiteName = fmt.Sprintf("%s: %s", suiteName, ver)
-	}
-	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t,
-		suiteName,
-	)
+	util.RunE2ESuite(t, "End To End Cert Manager Integration Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -64,6 +57,11 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
+	labelFilter := ginkgo.GinkgoLabelFilter()
+	if ginkgo.Label("feature:prometheus").MatchesLabelFilter(labelFilter) {
+		prometheusClient = util.CreatePrometheusClient(cfg)
+		util.WaitForPrometheusAvailability(ctx, k8sClient)
+	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),

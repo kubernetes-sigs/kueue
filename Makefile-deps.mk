@@ -23,12 +23,14 @@ ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' 
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
 KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
 YQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
-HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v3)
+HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v4)
+HELM_UNITTEST_PLUGIN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/helm-unittest/helm-unittest)
 GENREF_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/kubernetes-sigs/reference-docs/genref)
 HUGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/gohugoio/hugo)
 MDTOC_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/mdtoc)
 HELM_DOCS_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/norwoodj/helm-docs)
 MOCKGEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' go.uber.org/mock)
+CLUSTERPROFILE_VERSION=$(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/cluster-inventory-api)
 
 # Versions for external controllers
 JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
@@ -38,7 +40,9 @@ KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ku
 KUBERAY_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ray-project/kuberay/ray-operator)
 APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
 LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/lws)
+SPARKOPERATOR_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/spark-operator/v2)
 CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
+DRA_EXAMPLE_DRIVER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/dra-example-driver)
 
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
 GOLANGCI_LINT_KAL = $(BIN_DIR)/golangci-lint-kube-api-linter
@@ -64,6 +68,8 @@ JOBSET_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" sigs.k8s.io/
 CLUSTER_AUTOSCALER_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" k8s.io/autoscaler/cluster-autoscaler/apis)
 APPWRAPPER_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/project-codeflare/appwrapper)
 LEADERWORKERSET_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" sigs.k8s.io/lws)
+CLUSTERPROFILE_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" sigs.k8s.io/cluster-inventory-api)
+SPARKOPERATOR_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/spark-operator/v2)
 
 ##@ Tools
 
@@ -73,11 +79,12 @@ golangci-lint: ## Download golangci-lint locally if necessary.
 
 .PHONY: golangci-lint-kal
 golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
-	cd hack/kal-linter; $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
+	cd hack/testing/kal-linter; $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
 
 .PHONY: controller-gen
-controller-gen: ## Download controller-gen locally if necessary.
-	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
+controller-gen: gomod-download-tools ## Download controller-gen locally if necessary.
+	@echo "→ Downloading controller-gen locally if necessary..."
+	GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
 
 .PHONY: kustomize
 kustomize: ## Download kustomize locally if necessary.
@@ -104,10 +111,13 @@ yq: ## Download yq locally if necessary.
 	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/mikefarah/yq/v4@$(YQ_VERSION)
 
 .PHONY: helm
-helm: ## Download helm and helm-unittest locally if necessary.
-	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install helm.sh/helm/v3/cmd/helm@$(HELM_VERSION)
-	@if ! $(HELM) plugin list | grep -q unittest; then \
-		$(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git; \
+helm: ## Download helm locally if necessary.
+	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install helm.sh/helm/v4/cmd/helm@$(HELM_VERSION)
+
+.PHONY: helm-unittest-plugin
+helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
+	@if ! HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) plugin list | grep -q unittest; then \
+		HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git --version $(HELM_UNITTEST_PLUGIN_VERSION) --verify=false; \
 	fi
 
 .PHONY: genref
@@ -134,18 +144,24 @@ mockgen: ## Download mockgen locally if necessary.
 
 .PHONY: mpi-operator-crd
 mpi-operator-crd: ## Copy the CRDs from the mpi-operator to the dep-crds directory.
+mpi-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the mpi-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/mpi-operator/
 	cp -f $(MPI_ROOT)/manifests/base/* $(EXTERNAL_CRDS_DIR)/mpi-operator/
 
 .PHONY: kf-training-operator-crd
 kf-training-operator-crd: ## Copy the CRDs from the training-operator to the dep-crds directory.
-	## Removing kubeflow.org_mpijobs.yaml is required as the version of MPIJob is conflicting between training-operator and mpi-operator - in integration tests.
+kf-training-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the training-operator to the dep-crds directory..."
+	@## Removing kubeflow.org_mpijobs.yaml is required as the version of MPIJob is conflicting between training-operator and mpi-operator - in integration tests.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/training-operator-crds/
 	find $(KF_TRAINING_ROOT)/manifests/base/crds/* -type f -not -name "kubeflow.org_mpijobs.yaml" -exec cp -pf {} $(EXTERNAL_CRDS_DIR)/training-operator-crds/ \;
 
 .PHONY: kf-training-operator-manifests
 kf-training-operator-manifests: ## Copy whole manifests folder from the training-operator to the dep-crds directory.
-	## Full version of the manifest is required for e2e multikueue tests.
+kf-training-operator-manifests: gomod-download
+	@echo "→ Copying whole manifests folder from the training-operator to the dep-crds directory..."
+	@## Full version of the manifest is required for e2e multikueue tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/training-operator" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/training-operator" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/training-operator"; \
@@ -155,16 +171,22 @@ kf-training-operator-manifests: ## Copy whole manifests folder from the training
 
 .PHONY: kf-trainer-runtimes
 kf-trainer-runtimes: ## Copy the kubeflow trainer runtimes manifests to the dep-crds directory.
+kf-trainer-runtimes: gomod-download
+	@echo "→ Copying the kubeflow trainer runtimes manifests to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/kf-trainer-runtimes/
 	cp -rf $(KF_TRAINER_ROOT)/manifests/base/runtimes/*_distributed.yaml $(EXTERNAL_CRDS_DIR)/kf-trainer-runtimes/
 
 .PHONY: kf-trainer-crd 
 kf-trainer-crd: ## Copy the CRDs of the kubeflow trainer to the dep-crds directory.
+kf-trainer-crd: gomod-download
+	@echo "→ Copying the CRDs of the kubeflow trainer to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/kf-trainer-crds/
 	cp -rf $(KF_TRAINER_ROOT)/manifests/base/crds/* $(EXTERNAL_CRDS_DIR)/kf-trainer-crds/
 
 .PHONY: kf-trainer-manifests
 kf-trainer-manifests: ## Copy whole manifests folder of the kubeflow trainer to the dep-crds directory.
+kf-trainer-manifests: gomod-download
+	@echo "→ Copying whole manifests folder of the kubeflow trainer to the dep-crds directory..."
 	if [ -d "$(EXTERNAL_CRDS_DIR)/kf-trainer" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/kf-trainer" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/kf-trainer"; \
@@ -174,12 +196,16 @@ kf-trainer-manifests: ## Copy whole manifests folder of the kubeflow trainer to 
 
 .PHONY: ray-operator-crd
 ray-operator-crd: ## Copy the CRDs from the ray-operator to the dep-crds directory.
+ray-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the ray-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/ray-operator-crds/
 	cp -f $(RAY_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/ray-operator-crds/
 
 .PHONY: ray-operator-manifests
 ray-operator-manifests: ## Copy the whole manifests content from the ray-operator to the dep-crds directory.
-	## Full version of the manifest is required for e2e multikueue tests.
+ray-operator-manifests: gomod-download
+	@echo "→ Copying the whole manifests content from the ray-operator to the dep-crds directory..."
+	@## Full version of the manifest is required for e2e multikueue tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/ray-operator" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/ray-operator" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/ray-operator"; \
@@ -192,22 +218,29 @@ ray-operator-manifests: ## Copy the whole manifests content from the ray-operato
 
 .PHONY: jobset-operator-crd
 jobset-operator-crd: ## Copy the CRDs from the jobset-operator to the dep-crds directory.
+jobset-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the jobset-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/jobset-operator/
 	cp -f $(JOBSET_ROOT)/config/components/crd/bases/* $(EXTERNAL_CRDS_DIR)/jobset-operator/
 
 .PHONY: cluster-autoscaler-crd
 cluster-autoscaler-crd: ## Copy the CRDs from the cluster-autoscaler to the dep-crds directory.
+cluster-autoscaler-crd: gomod-download
+	@echo "→ Copying the CRDs from the cluster-autoscaler to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 	cp -f $(CLUSTER_AUTOSCALER_ROOT)/config/crd/* $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 
 .PHONY: appwrapper-crd
 appwrapper-crd: ## Copy the CRDs from the appwrapper to the dep-crds directory.
+appwrapper-crd: gomod-download
+	@echo "→ Copying the CRDs from the appwrapper to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/appwrapper-crds/
 	cp -f $(APPWRAPPER_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/appwrapper-crds/
 
 .PHONY: appwrapper-manifests
 appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapper controller to the dep-crds directory.
-	## Full version of the manifest required for e2e tests.
+	@echo "→ Copy the CRDs from the appwrapper to the dep-crds directory...."
+	@## Full version of the manifest required for e2e tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/appwrapper" ]; then \
 		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/appwrapper" && \
 		rm -rf "$(EXTERNAL_CRDS_DIR)/appwrapper"; \
@@ -218,13 +251,29 @@ appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapp
 
 .PHONY: leaderworkerset-operator-crd
 leaderworkerset-operator-crd: ## Copy the CRDs from the leaderworkerset-operator to the dep-crds directory.
+leaderworkerset-operator-crd: gomod-download
+	@echo "→ Copying the CRDs from the leaderworkerset-operator to the dep-crds directory..."
 	mkdir -p $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 	cp -f $(LEADERWORKERSET_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 
+.PHONY: clusterprofile-crd
+clusterprofile-crd: ## Copy the CRDs from the clusterprofile to the dep-crds directory.
+clusterprofile-crd: gomod-download
+	@echo "→ Copy the CRDs from the clusterprofile to the dep-crds directory."
+	mkdir -p $(EXTERNAL_CRDS_DIR)/clusterprofile/
+	cp -f $(CLUSTERPROFILE_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/clusterprofile/
+
+.PHONY: spark-operator-crd
+spark-operator-crd: ## Copy the CRDs from the spark-operator to the dep-crds directory.
+	mkdir -p $(EXTERNAL_CRDS_DIR)/spark-operator-crds/
+	cp -rf $(SPARKOPERATOR_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/spark-operator-crds/
+
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-runtimes ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-runtimes ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests clusterprofile-crd spark-operator-crd ## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
+KUEUECTL_DOCS = $(BIN_DIR)/kueuectl-docs
+
 .PHONY: kueuectl-docs
-kueuectl-docs:
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/kueuectl-docs ./cmd/kueuectl-docs/main.go
+kueuectl-docs: generate-code ## kueuectl-docs imports generated packages (apis/config, client-go).
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(KUEUECTL_DOCS) ./cmd/kueuectl-docs/main.go

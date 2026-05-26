@@ -23,8 +23,8 @@ import (
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -33,19 +33,22 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
-	"sigs.k8s.io/kueue/pkg/util/podset"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
 var (
-	mpiReplicaSpecsPath         = field.NewPath("spec", "mpiReplicaSpecs")
-	launcherAnnotationsPath     = mpiReplicaSpecsPath.Key(string(v2beta1.MPIReplicaTypeLauncher)).Child("template", "metadata", "annotations")
-	workerAnnotationsPath       = mpiReplicaSpecsPath.Key(string(v2beta1.MPIReplicaTypeWorker)).Child("template", "metadata", "annotations")
+	mpiReplicaSpecsPath      = field.NewPath("spec", "mpiReplicaSpecs")
+	launcherMetadataPath     = mpiReplicaSpecsPath.Key(string(v2beta1.MPIReplicaTypeLauncher)).Child("template", "metadata")
+	workerMetadataPath       = mpiReplicaSpecsPath.Key(string(v2beta1.MPIReplicaTypeWorker)).Child("template", "metadata")
+	podSetMetadataPathByName = map[kueue.PodSetReference]*field.Path{
+		kueue.NewPodSetReference(string(v2beta1.MPIReplicaTypeLauncher)): launcherMetadataPath,
+		kueue.NewPodSetReference(string(v2beta1.MPIReplicaTypeWorker)):   workerMetadataPath,
+	}
 	podSetAnnotationsPathByName = map[kueue.PodSetReference]*field.Path{
-		kueue.NewPodSetReference(string(v2beta1.MPIReplicaTypeLauncher)): launcherAnnotationsPath,
-		kueue.NewPodSetReference(string(v2beta1.MPIReplicaTypeWorker)):   workerAnnotationsPath,
+		kueue.NewPodSetReference(string(v2beta1.MPIReplicaTypeLauncher)): launcherMetadataPath.Child("annotations"),
+		kueue.NewPodSetReference(string(v2beta1.MPIReplicaTypeWorker)):   workerMetadataPath.Child("annotations"),
 	}
 )
 
@@ -70,39 +73,59 @@ func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		cache:                        options.Cache,
 	}
 	obj := &v2beta1.MPIJob{}
-	return webhook.WebhookManagedBy(mgr).
-		For(obj).
-		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
+	if options.NoopWebhook {
+		return webhook.SetupNoopWebhook(mgr, obj)
+	}
+	return ctrl.NewWebhookManagedBy(mgr, obj).
+		WithDefaulter(wh).
 		WithValidator(wh).
+		WithLogConstructor(jobframework.WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-kubeflow-org-v2beta1-mpijob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create,versions=v2beta1,name=mmpijob.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomDefaulter = &MpiJobWebhook{}
+var _ admission.Defaulter[*v2beta1.MPIJob] = &MpiJobWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *MpiJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
+func (w *MpiJobWebhook) Default(ctx context.Context, obj *v2beta1.MPIJob) error {
 	mpiJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(mpiJob.Object(), w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, mpiJob.Object())
 	if err := jobframework.ApplyDefaultForSuspend(ctx, mpiJob, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
 
 	jobframework.ApplyDefaultForManagedBy(mpiJob, w.queues, w.cache, log)
 
+	if features.Enabled(features.TopologyAwareScheduling) {
+		if replicaSpecs := mpiJob.Spec.MPIReplicaSpecs; ptr.Deref(mpiJob.Spec.RunLauncherAsWorker, false) &&
+			len(replicaSpecs) == 2 && replicaSpecs[v2beta1.MPIReplicaTypeWorker] != nil {
+			// The offset is handled as PodSet group scheduling mechanism separately in topology-unGater
+			// when the MPIJob constructs PodSet group across Launcher and Worker.
+			if _, isPodSetGroup := replicaSpecs[v2beta1.MPIReplicaTypeLauncher].Template.Annotations[kueue.PodSetGroupName]; isPodSetGroup {
+				return nil
+			}
+
+			if mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].Template.Annotations == nil {
+				mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].Template.Annotations = make(map[string]string)
+			}
+			mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].Template.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
+		}
+	}
+
 	return nil
 }
 
 // +kubebuilder:webhook:path=/validate-kubeflow-org-v2beta1-mpijob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create;update,versions=v2beta1,name=vmpijob.kb.io,admissionReviewVersions=v1
 
-var _ admission.CustomValidator = &MpiJobWebhook{}
+var _ admission.Validator[*v2beta1.MPIJob] = &MpiJobWebhook{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
+func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj *v2beta1.MPIJob) (admission.Warnings, error) {
 	mpiJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating create")
@@ -117,7 +140,7 @@ func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2beta1.MPIJob) (admission.Warnings, error) {
 	oldMpiJob := fromObject(oldObj)
 	newMpiJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
@@ -134,8 +157,8 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	return nil, allErrs.ToAggregate()
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *MpiJobWebhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
+// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
+func (w *MpiJobWebhook) ValidateDelete(context.Context, *v2beta1.MPIJob) (admission.Warnings, error) {
 	return nil, nil
 }
 
@@ -155,22 +178,14 @@ func (w *MpiJobWebhook) validateCommon(ctx context.Context, mpiJob *MPIJob) (fie
 func (w *MpiJobWebhook) validateTopologyRequest(ctx context.Context, mpiJob *MPIJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := jobframework.JobPodSets(ctx, mpiJob)
-
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, mpiJob, nil)
 	if podSetsErr == nil {
-		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
-	}
-
-	for replicaType, replicaSpec := range mpiJob.Spec.MPIReplicaSpecs {
-		replicaMetaPath := mpiReplicaSpecsPath.Key(string(replicaType)).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &replicaSpec.Template.ObjectMeta)...)
-
-		if podSetsErr != nil {
-			continue
+		for _, p := range podSets {
+			replicaMetaPath := podSetMetadataPathByName[p.Name]
+			allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &p.Template.ObjectMeta)...)
+			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &p.Template.ObjectMeta, &p)...)
 		}
-
-		podSet := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(string(replicaType)))
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &replicaSpec.Template.ObjectMeta, podSet)...)
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
 	}
 
 	if len(allErrs) > 0 {

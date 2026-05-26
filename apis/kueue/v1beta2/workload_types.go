@@ -24,47 +24,37 @@ import (
 )
 
 // WorkloadSpec defines the desired state of Workload
-// +kubebuilder:validation:XValidation:rule="has(self.priorityClassName) ? has(self.priority) : true", message="priority should not be nil when priorityClassName is set"
+// +kubebuilder:validation:XValidation:rule="!has(self.priorityClassRef) || has(self.priority)", message="priority should not be nil when priorityClassRef is set"
 type WorkloadSpec struct {
 	// podSets is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
-	// There must be at least one element and at most 8.
+	// There must be at least one element and at most 10.
 	// podSets cannot be changed.
 	//
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	// +kubebuilder:validation:MinItems=1
+	// +optional
 	PodSets []PodSet `json:"podSets"`
 
 	// queueName is the name of the LocalQueue the Workload is associated with.
 	// queueName cannot be changed while .status.admission is not null.
+	// +optional
 	QueueName LocalQueueName `json:"queueName,omitempty"`
 
-	// priorityClassName is the name of the PriorityClass the Workload is associated with.
-	// If specified, indicates the workload's priority.
-	// "system-node-critical" and "system-cluster-critical" are two special
-	// keywords which indicate the highest priorities with the former being
-	// the highest priority. Any other name must be defined by creating a
-	// PriorityClass object with that name. If not specified, the workload
-	// priority will be default or zero if there is no default.
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
-	PriorityClassName string `json:"priorityClassName,omitempty"`
+	// priorityClassRef references a PriorityClass object that defines the workload's priority.
+	//
+	// +optional
+	PriorityClassRef *PriorityClassRef `json:"priorityClassRef,omitempty"`
 
 	// priority determines the order of access to the resources managed by the
 	// ClusterQueue where the workload is queued.
-	// The priority value is populated from PriorityClassName.
+	// The priority value is populated from the referenced PriorityClass (via priorityClassRef).
 	// The higher the value, the higher the priority.
-	// If priorityClassName is specified, priority must not be null.
+	// If priorityClassRef is specified, priority must not be null.
+	// +optional
 	Priority *int32 `json:"priority,omitempty"`
-
-	// priorityClassSource determines whether the priorityClass field refers to a pod PriorityClass or kueue.x-k8s.io/workloadpriorityclass.
-	// Workload's PriorityClass can accept the name of a pod priorityClass or a workloadPriorityClass.
-	// When using pod PriorityClass, a priorityClassSource field has the scheduling.k8s.io/priorityclass value.
-	// +kubebuilder:default=""
-	// +kubebuilder:validation:Enum=kueue.x-k8s.io/workloadpriorityclass;scheduling.k8s.io/priorityclass;""
-	PriorityClassSource string `json:"priorityClassSource,omitempty"`
 
 	// active determines if a workload can be admitted into a queue.
 	// Changing active from true to false will evict any running workloads.
@@ -75,7 +65,7 @@ type WorkloadSpec struct {
 	//
 	// Defaults to true
 	// +kubebuilder:default=true
-	Active *bool `json:"active,omitempty"` //nolint:kubeapilinter // bool for the ease of use, inspired by k8s Job's Suspend field.
+	Active *bool `json:"active,omitempty"`
 
 	// maximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
 	// the workload can be admitted before it's automatically deactivated.
@@ -85,6 +75,90 @@ type WorkloadSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
+
+	// preemptionGates is a list of gates governing whether the workload
+	// can trigger preemptions.
+	// The gates are closed by default.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	PreemptionGates []PreemptionGate `json:"preemptionGates,omitempty"`
+}
+
+// PriorityClassGroup indicates the API group of the PriorityClass object.
+//
+// +enum
+// +kubebuilder:validation:Enum=kueue.x-k8s.io;scheduling.k8s.io
+type PriorityClassGroup string
+
+const (
+	// PodPriorityClassGroup represents the core Kubernetes scheduling group.
+	PodPriorityClassGroup PriorityClassGroup = "scheduling.k8s.io"
+
+	// WorkloadPriorityClassGroup represents the Kueue-specific priority group.
+	WorkloadPriorityClassGroup PriorityClassGroup = "kueue.x-k8s.io"
+)
+
+// PriorityClassKind is the kind of the PriorityClass object.
+//
+// +enum
+// +kubebuilder:validation:Enum=WorkloadPriorityClass;PriorityClass
+type PriorityClassKind string
+
+const (
+	// PodPriorityClassKind represents the core Kubernetes PriorityClass kind.
+	PodPriorityClassKind PriorityClassKind = "PriorityClass"
+
+	// WorkloadPriorityClassKind represents the Kueue WorkloadPriorityClass kind.
+	WorkloadPriorityClassKind PriorityClassKind = "WorkloadPriorityClass"
+)
+
+// NewPriorityClassRef creates a new PriorityClassRef with the specified group, kind, and name.
+func NewPriorityClassRef(group PriorityClassGroup, kind PriorityClassKind, name string) *PriorityClassRef {
+	return &PriorityClassRef{Group: group, Kind: kind, Name: name}
+}
+
+// NewWorkloadPriorityClassRef creates a PriorityClassRef for a WorkloadPriorityClass.
+func NewWorkloadPriorityClassRef(name string) *PriorityClassRef {
+	return NewPriorityClassRef(WorkloadPriorityClassGroup, WorkloadPriorityClassKind, name)
+}
+
+// NewPodPriorityClassRef creates a PriorityClassRef for a core Kubernetes PriorityClass.
+func NewPodPriorityClassRef(name string) *PriorityClassRef {
+	return NewPriorityClassRef(PodPriorityClassGroup, PodPriorityClassKind, name)
+}
+
+// PriorityClassRef references a PriorityClass in a specific API group.
+//
+// +kubebuilder:validation:XValidation:rule="(self.group == 'scheduling.k8s.io') ? self.kind == 'PriorityClass' : true", message="only the PriorityClass kind is allowed for the scheduling.k8s.io group"
+// +kubebuilder:validation:XValidation:rule="(self.group == 'kueue.x-k8s.io') ? self.kind == 'WorkloadPriorityClass' : true", message="only the WorkloadPriorityClass kind is allowed for the kueue.x-k8s.io group"
+type PriorityClassRef struct {
+	// group is the API group of the PriorityClass object.
+	// Use "kueue.x-k8s.io" for WorkloadPriorityClass.
+	// Use "scheduling.k8s.io" for Pod PriorityClass.
+	//
+	// +required
+	Group PriorityClassGroup `json:"group,omitempty"`
+
+	// kind is the kind of the PriorityClass object.
+	//
+	// +required
+	Kind PriorityClassKind `json:"kind,omitempty"`
+
+	// name is the name of the PriorityClass the Workload is associated with.
+	// If specified, indicates the workload's priority.
+	// "system-node-critical" and "system-cluster-critical" are two special
+	// keywords which indicate the highest priorities with the former being
+	// the highest priority. Any other name must be defined by creating a
+	// PriorityClass object with that name. If not specified, the workload
+	// priority will be default or zero if there is no default.
+	//
+	// +required
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+	Name string `json:"name,omitempty"`
 }
 
 // PodSetTopologyRequest defines the topology request for a PodSet.
@@ -113,7 +187,7 @@ type PodSetTopologyRequest struct {
 	//
 	// +optional
 	// +kubebuilder:validation:Type=boolean
-	Unconstrained *bool `json:"unconstrained,omitempty"` //nolint:kubeapilinter // disabling to avoid changing existing API
+	Unconstrained *bool `json:"unconstrained,omitempty"`
 
 	// podIndexLabel indicates the name of the label indexing the pods.
 	// For example, in the context of
@@ -122,16 +196,19 @@ type PodSetTopologyRequest struct {
 	// - Kubeflow: training.kubeflow.org/replica-index
 	// 	This is limited to 317 characters.
 	// +kubebuilder:validation:MaxLength=317
+	// +optional
 	PodIndexLabel *string `json:"podIndexLabel,omitempty"`
 
 	// subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
 	// within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
 	// 	This is limited to 317 characters.
 	// +kubebuilder:validation:MaxLength=317
+	// +optional
 	SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
 
 	// subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
 	// For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
+	// +optional
 	SubGroupCount *int32 `json:"subGroupCount,omitempty"`
 
 	// podSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
@@ -155,16 +232,48 @@ type PodSetTopologyRequest struct {
 	//
 	// +optional
 	PodSetSliceSize *int32 `json:"podSetSliceSize,omitempty"`
+
+	// podsetSliceRequiredTopologyConstraints defines all layers of slice
+	// topology constraints. Each entry specifies a topology level and slice
+	// size, from the outermost (coarsest) to the innermost (finest) layer.
+	// At most 3 layers are supported.
+	// This field is mutually exclusive with podSetSliceRequiredTopology and
+	// podSetSliceSize.
+	//
+	// This annotation is alpha-level for the TASMultiLayerTopology feature gate.
+	//
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=3
+	PodsetSliceRequiredTopologyConstraints []PodsetSliceRequiredTopologyConstraint `json:"podsetSliceRequiredTopologyConstraints,omitempty"`
+}
+
+// PodsetSliceRequiredTopologyConstraint defines a single slice topology constraint layer.
+type PodsetSliceRequiredTopologyConstraint struct {
+	// topology indicates the topology level required for this slice layer.
+	//
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Topology string `json:"topology,omitempty"`
+
+	// size indicates the number of pods in each group at this slice layer.
+	//
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	Size int32 `json:"size,omitempty"`
 }
 
 type Admission struct {
 	// clusterQueue is the name of the ClusterQueue that admitted this workload.
+	// +optional
 	ClusterQueue ClusterQueueReference `json:"clusterQueue"`
 
 	// podSetAssignments hold the admission results for each of the .spec.podSets entries.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
+	// +optional
 	PodSetAssignments []PodSetAssignment `json:"podSetAssignments"`
 }
 
@@ -180,9 +289,11 @@ func NewPodSetReference(name string) PodSetReference {
 type PodSetAssignment struct {
 	// name is the name of the podSet. It should match one of the names in .spec.podSets.
 	// +kubebuilder:default=main
+	// +optional
 	Name PodSetReference `json:"name"`
 
 	// flavors are the flavors assigned to the workload for each resource.
+	// +optional
 	Flavors map[corev1.ResourceName]ResourceFlavorReference `json:"flavors,omitempty"`
 
 	// resourceUsage keeps track of the total resources all the pods in the podset need to run.
@@ -190,7 +301,8 @@ type PodSetAssignment struct {
 	// Beside what is provided in podSet's specs, this calculation takes into account
 	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
 	// This field will not change in case of quota reclaim.
-	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"` //nolint:kubeapilinter // map type is required for standard Kubernetes ResourceList
+	// +optional
+	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"`
 
 	// count is the number of pods taken into account at admission time.
 	// This field will not change in case of quota reclaim.
@@ -205,46 +317,113 @@ type PodSetAssignment struct {
 	// topology domains corresponding to the lowest level of the topology.
 	// The assignment specifies the number of Pods to be scheduled per topology
 	// domain and specifies the node selectors for each topology domain, in the
-	// following way: the node selector keys are specified by the levels field
-	// (same for all domains), and the corresponding node selector value is
-	// specified by the domains.values subfield. If the TopologySpec.Levels field contains
-	// "kubernetes.io/hostname" label, topologyAssignment will contain data only for
-	// this label, and omit higher levels in the topology
+	// following way:
+	// * `levels` specifies the node selector keys (same for all domains).
+	//   - If the TopologySpec.Levels field contains "kubernetes.io/hostname" label,
+	//     topologyAssignment will contain data only for this label,
+	//     and omit higher levels in the topology.
+	// * `slices` specifies the node selector values and pod counts for all domains
+	//   (which may be partitioned into separate slices).
+	//   - The node selector values are arranged first by topology level, only then by domain.
+	//     (This allows "optimizing" similar values; see below).
+	// * The format of `slices` supports the following variations
+	//   (aimed to optimize the total bytesize for very large number of domains; see examples below):
+	//   - When all node selector values (at a given topology level, in a given slice)
+	//     share a common prefix and/or suffix, these may be stored
+	//     in dedicated `prefix`/`suffix` fields.
+	//     If so, the array of `roots` will only store the remaining parts of these strings.
+	//   - When all node selector values (at a given topology level, in a given slice)
+	//     are identical, this may be represented by `universal` value.
+	//   - When all pod counts (in a given slice) are identical,
+	//     this may be represented by `universal` pod count.
 	//
-	// Example:
+	// Example 1:
+	//
+	// The following represents an assignment in which:
+	// * 4 Pods are to be scheduled on nodes matching the node selector:
+	//   - cloud.provider.com/topology-block: block-1
+	//   - cloud.provider.com/topology-rack: rack-1
+	// * 2 Pods are to be scheduled on nodes matching the node selector:
+	//   - cloud.provider.com/topology-block: block-1
+	//   - cloud.provider.com/topology-rack: rack-2
 	//
 	// topologyAssignment:
 	//   levels:
 	//   - cloud.provider.com/topology-block
 	//   - cloud.provider.com/topology-rack
-	//   domains:
-	//   - values: [block-1, rack-1]
-	//     count: 4
-	//   - values: [block-1, rack-2]
-	//     count: 2
+	//   slices:
+	//   - domainCount: 2
+	//     valuesPerLevel:
+	//     - individual:
+	//         roots: [block-1, block-1]
+	//     - individual:
+	//         roots: [rack-1, rack-2]
+	//     podCounts:
+	//       individual: [4, 2]
 	//
-	// Here:
-	// - 4 Pods are to be scheduled on nodes matching the node selector:
-	//   cloud.provider.com/topology-block: block-1
-	//   cloud.provider.com/topology-rack: rack-1
-	// - 2 Pods are to be scheduled on nodes matching the node selector:
-	//   cloud.provider.com/topology-block: block-1
-	//   cloud.provider.com/topology-rack: rack-2
+	// Example 2:
 	//
-	// Example:
-	// Below there is an equivalent of the above example assuming, Topology
-	// object defines kubernetes.io/hostname as the lowest level in topology.
-	// Hence we omit higher level of topologies, since the hostname label
-	// is sufficient to explicitly identify a proper node.
+	// The following is equivalent to Example 1 - but using extracted prefix and universalValue.
+	//
+	// topologyAssignment:
+	//   levels:
+	//   - cloud.provider.com/topology-block
+	//   - cloud.provider.com/topology-rack
+	//   slices:
+	//   - domainCount: 2
+	//     valuesPerLevel:
+	//     - universal: block-1
+	//     - individual:
+	//         prefix: rack-
+	// 		   roots: [1, 2]
+	//     podCounts:
+	//       individual: [4, 2]
+	//
+	// Example 3:
+	//
+	// Now suppose that:
+	// - the Topology object defines kubernetes.io/hostname as the lowest level
+	//   (and hence, in the topologyAssignment, we omit all other levels
+	//   since the hostname label suffices to explicitly identify a proper node),
+	// - we assign 1 Pod per each node,
+	// - the node naming scheme is `block-{blockId}-rack-{rackId}-node-{nodeId}`.
+	// Then, using the "extraction of commons", the assignment from Examples 1-2 would look as follows:
 	//
 	// topologyAssignment:
 	//   levels:
 	//   - kubernetes.io/hostname
-	//   domains:
-	//   - values: [hostname-1]
-	//     count: 4
-	//   - values: [hostname-2]
-	//     count: 2
+	//   slices:
+	//   - domainCount: 6
+	//     valuesPerLevel:
+	//     - individual:
+	//         prefix: block-1-rack-
+	// 		   roots: [1-node-1, 1-node-2, 1-node-3, 1-node-4, 2-node-1, 2-node-2]
+	//     podCounts:
+	//       universal: 1
+	//
+	// Example 4:
+	//
+	// By using multiple slices, we can afford even longer common prefixes.
+	// The assignment from Example 3 can be alternatively represented as follows:
+	//
+	// topologyAssignment:
+	//   levels:
+	//   - kubernetes.io/hostname
+	//   slices:
+	//   - domainCount: 4
+	//     valuesPerLevel:
+	//     - individual:
+	//         prefix: block-1-rack-1-node-
+	// 		   roots: [1, 2, 3, 4]
+	//     podCounts:
+	//       universal: 1
+	//   - domainCount: 2
+	//     valuesPerLevel:
+	//     - individual:
+	//         prefix: block-1-rack-2-node-
+	// 		   roots: [1, 2]
+	//     podCounts:
+	//       universal: 1
 	//
 	// +optional
 	TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
@@ -262,18 +441,19 @@ type PodSetAssignment struct {
 
 // DelayedTopologyRequestState indicates the state of the delayed TopologyRequest.
 // +enum
-// +kubebuilder:validation:enum=Pending;Ready
+// +kubebuilder:validation:Enum=Pending;Ready
 // +kubebuilder:validation:MaxLength=7
 type DelayedTopologyRequestState string
 
 const (
-	// This state indicates the delayed TopologyRequest is waiting for determining.
+	// DelayedTopologyRequestStatePending indicates the delayed TopologyRequest is waiting for determining.
 	DelayedTopologyRequestStatePending DelayedTopologyRequestState = "Pending"
 
-	// This state indicates the delayed TopologyRequest is was requested and completed.
+	// DelayedTopologyRequestStateReady indicates the delayed TopologyRequest is was requested and completed.
 	DelayedTopologyRequestStateReady DelayedTopologyRequestState = "Ready"
 )
 
+// +kubebuilder:validation:XValidation:rule="self.slices.all(x, size(x.valuesPerLevel) == size(self.levels))", message="valuesPerLevel must have the same length as the number of levels in this TopologyAssignment"
 type TopologyAssignment struct {
 	// levels is an ordered list of keys denoting the levels of the assigned
 	// topology (i.e. node label keys), from the highest to the lowest level of
@@ -284,41 +464,99 @@ type TopologyAssignment struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
 	// +kubebuilder:validation:items:MaxLength=317
-	Levels []string `json:"levels"`
+	Levels []string `json:"levels,omitempty"`
 
-	// domains is a list of topology assignments split by topology domains at
-	// the lowest level of the topology.
-	//
+	// slices represent topology assignments for subsets of pods of a workload.
+	// The full assignment is obtained as a union of all slices.
 	// +required
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=100000
-	Domains []TopologyDomainAssignment `json:"domains"`
+	// +kubebuilder:validation:MaxItems=1000
+	Slices []TopologyAssignmentSlice `json:"slices,omitempty"`
 }
 
-type TopologyDomainAssignment struct {
-	// values is an ordered list of node selector values describing a topology
-	// domain. The values correspond to the consecutive topology levels, from
-	// the highest to the lowest.
-	//
+// +kubebuilder:validation:XValidation:rule="!has(self.podCounts.individual) || size(self.podCounts.individual) == self.domainCount", message="podCounts.individual must have length equal to domainCount"
+// +kubebuilder:validation:XValidation:rule="self.valuesPerLevel.all(x, !has(x.individual) || size(x.individual.roots) == self.domainCount)", message="valuesPerLevel.individual, if set, must have roots of length equal to domainCount of this TopologyAssignmentSlice"
+type TopologyAssignmentSlice struct {
+	// domainCount is the number of domains covered by this slice.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	DomainCount int32 `json:"domainCount,omitempty"`
+
+	// valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
+	// The entry corresponding to a particular level specifies the placement of pods at that level.
 	// +required
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:items:MaxLength=63
-	Values []string `json:"values"`
+	ValuesPerLevel []TopologyAssignmentSliceLevelValues `json:"valuesPerLevel,omitempty"`
 
-	// count indicates the number of Pods to be scheduled in the topology
-	// domain indicated by the values field.
-	//
+	// podCounts specifies the number of pods allocated per each domain.
 	// +required
+	PodCounts TopologyAssignmentSlicePodCounts `json:"podCounts,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="has(self.universal) != has(self.individual)", message="exactly one of the fields in [universal individual] must be set"
+type TopologyAssignmentSliceLevelValues struct {
+	// universal - if set - specifies a single topology placement value (at a particular topology level)
+	// that applies to all pods in the current TopologyAssignmentSlice.
+	// Exactly one of universal, individual must be set.
+	// +optional
+	// +kubebuilder:validation:MaxLength=63
+	Universal *string `json:"universal,omitempty"`
+
+	// individual - if set - specifies multiple topology placement values (at a particular topology level)
+	// that apply to the pods in the current TopologyAssignmentSlice.
+	// Exactly one of universal, individual must be set.
+	// +optional
+	Individual *TopologyAssignmentSliceLevelIndividualValues `json:"individual,omitempty"`
+}
+
+type TopologyAssignmentSliceLevelIndividualValues struct {
+	// prefix specifies a common prefix for all values in this slice assignment.
+	// It must be either nil pointer or a non-empty string.
+	// +optional
+	// +kubebuilder:validation:MaxLength=63
+	Prefix *string `json:"prefix,omitempty"`
+	// suffix specifies a common suffix for all values in this slice assignment.
+	// It must be either nil pointer or a non-empty string.
+	// +optional
+	// +kubebuilder:validation:MaxLength=63
+	Suffix *string `json:"suffix,omitempty"`
+
+	// roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
+	// Its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+	// +required
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100000
+	// +kubebuilder:validation:items:MaxLength=63
+	Roots []string `json:"roots,omitempty"`
+}
+
+// +kubebuilder:validation:ExactlyOneOf=universal;individual
+type TopologyAssignmentSlicePodCounts struct {
+	// universal - if set - specifies the number of pods allocated in every domain in this slice.
+	// Exactly one of universal, individual must be set.
+	// +optional
 	// +kubebuilder:validation:Minimum=1
-	Count int32 `json:"count"`
+	Universal *int32 `json:"universal,omitempty"`
+
+	// individual - if set - specifies the number of pods allocated in each domain in this slice.
+	// If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+	// Exactly one of universal, individual must be set.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100000
+	// +kubebuilder:validation:items:Minimum=1
+	Individual []int32 `json:"individual,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
 type PodSet struct {
 	// name is the PodSet name.
 	// +kubebuilder:default=main
+	// +optional
 	Name PodSetReference `json:"name,omitempty"`
 
 	// template is the Pod template.
@@ -334,11 +572,13 @@ type PodSet struct {
 	// the keys in the nodeLabels from the ResourceFlavors considered for this
 	// Workload are used to filter the ResourceFlavors that can be assigned to
 	// this podSet.
-	Template corev1.PodTemplateSpec `json:"template"`
+	// +required
+	Template corev1.PodTemplateSpec `json:"template,omitempty"`
 
 	// count is the number of pods for the spec.
 	// +kubebuilder:default=1
 	// +kubebuilder:validation:Minimum=0
+	// +optional
 	Count int32 `json:"count"`
 
 	// minCount is the minimum number of pods for the spec acceptable
@@ -359,6 +599,14 @@ type PodSet struct {
 	//
 	// +optional
 	TopologyRequest *PodSetTopologyRequest `json:"topologyRequest,omitempty"`
+}
+
+type PreemptionGate struct {
+	// name identifies the preemption gate.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +required
+	Name string `json:"name"`
 }
 
 // WorkloadStatus defines the observed state of Workload
@@ -401,7 +649,7 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	ReclaimablePods []ReclaimablePod `json:"reclaimablePods,omitempty"`
 
 	// admissionChecks list all the admission checks required by the workload and the current status
@@ -421,7 +669,7 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	ResourceRequests []PodSetRequest `json:"resourceRequests,omitempty"`
 
 	// accumulatedPastExecutionTimeSeconds holds the total time, in seconds, the workload spent
@@ -441,7 +689,7 @@ type WorkloadStatus struct {
 	// This field is optional.
 	//
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=20
 	// +kubebuilder:validation:items:MaxLength=256
 	// +optional
 	NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
@@ -467,6 +715,14 @@ type WorkloadStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=8
 	UnhealthyNodes []UnhealthyNode `json:"unhealthyNodes,omitempty"`
+
+	// preemptionGates is a list of states of gates governing whether the workload
+	// can trigger preemptions.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	PreemptionGates []PreemptionGateState `json:"preemptionGates,omitempty"`
 }
 
 type SchedulingStats struct {
@@ -491,7 +747,6 @@ type WorkloadSchedulingStatsEviction struct {
 	// reason specifies the programmatic identifier for the eviction cause.
 	//
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=316
 	Reason string `json:"reason"`
 
@@ -499,13 +754,11 @@ type WorkloadSchedulingStatsEviction struct {
 	// This may be an empty string.
 	//
 	// +required
-	// +kubebuilder:validation:Required
 	UnderlyingCause EvictionUnderlyingCause `json:"underlyingCause"`
 
 	// count tracks the number of evictions for this reason and detailed reason.
 	//
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Minimum=0
 	Count int32 `json:"count"`
 }
@@ -514,7 +767,6 @@ type UnhealthyNode struct {
 	// name is the name of the unhealthy node.
 	//
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=63
 	Name string `json:"name"`
 }
@@ -538,36 +790,51 @@ type RequeueState struct {
 
 // AdmissionCheckReference is the name of an AdmissionCheck.
 // +kubebuilder:validation:MaxLength=316
+// +kubebuilder:validation:MinLength=1
 type AdmissionCheckReference string
 
 type AdmissionCheckState struct {
 	// name identifies the admission check.
 	// +required
-	// +kubebuilder:validation:Required
-	Name AdmissionCheckReference `json:"name"`
+	Name AdmissionCheckReference `json:"name,omitempty"`
 	// state of the admissionCheck, one of Pending, Ready, Retry, Rejected
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=Pending;Ready;Retry;Rejected
-	State CheckState `json:"state"`
+	State CheckState `json:"state,omitempty"`
 	// lastTransitionTime is the last time the condition transitioned from one status to another.
 	// This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Format=date-time
-	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty,omitzero"`
 	// message is a human readable message indicating details about the transition.
 	// This may be an empty string.
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=32768
 	Message string `json:"message" protobuf:"bytes,6,opt,name=message"`
+	// requeueAfterSeconds indicates how long to wait at least before
+	// retrying to admit the workload.
+	// The admission check controllers can set this field when State=Retry
+	// to implement delays between retry attempts.
+	//
+	// If nil when State=Retry, Kueue will retry immediately.
+	// If set, Kueue will add the workload back to the queue after
+	//   lastTransitionTime + RequeueAfterSeconds is over.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RequeueAfterSeconds *int32 `json:"requeueAfterSeconds,omitempty"`
+	// retryCount tracks retry attempts for this admission check.
+	// Kueue automatically increments the counter whenever the
+	// state transitions to Retry.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RetryCount *int32 `json:"retryCount,omitempty"`
 
 	// podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.
 	// +optional
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	PodSetUpdates []PodSetUpdate `json:"podSetUpdates,omitempty"`
 }
 
@@ -578,7 +845,6 @@ type AdmissionCheckState struct {
 type PodSetUpdate struct {
 	// name of the PodSet to modify. Should match to one of the Workload's PodSets.
 	// +required
-	// +kubebuilder:validation:Required
 	Name PodSetReference `json:"name"`
 
 	// labels of the PodSet to modify.
@@ -612,12 +878,12 @@ type ReclaimablePod struct {
 
 	// count is the number of pods for which the requested resources are no longer needed.
 	// +kubebuilder:validation:Minimum=0
+	// +required
 	Count int32 `json:"count"`
 }
 
 type PodSetRequest struct {
 	// name is the name of the podSet. It should match one of the names in .spec.podSets.
-	// +kubebuilder:validation:Required
 	// +required
 	Name PodSetReference `json:"name"`
 
@@ -627,13 +893,47 @@ type PodSetRequest struct {
 	// the LimitRange defaults and RuntimeClass overheads at the moment of consideration
 	// and the application of resource.excludeResourcePrefixes and resource.transformations.
 	// +optional
-	Resources corev1.ResourceList `json:"resources,omitempty"` //nolint:kubeapilinter // map type is required for standard Kubernetes ResourceList
+	Resources corev1.ResourceList `json:"resources,omitempty"`
+}
+
+type PreemptionGatePosition string
+
+const (
+	// PreemptionGatePositionClosed means that the gate is blocking the workload from preempting.
+	PreemptionGatePositionClosed PreemptionGatePosition = "Closed"
+
+	// PreemptionGatePositionOpen means that the gate is not blocking the workload from preempting.
+	PreemptionGatePositionOpen PreemptionGatePosition = "Open"
+)
+
+type PreemptionGateState struct {
+	// name identifies the preemption gate.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +required
+	Name string `json:"name"`
+
+	// position of the preemption gate. One of
+	// +kubebuilder:validation:Enum=Closed;Open
+	// +required
+	Position PreemptionGatePosition `json:"position,omitempty"`
+
+	// lastTransitionTime is the last time the gate transitioned from one status to another.
+	// +required
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty,omitzero"`
 }
 
 const (
 	// WorkloadAdmitted means that the Workload has reserved quota and all the admissionChecks
 	// defined in the ClusterQueue are satisfied.
 	WorkloadAdmitted = "Admitted"
+
+	// WorkloadBlockedOnPreemptionGates means that the Workload attempted to reserve quota via a preemption, but was blocked.
+	// The possible reasons for this condition are:
+	// - "PreemptionGated": the preemptor workload could not preempt the preemption targets to acquire quota due to a preemption gate.
+	WorkloadBlockedOnPreemptionGates = "BlockedOnPreemptionGates"
 
 	// WorkloadQuotaReserved means that the Workload has reserved quota a ClusterQueue.
 	WorkloadQuotaReserved = "QuotaReserved"
@@ -672,6 +972,13 @@ const (
 	WorkloadDeactivationTarget = "DeactivationTarget"
 )
 
+// Reasons for the WorkloadPreemptionBlocked condition.
+const (
+	// PreemptionGated indicates the Workload could free up quota via
+	// preemption, but was prevented from doing so by a preemption gate.
+	PreemptionGated string = "PreemptionGated"
+)
+
 // Reasons for the WorkloadPreempted condition.
 const (
 	// InClusterQueueReason indicates the Workload was preempted due to
@@ -696,9 +1003,18 @@ const (
 	// due to LocalQueue or ClusterQueue doesn't exist or inactive.
 	WorkloadInadmissible = "Inadmissible"
 
+	// WorkloadAdmissionGated indicates that the workload is inadmissible
+	// due to an AdmissionGatedBy annotation.
+	WorkloadAdmissionGated = "AdmissionGated"
+
 	// WorkloadEvictedByPreemption indicates that the workload was evicted
 	// in order to free resources for a workload with a higher priority.
 	WorkloadEvictedByPreemption = "Preempted"
+
+	// WorkloadEvictedByFlavorMigration indicates the Workload was evicted due to
+	// admission of more favorable Variant of the same Parent Workload.
+	// This is part of Concurrent Admission feature.
+	WorkloadEvictedByFlavorMigration string = "FlavorMigration"
 
 	// WorkloadEvictedByPodsReadyTimeout indicates that the eviction took
 	// place due to a PodsReady timeout.
@@ -719,6 +1035,10 @@ const (
 	// WorkloadEvictedDueToNodeFailures indicates that the workload was evicted
 	// due to non-recoverable node failures.
 	WorkloadEvictedDueToNodeFailures = "NodeFailures"
+
+	// WorkloadEvictedOnManagerCluster indicates the workload was evicted on the
+	// manager cluster.
+	WorkloadEvictedOnManagerCluster = "EvictedOnManagerCluster"
 
 	// WorkloadSliceReplaced indicates that the workload instance was
 	// replaced with a new workload slice.
@@ -777,32 +1097,43 @@ const (
 
 	// WorkloadFinishedReasonOutOfSync indicates that the prebuilt workload is not in sync with its parent job.
 	WorkloadFinishedReasonOutOfSync = "OutOfSync"
+
+	// WorkloadFinishedReasonOwnerNotFound indicates that the workload's owner
+	// no longer exists (e.g., a pod deleted after PodsReady timeout eviction).
+	WorkloadFinishedReasonOwnerNotFound = "OwnerNotFound"
 )
 
 // +genclient
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type="string",description="Name of the queue this workload was submitted to"
 // +kubebuilder:printcolumn:name="Reserved in",JSONPath=".status.admission.clusterQueue",type="string",description="Name of the ClusterQueue where the workload is reserving quota"
 // +kubebuilder:printcolumn:name="Admitted",JSONPath=".status.conditions[?(@.type=='Admitted')].status",type="string",description="Admission status"
 // +kubebuilder:printcolumn:name="Finished",JSONPath=".status.conditions[?(@.type=='Finished')].status",type="string",description="Workload finished"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
-// +kubebuilder:resource:shortName={wl}
+// +kubebuilder:resource:shortName={kwl,kueueworkload,kueueworkloads}
+// +kubebuilder:selectablefield:JSONPath=.status.admission.clusterQueue
 
 // Workload is the Schema for the workloads API
 // +kubebuilder:validation:XValidation:rule="has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(self.status.admission) ? size(self.spec.podSets) == size(self.status.admission.podSetAssignments) : true", message="podSetAssignments must have the same number of podSets as the spec"
-// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) ? ((!has(self.spec.priorityClassSource) && !has(oldSelf.spec.priorityClassSource)) || (has(self.spec.priorityClassSource) && has(oldSelf.spec.priorityClassSource) && self.spec.priorityClassSource == oldSelf.spec.priorityClassSource) || (!has(self.spec.priorityClassSource) && has(oldSelf.spec.priorityClassSource) && oldSelf.spec.priorityClassSource.size() == 0) || (!has(oldSelf.spec.priorityClassSource) && has(self.spec.priorityClassSource) && self.spec.priorityClassSource.size() == 0)) : true", message="priorityClassSource is immutable while workload quota reserved"
-// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && (self.spec.priorityClassSource != 'kueue.x-k8s.io/workloadpriorityclass') && has(oldSelf.spec.priorityClassName) && has(self.spec.priorityClassName)) ? (oldSelf.spec.priorityClassName == self.spec.priorityClassName) : true", message="priorityClassName is immutable while workload quota reserved and priorityClassSource is not equal to kueue.x-k8s.io/workloadpriorityclass"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) ? (!has(oldSelf.spec.priorityClassRef) && !has(self.spec.priorityClassRef)) || (has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef)) : true",message="priorityClassRef is immutable while workload quota reserved"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef)) ? oldSelf.spec.priorityClassRef.group == self.spec.priorityClassRef.group : true",message="priorityClassRef.group is immutable while workload quota reserved"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef)) ? oldSelf.spec.priorityClassRef.kind == self.spec.priorityClassRef.kind : true",message="priorityClassRef.kind is immutable while workload quota reserved"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef) && self.spec.priorityClassRef.group == 'scheduling.k8s.io' && self.spec.priorityClassRef.kind == 'PriorityClass') ? oldSelf.spec.priorityClassRef.name == self.spec.priorityClassRef.name : true",message="priorityClassRef.name is immutable for scheduling.k8s.io/priorityclass while workload quota reserved"
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && has(oldSelf.spec.queueName) && has(self.spec.queueName) ? oldSelf.spec.queueName == self.spec.queueName : true", message="queueName is immutable while workload quota reserved"
 // +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true", message="maximumExecutionTimeSeconds is immutable while workload quota reserved"
 type Workload struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the Workload.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the Workload.
-	Spec WorkloadSpec `json:"spec,omitempty"`
+	// +optional
+	Spec WorkloadSpec `json:"spec"`
 	// status is the status of the Workload.
+	// +optional
 	Status WorkloadStatus `json:"status,omitempty"`
 }
 

@@ -14,16 +14,46 @@ const (
 	// owner: @rueian @kevin85421 @andrewsykim
 	// rep: https://github.com/ray-project/enhancements/pull/54
 	// alpha: v1.2
+	// beta: v1.3
 	//
 	// Enables new conditions in RayCluster status
 	RayClusterStatusConditions featuregate.Feature = "RayClusterStatusConditions"
 
-	// owner: @andrewsykim
+	// owner: @andrewsykim @seanlaii
 	// rep: N/A
 	// alpha: v1.3
-	//
+	// beta: v1.6
 	// Enables new deletion policy API in RayJob
 	RayJobDeletionPolicy featuregate.Feature = "RayJobDeletionPolicy"
+
+	// owner: @aaronliang @ryanaoleary
+	// rep: N/A
+	// alpha: v1.5
+	// beta: v1.6
+	//
+	// Enables multi-host worker indexing
+	RayMultiHostIndexing featuregate.Feature = "RayMultiHostIndexing"
+
+	// owner: @ryanaoleary
+	// rep: https://github.com/ray-project/enhancements/pull/58
+	// alpha: v1.5
+	//
+	// Enabled NewClusterWithIncrementalUpgrade type for RayService zero-downtime upgrades.
+	RayServiceIncrementalUpgrade featuregate.Feature = "RayServiceIncrementalUpgrade"
+
+	// owner: @machichima
+	// rep: N/A
+	// alpha: v1.6
+	//
+	// Enables RayCronJob controller for scheduled RayJob execution.
+	RayCronJob featuregate.Feature = "RayCronJob"
+
+	// owner: @fscnick
+	// rep: N/A
+	// alpha: v1.6
+	//
+	// Enables asynchronous job info querying.
+	AsyncJobInfoQuery featuregate.Feature = "AsyncJobInfoQuery"
 )
 
 func init() {
@@ -31,8 +61,12 @@ func init() {
 }
 
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	RayClusterStatusConditions: {Default: true, PreRelease: featuregate.Beta},
-	RayJobDeletionPolicy:       {Default: false, PreRelease: featuregate.Alpha},
+	RayClusterStatusConditions:   {Default: true, PreRelease: featuregate.Beta},
+	RayJobDeletionPolicy:         {Default: true, PreRelease: featuregate.Beta},
+	RayMultiHostIndexing:         {Default: true, PreRelease: featuregate.Beta},
+	RayServiceIncrementalUpgrade: {Default: false, PreRelease: featuregate.Alpha},
+	RayCronJob:                   {Default: false, PreRelease: featuregate.Alpha},
+	AsyncJobInfoQuery:            {Default: false, PreRelease: featuregate.Alpha},
 }
 
 // SetFeatureGateDuringTest is a helper method to override feature gates in tests.

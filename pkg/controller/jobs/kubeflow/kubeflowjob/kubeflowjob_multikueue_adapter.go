@@ -26,11 +26,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
@@ -74,10 +72,6 @@ func (a adapter[PtrT, T]) GVK() schema.GroupVersionKind {
 	return a.gvk
 }
 
-func (a adapter[PtrT, T]) KeepAdmissionCheckPending() bool {
-	return false
-}
-
 func (a adapter[PtrT, T]) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	kJobObj := PtrT(new(T))
 	err := c.Get(ctx, key, kJobObj)
@@ -100,8 +94,6 @@ func (a adapter[PtrT, T]) SyncJob(
 	remoteClient client.Client,
 	key types.NamespacedName,
 	workloadName, origin string) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	localJob := PtrT(new(T))
 	err := localClient.Get(ctx, key, localJob)
 	if err != nil {
@@ -115,30 +107,18 @@ func (a adapter[PtrT, T]) SyncJob(
 	}
 
 	if err == nil {
-		if a.fromObject(localJob).IsSuspended() {
-			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-			log.V(2).Info("Skipping the sync since the local job is still suspended")
-			return nil
-		}
-
-		return clientutil.PatchStatus(ctx, localClient, localJob, func() (client.Object, bool, error) {
+		return clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
 			// if the remote exists, just copy the status
 			a.copyStatus(localJob, remoteJob)
-			return localJob, true, nil
+			return true, nil
 		})
 	}
 
 	remoteJob = PtrT(new(T))
 	a.copySpec(remoteJob, localJob)
 
-	// add the prebuilt workload
-	labels := remoteJob.GetLabels()
-	if remoteJob.GetLabels() == nil {
-		labels = make(map[string]string, 2)
-	}
-	labels[constants.PrebuiltWorkloadLabel] = workloadName
-	labels[kueue.MultiKueueOriginLabel] = origin
-	remoteJob.SetLabels(labels)
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(remoteJob, workloadName, origin)
 
 	// clearing the managedBy enables the controller to take over
 	a.fromObject(remoteJob).SetManagedBy(nil)
@@ -146,7 +126,7 @@ func (a adapter[PtrT, T]) SyncJob(
 	return remoteClient.Create(ctx, remoteJob)
 }
 
-func (a adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (a adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	job := PtrT(new(T))
 	job.SetName(key.Name)
 	job.SetNamespace(key.Namespace)
@@ -157,16 +137,16 @@ func (a adapter[PtrT, T]) GetEmptyList() client.ObjectList {
 	return a.emptyList()
 }
 
-func (a adapter[PtrT, T]) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (a adapter[PtrT, T]) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	job, isTheJob := o.(PtrT)
 	if !isTheJob {
-		return types.NamespacedName{}, fmt.Errorf("not a %s", a.gvk.Kind)
+		return nil, fmt.Errorf("not a %s", a.gvk.Kind)
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := job.GetLabels()[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(job))
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
+	if prebuiltWorkload == "" {
+		return nil, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(job))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: job.GetNamespace()}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.GetNamespace()}}, nil
 }

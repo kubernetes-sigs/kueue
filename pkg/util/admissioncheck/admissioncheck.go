@@ -163,7 +163,7 @@ func FilterProvReqAnnotations(annotations map[string]string) map[string]string {
 	return res
 }
 
-// NewAdmissionChecks aggregates AdmissionChecks from .spec.AdmissionChecks and .spec.AdmissionChecksStrategy
+// NewAdmissionChecks aggregates AdmissionChecks from .spec.AdmissionChecksStrategy
 func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference] {
 	var checks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
 	if cq.Spec.AdmissionChecksStrategy != nil {
@@ -176,10 +176,7 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 			}
 		}
 	} else {
-		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecks))
-		for _, checkName := range cq.Spec.AdmissionChecks {
-			checks[checkName] = allFlavors(cq)
-		}
+		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], 0)
 	}
 	return checks
 }
@@ -221,6 +218,19 @@ func GetMultiKueueAdmissionCheck(ctx context.Context, c client.Client, wl *kueue
 		}
 	}
 	return nil, nil
+}
+
+// ShouldSkipLocalExecution returns true if the workload has a MultiKueue admission check,
+// meaning the job should only run on a worker cluster, not locally.
+func ShouldSkipLocalExecution(ctx context.Context, c client.Client, wl *kueue.Workload) (bool, error) {
+	if wl == nil {
+		return false, nil
+	}
+	ac, err := GetMultiKueueAdmissionCheck(ctx, c, wl)
+	if err != nil {
+		return false, err
+	}
+	return ac != nil, nil
 }
 
 func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acName kueue.AdmissionCheckReference) (sets.Set[string], error) {

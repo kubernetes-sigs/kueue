@@ -1,0 +1,34 @@
+aliases:
+  kueue-approvers:
+    - gabesaba
+    - mimowo
+    - tenzen-y
+  kueue-reviewers:
+    - gabesaba
+    - mbobrovskyi
+    - mimowo
+    - pbundyra
+    - tenzen-y
+    - kannon92
+    - pajakd
+    - olekzabl
+    - kshalot
+    - sohankunkerkar
+  dependency-approvers:
+    - mbobrovskyi
+    - pbundyra
+  test-approvers:
+    - mbobrovskyi
+    - pbundyra
+  agent-approvers:
+    - amy
+    - kannon92
+    - pbundyra
+  agent-reviewers:
+    - amy
+    - kannon92
+    - pbundyra
+  hugo-approvers:
+    - mbobrovskyi
+  infra-approvers:
+    - mbobrovskyi

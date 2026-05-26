@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // LeaderWorkerSetWrapper wraps a LeaderWorkerSet.
@@ -53,7 +54,7 @@ func MakeLeaderWorkerSet(name, ns string) *LeaderWorkerSetWrapper {
 						Containers: []corev1.Container{
 							{
 								Name:      "c",
-								Image:     "pause",
+								Image:     utiltestingjobs.TestDefaultContainerImage,
 								Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 							},
 						},
@@ -80,9 +81,28 @@ func (w *LeaderWorkerSetWrapper) Label(k, v string) *LeaderWorkerSetWrapper {
 	return w
 }
 
+// Annotation sets an annotation on the LeaderWorkerSet
+func (w *LeaderWorkerSetWrapper) Annotation(k, v string) *LeaderWorkerSetWrapper {
+	if w.Annotations == nil {
+		w.Annotations = make(map[string]string, 1)
+	}
+	w.Annotations[k] = v
+	return w
+}
+
 // Queue updates the queue name of the LeaderWorkerSet
 func (w *LeaderWorkerSetWrapper) Queue(q string) *LeaderWorkerSetWrapper {
 	return w.Label(constants.QueueLabel, q)
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *LeaderWorkerSetWrapper {
+	return w.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *LeaderWorkerSetWrapper {
+	return w.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Name updated the name of the LeaderWorkerSet
@@ -99,6 +119,11 @@ func (w *LeaderWorkerSetWrapper) UID(uid string) *LeaderWorkerSetWrapper {
 
 func (w *LeaderWorkerSetWrapper) StartupPolicy(startupPolicyType leaderworkersetv1.StartupPolicyType) *LeaderWorkerSetWrapper {
 	w.Spec.StartupPolicy = startupPolicyType
+	return w
+}
+
+func (w *LeaderWorkerSetWrapper) RestartPolicy(restartPolicy leaderworkersetv1.RestartPolicyType) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.RestartPolicy = restartPolicy
 	return w
 }
 
@@ -145,7 +170,7 @@ func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecAnnotation(k, v string) *Lead
 
 // Replicas sets the number of replicas of the LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) Replicas(n int32) *LeaderWorkerSetWrapper {
-	w.Spec.Replicas = ptr.To[int32](n)
+	w.Spec.Replicas = new(n)
 	return w
 }
 
@@ -157,7 +182,7 @@ func (w *LeaderWorkerSetWrapper) ReadyReplicas(n int32) *LeaderWorkerSetWrapper 
 
 // Size sets the size of the LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) Size(n int32) *LeaderWorkerSetWrapper {
-	w.Spec.LeaderWorkerTemplate.Size = ptr.To[int32](n)
+	w.Spec.LeaderWorkerTemplate.Size = new(n)
 	return w
 }
 
@@ -224,4 +249,12 @@ func (w *LeaderWorkerSetWrapper) TerminationGracePeriod(seconds int64) *LeaderWo
 // WorkloadPriorityClass sets workloadpriorityclass.
 func (w *LeaderWorkerSetWrapper) WorkloadPriorityClass(wpc string) *LeaderWorkerSetWrapper {
 	return w.Label(constants.WorkloadPriorityClassLabel, wpc)
+}
+
+// RolloutStrategy sets the rollout strategy of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) RolloutStrategy(strategy leaderworkersetv1.RolloutStrategyType) *LeaderWorkerSetWrapper {
+	w.Spec.RolloutStrategy = leaderworkersetv1.RolloutStrategy{
+		Type: strategy,
+	}
+	return w
 }

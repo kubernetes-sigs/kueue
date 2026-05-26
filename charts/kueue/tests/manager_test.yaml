@@ -84,3 +84,19 @@ tests:
     asserts:
       - notExists:
           path: spec.template.spec.tolerations
+  - it: should use default log level
+    template: manager/manager.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--zap-log-level=2"
+  - it: should set custom log level when provided
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        manager:
+          logLevel: 5
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--zap-log-level=5"

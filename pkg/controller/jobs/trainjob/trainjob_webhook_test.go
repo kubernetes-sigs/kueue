@@ -24,7 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -37,10 +37,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
-)
-
-const (
-	invalidRFC1123Message = `a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')`
+	testutil "sigs.k8s.io/kueue/test/util"
 )
 
 var (
@@ -55,9 +52,10 @@ func TestValidateCreate(t *testing.T) {
 				Name:        "node",
 				Replicas:    1,
 				Parallelism: 1,
+				Completions: 1,
 			}).Obj().Spec)
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
-		APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
+		APIGroup: new(kftrainerapi.GroupVersion.Group),
 		Name:     "testCtr",
 		Kind:     ptr.To(kftrainerapi.ClusterTrainingRuntimeKind),
 	}).Suspend(false)
@@ -75,26 +73,23 @@ func TestValidateCreate(t *testing.T) {
 		"invalid queue-name label": {
 			clusterTrainingRuntime: testCtr,
 			trainJob:               testTrainJob.Clone().Queue("queue_name").Obj(),
-			wantErr:                field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", invalidRFC1123Message)}.ToAggregate(),
+			wantErr:                field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", testutil.InvalidRFC1123Message)}.ToAggregate(),
 		},
 		"with prebuilt workload": {
 			clusterTrainingRuntime: testCtr,
-			trainJob:               testTrainJob.Clone().Queue("local-queue").Label(controllerconstants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			trainJob:               testTrainJob.Clone().Queue("local-queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr:                nil,
 		},
-		"valid topology request in PodTemplateOverride": {
+		"valid topology request in RuntimePatch": {
 			clusterTrainingRuntime: testCtr,
-			trainJob: testTrainJob.Clone().PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
-				{
-					TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
-						{Name: "node"},
-					},
-					Metadata: &metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
-					},
-				},
+			trainJob: testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+				testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					ReplicatedJobs(
+						testingtrainjob.MakeReplicatedJobPatch("node").
+							PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+							Obj(),
+					).
+					Obj(),
 			}).Obj(),
 			topologyAwareScheduling: true,
 		},
@@ -107,28 +102,25 @@ func TestValidateCreate(t *testing.T) {
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					}).Obj().Spec),
-			trainJob:                testTrainJob.Clone().Obj(),
+			trainJob:                testTrainJob.DeepCopy(),
 			topologyAwareScheduling: true,
 		},
 		"invalid topology request in TrainJob": {
 			clusterTrainingRuntime: testCtr,
-			trainJob: testTrainJob.Clone().PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
-				{
-					TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
-						{Name: "node"},
-					},
-					Metadata: &metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
-						},
-					},
-				},
+			trainJob: testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+				testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					ReplicatedJobs(
+						testingtrainjob.MakeReplicatedJobPatch("node").
+							PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+							PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+							Obj(),
+					).
+					Obj(),
 			}).Obj(),
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("job[node].annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`+
-					`. Adjust either the "TrainJob.spec.podTemplateOverrides" or the "TrainingRuntime.Template" annotations for the corresponding Job`),
+					`. Adjust either the "TrainJob.spec.runtimePatches" or the "TrainingRuntime.Template" annotations for the corresponding Job`),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -142,34 +134,31 @@ func TestValidateCreate(t *testing.T) {
 							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 						},
 					}).Obj().Spec),
-			trainJob: testTrainJob.Clone().Obj(),
+			trainJob: testTrainJob.DeepCopy(),
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("job[node].annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`+
-					`. Adjust either the "TrainJob.spec.podTemplateOverrides" or the "TrainingRuntime.Template" annotations for the corresponding Job`),
+					`. Adjust either the "TrainJob.spec.runtimePatches" or the "TrainingRuntime.Template" annotations for the corresponding Job`),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
 		"invalid slice topology request - slice size larger than number of podsets": {
 			clusterTrainingRuntime: testCtr,
-			trainJob: testTrainJob.Clone().PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
-				{
-					TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
-						{Name: "node"},
-					},
-					Metadata: &metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
-							kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-							kueue.PodSetSliceSizeAnnotation:             "20",
-						},
-					},
-				},
+			trainJob: testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+				testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					ReplicatedJobs(
+						testingtrainjob.MakeReplicatedJobPatch("node").
+							PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+							PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+							PodAnnotation(kueue.PodSetSliceSizeAnnotation, "20").
+							Obj(),
+					).
+					Obj(),
 			}).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("job[node].annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 1"+
-					`. Adjust either the "TrainJob.spec.podTemplateOverrides" or the "TrainingRuntime.Template" annotations for the corresponding Job`),
+					`. Adjust either the "TrainJob.spec.runtimePatches" or the "TrainingRuntime.Template" annotations for the corresponding Job`),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -178,14 +167,14 @@ func TestValidateCreate(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			webhook := &TrainJobWebhook{}
 			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme)
 			kClient := clientBuilder.WithObjects(tc.trainJob, tc.clusterTrainingRuntime).Build()
+			webhook := &TrainJobWebhook{client: kClient}
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			_, _ = NewReconciler(ctx, kClient, indexer, recorder)
 			_, gotErr := webhook.ValidateCreate(ctx, tc.trainJob)
 
@@ -198,95 +187,89 @@ func TestValidateCreate(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns")
-	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", testNamespace.Name).Suspend(false)
 	testClusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue")
 	testLocalQueue := utiltestingapi.MakeLocalQueue("local-queue", testNamespace.Name).ClusterQueue(testClusterQueue.Name)
+	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", testNamespace.Name).Suspend(false)
+	testExpectedTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).Obj(),
+	})
 	testCases := map[string]struct {
 		trainJob                     *kftrainerapi.TrainJob
 		defaultQueue                 *kueue.LocalQueue
-		localQueueDefaultingEnabled  bool
 		manageJobsWithoutQueueName   bool
 		withMultiKueueAdmissionCheck bool
 		withDefaultLocalQueue        bool
-		multiKueueEnabled            bool
+		featureGates                 map[featuregate.Feature]bool
 		wantTrainJob                 *kftrainerapi.TrainJob
 		wantErr                      error
 	}{
 		"should suspend a TrainJob with a queue label": {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
-			wantTrainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).
+			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				Obj(),
 		},
 		"should not suspend a TrainJob without a queue label if manageJobsWithoutQueueName is not enabled": {
-			trainJob:     testTrainJob.Clone().Obj(),
-			wantTrainJob: testTrainJob.Clone().Obj(),
+			trainJob:     testTrainJob.DeepCopy(),
+			wantTrainJob: testExpectedTrainJob.DeepCopy(),
 		},
 		"should suspend a TrainJob without a queue label if manageJobsWithoutQueueName is enabled": {
-			trainJob: testTrainJob.Clone().Obj(),
-			wantTrainJob: testTrainJob.Clone().
+			trainJob: testTrainJob.DeepCopy(),
+			wantTrainJob: testExpectedTrainJob.Clone().
 				Suspend(true).
 				Obj(),
 			manageJobsWithoutQueueName: true,
 		},
 		"should set the default local queue if enabled and the user didn't specify any": {
-			trainJob: testTrainJob.Clone().Obj(),
-			wantTrainJob: testTrainJob.Clone().
+			trainJob: testTrainJob.DeepCopy(),
+			wantTrainJob: testExpectedTrainJob.Clone().
 				Suspend(true).
 				Queue(string(controllerconstants.DefaultLocalQueueName)).
-				JobSetLabel(controllerconstants.QueueLabel, string(controllerconstants.DefaultLocalQueueName)).
 				Obj(),
-			localQueueDefaultingEnabled: true,
-			withDefaultLocalQueue:       true,
+			withDefaultLocalQueue: true,
 		},
 		"should not set the default local queue if doesn't exists": {
-			trainJob:                    testTrainJob.Clone().Obj(),
-			wantTrainJob:                testTrainJob.Clone().Obj(),
-			localQueueDefaultingEnabled: true,
-			withDefaultLocalQueue:       false,
+			trainJob:              testTrainJob.DeepCopy(),
+			wantTrainJob:          testExpectedTrainJob.DeepCopy(),
+			withDefaultLocalQueue: false,
 		},
 		"should set managedBy to multiKueue if the user didn't specify any": {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
-			wantTrainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).
+			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
-			multiKueueEnabled:            true,
+			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			withMultiKueueAdmissionCheck: true,
 		},
 		"should not set managedBy to multiKueue if already specified by the user": {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).ManagedBy("user").Obj(),
-			wantTrainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).
+			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				ManagedBy("user").
 				Obj(),
-			multiKueueEnabled:            true,
+			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			withMultiKueueAdmissionCheck: true,
 		},
 		"should not set managedBy to multiKueue if the selected clusterQueue doesn't have the corresponding admissionCheck": {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
-			wantTrainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).
+			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				Obj(),
-			multiKueueEnabled:            true,
+			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			withMultiKueueAdmissionCheck: false,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaultingEnabled)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			kClient := utiltesting.NewClientBuilder().WithObjects(testNamespace.Obj()).Build()
 			cqCache := schdcache.New(kClient)
-			queueManager := qcache.NewManager(kClient, cqCache)
+			queueManager := qcache.NewManagerForUnitTests(kClient, cqCache)
 
 			cq := testClusterQueue.Clone()
 			if tc.withMultiKueueAdmissionCheck {

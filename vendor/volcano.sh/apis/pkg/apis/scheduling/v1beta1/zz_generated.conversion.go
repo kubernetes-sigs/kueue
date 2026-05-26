@@ -24,6 +24,7 @@ import (
 	unsafe "unsafe"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	conversion "k8s.io/apimachinery/pkg/conversion"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	scheduling "volcano.sh/apis/pkg/apis/scheduling"
@@ -171,6 +172,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddGeneratedConversionFunc((*scheduling.QueueSpec)(nil), (*QueueSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_scheduling_QueueSpec_To_v1beta1_QueueSpec(a.(*scheduling.QueueSpec), b.(*QueueSpec), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddGeneratedConversionFunc((*QueueStatus)(nil), (*scheduling.QueueStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_QueueStatus_To_scheduling_QueueStatus(a.(*QueueStatus), b.(*scheduling.QueueStatus), scope)
 	}); err != nil {
@@ -191,8 +197,13 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddConversionFunc((*scheduling.QueueSpec)(nil), (*QueueSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_scheduling_QueueSpec_To_v1beta1_QueueSpec(a.(*scheduling.QueueSpec), b.(*QueueSpec), scope)
+	if err := s.AddGeneratedConversionFunc((*SubGroupPolicySpec)(nil), (*scheduling.SubGroupPolicySpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_SubGroupPolicySpec_To_scheduling_SubGroupPolicySpec(a.(*SubGroupPolicySpec), b.(*scheduling.SubGroupPolicySpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*scheduling.SubGroupPolicySpec)(nil), (*SubGroupPolicySpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_scheduling_SubGroupPolicySpec_To_v1beta1_SubGroupPolicySpec(a.(*scheduling.SubGroupPolicySpec), b.(*SubGroupPolicySpec), scope)
 	}); err != nil {
 		return err
 	}
@@ -268,6 +279,7 @@ func Convert_scheduling_Guarantee_To_v1beta1_Guarantee(in *scheduling.Guarantee,
 func autoConvert_v1beta1_NetworkTopologySpec_To_scheduling_NetworkTopologySpec(in *NetworkTopologySpec, out *scheduling.NetworkTopologySpec, s conversion.Scope) error {
 	out.Mode = scheduling.NetworkTopologyMode(in.Mode)
 	out.HighestTierAllowed = (*int)(unsafe.Pointer(in.HighestTierAllowed))
+	out.HighestTierName = in.HighestTierName
 	return nil
 }
 
@@ -279,6 +291,7 @@ func Convert_v1beta1_NetworkTopologySpec_To_scheduling_NetworkTopologySpec(in *N
 func autoConvert_scheduling_NetworkTopologySpec_To_v1beta1_NetworkTopologySpec(in *scheduling.NetworkTopologySpec, out *NetworkTopologySpec, s conversion.Scope) error {
 	out.Mode = NetworkTopologyMode(in.Mode)
 	out.HighestTierAllowed = (*int)(unsafe.Pointer(in.HighestTierAllowed))
+	out.HighestTierName = in.HighestTierName
 	return nil
 }
 
@@ -422,6 +435,7 @@ func autoConvert_v1beta1_PodGroupSpec_To_scheduling_PodGroupSpec(in *PodGroupSpe
 	out.PriorityClassName = in.PriorityClassName
 	out.MinResources = (*v1.ResourceList)(unsafe.Pointer(in.MinResources))
 	out.NetworkTopology = (*scheduling.NetworkTopologySpec)(unsafe.Pointer(in.NetworkTopology))
+	out.SubGroupPolicy = *(*[]scheduling.SubGroupPolicySpec)(unsafe.Pointer(&in.SubGroupPolicy))
 	return nil
 }
 
@@ -437,6 +451,7 @@ func autoConvert_scheduling_PodGroupSpec_To_v1beta1_PodGroupSpec(in *scheduling.
 	out.PriorityClassName = in.PriorityClassName
 	out.MinResources = (*v1.ResourceList)(unsafe.Pointer(in.MinResources))
 	out.NetworkTopology = (*NetworkTopologySpec)(unsafe.Pointer(in.NetworkTopology))
+	out.SubGroupPolicy = *(*[]SubGroupPolicySpec)(unsafe.Pointer(&in.SubGroupPolicy))
 	return nil
 }
 
@@ -507,17 +522,7 @@ func Convert_scheduling_Queue_To_v1beta1_Queue(in *scheduling.Queue, out *Queue,
 
 func autoConvert_v1beta1_QueueList_To_scheduling_QueueList(in *QueueList, out *scheduling.QueueList, s conversion.Scope) error {
 	out.ListMeta = in.ListMeta
-	if in.Items != nil {
-		in, out := &in.Items, &out.Items
-		*out = make([]scheduling.Queue, len(*in))
-		for i := range *in {
-			if err := Convert_v1beta1_Queue_To_scheduling_Queue(&(*in)[i], &(*out)[i], s); err != nil {
-				return err
-			}
-		}
-	} else {
-		out.Items = nil
-	}
+	out.Items = *(*[]scheduling.Queue)(unsafe.Pointer(&in.Items))
 	return nil
 }
 
@@ -528,17 +533,7 @@ func Convert_v1beta1_QueueList_To_scheduling_QueueList(in *QueueList, out *sched
 
 func autoConvert_scheduling_QueueList_To_v1beta1_QueueList(in *scheduling.QueueList, out *QueueList, s conversion.Scope) error {
 	out.ListMeta = in.ListMeta
-	if in.Items != nil {
-		in, out := &in.Items, &out.Items
-		*out = make([]Queue, len(*in))
-		for i := range *in {
-			if err := Convert_scheduling_Queue_To_v1beta1_Queue(&(*in)[i], &(*out)[i], s); err != nil {
-				return err
-			}
-		}
-	} else {
-		out.Items = nil
-	}
+	out.Items = *(*[]Queue)(unsafe.Pointer(&in.Items))
 	return nil
 }
 
@@ -560,6 +555,7 @@ func autoConvert_v1beta1_QueueSpec_To_scheduling_QueueSpec(in *QueueSpec, out *s
 	out.Parent = in.Parent
 	out.Deserved = *(*v1.ResourceList)(unsafe.Pointer(&in.Deserved))
 	out.Priority = in.Priority
+	out.DequeueStrategy = scheduling.DequeueStrategy(in.DequeueStrategy)
 	return nil
 }
 
@@ -571,7 +567,6 @@ func Convert_v1beta1_QueueSpec_To_scheduling_QueueSpec(in *QueueSpec, out *sched
 func autoConvert_scheduling_QueueSpec_To_v1beta1_QueueSpec(in *scheduling.QueueSpec, out *QueueSpec, s conversion.Scope) error {
 	out.Weight = in.Weight
 	out.Capability = *(*v1.ResourceList)(unsafe.Pointer(&in.Capability))
-	// WARNING: in.State requires manual conversion: does not exist in peer-type
 	out.Reclaimable = (*bool)(unsafe.Pointer(in.Reclaimable))
 	out.ExtendClusters = *(*[]Cluster)(unsafe.Pointer(&in.ExtendClusters))
 	if err := Convert_scheduling_Guarantee_To_v1beta1_Guarantee(&in.Guarantee, &out.Guarantee, s); err != nil {
@@ -582,7 +577,13 @@ func autoConvert_scheduling_QueueSpec_To_v1beta1_QueueSpec(in *scheduling.QueueS
 	out.Parent = in.Parent
 	out.Deserved = *(*v1.ResourceList)(unsafe.Pointer(&in.Deserved))
 	out.Priority = in.Priority
+	out.DequeueStrategy = DequeueStrategy(in.DequeueStrategy)
 	return nil
+}
+
+// Convert_scheduling_QueueSpec_To_v1beta1_QueueSpec is an autogenerated conversion function.
+func Convert_scheduling_QueueSpec_To_v1beta1_QueueSpec(in *scheduling.QueueSpec, out *QueueSpec, s conversion.Scope) error {
+	return autoConvert_scheduling_QueueSpec_To_v1beta1_QueueSpec(in, out, s)
 }
 
 func autoConvert_v1beta1_QueueStatus_To_scheduling_QueueStatus(in *QueueStatus, out *scheduling.QueueStatus, s conversion.Scope) error {
@@ -643,4 +644,34 @@ func autoConvert_scheduling_Reservation_To_v1beta1_Reservation(in *scheduling.Re
 // Convert_scheduling_Reservation_To_v1beta1_Reservation is an autogenerated conversion function.
 func Convert_scheduling_Reservation_To_v1beta1_Reservation(in *scheduling.Reservation, out *Reservation, s conversion.Scope) error {
 	return autoConvert_scheduling_Reservation_To_v1beta1_Reservation(in, out, s)
+}
+
+func autoConvert_v1beta1_SubGroupPolicySpec_To_scheduling_SubGroupPolicySpec(in *SubGroupPolicySpec, out *scheduling.SubGroupPolicySpec, s conversion.Scope) error {
+	out.Name = in.Name
+	out.NetworkTopology = (*scheduling.NetworkTopologySpec)(unsafe.Pointer(in.NetworkTopology))
+	out.SubGroupSize = (*int32)(unsafe.Pointer(in.SubGroupSize))
+	out.MinSubGroups = (*int32)(unsafe.Pointer(in.MinSubGroups))
+	out.LabelSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.LabelSelector))
+	out.MatchLabelKeys = *(*[]string)(unsafe.Pointer(&in.MatchLabelKeys))
+	return nil
+}
+
+// Convert_v1beta1_SubGroupPolicySpec_To_scheduling_SubGroupPolicySpec is an autogenerated conversion function.
+func Convert_v1beta1_SubGroupPolicySpec_To_scheduling_SubGroupPolicySpec(in *SubGroupPolicySpec, out *scheduling.SubGroupPolicySpec, s conversion.Scope) error {
+	return autoConvert_v1beta1_SubGroupPolicySpec_To_scheduling_SubGroupPolicySpec(in, out, s)
+}
+
+func autoConvert_scheduling_SubGroupPolicySpec_To_v1beta1_SubGroupPolicySpec(in *scheduling.SubGroupPolicySpec, out *SubGroupPolicySpec, s conversion.Scope) error {
+	out.Name = in.Name
+	out.NetworkTopology = (*NetworkTopologySpec)(unsafe.Pointer(in.NetworkTopology))
+	out.SubGroupSize = (*int32)(unsafe.Pointer(in.SubGroupSize))
+	out.MinSubGroups = (*int32)(unsafe.Pointer(in.MinSubGroups))
+	out.LabelSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.LabelSelector))
+	out.MatchLabelKeys = *(*[]string)(unsafe.Pointer(&in.MatchLabelKeys))
+	return nil
+}
+
+// Convert_scheduling_SubGroupPolicySpec_To_v1beta1_SubGroupPolicySpec is an autogenerated conversion function.
+func Convert_scheduling_SubGroupPolicySpec_To_v1beta1_SubGroupPolicySpec(in *scheduling.SubGroupPolicySpec, out *SubGroupPolicySpec, s conversion.Scope) error {
+	return autoConvert_scheduling_SubGroupPolicySpec_To_v1beta1_SubGroupPolicySpec(in, out, s)
 }

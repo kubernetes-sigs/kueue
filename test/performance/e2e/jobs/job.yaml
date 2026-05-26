@@ -4,10 +4,9 @@ metadata:
   name: {{.Name}}
   labels:
     group: test-job
-  {{if .UseKueue}}
-  annotations:
+    {{if .UseKueue}}
     kueue.x-k8s.io/queue-name: {{.LocalQueue}}
-  {{end}}
+    {{end}}
 spec:
   suspend: {{.UseKueue}}
   parallelism: {{.Replicas}}

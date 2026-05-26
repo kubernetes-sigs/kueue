@@ -12,7 +12,7 @@ This page shows how to leverage Kueue's scheduling and resource management capab
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
 Currently Kueue doesn't support Argo Workflows [Workflow](https://argo-workflows.readthedocs.io/en/latest/workflow-concepts/) resources directly,
-but you can take advantage of the ability for Kueue to [manage plain pods](/docs/tasks/run_plain_pods) to integrate them.
+but you can take advantage of the ability for Kueue to [manage plain pods](/docs/tasks/run/plain_pods) to integrate them.
 
 ## Before you begin
 

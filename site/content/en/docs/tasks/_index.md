@@ -23,11 +23,13 @@ As a batch administrator, you can learn how to:
   to Kueue objects.
 - [Administer cluster quotas](manage/administer_cluster_quotas) with ClusterQueues and LocalQueues.
 - Setup [All-or-nothing with ready Pods](manage/setup_wait_for_pods_ready).
+- Set up [observability](manage/observability) with Prometheus metrics.
 - As a batch administrator, you can learn how to
   [monitor pending workloads](manage/monitor_pending_workloads).
 - As a batch administrator, you can learn how to [run a Kueue managed Jobs with a custom WorkloadPriority](manage/run_job_with_workload_priority).
 - As a batch administrator, you can learn how to [setup a MultiKueue environment](manage/setup_multikueue).
-- As a batch administrator, you can learn how to [use third-party certificate authority with Kueue](manage/cert_manager).
+- As a batch administrator, you can learn how to [use third-party certificate authority with Kueue](manage/productization/cert_manager).
+- As a batch administrator, you can learn how to [set up Dynamic Resource Allocation](manage/setup_dra) for DRA device quota management.
 
 ### Batch user
 
@@ -36,13 +38,16 @@ batch user is a researcher, AI/ML engineer, data scientist, among others.
 
 As a batch user, you can learn how to:
 - [Run a Kueue managed batch/Job](run/jobs).
-- [Run a Kueue managed Kubeflow Job](run/kubeflow).
-  Kueue supports MPIJob v2beta1, PyTorchJob, TFJob, XGBoostJob and PaddleJob.
+- [Run a Kueue managed Kubeflow TrainJob (v2)](run/trainjobs).
+  Kueue supports Kubeflow Trainer v2's unified TrainJob API.
+- [Run a Kueue managed Kubeflow Job (v1)](run/kubeflow).
+  Kueue supports MPIJob v2beta1, PyTorchJob, TFJob, XGBoostJob, PaddleJob and SparkApplication v1beta2.
 - [Run a Kueue managed KubeRay RayJob](run/rayjobs).
 - [Run a Kueue managed KubeRay RayCluster](run/rayclusters).
 - [Submit Kueue jobs from Python](run/python_jobs).
 - [Run a Kueue managed plain Pod](run/plain_pods).
 - [Run a Kueue managed JobSet](run/jobsets).
+- [Run workloads with DRA devices](run/dra).
 - [Submit jobs to MultiKueue](run/multikueue).
 - [Run external workloads](run/external_workloads).
   Kueue allows one to use built-in integrations (such as Pods or Jobs) to run external workloads.
@@ -67,6 +72,7 @@ As a platform developer, you can learn how to:
 - [Integrate a custom workload with Kueue using built-in frameworks](dev/external_frameworks).
 - [Enable pprof endpoints](dev/enabling_pprof_endpoints).
 - [Develop a custom AdmissionCheck Controller](dev/develop-acc).
+- Set up a local [dev monitoring environment](dev/setup_dev_monitoring) with Prometheus.
 
 ## Troubleshooting
 

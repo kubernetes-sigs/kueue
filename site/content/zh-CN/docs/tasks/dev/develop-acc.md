@@ -23,7 +23,7 @@ ACC 可以内置在 Kueue 中或运行在不同的 Kubernetes 控制器管理器
 
 可选地，它可以监视自定义[参数](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference)对象。
 
-[资源调配准入检查控制器](/zh-cn/docs/admission-check-controllers/provisioning/)在
+[资源调配准入检查控制器](/docs/admission-check-controllers/provisioning/)在
 `pkg/controller/admissionchecks/provisioning/admissioncheck_reconciler.go` 中实现了此功能。
 
 ### 工作负载协调器

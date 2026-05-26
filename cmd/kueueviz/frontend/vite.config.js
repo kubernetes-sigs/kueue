@@ -16,4 +16,7 @@ export default defineConfig({
   },
   publicDir: 'public',
   envPrefix: ['VITE_', 'REACT_APP_'], // Support both VITE_ and REACT_APP_ prefixes
+  test: {
+    environment: 'node',
+  },
 }); 

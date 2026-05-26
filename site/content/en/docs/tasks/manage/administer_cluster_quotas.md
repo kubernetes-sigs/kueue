@@ -29,7 +29,7 @@ You can perform all these steps at once by
 applying [examples/admin/single-clusterqueue-setup.yaml](/examples/admin/single-clusterqueue-setup.yaml):
 
 ```shell
-kubectl apply -f examples/admin/single-clusterqueue-setup.yaml
+kubectl apply -f https://kueue.sigs.k8s.io/examples/admin/single-clusterqueue-setup.yaml
 ```
 
 ### 1. Create a [ClusterQueue](/docs/concepts/cluster_queue)
@@ -418,6 +418,8 @@ The supported transformations enable mapping an input resource into one or more
 output resources by multiplying the input resource quantity by a scaling factor.
 The input resource may either be retained (default) or removed from the transformed resources. If no transformation is defined for an input resource, it is retained without change.
 
+For a practical example of using resource transformations with vGPU resources, see [Using HAMi](/docs/tasks/run/using_hami).
+
 Follow the [installation instructions for using a custom configuration](/docs/installation#install-a-custom-configured-released-version)
 and extend the Kueue configuration with fields similar to the following:
 
@@ -462,4 +464,22 @@ The Workload obtains an effective resource requests for quota purposes:
         memory: 100Gi
         example.com/gpu-memory: 30Gi
         example.com/credits: 61
+```
+
+## Change quota check strategy for admission
+
+By default, administrators must specify all resources required by workloads in the ClusterQueue's `.spec.resourceGroups[*]`.
+If you want to relax that requirement and make resources declared on the workload, but not declared on the ClusterQueues to be skipped from quota management and admission process,
+you can specify the `quotaCheckStrategy: IgnoreUndeclared` in the Kueue Configuration as a cluster-level setting and enable the alpha `featureGates` `QuotaCheckStrategy`.
+
+Follow the [installation instructions for using a custom configuration](/docs/installation#install-a-custom-configured-released-version)
+and extend the configuration with fields similar to the following:
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  QuotaCheckStrategy: true
+resources:
+  quotaCheckStrategy: "IgnoreUndeclared"
 ```

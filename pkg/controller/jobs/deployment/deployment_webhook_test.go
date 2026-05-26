@@ -17,16 +17,19 @@ limitations under the License.
 package deployment
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -34,14 +37,20 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	testutil "sigs.k8s.io/kueue/test/util"
+)
+
+var (
+	admissionGatedByAnnotationsPath = field.NewPath("metadata", "annotations").Key(kueueconstants.AdmissionGatedByAnnotation)
 )
 
 func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
-		deployment           *appsv1.Deployment
-		localQueueDefaulting bool
-		defaultLqExist       bool
-		want                 *appsv1.Deployment
+		deployment     *appsv1.Deployment
+		defaultLqExist bool
+		want           *appsv1.Deployment
 	}{
 		"deployment without queue": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
@@ -74,10 +83,9 @@ func TestDefault(t *testing.T) {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").PodTemplateSpecQueue("test-queue").Obj(),
 			want:       testingdeployment.MakeDeployment("test-pod", "").PodTemplateSpecQueue("test-queue").Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			deployment:           testingdeployment.MakeDeployment("test-pod", "default").Obj(),
+		"default lq is created, job doesn't have queue label": {
+			defaultLqExist: true,
+			deployment:     testingdeployment.MakeDeployment("test-pod", "default").Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "default").
 				PodTemplateSpecManagedByKueue().
 				Queue("default").
@@ -85,10 +93,9 @@ func TestDefault(t *testing.T) {
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       true,
-			deployment:           testingdeployment.MakeDeployment("test-pod", "").Queue("test-queue").Obj(),
+		"default lq is created, job has queue label": {
+			defaultLqExist: true,
+			deployment:     testingdeployment.MakeDeployment("test-pod", "").Queue("test-queue").Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				PodTemplateSpecManagedByKueue().
 				Queue("test-queue").
@@ -96,10 +103,9 @@ func TestDefault(t *testing.T) {
 				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
 		},
-		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
-			localQueueDefaulting: true,
-			defaultLqExist:       false,
-			deployment:           testingdeployment.MakeDeployment("test-pod", "").Obj(),
+		"default lq isn't created, job doesn't have queue label": {
+			defaultLqExist: false,
+			deployment:     testingdeployment.MakeDeployment("test-pod", "").Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				Obj(),
 		},
@@ -148,12 +154,11 @@ func TestDefault(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
 			cqCache := schdcache.New(client)
-			queueManager := qcache.NewManager(client, cqCache)
+			queueManager := qcache.NewManagerForUnitTests(client, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").
@@ -178,9 +183,10 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	testCases := map[string]struct {
-		deployment *appsv1.Deployment
-		wantErr    error
-		wantWarns  admission.Warnings
+		deployment   *appsv1.Deployment
+		wantErr      error
+		wantWarns    admission.Warnings
+		featureGates map[featuregate.Feature]bool
 	}{
 		"without queue": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
@@ -201,10 +207,156 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"AdmissionGatedBy annotation - single gate": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"AdmissionGatedBy annotation - trailing space": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate ").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"AdmissionGatedBy annotation - space before comma": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate ,example.com/gate2").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"AdmissionGatedBy annotation - space after comma": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate, example.com/gate2").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"AdmissionGatedBy annotation - leading space": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, " example.com/gate").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"AdmissionGatedBy annotation - multiple gates": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/a,not.example.com/b").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"invalid AdmissionGatedBy annotation - not in subdomain/path format": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "this is an invalid value", "must be a domain-prefixed path (such as \"acme.io/foo\")"),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"invalid AdmissionGatedBy annotation - duplicate gates": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "duplicates.are/invalid,duplicates.are/invalid").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "duplicates.are/invalid,duplicates.are/invalid", "duplicate gate name: duplicates.are/invalid"),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"invalid AdmissionGatedBy annotation - gate name too long": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "cannot.be.too.long/"+strings.Repeat("but-this-is-too-long", 20)).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.TooLong(admissionGatedByAnnotationsPath, "", webhook.MaxGateNameLengthForAdmissionGatedBy),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"invalid AdmissionGatedBy annotation - space in path component": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate name").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "gate name", testutil.InvalidPathMessage),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"invalid AdmissionGatedBy annotation - space in domain component": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/gate").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "example .com", testutil.InvalidRFC1123Message),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"invalid AdmissionGatedBy annotation - multiple gates with one containing space": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "valid.com/gate,invalid gate.com/controller").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", testutil.InvalidRFC1123Message),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"AdmissionGatedBy annotation with feature gate disabled - valid value": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: false},
+		},
+		"AdmissionGatedBy annotation with feature gate disabled - invalid value": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: false},
+		},
+		"AdmissionGatedBy annotation with feature gate enabled - empty string": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"elastic job annotation is rejected on create": {
+			deployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
 
 			builder := utiltesting.NewClientBuilder()
@@ -231,6 +383,7 @@ func TestValidateUpdate(t *testing.T) {
 		newDeployment *appsv1.Deployment
 		wantErr       error
 		wantWarns     admission.Warnings
+		featureGates  map[featuregate.Feature]bool
 	}{
 		"without queue (no changes)": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
@@ -385,10 +538,100 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"reject adding AdmissionGatedBy annotation after Deployment creation": {
+			oldDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(admissionGatedByAnnotationsPath, "cannot add admission gate after creation"),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"allow removing AdmissionGatedBy annotation with single gate": {
+			oldDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"allow removing AdmissionGatedBy annotation with multiple gates": {
+			oldDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"allow removing one gate from AdmissionGatedBy annotation": {
+			oldDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"reject injecting new gate in AdmissionGatedBy annotation": {
+			oldDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller3").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(admissionGatedByAnnotationsPath, "can only remove gates, not add new ones"),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"allow reordering gates in AdmissionGatedBy annotation": {
+			oldDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2,example.com/controller1").
+				Obj(),
+			wantErr:      nil,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"elastic job annotation is rejected on update": {
+			oldDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-deployment", "default").
+				Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
 
 			builder := utiltesting.NewClientBuilder()

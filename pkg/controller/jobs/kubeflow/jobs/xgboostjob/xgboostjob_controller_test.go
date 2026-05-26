@@ -18,6 +18,7 @@ package xgboostjob
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -26,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -233,9 +234,9 @@ func TestOrderedReplicaTypes(t *testing.T) {
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		job                           *kftraining.XGBoostJob
-		wantPodSets                   func(job *kftraining.XGBoostJob) []kueue.PodSet
-		enableTopologyAwareScheduling bool
+		job          *kftraining.XGBoostJob
+		wantPodSets  func(job *kftraining.XGBoostJob) []kueue.PodSet
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
@@ -260,7 +261,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with required and preferred topology annotation": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
@@ -297,7 +298,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
@@ -330,14 +331,14 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := fromObject(tc.job).PodSets(ctx)
+			gotPodSets, err := fromObject(tc.job).PodSets(ctx, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -350,10 +351,10 @@ func TestPodSets(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	testCases := map[string]struct {
-		job                     *kftraining.XGBoostJob
-		wantValidationErrs      field.ErrorList
-		wantErr                 error
-		topologyAwareScheduling bool
+		job                *kftraining.XGBoostJob
+		wantValidationErrs field.ErrorList
+		wantErr            error
+		featureGates       map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
@@ -388,7 +389,7 @@ func TestValidate(t *testing.T) {
 					},
 				).
 				Obj(),
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid TAS request": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
@@ -427,7 +428,7 @@ func TestValidate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid slice topology request - slice size larger than number of podsets": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
@@ -468,13 +469,12 @@ func TestValidate(t *testing.T) {
 					"20", "must not be greater than pod set count 10",
 				),
 			},
-			topologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
-
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate(ctx)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
@@ -510,6 +510,7 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
@@ -567,7 +568,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("master", 1).Request(corev1.ResourceCPU, "1").Obj(),
 						*utiltestingapi.MakePodSet("worker", 10).Request(corev1.ResourceCPU, "5").Obj(),
 					).
-					ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
 						PodSets(
 							kueue.PodSetAssignment{
 								Name: "master",
@@ -584,8 +585,8 @@ func TestReconciler(t *testing.T) {
 								Count: ptr.To[int32](10),
 							},
 						).
-						Obj()).
-					Admitted(true).
+						Obj(), now).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -610,7 +611,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("master", 1).Request(corev1.ResourceCPU, "1").Obj(),
 						*utiltestingapi.MakePodSet("worker", 10).Request(corev1.ResourceCPU, "5").Obj(),
 					).
-					ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
 						PodSets(
 							kueue.PodSetAssignment{
 								Name: "master",
@@ -627,8 +628,8 @@ func TestReconciler(t *testing.T) {
 								Count: ptr.To[int32](10),
 							},
 						).
-						Obj()).
-					Admitted(true).
+						Obj(), now).
+					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -660,7 +661,7 @@ func TestReconciler(t *testing.T) {
 					t.Fatalf("Could not create Workload: %v", err)
 				}
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)

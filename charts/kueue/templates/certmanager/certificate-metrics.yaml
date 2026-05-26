@@ -29,8 +29,6 @@ spec:
   - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc'
   - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
   commonName: '{{ include "kueue.fullname" . }}-metrics'
-  issuerRef:
-    kind: Issuer
-    name: '{{ include "kueue.fullname" . }}-selfsigned-issuer'
+  issuerRef:{{ include "kueue.certManager.issuerRef" . | trim | nindent 4 }}
   secretName: '{{ include "kueue.fullname" . }}-metrics-server-cert'
 {{- end }}

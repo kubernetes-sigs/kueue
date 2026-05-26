@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package testing
+package mpijob
 
 import (
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -26,7 +26,8 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // MPIJobWrapper wraps a Job.
@@ -42,7 +43,7 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 		},
 		Spec: kfmpi.MPIJobSpec{
 			RunPolicy: kfmpi.RunPolicy{
-				Suspend: ptr.To(true),
+				Suspend: new(true),
 			},
 			MPIReplicaSpecs: make(map[kfmpi.MPIReplicaType]*kfmpi.ReplicaSpec),
 		},
@@ -64,7 +65,7 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequ
 	for _, rs := range replicaSpecs {
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Image = rs.Image
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Args = rs.Args
-		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Replicas = new(rs.ReplicaCount)
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = rs.RestartPolicy
 
 		if rs.Annotations != nil {
@@ -76,27 +77,7 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequ
 }
 
 func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
-	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher] = &kfmpi.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
-		Template: corev1.PodTemplateSpec{
-			Spec: corev1.PodSpec{
-				RestartPolicy: corev1.RestartPolicyNever,
-				Containers: []corev1.Container{
-					{
-						Name:    "mpijob",
-						Image:   "pause",
-						Command: []string{},
-						Resources: corev1.ResourceRequirements{
-							Requests: corev1.ResourceList{},
-							Limits:   corev1.ResourceList{},
-						},
-					},
-				},
-				NodeSelector: map[string]string{},
-			},
-		},
-	}
-
+	j.GenericLauncher()
 	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker] = &kfmpi.ReplicaSpec{
 		Replicas: ptr.To[int32](1),
 		Template: corev1.PodTemplateSpec{
@@ -105,7 +86,7 @@ func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:    "mpijob",
-						Image:   "pause",
+						Image:   utiltestingjobs.TestDefaultContainerImage,
 						Command: []string{},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{},
@@ -118,6 +99,30 @@ func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
 		},
 	}
 
+	return j
+}
+
+func (j *MPIJobWrapper) GenericLauncher() *MPIJobWrapper {
+	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher] = &kfmpi.ReplicaSpec{
+		Replicas: ptr.To[int32](1),
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				Containers: []corev1.Container{
+					{
+						Name:    "mpijob",
+						Image:   utiltestingjobs.TestDefaultContainerImage,
+						Command: []string{},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{},
+							Limits:   corev1.ResourceList{},
+						},
+					},
+				},
+				NodeSelector: map[string]string{},
+			},
+		},
+	}
 	return j
 }
 
@@ -132,6 +137,15 @@ func (j *MPIJobWrapper) Label(key, value string) *MPIJobWrapper {
 		j.Labels = make(map[string]string, 1)
 	}
 	j.Labels[key] = value
+	return j
+}
+
+// Annotation sets the annotation key and value
+func (j *MPIJobWrapper) Annotation(k, v string) *MPIJobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string, 1)
+	}
+	j.Annotations[k] = v
 	return j
 }
 
@@ -167,6 +181,16 @@ func (j *MPIJobWrapper) Queue(queue string) *MPIJobWrapper {
 	return j
 }
 
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *MPIJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *MPIJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *MPIJobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *MPIJobWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
+}
+
 // Request adds a resource request to the default container.
 func (j *MPIJobWrapper) Request(replicaType kfmpi.MPIReplicaType, r corev1.ResourceName, v string) *MPIJobWrapper {
 	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
@@ -186,7 +210,7 @@ func (j *MPIJobWrapper) RequestAndLimit(replicaType kfmpi.MPIReplicaType, r core
 
 // Parallelism updates job parallelism.
 func (j *MPIJobWrapper) Parallelism(p int32) *MPIJobWrapper {
-	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Replicas = ptr.To(p)
+	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Replicas = new(p)
 	return j
 }
 
@@ -204,7 +228,7 @@ func (j *MPIJobWrapper) UID(uid string) *MPIJobWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (j *MPIJobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *MPIJobWrapper {
-	testing.AppendOwnerReference(&j.MPIJob, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&j.MPIJob, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return j
 }
 
@@ -238,12 +262,6 @@ func (j *MPIJobWrapper) StatusConditions(c kfmpi.JobCondition) *MPIJobWrapper {
 	return j
 }
 
-func (j *MPIJobWrapper) Image(replicaType kfmpi.MPIReplicaType, image string, args []string) *MPIJobWrapper {
-	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Image = image
-	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
-	return j
-}
-
 // ManagedBy adds a managedby.
 func (j *MPIJobWrapper) ManagedBy(c string) *MPIJobWrapper {
 	j.Spec.RunPolicy.ManagedBy = &c
@@ -251,7 +269,13 @@ func (j *MPIJobWrapper) ManagedBy(c string) *MPIJobWrapper {
 }
 
 func (j *MPIJobWrapper) TerminationGracePeriodSeconds(seconds int64) *MPIJobWrapper {
-	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
-	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
+	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
+	return j
+}
+
+// RunLauncherAsWorker sets the RunLauncherAsWorker field.
+func (j *MPIJobWrapper) RunLauncherAsWorker(v bool) *MPIJobWrapper {
+	j.Spec.RunLauncherAsWorker = new(v)
 	return j
 }

@@ -17,17 +17,11 @@ limitations under the License.
 package v1beta2
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // FairSharing contains the properties of the ClusterQueue or Cohort,
 // when participating in FairSharing.
-//
-// Fair Sharing is compatible with Hierarchical Cohorts (any Cohort
-// which has a parent) as of v0.11. Using these features together in
-// V0.9 and V0.10 is unsupported, and results in undefined behavior.
 type FairSharing struct {
 	// weight gives a comparative advantage to this ClusterQueue
 	// or Cohort when competing for unused resources in the
@@ -41,6 +35,7 @@ type FairSharing struct {
 	// disadvantage against other ClusterQueues and Cohorts.
 	// When not 0, Weight must be greater than 10^-9.
 	// +kubebuilder:default=1
+	// +optional
 	Weight *resource.Quantity `json:"weight,omitempty"`
 }
 
@@ -53,23 +48,8 @@ type FairSharingStatus struct {
 	// the Node is below the nominal quota.  If the Node has a
 	// weight of zero and is borrowing, this will return
 	// 9223372036854775807, the maximum possible share value.
+	// +required
 	WeightedShare int64 `json:"weightedShare"`
-
-	// admissionFairSharingStatus represents information relevant to the Admission Fair Sharing
-	// +optional
-	AdmissionFairSharingStatus *AdmissionFairSharingStatus `json:"admissionFairSharingStatus,omitempty"`
-}
-
-type AdmissionFairSharingStatus struct {
-	// consumedResources represents the aggregated usage of resources over time,
-	// with decaying function applied.
-	// The value is populated if usage consumption functionality is enabled in Kueue config.
-	// +required
-	ConsumedResources corev1.ResourceList `json:"consumedResources"` //nolint:kubeapilinter // map type is required for standard Kubernetes ResourceList
-
-	// lastUpdate is the time when share and consumed resources were updated.
-	// +required
-	LastUpdate metav1.Time `json:"lastUpdate"`
 }
 
 type AdmissionScope struct {
@@ -80,7 +60,7 @@ type AdmissionScope struct {
 	//
 	// +kubebuilder:validation:Enum=UsageBasedAdmissionFairSharing;NoAdmissionFairSharing
 	// +required
-	AdmissionMode AdmissionMode `json:"admissionMode"`
+	AdmissionMode AdmissionMode `json:"admissionMode,omitempty"`
 }
 
 type AdmissionMode string

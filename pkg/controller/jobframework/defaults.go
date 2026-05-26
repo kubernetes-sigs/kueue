@@ -18,12 +18,11 @@ package jobframework
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -31,6 +30,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
@@ -46,40 +46,8 @@ func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient clien
 	return nil
 }
 
-// WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
-func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
-	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
-	// Do not default suspend a job whose ancestor is already managed by Kueue
-	ancestorJob, err := FindAncestorJobManagedByKueue(ctx, k8sClient, jobObj, manageJobsWithoutQueueName)
-	if err != nil || ancestorJob != nil {
-		return false, err
-	}
-
-	// Jobs with queue names whose parents are not managed by Kueue are default suspended
-	if QueueNameForObject(jobObj) != "" {
-		return true, nil
-	}
-
-	// Logic for managing jobs without queue names.
-	if manageJobsWithoutQueueName {
-		if managedJobsNamespaceSelector != nil {
-			// Default suspend the job if the namespace selector matches
-			ns := corev1.Namespace{}
-			err := k8sClient.Get(ctx, client.ObjectKey{Name: jobObj.GetNamespace()}, &ns)
-			if err != nil {
-				return false, fmt.Errorf("failed to get namespace: %w", err)
-			}
-			return managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())), nil
-		} else {
-			// Namespace filtering is disabled; unconditionally default suspend
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string) bool) {
-	if !features.Enabled(features.LocalQueueDefaulting) || !defaultQueueExist(jobObj.GetNamespace()) {
+	if !defaultQueueExist(jobObj.GetNamespace()) {
 		return
 	}
 	if QueueNameForObject(jobObj) == "" {
@@ -94,6 +62,33 @@ func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string)
 		labels[constants.QueueLabel] = string(constants.DefaultLocalQueueName)
 		jobObj.SetLabels(labels)
 	}
+}
+
+func ApplyDefaultWorkloadPriorityClass(ctx context.Context, c client.Client, jobObj client.Object) {
+	if !features.Enabled(features.WorkloadPriorityClassDefaulting) {
+		return
+	}
+	if WorkloadPriorityClassName(jobObj) != "" {
+		return
+	}
+	if IsOwnerManagedByKueueForObject(jobObj) {
+		return
+	}
+	exists, err := utilpriority.DefaultWorkloadPriorityClassExist(ctx, c)
+	if err != nil {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(2).Error(err, "Failed to check for default WorkloadPriorityClass")
+		return
+	}
+	if !exists {
+		return
+	}
+	labels := jobObj.GetLabels()
+	if labels == nil {
+		labels = make(map[string]string, 1)
+	}
+	labels[constants.WorkloadPriorityClassLabel] = constants.DefaultWorkloadPriorityClassName
+	jobObj.SetLabels(labels)
 }
 
 func ApplyDefaultForManagedBy(job GenericJob, queues *qcache.Manager, cache *schdcache.Cache, log logr.Logger) {

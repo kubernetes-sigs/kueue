@@ -19,10 +19,8 @@ package scheduler
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -63,10 +61,10 @@ func createResourceQuotas(kueueRgs []kueue.ResourceGroup) map[resources.FlavorRe
 					Nominal: resources.ResourceValue(kueueQuota.Name, kueueQuota.NominalQuota),
 				}
 				if kueueQuota.BorrowingLimit != nil {
-					quota.BorrowingLimit = ptr.To(resources.ResourceValue(kueueQuota.Name, *kueueQuota.BorrowingLimit))
+					quota.BorrowingLimit = new(resources.ResourceValue(kueueQuota.Name, *kueueQuota.BorrowingLimit))
 				}
-				if features.Enabled(features.LendingLimit) && kueueQuota.LendingLimit != nil {
-					quota.LendingLimit = ptr.To(resources.ResourceValue(kueueQuota.Name, *kueueQuota.LendingLimit))
+				if kueueQuota.LendingLimit != nil {
+					quota.LendingLimit = new(resources.ResourceValue(kueueQuota.Name, *kueueQuota.LendingLimit))
 				}
 				quotas[resources.FlavorResource{Flavor: kueueFlavor.Name, Resource: kueueQuota.Name}] = quota
 			}

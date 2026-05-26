@@ -41,10 +41,9 @@ fields:
 
 ```yaml
     waitForPodsReady:
-      enable: true
       timeout: 10m
       recoveryTimeout: 3m
-      blockAdmission: true
+      blockAdmission: false
       requeuingStrategy:
         timestamp: Eviction | Creation
         backoffLimitCount: 5
@@ -76,7 +75,8 @@ workloads that are already running but have one or more Pods in a not-ready stat
 progress, leading to wasted resources. To prevent this, users can configure
 a timeout period they are willing to wait for a recovery Pod. If the
 `recoveryTimeout` expires, similar to the regular timeout, the workload is evicted and requeued.
-It has no default value, so it must be set explicitly.
+If not specified, it defaults to the value of `timeout`. Setting `recoveryTimeout: 0s` disables
+recovery timeout checking.
 
 The `blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional parameter.
 When enabled, then the workloads are admitted sequentially to prevent deadlock
@@ -123,6 +123,12 @@ In this example we demonstrate the impact of enabling `waitForPodsReady` in Kueu
 We create two jobs which both require all their pods to be running at the same
 time to complete. The cluster has enough resources to support running one of the
 jobs at the same time, but not both.
+
+{{% alert title="Note" color="primary" %}}
+This example uses `blockAdmission: true` to enable sequential admission and
+prevent deadlock situations. Note that [Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling)
+is an alternative solution to the problems mentioned in this guide.
+{{% /alert %}}
 
 {{% alert title="Note" color="primary" %}}
 In this example we use a cluster with autoscaling disabled in order to simulate

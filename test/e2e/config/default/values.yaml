@@ -27,9 +27,18 @@ controllerManager:
     enabled: false
     minAvailable: 1
 kubernetesClusterDomain: cluster.local
+featureGates:
+- name: LocalQueueMetrics
+  enabled: true
+- name: ElasticJobsViaWorkloadSlices
+  enabled: true
+- name: ElasticJobsViaWorkloadSlicesWithTAS
+  enabled: true
+- name: ConcurrentAdmission
+  enabled: true
 managerConfig:
   controllerManagerConfigYaml: |-
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     metrics:
       enableClusterQueueResources: true
@@ -43,8 +52,7 @@ managerConfig:
         LocalQueue.kueue.x-k8s.io: 1
         ClusterQueue.kueue.x-k8s.io: 1
         ResourceFlavor.kueue.x-k8s.io: 1
-    fairSharing:
-      enable: true
+    fairSharing: {}
     clientConnection:
       qps: 50
       burst: 100
@@ -65,6 +73,3 @@ managerConfig:
         - "deployment"
         - "statefulset"
         - "leaderworkerset.x-k8s.io/leaderworkerset"
-    featureGates:
-      MultiKueueBatchJobWithManagedBy: true
-      LocalQueueMetrics: true

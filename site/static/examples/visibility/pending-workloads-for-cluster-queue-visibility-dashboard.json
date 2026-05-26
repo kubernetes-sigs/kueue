@@ -253,7 +253,7 @@
           "root_selector": "items",
           "source": "url",
           "type": "json",
-          "url": "https://kubernetes.default.svc/apis/visibility.kueue.x-k8s.io/v1beta1/clusterqueues/$cluster_queue/pendingworkloads",
+          "url": "https://kubernetes.default.svc/apis/visibility.kueue.x-k8s.io/v1beta2/clusterqueues/$cluster_queue/pendingworkloads",
           "url_options": {
             "data": "",
             "method": "GET"
@@ -295,7 +295,7 @@
             "root_selector": "items",
             "source": "url",
             "type": "json",
-            "url": "https://kubernetes.default.svc/apis/kueue.x-k8s.io/v1beta1/clusterqueues",
+            "url": "https://kubernetes.default.svc/apis/kueue.x-k8s.io/v1beta2/clusterqueues",
             "url_options": {
               "data": "",
               "method": "GET"

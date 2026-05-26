@@ -196,69 +196,6 @@ func TestMerge(t *testing.T) {
 	}
 }
 
-func TestGetGraterKeys(t *testing.T) {
-	cpuOnly1 := corev1.ResourceList{
-		corev1.ResourceCPU: resource.MustParse("1"),
-	}
-	cpuOnly500m := corev1.ResourceList{
-		corev1.ResourceCPU: resource.MustParse("500m"),
-	}
-	cases := map[string]struct {
-		a, b corev1.ResourceList
-		want []corev1.ResourceName
-	}{
-		"empty_a": {
-			b:    cpuOnly1,
-			want: nil,
-		},
-		"empty_b": {
-			a:    cpuOnly1,
-			want: nil,
-		},
-		"less one resource": {
-			a:    cpuOnly500m,
-			b:    cpuOnly1,
-			want: nil,
-		},
-		"not less one resource": {
-			a:    cpuOnly1,
-			b:    cpuOnly500m,
-			want: []corev1.ResourceName{corev1.ResourceCPU},
-		},
-		"multiple unrelated": {
-			a: corev1.ResourceList{
-				"r1": resource.MustParse("2"),
-				"r2": resource.MustParse("2"),
-			},
-			b: corev1.ResourceList{
-				"r3": resource.MustParse("1"),
-				"r4": resource.MustParse("1"),
-			},
-			want: nil,
-		},
-		"multiple": {
-			a: corev1.ResourceList{
-				"r1": resource.MustParse("2"),
-				"r2": resource.MustParse("1"),
-			},
-			b: corev1.ResourceList{
-				"r1": resource.MustParse("1"),
-				"r2": resource.MustParse("2"),
-			},
-			want: []corev1.ResourceName{"r1"},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := GetGreaterKeys(tc.a, tc.b)
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("Unexpected result (-want, +got)\n%s", diff)
-			}
-		})
-	}
-}
-
 func TestQuantityToFloat(t *testing.T) {
 	cases := map[string]struct {
 		q          resource.Quantity
@@ -295,6 +232,67 @@ func TestQuantityToFloat(t *testing.T) {
 			got := QuantityToFloat(&tc.q)
 			if got != tc.wantResult {
 				t.Errorf("Unexpected result, expecting %f got %f", tc.wantResult, got)
+			}
+		})
+	}
+}
+
+func TestIsExtendedResourceName(t *testing.T) {
+	cases := map[string]struct {
+		name corev1.ResourceName
+		want bool
+	}{
+		"cpu": {
+			name: corev1.ResourceCPU,
+			want: false,
+		},
+		"memory": {
+			name: corev1.ResourceMemory,
+			want: false,
+		},
+		"ephemeral-storage": {
+			name: corev1.ResourceEphemeralStorage,
+			want: false,
+		},
+		"hugepages-2Mi": {
+			name: corev1.ResourceName(corev1.ResourceHugePagesPrefix + "2Mi"),
+			want: false,
+		},
+		"extended resource with domain": {
+			name: "example.com/gpu",
+			want: true,
+		},
+		"nvidia gpu": {
+			name: "nvidia.com/gpu",
+			want: true,
+		},
+		"extended resource with subdomain": {
+			name: "gpu.resource.nvidia.com/mig-1g.5gb",
+			want: true,
+		},
+		"empty string": {
+			name: "",
+			want: false,
+		},
+		"simple name without slash": {
+			name: "custom-resource",
+			want: false,
+		},
+		"kubernetes.io namespace": {
+			name: "kubernetes.io/foo",
+			want: false,
+		},
+		"requests prefix": {
+			name: "requests.cpu",
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := IsExtendedResourceName(tc.name)
+			if got != tc.want {
+				t.Errorf("IsExtendedResourceName(%q) = %v, want %v", tc.name, got, tc.want)
 			}
 		})
 	}

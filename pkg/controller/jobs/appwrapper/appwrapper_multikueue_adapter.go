@@ -27,11 +27,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -42,8 +40,6 @@ type multiKueueAdapter struct{}
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
 func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	localAppWrapper := awv1beta2.AppWrapper{}
 	err := localClient.Get(ctx, key, &localAppWrapper)
 	if err != nil {
@@ -58,14 +54,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// if the remote exists, just copy the status
 	if err == nil {
-		if localAppWrapper.Spec.Suspend {
-			// Ensure the appwrapper is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-			log.V(2).Info("Skipping the sync since the local appwrapper is still suspended")
-			return nil
-		}
-		return clientutil.PatchStatus(ctx, localClient, &localAppWrapper, func() (client.Object, bool, error) {
+		return clientutil.PatchStatus(ctx, localClient, &localAppWrapper, func() (bool, error) {
 			localAppWrapper.Status = remoteAppWrapper.Status
-			return &localAppWrapper, true, nil
+			return true, nil
 		})
 	}
 
@@ -75,12 +66,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		Spec:       *localAppWrapper.Spec.DeepCopy(),
 	}
 
-	// add the prebuilt workload
-	if remoteAppWrapper.Labels == nil {
-		remoteAppWrapper.Labels = map[string]string{}
-	}
-	remoteAppWrapper.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteAppWrapper.Labels[kueue.MultiKueueOriginLabel] = origin
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remoteAppWrapper, workloadName, origin)
 
 	// clear the managedBy to enable the remote AppWrapper controller to take over
 	remoteAppWrapper.Spec.ManagedBy = nil
@@ -88,7 +75,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteAppWrapper)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	aw := &awv1beta2.AppWrapper{}
 	aw.SetName(key.Name)
 	aw.SetNamespace(key.Namespace)
@@ -97,10 +84,6 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient
 
 func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
 	return gvk
-}
-
-func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {
-	return false
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
@@ -122,16 +105,16 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &awv1beta2.AppWrapperList{}
 }
 
-func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	aw, ok := o.(*awv1beta2.AppWrapper)
 	if !ok {
-		return types.NamespacedName{}, errors.New("not an appwrapper")
+		return nil, errors.New("not an appwrapper")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := aw.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for appwrapper: %s", klog.KObj(aw))
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(aw)
+	if prebuiltWorkload == "" {
+		return nil, fmt.Errorf("no prebuilt workload found for appwrapper: %s", klog.KObj(aw))
 	}
 
-	return types.NamespacedName{Name: prebuiltWl, Namespace: aw.Namespace}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: aw.Namespace}}, nil
 }

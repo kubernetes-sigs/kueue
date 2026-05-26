@@ -32,6 +32,7 @@ import (
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -435,8 +436,9 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			manager := qcache.NewManager(utiltesting.NewFakeClient(), nil)
-			ctx, _ := utiltesting.ContextWithLog(t)
+			queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptexpectations.New())}
+			manager := qcache.NewManagerForUnitTests(utiltesting.NewFakeClient(), nil, queueOptions...)
+			ctx, log := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			go manager.CleanUpOnContext(ctx)
@@ -452,7 +454,7 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				}
 			}
 			for _, w := range tc.workloads {
-				if err := manager.AddOrUpdateWorkload(w); err != nil {
+				if err := manager.AddOrUpdateWorkload(log, w); err != nil {
 					t.Fatalf("Failed to add or update workload :%v", err)
 				}
 			}

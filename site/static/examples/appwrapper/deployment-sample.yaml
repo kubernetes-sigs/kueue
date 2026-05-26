@@ -5,7 +5,6 @@ metadata:
   labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
-  suspend: true
   components:
   - podSets:
     - path: "template.spec.template"

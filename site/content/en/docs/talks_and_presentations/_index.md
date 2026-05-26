@@ -9,7 +9,24 @@ description: >
   Talks and presentations showcasing Kueue
 ---
 
+# 2026
+
+* KubeCon EU, March, Amsterdam<br>
+  Keynote: Rules of the Road for Shared GPUs: AI Inference Scheduling at Wayve<br>
+  Mukund Muralikrishnan, Wayve<br>
+  [talk details](https://sched.co/2HgE0) | [video](https://youtu.be/QblJjpN15R8)<br>
+
+* KubeCon EU, March, Amsterdam<br>
+  Instrumenting Kueue Scheduling for ML Training<br>
+  Amy Chen, CoreWeave & Gabe Saba, Google<br>
+  [talk details](https://sched.co/2CW0P) | [video](https://youtu.be/rcrl8-CudVw)<br>
+
 # 2025
+
+* KubeCon NA, November, Atlanta<br>
+  Resource Fairness and Utilization for Heterogeneous Batch/ML Platforms With Kueue<br>
+  Yuki Iwai, CyberAgent, Inc. & Gabe Saba, Google<br>
+  [talk details](https://sched.co/28D9C) | [video](https://youtu.be/dKhF-hZi7CI)<br>
 
 * KubeCon EU, April, London<br>
   Accelerate Your AI/ML Workloads With Topology-Aware Scheduling in Kueue<br>

@@ -25,7 +25,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.20.1
   name: admissionchecks.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -33,10 +33,14 @@ spec:
     kind: AdmissionCheck
     listKind: AdmissionCheckList
     plural: admissionchecks
+    shortNames:
+      - ac
     singular: admissioncheck
   scope: Cluster
   versions:
-    - name: v1beta1
+    - deprecated: true
+      deprecationWarning: This version is deprecated. Use v1beta2 instead.
+      name: v1beta1
       schema:
         openAPIV3Schema:
           description: AdmissionCheck is the Schema for the admissionchecks API
@@ -100,6 +104,7 @@ spec:
                     retryDelayMinutes specifies how long to keep the workload suspended after
                     a failed check (after it transitioned to False). When the delay period has passed, the check
                     state goes to "Unknown". The default is 15 min.
+
                     Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.
                   format: int64
                   type: integer
@@ -173,7 +178,7 @@ spec:
               type: object
           type: object
       served: true
-      storage: true
+      storage: false
       subresources:
         status: {}
     - name: v1beta2
@@ -219,16 +224,19 @@ spec:
                     apiGroup:
                       description: apiGroup is the group for the resource being referenced.
                       maxLength: 253
+                      minLength: 1
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string
                     kind:
                       description: kind is the type of the resource being referenced.
                       maxLength: 63
+                      minLength: 1
                       pattern: ^(?i)[a-z]([-a-z0-9]*[a-z0-9])?$
                       type: string
                     name:
                       description: name is the name of the resource being referenced.
                       maxLength: 63
+                      minLength: 1
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
                   required:
@@ -308,6 +316,6 @@ spec:
               type: object
           type: object
       served: true
-      storage: false
+      storage: true
       subresources:
         status: {}

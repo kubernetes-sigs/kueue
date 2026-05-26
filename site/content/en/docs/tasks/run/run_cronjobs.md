@@ -18,7 +18,7 @@ Make sure the following conditions are met:
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/installation).
-- The cluster has [quotas configured](/docs/tasks/administer_cluster_quotas).
+- The cluster has [quotas configured](/docs/tasks/manage/administer_cluster_quotas).
 
 ## 0. Identify the queues available in your namespace
 
@@ -43,15 +43,17 @@ Queue.
 ## 1. Define the Job
 
 Running a CronJob in Kueue is similar to [running a CronJob in a Kubernetes cluster](https://kubernetes.io/docs/tasks/job/automated-tasks-with-cron-jobs/)
-without Kueue. However, you must consider the following differences:
+without Kueue. However, you must set the `kueue.x-k8s.io/queue-name` label in `jobTemplate.metadata` selecting the LocalQueue you want to submit the Job to.
+You can also skip setting the "queue name" label if you use [LocalQueue defaulting](/docs/tasks/manage/enforce_job_management/setup_default_local_queue).
 
-- You should set the JobTemplate in CronJob in a [suspended state](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job),
-  as Kueue will decide when it's the best time to start the Job.
-- You have to set the Queue you want to submit the Job to. Use the
- `kueue.x-k8s.io/queue-name` label in `jobTemplate.metadata`
-- You should include the resource requests for each Job Pod.
-- You should set the [`spec.concurrencyPolicy`](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/#concurrency-policy) to control the concurrency policy. The default is `Allow`. You can also set it to `Forbid` to prevent concurrent runs.
-- You should set the [`spec.startingDeadlineSeconds`](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/#starting-deadline) to control the deadline for starting the Job. The default is no deadline.
+You should also:
+
+- Specify [resource requests or limits](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/) for each Job Pod. If you specify only limits, Kueue will treat the limit values as requests. See [how Kueue uses resource requests](/docs/concepts/workload#resource-requests) for details.
+- Set the [`spec.concurrencyPolicy`](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/#concurrency-policy) to control the concurrency policy. The default is `Allow`. You can also set it to `Forbid` to prevent concurrent runs.
+- Set the [`spec.startingDeadlineSeconds`](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/#starting-deadline) to control the deadline for starting the Job. The default is no deadline.
+
+Note that you do not need to set the JobTemplate in CronJob in a [suspended state](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job).
+Kueue automatically manages the Job's suspension via webhook and decides when it's the best time to start the Job.
 
 Here is a sample CronJob with three Pods that just sleep for 10 seconds. The CronJob runs every minute.
 
@@ -69,7 +71,7 @@ Internally, Kueue will create a corresponding [Workload](/docs/concepts/workload
 for each run of the Job with a matching name.
 
 ```shell
-kubectl -n default get workloads
+kubectl -n default get workloads.kueue.x-k8s.io
 ```
 
 The output will be similar to the following:
@@ -81,4 +83,4 @@ job-sample-cronjob-28373363-e2aa0   user-queue   cluster-queue   68m
 job-sample-cronjob-28373364-b42ac   user-queue   cluster-queue   67m
 ```
 
-You can also [Monitoring Status of the Workload](/docs/tasks/run_jobs#3-optional-monitor-the-status-of-the-workload).
+You can also [Monitoring Status of the Workload](/docs/tasks/run/jobs#3-optional-monitor-the-status-of-the-workload).

@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ .Release.Name }}-kueue-status-test"
+  namespace: "{{ .Release.Namespace }}"
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  serviceAccountName: "{{ .Release.Name }}-test-sa"
+  containers:
+    - name: check-kueue-deployments
+      image: {{ include "kueue-populator.kubectlImage" . }}
+      command: ["kubectl"]
+      args: [
+        "wait",
+        "--for=condition=Available",
+        "--timeout=60s",
+        "deployment/{{ .Release.Name }}-controller-manager",
+        "deployment/{{ .Release.Name }}-kueue-populator",
+        "-n", "{{ .Release.Namespace }}"
+      ]
+  restartPolicy: Never

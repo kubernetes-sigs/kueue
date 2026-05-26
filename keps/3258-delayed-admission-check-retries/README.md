@@ -48,7 +48,7 @@ This immediate retry behavior can cause several issues:
 - Inefficient resource utilization when the retry condition is expected to persist for a known duration
 - Artificial reduction of available quotas
 
-Currently, there's a shared `.status.requeueState` field used by both the [provisioning request admission check](https://kueue.sigs.k8s.io/docs/admission-check-controllers/provisioning/#provisioningrequestconfig) and the [WaitForPodsReady](https://kueue.sigs.k8s.io/docs/tasks/manage/setup_wait_for_pods_ready/) feature. It already serves these purposes well but will need some adjustments to support the new use case.
+Currently, there's a shared `.status.requeueState` field used by both the [provisioning request admission check](https://kueue.sigs.k8s.io/docs/concepts/admission_check/provisioning_request/#provisioningrequestconfig) and the [WaitForPodsReady](https://kueue.sigs.k8s.io/docs/tasks/manage/setup_wait_for_pods_ready/) feature. It already serves these purposes well but will need some adjustments to support the new use case.
 
 ### Goals
 

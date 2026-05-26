@@ -16,37 +16,13 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-1. By default, the integration for `pod` is not enabled.
-   Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version)
+1. The `pod` integration is enabled by default.
+
+2. For Kueue v0.15 and earlier, learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version)
    and enable the `pod` integration.
 
    To allow Kubernetes system pods to be successfully scheduled, you must limit the scope of the `pod` integration.
-   The recomended mechanism for doing this is using the `managedJobsNamespaceSelector`.
-
-   One approach is to only enable management only for specific namespaces:
-   ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta2
-   kind: Configuration
-   managedJobsNamespaceSelector:
-     matchLabels:
-      kueue-managed: "true"
-   integrations:
-     frameworks:
-      - "pod"
-   ```
-   An alternate approach is to exempt system namespaces from management:
-   ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta2
-   kind: Configuration
-   managedJobsNamespaceSelector:
-      matchExpressions:
-      - key: kubernetes.io/metadata.name
-        operator: NotIn
-        values: [ kube-system, kueue-system ]
-   integrations:
-     frameworks:
-      - "pod"
-   ```
+   On production environments it is recommended [to use the `managedJobsNamespaceSelector`](/docs/tasks/manage/enforce_job_management/opt_in_namespace_management).
 
 {{% alert title="Note" color="primary" %}}
   Prior to Kueue v0.10, the Configuration fields `integrations.podOptions.namespaceSelector`
@@ -55,7 +31,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 {{% /alert %}}
 
 
-2. Kueue will run webhooks for all created pods if the pod integration is enabled. The webhook namespaceSelector could be 
+3. Kueue will run webhooks for all created pods if the pod integration is enabled. The webhook namespaceSelector could be
    used to filter the pods to reconcile. The default webhook namespaceSelector is:
    ```yaml
    matchExpressions:
@@ -70,10 +46,10 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
    Make sure that namespaceSelector never matches the kueue namespace, otherwise the 
    Kueue deployment won't be able to create Pods.
 
-3. Pods that belong to other API resources managed by Kueue are excluded from being queued by `pod` integration. 
+4. Pods that belong to other API resources managed by Kueue are excluded from being queued by `pod` integration.
    For example, pods managed by `batch/v1.Job` won't be managed by `pod` integration.
 
-4. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
+5. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
 ## Running a single Pod admitted by Kueue
 
@@ -103,7 +79,12 @@ The resource needs of the workload can be configured in the `spec.containers`.
 
 Kueue will inject the `kueue.x-k8s.io/managed=true` label to indicate which pods are managed by it.
 
-### d. Limitations
+### d. Scheduling Gates
+
+Kueue injects the `kueue.x-k8s.io/admission` scheduling gate to the Pods that Kueue is managing.
+Once the corresponding Workload is admitted, Kueue will patch the pods and remove this scheduling gate.
+
+### e. Limitations
 
 - A Kueue managed Pod cannot be created in `kube-system` or `kueue-system` namespaces.
 - In case of [preemption](/docs/concepts/cluster_queue/#preemption), the Pod will
@@ -118,7 +99,7 @@ Here is a sample Pod that just sleeps for a few seconds:
 You can create the Pod using the following command:
 ```sh
 # Create the pod
-kubectl create -f kueue-pod.yaml
+kubectl create -f https://kueue.sigs.k8s.io/examples/pods-kueue/kueue-pod.yaml
 ```
 
 ## Running a group of Pods to be admitted together
@@ -177,7 +158,7 @@ Here is a sample Pod group that just sleeps for a few seconds:
 
 You can create the Pod group using the following command:
 ```sh
-kubectl create -f kueue-pod-group.yaml
+kubectl create -f https://kueue.sigs.k8s.io/examples/pods-kueue/kueue-pod-group.yaml
 ```
 
 The name of the associated Workload created by Kueue equals the name of the Pod

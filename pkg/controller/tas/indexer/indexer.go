@@ -26,14 +26,16 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
 	TASKey                        = "metadata.tas"
 	WorkloadNameKey               = "metadata.workload"
-	ReadyNode                     = "metadata.ready"
-	SchedulableNode               = "spec.schedulable"
+	PodNodeSelectorHostnameKey    = "spec.nodeSelector.hostname"
+	PodNodeNameKey                = "spec.nodeName"
 	ResourceFlavorTopologyNameKey = "spec.topologyName"
+	AdmittedWorkloadNodesKey      = "metadata.admittedWorkloadNodes"
 )
 
 func indexPodTAS(o client.Object) []string {
@@ -56,25 +58,25 @@ func indexPodWorkload(o client.Object) []string {
 	return []string{value}
 }
 
-func indexReadyNode(o client.Object) []string {
-	node, ok := o.(*corev1.Node)
-	if !ok || len(node.Status.Conditions) == 0 {
+func indexPodNodeSelectorHostname(o client.Object) []string {
+	pod, ok := o.(*corev1.Pod)
+	if !ok || !utiltas.IsTAS(pod) {
 		return nil
 	}
-
-	if !utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady) {
-		return nil
+	if pod.Spec.NodeSelector != nil {
+		if nodeName, ok := pod.Spec.NodeSelector[corev1.LabelHostname]; ok {
+			return []string{nodeName}
+		}
 	}
-
-	return []string{"true"}
+	return nil
 }
 
-func indexSchedulableNode(o client.Object) []string {
-	node, ok := o.(*corev1.Node)
-	if !ok || node.Spec.Unschedulable {
+func indexPodNodeName(o client.Object) []string {
+	pod, ok := o.(*corev1.Pod)
+	if !ok {
 		return nil
 	}
-	return []string{"true"}
+	return []string{pod.Spec.NodeName}
 }
 
 func indexResourceFlavorTopologyName(o client.Object) []string {
@@ -83,6 +85,15 @@ func indexResourceFlavorTopologyName(o client.Object) []string {
 		return nil
 	}
 	return []string{string(*flavor.Spec.TopologyName)}
+}
+
+func indexAdmittedWorkloadNodes(o client.Object) []string {
+	wl, ok := o.(*kueue.Workload)
+	if !ok || workload.IsFinished(wl) || workload.IsEvicted(wl) {
+		return nil
+	}
+
+	return workload.TASAssignedNodeNames(wl)
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
@@ -94,16 +105,18 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		return fmt.Errorf("setting index pod workload: %w", err)
 	}
 
-	if err := indexer.IndexField(ctx, &corev1.Node{}, ReadyNode, indexReadyNode); err != nil {
-		return fmt.Errorf("setting index node ready: %w", err)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, PodNodeSelectorHostnameKey, indexPodNodeSelectorHostname); err != nil {
+		return fmt.Errorf("setting index pod node selector hostname: %w", err)
 	}
-
-	if err := indexer.IndexField(ctx, &corev1.Node{}, SchedulableNode, indexSchedulableNode); err != nil {
-		return fmt.Errorf("setting index node schedulable: %w", err)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, PodNodeNameKey, indexPodNodeName); err != nil {
+		return fmt.Errorf("setting index on %s for Pod: %w", PodNodeNameKey, err)
 	}
 
 	if err := indexer.IndexField(ctx, &kueue.ResourceFlavor{}, ResourceFlavorTopologyNameKey, indexResourceFlavorTopologyName); err != nil {
 		return fmt.Errorf("setting index resource flavor topology name: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, AdmittedWorkloadNodesKey, indexAdmittedWorkloadNodes); err != nil {
+		return fmt.Errorf("setting index admitted workload nodes: %w", err)
 	}
 	return nil
 }

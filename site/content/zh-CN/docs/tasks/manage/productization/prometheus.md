@@ -16,7 +16,7 @@ description: >
 
 - 一个 Kubernetes 集群正在运行。
 - kubectl 命令行工具可以与集群通信。
-- [Kueue 已安装](/zh-cn/docs/installation)。
+- [Kueue 已安装](/docs/installation)。
 - Prometheus 已[安装](https://prometheus-operator.dev/docs/getting-started/installation/)
 - Cert Manager 已[安装](https://cert-manager.io/docs/installation/)（可选地）
 
@@ -47,7 +47,7 @@ Kueue 也支持通过 Helm 部署 Prometheus。
 
 如果你想使用外部证书保护指标端点：
 
-1. 在 kueue 配置中禁用内部证书管理（更多详情参见[自定义配置](https://kueue.sigs.k8s.io/zh-cn/docs/installation/#install-a-custom-configured-released-version)）。
+1. 在 kueue 配置中禁用内部证书管理（更多详情参见[自定义配置](https://kueue.sigs.k8s.io/zh-CN/docs/installation/#install-a-custom-configured-released-version)）。
 2. 将 `enableCertManager` 和 `enablePrometheus` 都设置为 true。
 3. 提供 `tlsConfig` 的值，见下面的例子：
 

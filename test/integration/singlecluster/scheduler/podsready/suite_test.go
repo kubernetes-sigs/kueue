@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -47,11 +48,7 @@ var (
 )
 
 func TestSchedulerWithWaitForPodsReady(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"Scheduler with WaitForPodsReady Suite",
-	)
+	util.RunSuite(t, "Scheduler with WaitForPodsReady Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -83,9 +80,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if configuration.WaitForPodsReady != nil {
-			podsReadyTracking := configuration.WaitForPodsReady.Enable &&
-				configuration.WaitForPodsReady.BlockAdmission != nil &&
-				*configuration.WaitForPodsReady.BlockAdmission
+			podsReadyTracking := configuration.WaitForPodsReady.BlockAdmission != nil && *configuration.WaitForPodsReady.BlockAdmission
 			cacheOpts = append(cacheOpts, schdcache.WithPodsReadyTracking(podsReadyTracking))
 
 			if configuration.WaitForPodsReady.RequeuingStrategy != nil && configuration.WaitForPodsReady.RequeuingStrategy.Timestamp != nil {
@@ -96,18 +91,21 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		}
 
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
-		queues := qcache.NewManager(mgr.GetClient(), cCache, queuesOpts...)
+		preemptionExpectations := preemptexpectations.New()
+		queuesOpts = append(queuesOpts, qcache.WithPreemptionExpectations(preemptionExpectations))
+		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queuesOpts...)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-		failedWebhook, err := webhooks.Setup(mgr)
+		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), schedOpts...)
+		schedOpts = append(schedOpts, scheduler.WithPreemptionExpectations(preemptionExpectations))
+		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), schedOpts...)
 
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

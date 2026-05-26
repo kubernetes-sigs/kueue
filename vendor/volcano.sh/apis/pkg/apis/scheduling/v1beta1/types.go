@@ -174,17 +174,24 @@ type PodGroupSpec struct {
 	// MinMember defines the minimal number of members/tasks to run the pod group;
 	// if there's not enough resources to start all tasks, the scheduler
 	// will not start anyone.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
 	MinMember int32 `json:"minMember,omitempty" protobuf:"bytes,1,opt,name=minMember"`
 
-	// MinTaskMember defines the minimal number of pods to run each task in the pod group;
+	// MinTaskMember defines the minimal number of pods to run for each task in the pod group;
 	// if there's not enough resources to start each task, the scheduler
 	// will not start anyone.
+	// SubGroupPolicy covers all capabilities of minTaskMember, while providing richer network topology and Gang scheduling management capabilities.
+	// Recommend using SubGroupPolicy to uniformly manage Gang scheduling for each Task group.
+	// +optional
 	MinTaskMember map[string]int32 `json:"minTaskMember,omitempty" protobuf:"bytes,1,opt,name=minTaskMember"`
 
 	// Queue defines the queue to allocate resource for PodGroup; if queue does not exist,
 	// the PodGroup will not be scheduled. Defaults to `default` Queue with the lowest weight.
 	// +optional
 	// +kubebuilder:default:="default"
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	Queue string `json:"queue,omitempty" protobuf:"bytes,2,opt,name=queue"`
 
 	// If specified, indicates the PodGroup's priority. "system-node-critical" and
@@ -193,17 +200,69 @@ type PodGroupSpec struct {
 	// name must be defined by creating a PriorityClass object with that name.
 	// If not specified, the PodGroup priority will be default or zero if there is no
 	// default.
+	// +kubebuilder:validation:MaxLength=253
 	// +optional
 	PriorityClassName string `json:"priorityClassName,omitempty" protobuf:"bytes,3,opt,name=priorityClassName"`
 
 	// MinResources defines the minimal resource of members/tasks to run the pod group;
 	// if there's not enough resources to start all tasks, the scheduler
 	// will not start anyone.
+	// +optional
 	MinResources *v1.ResourceList `json:"minResources,omitempty" protobuf:"bytes,4,opt,name=minResources"`
 
 	// NetworkTopology defines the NetworkTopology config, this field works in conjunction with network topology feature and hyperNode CRD.
 	// +optional
 	NetworkTopology *NetworkTopologySpec `json:"networkTopology,omitempty" protobuf:"bytes,5,opt,name=networkTopology"`
+
+	// SubGroupPolicy provides secondary grouping capability for Pods within a PodGroup, supporting subgroup-level Gang scheduling and network topology affinity scheduling.
+	// 1. Supports dividing Pods in a PodGroup into multiple subgroups as required;
+	// 2. Supports configuring subgroup-level Gang scheduling (e.g., scheduling is allowed only when resource requirements of at least N subgroups are satisfied);
+	// 3. Supports specifying that Pods within a subgroup are scheduled to the same network topology domain (such as HyperNode);
+
+	// Compared with minTaskMember, it offers more comprehensive topology scheduling and Gang scheduling management capabilities.
+	// Concurrent use with minTaskMember is not recommended, and SubGroupPolicy is the long-term evolution direction.
+	// +optional
+	SubGroupPolicy []SubGroupPolicySpec `json:"subGroupPolicy,omitempty" protobuf:"bytes,6,opt,name=subGroupPolicy"`
+}
+
+type SubGroupPolicySpec struct {
+	// Name specifies the name of SubGroupPolicy
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	Name string `json:"name,omitempty" protobuf:"bytes,1,opt,name=name"`
+
+	// NetworkTopology defines the NetworkTopology config, this field works in conjunction with network topology feature and hyperNode CRD.
+	// +optional
+	NetworkTopology *NetworkTopologySpec `json:"networkTopology,omitempty" protobuf:"bytes,3,opt,name=networkTopology"`
+
+	// SubGroupSize defines the number of pods in each sub-affinity group.
+	// Only when a subGroup of pods, with a size of "subGroupSize", can satisfy the network topology constraint then will the subGroup be scheduled.
+	// +kubebuilder:default:=1
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	SubGroupSize *int32 `json:"subGroupSize,omitempty" protobuf:"bytes,4,opt,name=subGroupSize"`
+
+	// MinSubGroups: Minimum number of subgroups required to trigger scheduling. Scheduling is initiated only if cluster resources meet the requirements of at least this number of subgroups.
+	// Subgroup-level Gang Scheduling
+	// +kubebuilder:default:=0
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MinSubGroups *int32 `json:"minSubGroups,omitempty" protobuf:"bytes,5,opt,name=minSubGroups"`
+
+	// LabelSelector is used to find matching pods.
+	// Pods that match this label selector are counted to determine the number of pods
+	// in their corresponding topology domain.
+	// +optional
+	LabelSelector *metav1.LabelSelector `json:"labelSelector,omitempty" protobuf:"bytes,6,opt,name=labelSelector"`
+
+	// MatchLabelKeys: A label-based grouping configuration field for Pods, defining filtering rules for grouping label keys
+	// Core function: Refine grouping of Pods that meet LabelSelector criteria by label attributes, with the following rules and constraints:
+	// 1. Scope: Only applies to Pods matching the predefined LabelSelector
+	// 2. Grouping rule: Specify one or more label keys; Pods containing the target label keys with exactly the same corresponding label values are grouped together
+	// 3. Policy constraint: Pods in the same group follow a unified NetworkTopology policy to achieve group-level network behavior governance
+	// +listType=atomic
+	// +optional
+	MatchLabelKeys []string `json:"matchLabelKeys,omitempty" protobuf:"bytes,7,opt,name=matchLabelKeys"`
 }
 
 type NetworkTopologyMode string
@@ -225,14 +284,22 @@ type NetworkTopologySpec struct {
 	Mode NetworkTopologyMode `json:"mode,omitempty" protobuf:"bytes,1,opt,name=mode"`
 
 	// HighestTierAllowed specifies the highest tier that a job allowed to cross when scheduling.
-	// +kubebuilder:default=1
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	HighestTierAllowed *int `json:"highestTierAllowed,omitempty" protobuf:"bytes,2,opt,name=highestTierAllowed"`
+
+	// HighestTierName specifies the highest tier name that a job allowed to cross when scheduling.
+	// HighestTierName and HighestTierAllowed cannot be set simultaneously.
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	HighestTierName string `json:"highestTierName,omitempty" protobuf:"bytes,3,opt,name=highestTierName"`
 }
 
 // PodGroupStatus represents the current state of a pod group.
 type PodGroupStatus struct {
 	// Current phase of PodGroup.
+	// +kubebuilder:validation:Enum=Pending;Running;Unknown;Inqueue;Completed
+	// +optional
 	Phase PodGroupPhase `json:"phase,omitempty" protobuf:"bytes,1,opt,name=phase"`
 
 	// The conditions of PodGroup.
@@ -240,14 +307,17 @@ type PodGroupStatus struct {
 	Conditions []PodGroupCondition `json:"conditions,omitempty" protobuf:"bytes,2,opt,name=conditions"`
 
 	// The number of actively running pods.
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	Running int32 `json:"running,omitempty" protobuf:"bytes,3,opt,name=running"`
 
 	// The number of pods which reached phase Succeeded.
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	Succeeded int32 `json:"succeeded,omitempty" protobuf:"bytes,4,opt,name=succeeded"`
 
 	// The number of pods which reached phase Failed.
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	Failed int32 `json:"failed,omitempty" protobuf:"bytes,5,opt,name=failed"`
 }
@@ -317,17 +387,29 @@ type Reservation struct {
 // QueueStatus represents the status of Queue.
 type QueueStatus struct {
 	// State is state of queue
+	// +kubebuilder:validation:Enum=Open;Closed;Closing;Unknown
+	// +optional
 	State QueueState `json:"state,omitempty" protobuf:"bytes,1,opt,name=state"`
 
 	// The number of 'Unknown' PodGroup in this queue.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
 	Unknown int32 `json:"unknown,omitempty" protobuf:"bytes,2,opt,name=unknown"`
 	// The number of 'Pending' PodGroup in this queue.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
 	Pending int32 `json:"pending,omitempty" protobuf:"bytes,3,opt,name=pending"`
 	// The number of 'Running' PodGroup in this queue.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
 	Running int32 `json:"running,omitempty" protobuf:"bytes,4,opt,name=running"`
 	// The number of `Inqueue` PodGroup in this queue.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
 	Inqueue int32 `json:"inqueue,omitempty" protobuf:"bytes,5,opt,name=inqueue"`
 	// The number of `Completed` PodGroup in this queue.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
 	Completed int32 `json:"completed,omitempty" protobuf:"bytes,6,opt,name=completed"`
 
 	// Reservation is the profile of resource reservation for queue
@@ -398,8 +480,12 @@ type QueueSpec struct {
 	Affinity *Affinity `json:"affinity,omitempty" protobuf:"bytes,6,opt,name=affinity"`
 
 	// Type define the type of queue
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
 	Type string `json:"type,omitempty" protobuf:"bytes,7,opt,name=type"`
 	// Parent define the parent of queue
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +optional
 	Parent string `json:"parent,omitempty" protobuf:"bytes,8,opt,name=parent"`
 
@@ -408,9 +494,30 @@ type QueueSpec struct {
 	Deserved v1.ResourceList `json:"deserved,omitempty" protobuf:"bytes,9,opt,name=deserved"`
 
 	// Priority define the priority of queue. Higher values are prioritized for scheduling and considered later during reclamation.
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	Priority int32 `json:"priority,omitempty" protobuf:"bytes,10,opt,name=priority"`
+
+	// DequeueStrategy defines the dequeue strategy of queue
+	// +optional
+	// +kubebuilder:default:=traverse
+	// +kubebuilder:validation:Enum=fifo;traverse
+	DequeueStrategy DequeueStrategy `json:"dequeueStrategy,omitempty" protobuf:"bytes,11,opt,name=dequeueStrategy"`
 }
+
+type DequeueStrategy string
+
+const (
+	// DequeueStrategyFIFO defines a strict FIFO strategy. If the head of the queue cannot be scheduled,
+	// the system will not attempt to dequeue other jobs from the queue.
+	DequeueStrategyFIFO DequeueStrategy = "fifo"
+	// DequeueStrategyTraverse defines a strategy that traverses the queue. If the head of the queue cannot be scheduled,
+	// it will be skipped and the scheduler will attempt to dequeue subsequent jobs.
+	DequeueStrategyTraverse DequeueStrategy = "traverse"
+
+	// DefaultDequeueStrategy is the default dequeue strategy.
+	DefaultDequeueStrategy DequeueStrategy = DequeueStrategyTraverse
+)
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true

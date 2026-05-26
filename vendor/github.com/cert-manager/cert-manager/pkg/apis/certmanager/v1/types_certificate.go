@@ -33,6 +33,9 @@ import (
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=`.status.conditions[?(@.type == "Ready")].message`,priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`,description="CreationTimestamp is a timestamp representing the server time when this object was created. It is not guaranteed to be set in happens-before order across separate operations. Clients may not set this value. It is represented in RFC3339 form and is in UTC."
 // +kubebuilder:resource:scope=Namespaced,shortName={cert,certs},categories=cert-manager
+// +kubebuilder:selectablefield:JSONPath=.spec.issuerRef.group
+// +kubebuilder:selectablefield:JSONPath=.spec.issuerRef.kind
+// +kubebuilder:selectablefield:JSONPath=.spec.issuerRef.name
 // +kubebuilder:subresource:status
 
 // A Certificate resource should be created to ensure an up to date and signed
@@ -92,11 +95,9 @@ type PrivateKeyEncoding string
 
 const (
 	// PKCS1 private key encoding.
-	// PKCS1 produces a PEM block that contains the private key algorithm
-	// in the header and the private key in the body. A key that uses this
-	// can be recognised by its `BEGIN RSA PRIVATE KEY` or `BEGIN EC PRIVATE KEY` header.
-	// NOTE: This encoding is not supported for Ed25519 keys. Attempting to use
-	// this encoding with an Ed25519 key will be ignored and default to PKCS8.
+	// For RSA keys: produces PEM block with `BEGIN RSA PRIVATE KEY` header and private key in PKCS#1 format.
+	// For EC keys: produces PEM block with `BEGIN EC PRIVATE KEY` header and private key in SEC 1 format.
+	// For Ed25519 keys: option will be ignored and PKCS8 encoding will be used instead.
 	PKCS1 PrivateKeyEncoding = "PKCS1"
 
 	// PKCS8 private key encoding.
@@ -352,9 +353,6 @@ type CertificatePrivateKey struct {
 	// will be generated whenever a re-issuance occurs.
 	// Default is `Always`.
 	// The default was changed from `Never` to `Always` in cert-manager >=v1.18.0.
-	// The new default can be disabled by setting the
-	// `--feature-gates=DefaultPrivateKeyRotationPolicyAlways=false` option on
-	// the controller component.
 	// +optional
 	RotationPolicy PrivateKeyRotationPolicy `json:"rotationPolicy,omitempty"`
 
@@ -528,7 +526,7 @@ type JKSKeystore struct {
 	// Mutually exclusive with passwordSecretRef.
 	// One of password or passwordSecretRef must provide a password with a non-zero length.
 	// +optional
-	Password *string `json:"password,omitempty"`
+	Password *string `json:"password,omitempty"` // #nosec G117 -- field is part of API spec and may contain a secret; not hardcoded
 }
 
 // PKCS12 configures options for storing a PKCS12 keystore in the
@@ -568,7 +566,7 @@ type PKCS12Keystore struct {
 	// Mutually exclusive with passwordSecretRef.
 	// One of password or passwordSecretRef must provide a password with a non-zero length.
 	// +optional
-	Password *string `json:"password,omitempty"`
+	Password *string `json:"password,omitempty"` // #nosec G117 -- field is part of API spec and may contain a secret; not hardcoded
 }
 
 // +kubebuilder:validation:Enum=LegacyRC2;LegacyDES;Modern2023

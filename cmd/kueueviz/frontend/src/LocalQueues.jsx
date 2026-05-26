@@ -21,6 +21,7 @@ import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
 import ViewYamlButton from './ViewYamlButton';
+import { toNumber, formatResourceValue, discoverResourceNames } from './UsageBar';
 
 const LocalQueues = () => {
   const { data: localQueues, error } = useWebSocket('/ws/local-queues');
@@ -28,11 +29,15 @@ const LocalQueues = () => {
 
   useEffect(() => {
     if (localQueues && Array.isArray(localQueues)) {
-      setQueues(localQueues);
+      setQueues([...localQueues].sort((a, b) =>
+        (a.namespace || '').localeCompare(b.namespace || '') || (a.name || '').localeCompare(b.name || '')
+      ));
     }
   }, [localQueues]);
 
   if (error) return <ErrorMessage error={error} />;
+
+  const resourceNames = discoverResourceNames(queues);
 
   // Group queues by namespace
   const queuesByNamespace = queues.reduce((acc, queue) => {
@@ -45,7 +50,7 @@ const LocalQueues = () => {
   }, {});
 
   return (
-    <Paper  className="parentContainer">
+    <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Local Queues</Typography>
       {queues.length === 0 ? (
         <Typography>No Local Queues found.</Typography>
@@ -60,6 +65,9 @@ const LocalQueues = () => {
                 <TableCell>Admitted Workloads</TableCell>
                 <TableCell>Pending Workloads</TableCell>
                 <TableCell>Reserving Workloads</TableCell>
+                {resourceNames.map(r => (
+                  <TableCell key={r}>{r}</TableCell>
+                ))}
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -73,9 +81,9 @@ const LocalQueues = () => {
                       </TableCell>
                     )}
                     <TableCell>
-                    <Link to={`/local-queue/${queue.namespace}/${queue.name}`}>
+                      <Link to={`/local-queue/${queue.namespace}/${queue.name}`}>
                         {queue.name}
-                      </Link>                   
+                      </Link>
                     </TableCell>
                     <TableCell>
                       <Link to={`/cluster-queue/${queue.spec?.clusterQueue}`}>{queue.spec?.clusterQueue}</Link>
@@ -83,9 +91,22 @@ const LocalQueues = () => {
                     <TableCell>{queue.status?.admittedWorkloads}</TableCell>
                     <TableCell>{queue.status?.pendingWorkloads}</TableCell>
                     <TableCell>{queue.status?.reservingWorkloads}</TableCell>
+                    {resourceNames.map(resName => {
+                      let total = 0;
+                      (queue.status?.flavorsUsage || []).forEach(f => {
+                        (f.resources || []).forEach(r => {
+                          if (String(r.name) === resName) total += toNumber(r.total);
+                        });
+                      });
+                      return (
+                        <TableCell key={resName}>
+                          {total > 0 ? formatResourceValue(total, resName) : '-'}
+                        </TableCell>
+                      );
+                    })}
                     <TableCell align="right">
                       <Box display="flex" justifyContent="flex-end">
-                        <ViewYamlButton 
+                        <ViewYamlButton
                           resourceType="localqueue"
                           resourceName={queue.name}
                           namespace={queue.namespace}

@@ -1,11 +1,17 @@
----
-title: "Run Kubeflow Jobs in Multi-Cluster"
-linkTitle: "Kubeflow"
+ ---
+title: "Run Kubeflow Jobs (v1) in Multi-Cluster"
+linkTitle: "Kubeflow (v1)"
 weight: 4
 date: 2024-09-25
 description: >
-  Run a MultiKueue scheduled Kubeflow Jobs.
+  Run MultiKueue scheduled Kubeflow Trainer v1 Jobs (PyTorchJob, TFJob, etc.).
 ---
+
+{{% alert title="Note" color="primary" %}}
+This page covers legacy Kubeflow Trainer v1 jobs (PyTorchJob, TFJob, XGBoostJob, etc.). 
+
+For Kubeflow Trainer v2 TrainJob, see [Run TrainJobs in Multi-Cluster](/docs/tasks/run/multikueue/trainjob/).
+{{% /alert %}}
 
 ## Before you begin
 

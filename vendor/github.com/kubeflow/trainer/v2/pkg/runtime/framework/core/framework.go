@@ -20,10 +20,12 @@ import (
 	"context"
 	"errors"
 
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	configapi "github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1"
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/kubeflow/trainer/v2/pkg/runtime"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework"
@@ -45,7 +47,7 @@ type Framework struct {
 	trainJobStatusPlugin         framework.TrainJobStatusPlugin
 }
 
-func New(ctx context.Context, c client.Client, r fwkplugins.Registry, indexer client.FieldIndexer) (*Framework, error) {
+func New(ctx context.Context, c client.Client, r fwkplugins.Registry, indexer client.FieldIndexer, cfg *configapi.Configuration) (*Framework, error) {
 	f := &Framework{
 		registry: r,
 	}
@@ -55,7 +57,7 @@ func New(ctx context.Context, c client.Client, r fwkplugins.Registry, indexer cl
 	}
 
 	for name, factory := range r {
-		plugin, err := factory(ctx, c, indexer)
+		plugin, err := factory(ctx, c, indexer, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -131,8 +133,8 @@ func (f *Framework) RunPodNetworkPlugins(info *runtime.Info, trainJob *trainer.T
 	return nil
 }
 
-func (f *Framework) RunComponentBuilderPlugins(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]any, error) {
-	var objs []any
+func (f *Framework) RunComponentBuilderPlugins(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
+	var objs []apiruntime.ApplyConfiguration
 	for _, plugin := range f.componentBuilderPlugins {
 		components, err := plugin.Build(ctx, info, trainJob)
 		if err != nil {

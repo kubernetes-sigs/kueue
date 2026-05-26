@@ -20,7 +20,6 @@ import (
 	"context"
 	"strconv"
 	"sync"
-	"testing"
 	"time"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -28,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -42,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/recorder"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 type reconciler struct {
@@ -51,10 +50,6 @@ type reconciler struct {
 	recorder      *recorder.Recorder
 	clock         clock.Clock
 }
-
-var (
-	realClock = clock.RealClock{}
-)
 
 func (r *reconciler) getAdmittedTime(uid types.UID) (time.Time, bool) {
 	r.atLock.RLock()
@@ -83,8 +78,10 @@ func (r *reconciler) Create(ev event.CreateEvent) bool {
 	wl, isWl := (ev.Object).(*kueue.Workload)
 	if isWl {
 		r.recorder.RecordWorkloadState(wl)
+		admitted := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted)
+		return admitted && !workload.IsFinished(wl)
 	}
-	return !isWl
+	return true
 }
 
 func (r *reconciler) Delete(_ event.DeleteEvent) bool {
@@ -102,7 +99,7 @@ func (r *reconciler) Update(ev event.UpdateEvent) bool {
 
 	r.recorder.RecordWorkloadState(wl)
 
-	return admitted && !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)
+	return admitted && !workload.IsFinished(wl)
 }
 
 func (r *reconciler) Generic(_ event.GenericEvent) bool {
@@ -119,9 +116,9 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	// this should only:
 	// 1. finish the workloads eviction
-	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func() (*kueue.Workload, bool, error) {
-			return &wl, workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Evicted by the test runner", time.Now()), nil
+	if workload.IsEvicted(&wl) {
+		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Evicted by the test runner", time.Now()), nil
 		})
 		if err == nil {
 			log.V(5).Info("Finish eviction")
@@ -146,7 +143,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		if remaining > 0 {
 			return reconcile.Result{RequeueAfter: remaining}, nil
 		} else {
-			err := workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadFinished, metav1.ConditionTrue, "ByTest", "By test runner", constants.JobControllerName, r.clock)
+			err := workload.SetConditionAndUpdate(ctx, r.client, &wl, kueue.WorkloadFinished, metav1.ConditionTrue, "ByTest", "By test runner", constants.JobControllerName, r.clock)
 			if err == nil {
 				log.V(5).Info("Finish Workload")
 			}
@@ -156,34 +153,12 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return reconcile.Result{}, nil
 }
 
-func NewReconciler(c client.Client, r *recorder.Recorder, opts ...Option) *reconciler {
-	options := defaultOptions
-
-	for _, opt := range opts {
-		opt(&options)
-	}
-
+func NewReconciler(c client.Client, r *recorder.Recorder) *reconciler {
 	return &reconciler{
 		client:        c,
 		admissionTime: map[types.UID]time.Time{},
 		recorder:      r,
-		clock:         options.clock,
-	}
-}
-
-type options struct {
-	clock clock.Clock
-}
-
-type Option func(*options)
-
-var defaultOptions = options{
-	clock: realClock,
-}
-
-func WithClock(_ testing.TB, c clock.Clock) Option {
-	return func(o *options) {
-		o.clock = c
+		clock:         util.RealClock,
 	}
 }
 
@@ -202,7 +177,7 @@ func (r *reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Workload{}).
-		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WithOptions(controller.Options{NeedLeaderElection: new(false)}).
 		Watches(&kueue.ClusterQueue{}, cqHandler).
 		WithEventFilter(r).
 		Complete(r)

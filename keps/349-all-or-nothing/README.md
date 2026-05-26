@@ -245,13 +245,13 @@ type WaitForPodsReady struct {
 	// +optional
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 
-	// RecoveryTimeout defines an opt-in timeout, measured since the
+	// RecoveryTimeout defines a timeout, measured since the
 	// last transition to the PodsReady=false condition after a Workload is Admitted and running.
 	// Such a transition may happen when a Pod failed and the replacement Pod
 	// is awaited to be scheduled.
 	// After exceeding the timeout the corresponding job gets suspended again
 	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
-	// If not set, there is no timeout.
+	// Defaults to the value of timeout. Setting to "0s" disables recovery timeout checking.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
 }
@@ -347,6 +347,8 @@ condition, so the corresponding job is unsuspended without further waiting.
 
 
 We introduce two timeouts defined in the `waitForPodsReady.timeout` and `waitForPodsReady.recoveryTimeout` fields.
+
+Since Kueue v0.16.0, the `recoveryTimeout` defaults to the value of `timeout` when not specified. Setting `recoveryTimeout` to `0s` explicitly disables recovery timeout checking.
 
 First one applies before the job has started. It tracks the time between job getting unsuspended for the first time (the time of unsuspending a job is marked by the Job's
 `job.status.startTime` field) and reaching the `PodsReady=true` condition (marked by condition's `.lastTransitionTime`).
@@ -510,6 +512,8 @@ Major milestones might include:
 - the version of Kubernetes where the KEP graduated to general availability
 - when the KEP was retired or superseded
 -->
+
+- 2026-01-13: `recoveryTimeout` defaults to `timeout` when not specified, setting to `0` disables it
 
 ## Drawbacks
 

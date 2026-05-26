@@ -37,7 +37,7 @@ To find the Workload for a Job, you can use any of the following steps:
 
   ```bash
   JOB_UID=$(kubectl get job -n my-namespace my-job -o jsonpath='{.metadata.uid}')
-  kubectl get workloads -n my-namespace -l "kueue.x-k8s.io/job-uid=$JOB_UID"
+  kubectl get workloads.kueue.x-k8s.io -n my-namespace -l "kueue.x-k8s.io/job-uid=$JOB_UID"
   ```
 
   The output looks like the following:
@@ -52,7 +52,7 @@ To find the Workload for a Job, you can use any of the following steps:
   You can run a command like the following:
 
   ```bash
-  kubectl get workloads -n my-namespace | grep job-my-job
+  kubectl get workloads.kueue.x-k8s.io -n my-namespace | grep job-my-job
   ```
 
   The output looks like the following:
@@ -69,6 +69,9 @@ running the following command:
 kubectl describe workload -n my-namespace job-my-job-19797
 ```
 
+If you are using an agent with access to Kueue's experimental skills, see
+[Troubleshooting with Agent Skills](/docs/tasks/troubleshooting/troubleshooting_agent_skills)
+to trace the full lineage from a Workload or Job to its Pods.
 
 ## What ResourceFlavors does my Job use?
 
@@ -215,7 +218,7 @@ See [resources groups](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#re
 ### Pending Admission Checks
 
 When the ClusterQueue has [admission checks](/docs/concepts/admission_check) configured, such as
-[ProvisioningRequest](/docs/admission-check-controllers/provisioning) or [MultiKueue](/docs/concepts/multikueue),
+[ProvisioningRequest](/docs/concepts/admission_check/provisioning_request) or [MultiKueue](/docs/concepts/multikueue),
 a Workload might stay with a status similar to the following, until the admission checks pass:
 
 ```yaml
@@ -291,6 +294,10 @@ status:
 
 The `Evicted` condition shows that the Workload was preempted and the `QuotaReserved` condition with `status: "True"`
 shows that Kueue already attempted to admit it again, unsuccessfully in this case.
+
+If you need to identify the Workload that caused the preemption, see
+[Troubleshooting with Agent Skills](/docs/tasks/troubleshooting/troubleshooting_agent_skills)
+for the `kueue-who-preempted` runbook.
 
 ## Are the Pods of my Job running?
 

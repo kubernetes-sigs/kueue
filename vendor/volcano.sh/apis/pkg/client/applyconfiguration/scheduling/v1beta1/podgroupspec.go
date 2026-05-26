@@ -30,6 +30,7 @@ type PodGroupSpecApplyConfiguration struct {
 	PriorityClassName *string                                `json:"priorityClassName,omitempty"`
 	MinResources      *v1.ResourceList                       `json:"minResources,omitempty"`
 	NetworkTopology   *NetworkTopologySpecApplyConfiguration `json:"networkTopology,omitempty"`
+	SubGroupPolicy    []SubGroupPolicySpecApplyConfiguration `json:"subGroupPolicy,omitempty"`
 }
 
 // PodGroupSpecApplyConfiguration constructs a declarative configuration of the PodGroupSpec type for use with
@@ -89,5 +90,18 @@ func (b *PodGroupSpecApplyConfiguration) WithMinResources(value v1.ResourceList)
 // If called multiple times, the NetworkTopology field is set to the value of the last call.
 func (b *PodGroupSpecApplyConfiguration) WithNetworkTopology(value *NetworkTopologySpecApplyConfiguration) *PodGroupSpecApplyConfiguration {
 	b.NetworkTopology = value
+	return b
+}
+
+// WithSubGroupPolicy adds the given value to the SubGroupPolicy field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the SubGroupPolicy field.
+func (b *PodGroupSpecApplyConfiguration) WithSubGroupPolicy(values ...*SubGroupPolicySpecApplyConfiguration) *PodGroupSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithSubGroupPolicy")
+		}
+		b.SubGroupPolicy = append(b.SubGroupPolicy, *values[i])
+	}
 	return b
 }

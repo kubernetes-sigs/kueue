@@ -25,7 +25,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.20.1
   name: multikueueconfigs.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -33,6 +33,8 @@ spec:
     kind: MultiKueueConfig
     listKind: MultiKueueConfigList
     plural: multikueueconfigs
+    shortNames:
+      - mkconf
     singular: multikueueconfig
   scope: Cluster
   versions:
@@ -65,7 +67,7 @@ spec:
                   description: clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
                   items:
                     type: string
-                  maxItems: 10
+                  maxItems: 20
                   minItems: 1
                   type: array
                   x-kubernetes-list-type: set
@@ -74,7 +76,7 @@ spec:
               type: object
           type: object
       served: true
-      storage: true
+      storage: false
     - name: v1beta2
       schema:
         openAPIV3Schema:
@@ -105,13 +107,25 @@ spec:
                   items:
                     maxLength: 256
                     type: string
-                  maxItems: 10
+                  maxItems: 20
                   minItems: 1
                   type: array
                   x-kubernetes-list-type: set
+                quotaManagement:
+                  description: |-
+                    quotaManagement specifies the management of ClusterQueue quotas
+                    in the manager cluster.
+                    Supported modes:
+                    - `Manual`: Quota automation is manual.
+                    - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+                    If unspecified, defaults to `Manual`.
+                  enum:
+                    - Manual
+                    - Automated
+                  type: string
               required:
                 - clusters
               type: object
           type: object
       served: true
-      storage: false
+      storage: true

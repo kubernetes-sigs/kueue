@@ -38,6 +38,7 @@ var (
 
 type KubeConfigFSWatcher struct {
 	watcher       *fsnotify.Watcher
+	ready         chan struct{}
 	lock          sync.RWMutex
 	clusterToFile map[string]string
 	// a single file can be potentially used by multiple clusters
@@ -50,6 +51,7 @@ var _ manager.Runnable = (*KubeConfigFSWatcher)(nil)
 
 func newKubeConfigFSWatcher() *KubeConfigFSWatcher {
 	return &KubeConfigFSWatcher{
+		ready:            make(chan struct{}),
 		clusterToFile:    map[string]string{},
 		fileToClusters:   map[string]set.Set[string]{},
 		parentDirToFiles: map[string]set.Set[string]{},
@@ -59,42 +61,39 @@ func newKubeConfigFSWatcher() *KubeConfigFSWatcher {
 
 func (w *KubeConfigFSWatcher) Start(ctx context.Context) error {
 	w.lock.Lock()
-	defer w.lock.Unlock()
-
 	var err error
 	w.watcher, err = fsnotify.NewWatcher()
+	w.lock.Unlock()
 	if err != nil {
 		return err
 	}
+	close(w.ready)
 
-	go func() {
-		log := ctrl.LoggerFrom(ctx).WithName("kubeconfig-fs-watcher")
-		defer func() {
-			err := w.watcher.Close()
-			if err != nil {
-				log.Error(err, "Closing kubeconfigs FS Watcher")
-			}
-		}()
-		watchedEvents := fsnotify.Write | fsnotify.Create | fsnotify.Remove | fsnotify.Rename
-		for {
-			select {
-			case ev := <-w.watcher.Events:
-				log.V(5).Info("Got event", "name", ev.Name, "op", ev.Op)
-				switch {
-				case (ev.Op & watchedEvents) != 0:
-					w.notifyPathWrite(ev.Name)
-				default:
-					log.V(2).Info("Ignore event", "name", ev.Name, "op", ev.Op)
-				}
-			case err := <-w.watcher.Errors:
-				log.Error(err, "Kubeconfigs FS Watch")
-			case <-ctx.Done():
-				log.V(2).Info("End kubeconfigs FS Watch")
-				return
-			}
+	log := ctrl.LoggerFrom(ctx).WithName("kubeconfig-fs-watcher")
+	defer func() {
+		err := w.watcher.Close()
+		if err != nil {
+			log.Error(err, "Closing kubeconfigs FS Watcher")
 		}
 	}()
-	return nil
+	watchedEvents := fsnotify.Write | fsnotify.Create | fsnotify.Remove | fsnotify.Rename
+	for {
+		select {
+		case ev := <-w.watcher.Events:
+			log.V(5).Info("Got event", "name", ev.Name, "op", ev.Op)
+			switch {
+			case (ev.Op & watchedEvents) != 0:
+				w.notifyPathWrite(ctx, ev.Name)
+			default:
+				log.V(2).Info("Ignore event", "name", ev.Name, "op", ev.Op)
+			}
+		case err := <-w.watcher.Errors:
+			log.Error(err, "Kubeconfigs FS Watch")
+		case <-ctx.Done():
+			log.V(2).Info("End kubeconfigs FS Watch")
+			return nil
+		}
+	}
 }
 
 func (w *KubeConfigFSWatcher) clustersForPath(path string) []string {
@@ -103,9 +102,13 @@ func (w *KubeConfigFSWatcher) clustersForPath(path string) []string {
 	return w.fileToClusters[path].UnsortedList()
 }
 
-func (w *KubeConfigFSWatcher) notifyPathWrite(path string) {
+func (w *KubeConfigFSWatcher) notifyPathWrite(ctx context.Context, path string) {
 	for _, c := range w.clustersForPath(path) {
-		w.reconcile <- event.GenericEvent{Object: &kueue.MultiKueueCluster{ObjectMeta: metav1.ObjectMeta{Name: c}}}
+		select {
+		case w.reconcile <- event.GenericEvent{Object: &kueue.MultiKueueCluster{ObjectMeta: metav1.ObjectMeta{Name: c}}}:
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -186,9 +189,12 @@ func (w *KubeConfigFSWatcher) cleanOldWatchDirs() error {
 }
 
 func (w *KubeConfigFSWatcher) Started() bool {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
-	return w.watcher != nil
+	select {
+	case <-w.ready:
+		return true
+	default:
+		return false
+	}
 }
 
 func (w *KubeConfigFSWatcher) AddOrUpdate(cluster, path string) error {

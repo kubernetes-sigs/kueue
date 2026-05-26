@@ -11,6 +11,8 @@ resources:
 - leader_election_role_binding.yaml
 - manager_secrets_role.yaml
 - manager_secrets_role_binding.yaml
+- manager_clusterprofiles_role.yaml
+- manager_clusterprofiles_role_binding.yaml
 # The following RBAC configurations are used to protect
 # the metrics endpoint with authn/authz. These configurations
 # ensure that only authorized users and service accounts
@@ -49,6 +51,8 @@ resources:
 - raycluster_viewer_role.yaml
 - rayjob_editor_role.yaml
 - rayjob_viewer_role.yaml
+- rayservice_editor_role.yaml
+- rayservice_viewer_role.yaml
 - pytorchjob_editor_role.yaml
 - pytorchjob_viewer_role.yaml
 - tfjob_editor_role.yaml
@@ -61,3 +65,7 @@ resources:
 - jaxjob_viewer_role.yaml
 - trainjob_editor_role.yaml
 - trainjob_viewer_role.yaml
+- leaderworkerset_editor_role.yaml
+- leaderworkerset_viewer_role.yaml
+- sparkapplication_editor_role.yaml
+- sparkapplication_viewer_role.yaml

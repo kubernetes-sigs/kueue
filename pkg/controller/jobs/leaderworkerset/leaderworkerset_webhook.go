@@ -23,12 +23,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -39,6 +37,8 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
 type Webhook struct {
@@ -56,42 +56,52 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
 	}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&leaderworkersetv1.LeaderWorkerSet{}).
+	obj := &leaderworkersetv1.LeaderWorkerSet{}
+	if options.NoopWebhook {
+		return webhook.SetupNoopWebhook(mgr, obj)
+	}
+	return ctrl.NewWebhookManagedBy(mgr, obj).
 		WithDefaulter(wh).
 		WithValidator(wh).
+		WithLogConstructor(roletracker.WebhookLogConstructor(options.RoleTracker)).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=true,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=mleaderworkerset.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &Webhook{}
+var _ admission.Defaulter[*leaderworkersetv1.LeaderWorkerSet] = &Webhook{}
 
-func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
+func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWorkerSet) error {
 	lws := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultLocalQueue(lws.Object(), wh.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultLocalQueue(obj, wh.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, obj)
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
 		return err
 	}
 	if suspend {
 		if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-			wh.podTemplateSpecDefault(lws, lws.Spec.LeaderWorkerTemplate.LeaderTemplate)
+			wh.podTemplateSpecDefault(lws, lws.Spec.LeaderWorkerTemplate.LeaderTemplate, leaderPodSetName)
 		}
-		wh.podTemplateSpecDefault(lws, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate)
+		wh.podTemplateSpecDefault(lws, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate, workerPodSetName)
 	}
 
 	return nil
 }
 
-func (wh *Webhook) podTemplateSpecDefault(lws *LeaderWorkerSet, podTemplateSpec *corev1.PodTemplateSpec) {
+func (wh *Webhook) podTemplateSpecDefault(
+	lws *LeaderWorkerSet, podTemplateSpec *corev1.PodTemplateSpec, psName string,
+) {
+	if podTemplateSpec.Labels == nil {
+		podTemplateSpec.Labels = make(map[string]string, 1)
+	}
+	if queueName := jobframework.QueueNameForObject(lws.Object()); queueName != "" {
+		podTemplateSpec.Labels[constants.QueueLabel] = string(queueName)
+	}
 	if priorityClass := jobframework.WorkloadPriorityClassName(lws.Object()); priorityClass != "" {
-		if podTemplateSpec.Labels == nil {
-			podTemplateSpec.Labels = make(map[string]string, 1)
-		}
 		podTemplateSpec.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
 	}
 
@@ -100,11 +110,19 @@ func (wh *Webhook) podTemplateSpecDefault(lws *LeaderWorkerSet, podTemplateSpec 
 	}
 	podTemplateSpec.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
 	podTemplateSpec.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
+
+	if features.Enabled(features.TopologyAwareScheduling) && psName == workerPodSetName && lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		// The offset is handled as PodSet group scheduling mechanism separately in topology-unGater
+		// when the LeaderWorkerSet constructs PodSet group across Leaders and Workers.
+		if _, isPodSetGroup := podTemplateSpec.Annotations[kueue.PodSetGroupName]; !isPodSetGroup {
+			podTemplateSpec.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
+		}
+	}
 }
 
 // +kubebuilder:webhook:path=/validate-leaderworkerset-x-k8s-io-v1-leaderworkerset,mutating=false,failurePolicy=fail,sideEffects=None,groups="leaderworkerset.x-k8s.io",resources=leaderworkersets,verbs=create;update,versions=v1,name=vleaderworkerset.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &Webhook{}
+var _ admission.Validator[*leaderworkersetv1.LeaderWorkerSet] = &Webhook{}
 
 var (
 	labelsPath                    = field.NewPath("metadata", "labels")
@@ -123,7 +141,7 @@ var (
 	}
 )
 
-func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.LeaderWorkerSet) (warnings admission.Warnings, err error) {
 	lws := fromObject(obj)
 
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
@@ -137,7 +155,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 	return nil, validationErrs.ToAggregate()
 }
 
-func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderworkersetv1.LeaderWorkerSet) (warnings admission.Warnings, err error) {
 	oldLeaderWorkerSet := fromObject(oldObj)
 	newLeaderWorkerSet := fromObject(newObj)
 
@@ -149,18 +167,26 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		return nil, err
 	}
 
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-		jobframework.QueueNameForObject(newLeaderWorkerSet.Object()),
-		jobframework.QueueNameForObject(oldLeaderWorkerSet.Object()),
-		queueNameLabelPath,
-	)...)
+	oldQueueName := jobframework.QueueNameForObject(oldLeaderWorkerSet.Object())
+	newQueueName := jobframework.QueueNameForObject(newLeaderWorkerSet.Object())
 
 	isSuspended := oldLeaderWorkerSet.Status.ReadyReplicas == 0
+
+	// Prevents updating the queue-name if at least one replica is ready
+	// or if the queue-name has been deleted.
+	if !isSuspended || newQueueName == "" {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
+	}
+
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		isSuspended,
-		oldLeaderWorkerSet.Object(),
-		newLeaderWorkerSet.Object(),
+		oldObj,
+		newObj,
 	)...)
+
+	if features.Enabled(features.AdmissionGatedBy) {
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldLeaderWorkerSet.Object(), newLeaderWorkerSet.Object())...)
+	}
 
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newLeaderWorkerSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
@@ -182,7 +208,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	return warnings, allErrs.ToAggregate()
 }
 
-func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateDelete(_ context.Context, _ *leaderworkersetv1.LeaderWorkerSet) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 
@@ -194,6 +220,12 @@ func GetWorkloadName(uid types.UID, name string, groupIndex string) string {
 func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateQueueName(lws.Object())...)
+	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(lws.Object(), lws.GVK())...)
+
+	if features.Enabled(features.AdmissionGatedBy) {
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(lws.Object())...)
+	}
+
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := validateTopologyRequest(lws)
 		if err != nil {
