@@ -1589,10 +1589,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		if features.Enabled(features.TopologyAwareScheduling) {
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}
-		// Set workload slice name annotation on pods for elastic workloads.
-		// This enables pod lookup by annotation instead of owner reference,
-		// supporting JobSet and other workloads where pods are not immediate children.
-		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if workloadslicing.IsElasticWorkload(w) {
 			info.Annotations[kueue.WorkloadSliceNameAnnotation] = workloadslicing.SliceName(w)
 		}
 
