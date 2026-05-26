@@ -26,6 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -193,5 +194,64 @@ func (c *Cache) ReportCohortSubtreeAdmittedWorkload(log logr.Logger, wl *kueue.W
 			c.customLabels.CohortGet(ancestor),
 			c.roleTracker,
 		)
+	}
+}
+
+// recordCohortInfo records cohort info metrics.
+func (c *Cache) recordCohortInfo(cohort *cohort, rootCohort *cohort) {
+	if !features.Enabled(features.MetricsForCohorts) {
+		return
+	}
+	newParent := kueue.CohortReference("")
+	if cohort.HasParent() {
+		newParent = cohort.Parent().GetName()
+	}
+	newRoot := rootCohort.GetName()
+	metrics.ClearCohortInfo(cohort.Name)
+	metrics.ReportCohortInfo(cohort.Name, newParent, newRoot, c.customLabels.CohortGet(cohort.Name), c.roleTracker)
+}
+
+// recordCQInfo records CQ info metrics.
+func (c *Cache) recordCQInfo(cq *clusterQueue, parentCohort kueue.CohortReference, rootCohort kueue.CohortReference) {
+	if !features.Enabled(features.MetricsForCohorts) {
+		return
+	}
+	customLabels := c.customLabels.CQGet(cq.Name)
+	metrics.ClearClusterQueueInfo(cq.Name)
+	metrics.ReportClusterQueueInfo(cq.Name, parentCohort, rootCohort, customLabels, c.roleTracker)
+}
+
+// updateCohortResourceAndInfoMetrics updates subtree resources and metrics in one pass.
+func (c *Cache) updateCohortResourceAndInfoMetrics(cohort *cohort, root *cohort) {
+	cohort.resourceNode.SubtreeQuota = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.SubtreeQuota))
+	cohort.resourceNode.Usage = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.Usage))
+
+	// Accumulate resources from this cohort's quotas.
+	for fr, quota := range cohort.resourceNode.Quotas {
+		cohort.resourceNode.SubtreeQuota[fr] = quota.Nominal
+	}
+
+	c.recordCohortInfo(cohort, root)
+
+	// Recurse into child cohorts.
+	for _, child := range cohort.ChildCohorts() {
+		c.updateCohortResourceAndInfoMetrics(child, root)
+		accumulateFromChild(cohort, child)
+	}
+
+	// Recurse into child cluster queues.
+	for _, child := range cohort.ChildCQs() {
+		updateClusterQueueResourceNode(child)
+		c.recordCQInfo(child, cohort.GetName(), root.GetName())
+		accumulateFromChild(cohort, child)
+	}
+}
+
+// updateCohortTreeAndInfoMetricsIfNoCycle updates subtree resources and metrics
+// only if there's no cycle.
+func (c *Cache) updateCohortTreeAndInfoMetricsIfNoCycle(cohort *cohort) {
+	if !hierarchy.HasCycle(cohort) {
+		root := cohort.getRootUnsafe()
+		c.updateCohortResourceAndInfoMetrics(root, root)
 	}
 }

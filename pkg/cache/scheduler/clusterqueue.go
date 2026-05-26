@@ -110,6 +110,15 @@ func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.Name
 }
 
+// parentAndRootCohort returns the names of the CQ's parent cohort and root cohort.
+// If the CQ has no parent or the parent cohort has a cycle, both are returned as empty.
+func (c *clusterQueue) parentAndRootCohort() (parent, root kueue.CohortReference) {
+	if !c.HasParent() || hierarchy.HasCycle(c.Parent()) {
+		return
+	}
+	return c.Parent().GetName(), c.Parent().getRootUnsafe().Name
+}
+
 // implement flatResourceNode/hierarchicalResourceNode interfaces
 
 func (c *clusterQueue) getResourceNode() resourceNode {
