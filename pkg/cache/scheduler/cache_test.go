@@ -3567,6 +3567,24 @@ func TestCohortCycles(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("ResyncGaugeMetrics does not infinitely recurse with cyclic cohorts", func(t *testing.T) {
+		// AddOrUpdateCohort returns an error when a cycle is formed, but the cycle edge
+		// is already stored in the hierarchy manager before the error is returned.
+		// ResyncGaugeMetrics must not call getRootUnsafe() on cohorts that are part of
+		// a cycle, as that would cause infinite recursion and a stack overflow panic.
+		_, log := utiltesting.ContextWithLog(t)
+		cache := New(utiltesting.NewFakeClient())
+		cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
+		if err := cache.AddOrUpdateCohort(cohortA); err != nil {
+			t.Fatal("Expected success as no cycle yet")
+		}
+		// cohort-b -> cohort-a creates the cycle; AddOrUpdateCohort returns an error
+		// but cohort-b's parent edge pointing to cohort-a is already persisted.
+		_ = cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj())
+		// Must not panic with a goroutine stack overflow.
+		cache.ResyncGaugeMetrics(log)
+	})
 }
 
 func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {

@@ -422,6 +422,12 @@ const (
 	// Enable defaulting of WorkloadPriorityClass to a WorkloadPriorityClass
 	// named "default" when no explicit priority class label is set.
 	WorkloadPriorityClassDefaulting featuregate.Feature = "WorkloadPriorityClassDefaulting"
+
+	// owner: @mszadkow
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/7539
+	// Enable reporting of Cohort related metrics (also including ClusterQueueInfo metric).
+	MetricsForCohorts featuregate.Feature = "MetricsForCohorts"
 )
 
 func init() {
@@ -657,6 +663,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	WorkloadPriorityClassDefaulting: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	MetricsForCohorts: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

@@ -106,7 +106,7 @@ func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 	}
 }
 
-func TestCohortReconcileCycleNoError(t *testing.T) {
+func TestCohortReconcileCycleReturnsError(t *testing.T) {
 	cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 	cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
 	cl := utiltesting.NewClientBuilder().
@@ -126,12 +126,12 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// cycle added, no error
+	// cycle added, returns an error
 	if _, err := reconciler.Reconcile(
 		ctx,
 		reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)},
-	); err != nil {
-		t.Fatal("unexpected error when adding cycle", err)
+	); err == nil {
+		t.Fatal("expected error when adding cycle")
 	}
 
 	// remove cycle, no error
@@ -147,6 +147,71 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 		reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)},
 	); err != nil {
 		t.Fatal("unexpected error")
+	}
+}
+
+func TestCohortReconcileCycleCacheSnapshotBehavior(t *testing.T) {
+	// This test verifies the cache Snapshot state during and after a cohort cycle.
+	// When AddOrUpdateCohort errors (cycle detected), the reconciler returns early
+	// without calling qManager.AddOrUpdateCohort. The observable effect is that
+	// cyclic cohorts are excluded from cache.Snapshot until the cycle is resolved.
+	cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
+	cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(cohortA, cohortB).
+		WithStatusSubresource(&kueue.Cohort{}).
+		Build()
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cache)
+	reconciler := NewCohortReconciler(cl, cache, qManager)
+
+	// Reconcile cohort-a: A -> B, no cycle yet (B is implicit).
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortA)}); err != nil {
+		t.Fatalf("unexpected error reconciling cohort-a: %v", err)
+	}
+
+	// Reconcile cohort-b: B -> A closes the cycle. Cache returns error, reconciler propagates it.
+	// qManager.AddOrUpdateCohort is NOT called (early return on error).
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)}); err == nil {
+		t.Fatal("expected error when adding cycle")
+	}
+
+	// During cycle: Snapshot excludes both cohorts.
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error building snapshot during cycle: %v", err)
+	}
+	if snap := snapshot.Cohort("cohort-a"); snap != nil {
+		t.Error("cohort-a should be excluded from Snapshot while in a cycle")
+	}
+	if snap := snapshot.Cohort("cohort-b"); snap != nil {
+		t.Error("cohort-b should be excluded from Snapshot while in a cycle")
+	}
+
+	// Resolve the cycle: point cohort-b at an unrelated cohort-c.
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(cohortB), cohortB); err != nil {
+		t.Fatalf("unexpected error fetching cohort-b: %v", err)
+	}
+	cohortB.Spec.ParentName = "cohort-c"
+	if err := cl.Update(ctx, cohortB); err != nil {
+		t.Fatalf("unexpected error updating cohort-b: %v", err)
+	}
+	// Reconcile cohort-b after resolution: cache succeeds, qManager.AddOrUpdateCohort is called.
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)}); err != nil {
+		t.Fatalf("unexpected error reconciling cohort-b after cycle resolution: %v", err)
+	}
+
+	// After resolution: A -> B -> C, no cycle. Both cohorts appear in Snapshot.
+	snapshot, err = cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error building snapshot after cycle resolution: %v", err)
+	}
+	if snap := snapshot.Cohort("cohort-a"); snap == nil {
+		t.Error("cohort-a should appear in Snapshot after cycle resolution")
+	}
+	if snap := snapshot.Cohort("cohort-b"); snap == nil {
+		t.Error("cohort-b should appear in Snapshot after cycle resolution")
 	}
 }
 
