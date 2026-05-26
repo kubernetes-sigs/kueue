@@ -12,8 +12,16 @@
 
 ### Agent-readable references
 
+> Tip: keep them separated with blank lines, for a nicer human-eye rendering.
+> 
+> Do **not** make this a bulleted list; each `@` should come at the start of a line.
+
 @kueue-who-preempted/SKILL.md
+
 @kueue-lineage/SKILL.md
+
 @kueue-flake-debugger/SKILL.md
+
 @kueue-release-notes/SKILL.md
+
 @reviewer/README.md
