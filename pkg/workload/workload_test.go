@@ -3524,3 +3524,101 @@ func TestSumTotalRequestsWithDRAFromAdmission(t *testing.T) {
 		t.Errorf("gpu-logical = %v, want 2", gpuVal)
 	}
 }
+
+func TestShouldSkipClusterNomination(t *testing.T) {
+	cases := map[string]struct {
+		acs       *kueue.AdmissionCheckState
+		wl        *kueue.Workload
+		isElastic bool
+		want      bool
+	}{
+		"nil admission check state": {
+			acs:  nil,
+			wl:   &kueue.Workload{},
+			want: true,
+		},
+		"admission check Pending, no ClusterName": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStatePending,
+			},
+			wl:   &kueue.Workload{},
+			want: false,
+		},
+		"admission check Retry": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStateRetry,
+			},
+			wl:   &kueue.Workload{},
+			want: true,
+		},
+		"admission check Ready": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStateReady,
+			},
+			wl:   &kueue.Workload{},
+			want: true,
+		},
+		"admission check Rejected": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStateRejected,
+			},
+			wl:   &kueue.Workload{},
+			want: true,
+		},
+		"admission check Pending, ClusterName set (eviction ongoing)": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStatePending,
+			},
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ClusterName: new("worker1"),
+				},
+			},
+			want: true,
+		},
+		"admission check Pending, ClusterName set, elastic workload": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStatePending,
+			},
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ClusterName: new("worker1"),
+				},
+			},
+			isElastic: true,
+			want:      false,
+		},
+		"admission check Retry, ClusterName set (eviction ongoing)": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStateRetry,
+			},
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ClusterName: new("worker1"),
+				},
+			},
+			want: true,
+		},
+		"admission check Retry, ClusterName set, elastic workload": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStateRetry,
+			},
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ClusterName: new("worker1"),
+				},
+			},
+			isElastic: true,
+			want:      true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := ShouldSkipClusterNomination(tc.acs, tc.wl, tc.isElastic)
+			if got != tc.want {
+				t.Errorf("ShouldSkipClusterNomination() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
