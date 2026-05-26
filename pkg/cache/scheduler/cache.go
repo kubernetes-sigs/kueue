@@ -168,16 +168,17 @@ func New(client client.Client, options ...Option) *Cache {
 
 func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clusterQueue, error) {
 	cqImpl := &clusterQueue{
-		Name:                kueue.ClusterQueueReference(cq.Name),
-		Workloads:           make(map[workload.Reference]*workload.Info),
-		WorkloadsNotReady:   sets.New[workload.Reference](),
-		localQueues:         make(map[queue.LocalQueueReference]*LocalQueue),
-		podsReadyTracking:   c.podsReadyTracking,
-		workloadInfoOptions: c.workloadInfoOptions,
-		AdmittedUsage:       make(resources.FlavorResourceQuantities),
-		resourceNode:        NewResourceNode(),
-		tasCache:            &c.tasCache,
-		AdmissionScope:      cq.Spec.AdmissionScope,
+		Name:                           kueue.ClusterQueueReference(cq.Name),
+		Workloads:                      make(map[workload.Reference]*workload.Info),
+		WorkloadsNotReady:              sets.New[workload.Reference](),
+		localQueues:                    make(map[queue.LocalQueueReference]*LocalQueue),
+		podsReadyTracking:              c.podsReadyTracking,
+		workloadInfoOptions:            c.workloadInfoOptions,
+		AdmittedUsage:                  make(resources.FlavorResourceQuantities),
+		admittedWorkloadsCountByFlavor: make(resources.FlavorResourceQuantities),
+		resourceNode:                   NewResourceNode(),
+		tasCache:                       &c.tasCache,
+		AdmissionScope:                 cq.Spec.AdmissionScope,
 
 		roleTracker: c.roleTracker,
 		lqMetrics:   c.lqMetrics,

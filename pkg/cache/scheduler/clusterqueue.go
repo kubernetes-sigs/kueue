@@ -80,6 +80,7 @@ type clusterQueue struct {
 	perFlavorMultiKueueAdmissionChecks []kueue.AdmissionCheckReference
 	tasFlavors                         map[kueue.ResourceFlavorReference]kueue.TopologyReference
 	admittedWorkloadsCount             int
+	admittedWorkloadsCountByFlavor     resources.FlavorResourceQuantities
 	isStopped                          bool
 	workloadInfoOptions                []workload.InfoOption
 
@@ -517,7 +518,7 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	}
 	metrics.ReportAdmittedActiveWorkloads(c.Name, c.admittedWorkloadsCount, c.customMetricLabelValues, c.roleTracker)
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), c.customMetricLabelValues, c.roleTracker)
-	for fr, q := range c.AdmittedUsage {
+	for fr, q := range c.admittedWorkloadsCountByFlavor {
 		metrics.ReportFlavorAdmittedActiveWorkloads(c.Name, fr, q, c.customMetricLabelValues, c.roleTracker)
 	}
 }
@@ -572,6 +573,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 	c.updateWorkloadTASUsage(log, wi, op)
 	if admitted {
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
+		updateAdmittedWorkloadsCountByFlavor(frUsage, c.admittedWorkloadsCountByFlavor)
 		c.Parent().updateAdmittedWorkloadsCount(op.asSignedOne())
 		c.admittedWorkloadsCount += op.asSignedOne()
 	}
@@ -616,6 +618,15 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, op usageOp) {
 	for fr, q := range newUsage {
 		oldUsage[fr] += q * int64(op.asSignedOne())
+	}
+}
+
+func updateAdmittedWorkloadsCountByFlavor(frUsage resources.FlavorResourceQuantities, admittedWorkloadsCountByFlavor resources.FlavorResourceQuantities) {
+	for fr := range frUsage {
+		if _, ok := admittedWorkloadsCountByFlavor[fr]; !ok {
+			admittedWorkloadsCountByFlavor[fr] = 0
+		}
+		admittedWorkloadsCountByFlavor[fr] += 1
 	}
 }
 
