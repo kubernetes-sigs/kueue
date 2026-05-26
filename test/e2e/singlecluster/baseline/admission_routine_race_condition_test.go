@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,13 +30,13 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	workload "sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 // This test is the e2e reproduction of the issue described in https://github.com/kubernetes-sigs/kueue/issues/11480.
 // In practice, it should never fail (even without the fix), as the issue is extremely rare.
-// The following commit containts the diff that has to be injected into Kueue in order to make this test fail non-deterministically:
+// The following commit contains the diff that has to be injected into Kueue in order to make this test fail non-deterministically:
 // https://github.com/kshalot/kueue/commit/78f5d0217f55663d8c6ecc8c486704e9f0ae6570
 var _ = ginkgo.Describe("Admission Routine Race Condition", ginkgo.Label("area:singlecluster", "feature:scheduler"), func() {
 	var (
