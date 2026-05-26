@@ -319,6 +319,9 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, nil),
+			},
 			wantCancelCalled: 1,
 			wantErr:          fmt.Errorf("failed to load client config, reason: BadKubeConfig, error: %w", errors.New("open : no such file or directory")),
 		},
@@ -499,9 +502,11 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
-			wantRemoteClients: map[string]*remoteClient{},
-			wantCancelCalled:  1,
-			wantErr:           fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, nil),
+			},
+			wantCancelCalled: 1,
+			wantErr:          fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
 		},
 		"skip insecure kubeconfig validation": {
 			reconcileFor: "worker1",
@@ -854,6 +859,54 @@ func TestReconnectBackoff(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	kubeconfig := testKubeconfig("worker1")
+
+	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").
+		KubeConfig(kueue.SecretLocationType, "worker1").
+		Active(metav1.ConditionFalse, "BadKubeConfig", "load client config failed", 1).
+		Generation(1).
+		Obj()
+	secret := makeTestSecret("worker1", kubeconfig)
+
+	builder := getClientBuilder(ctx)
+	builder = builder.WithObjects(cluster, &secret)
+	builder = builder.WithStatusSubresource(&kueue.MultiKueueCluster{})
+	c := builder.Build()
+
+	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileCreds{}, nil)
+	reconciler.rootContext = ctx
+
+	var buildCalls int
+	inner := fakeClientBuilder(ctx)
+	reconciler.builderOverride = func(cfg *clientConfig, opts client.Options) (client.WithWatch, error) {
+		buildCalls++
+		return inner(cfg, opts)
+	}
+
+	rc := newTestClient(ctx, []byte(kubeconfig), nil, nil)
+	rc.builderOverride = reconciler.builderOverride
+	rc.disconnected.Store(true)
+	reconciler.remoteClients["worker1"] = rc
+	defer rc.StopWatchers()
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}})
+	if err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if buildCalls != 1 {
+		t.Fatalf("builder invocations: want 1, got %d", buildCalls)
+	}
+	if rc.connecting.Load() {
+		t.Error("connecting should be cleared after successful reconnect")
+	}
+	if rc.disconnected.Load() {
+		t.Error("disconnected should be cleared after successful reconnect")
 	}
 }
 

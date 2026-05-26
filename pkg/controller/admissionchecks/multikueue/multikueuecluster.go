@@ -117,6 +117,7 @@ type remoteClient struct {
 	adapters     map[string]jobframework.MultiKueueAdapter
 
 	connecting           atomic.Bool
+	disconnected         atomic.Bool
 	failedConnAttempts   uint
 	retryConnNextAttempt metav1.Time
 
@@ -186,12 +187,13 @@ func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
 }
 
 // setConfig - will try to recreate the k8s client and restart watching if the new config is different than
-// the one currently used or a reconnect was requested.
+// the one currently used, a reconnect was requested, or the client was marked as disconnected.
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
 func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig) (*time.Duration, error) {
 	configChanged := !equality.Semantic.DeepEqual(config, rc.config)
 	connecting := rc.connecting.Load()
-	if !configChanged && !connecting {
+	disconnected := rc.disconnected.Load()
+	if !configChanged && !connecting && !disconnected {
 		return nil, nil
 	}
 
@@ -241,6 +243,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 	}
 
 	rc.connecting.Store(false)
+	rc.disconnected.Store(false)
 	rc.resetFailedConnAttempt()
 	return nil, nil
 }
@@ -346,6 +349,16 @@ func (rc *remoteClient) StopWatchers() {
 	}
 }
 
+// disconnect stops the watchers and marks the client as disconnected without
+// removing it from the clustersReconciler's remoteClients map. This allows the
+// workload reconciler to detect that the cluster was previously available but
+// is now unreachable, and apply the workerLostTimeout delay before requeuing.
+func (rc *remoteClient) disconnect() {
+	rc.StopWatchers()
+	rc.connecting.Store(true)
+	rc.disconnected.Store(true)
+}
+
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
 	localWl := &kueue.Workload{}
 	if err := rc.localClient.Get(ctx, wlKey, localWl); err == nil {
@@ -370,7 +383,7 @@ func (rc *remoteClient) queueWatchEndedEvent(ctx context.Context) {
 func (rc *remoteClient) runGC(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx)
 
-	if rc.connecting.Load() {
+	if rc.connecting.Load() || rc.disconnected.Load() {
 		log.V(5).Info("Skip disconnected client")
 		return
 	}
@@ -490,6 +503,17 @@ func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 	}
 }
 
+// disconnectCluster marks the remoteClient for clusterName as disconnected
+// without removing it from the map. This allows the workload reconciler to
+// detect the disconnection and apply the workerLostTimeout delay.
+func (c *clustersReconciler) disconnectCluster(clusterName string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if rc, found := c.remoteClients[clusterName]; found {
+		rc.disconnect()
+	}
+}
+
 // findOrCreateRemoteClient returns the remoteClient for clusterName, creating
 // one if absent. Only the brief map operation runs under c.lock.
 func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string) *remoteClient {
@@ -553,7 +577,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	clientConfig, reason, err := c.loadClientConfig(ctx, cluster)
 	if err != nil {
 		log.Error(err, "loading client config failed")
-		c.stopAndRemoveCluster(req.Name)
+		c.disconnectCluster(req.Name)
 		if updateErr := c.updateStatus(ctx, cluster, false, reason, fmt.Sprintf("load client config failed: %v", err)); updateErr != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to update MultiKueueCluster status: %w after failing to load client config: %w", updateErr, err)
 		}
