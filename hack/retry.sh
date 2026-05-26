@@ -17,8 +17,12 @@
 # echoes it; stderr passes through. Designed to be invoked from Make $(shell ...)
 # where the captured stdout becomes the variable value.
 #
+# Advanced features:
+#   --continue-if "CMD": Evaluates CMD upon failure. If it fails, retries are aborted immediately (fail-fast).
+#   --cleanup "CMD": Evaluates CMD before starting the next retry attempt.
+#
 # Usage:
-#   retry.sh [--attempts N] [--delay SECONDS] [--retry-condition "CMD"] [--cleanup "CMD"] -- <command> [args...]
+#   retry.sh [--attempts N] [--delay SECONDS] [--continue-if "CMD"] [--cleanup "CMD"] -- <command> [args...]
 #
 # Defaults: --attempts 4, --delay 5
 # Exit:     0 on first success, 1 if all attempts fail, 2 on usage error.
@@ -27,14 +31,14 @@ set -u
 
 attempts=4
 delay=5
-retry_condition=""
+continue_if=""
 cleanup=""
 
 while [ $# -gt 0 ]; do
     case $1 in
         --attempts)        attempts=$2; shift 2 ;;
         --delay)           delay=$2;    shift 2 ;;
-        --retry-condition) retry_condition=$2; shift 2 ;;
+        --continue-if)     continue_if=$2; shift 2 ;;
         --cleanup)         cleanup=$2; shift 2 ;;
         --)                shift; break ;;
         -*)                echo "retry: unknown flag: $1" 1>&2; exit 2 ;;
@@ -56,10 +60,10 @@ for i in $(seq 1 "$attempts"); do
     echo "retry [$i/$attempts] failed" 1>&2
 
     if [ "$i" -lt "$attempts" ]; then
-        if [ -n "$retry_condition" ]; then
+        if [ -n "$continue_if" ]; then
             # Evaluate the fail-fast condition
-            if ! eval "$retry_condition"; then
-                echo "retry: aborting early as retry condition failed (fail-fast)" 1>&2
+            if ! eval "$continue_if"; then
+                echo "retry: aborting early as continue-if condition failed (fail-fast)" 1>&2
                 exit 1
             fi
         fi
@@ -67,7 +71,10 @@ for i in $(seq 1 "$attempts"); do
         if [ -n "$cleanup" ]; then
             # Run the cleanup command before the next attempt
             echo "retry: running cleanup command..." 1>&2
-            eval "$cleanup"
+            if ! eval "$cleanup"; then
+                echo "retry: cleanup command failed, aborting retries" 1>&2
+                exit 1
+            fi
         fi
 
         sleep "$delay"
