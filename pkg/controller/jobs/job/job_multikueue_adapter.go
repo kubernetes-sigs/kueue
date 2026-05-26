@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -64,16 +65,14 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		if statusUpdate := determineStatusUpdate(log, &localJob, &remoteJob); statusUpdate != nil {
-			localJob.Status = *statusUpdate
-			return nil
-		}
-
-		if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
-			localJob.Status = remoteJob.Status
-			return true, nil
-		}); err != nil {
-			return err
+		statusUpdate := determineStatusUpdate(ctx, log, &localJob, &remoteJob)
+		if !equality.Semantic.DeepEqual(localJob.Status, *statusUpdate) {
+			if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+				localJob.Status = *statusUpdate
+				return true, nil
+			}); err != nil {
+				return err
+			}
 		}
 
 		// Sync elastic workload if needed.
@@ -104,7 +103,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func determineStatusUpdate(log logr.Logger, localJob, remoteJob *batchv1.Job) *batchv1.JobStatus {
+func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remoteJob *batchv1.Job) *batchv1.JobStatus {
 	localJobInfo := fromObject(localJob)
 
 	log.V(2).Info("Checking shouldSkipSyncForSuspendedLocalJob", "localJob", localJob, "remoteJob", remoteJob)
@@ -121,25 +120,22 @@ func determineStatusUpdate(log logr.Logger, localJob, remoteJob *batchv1.Job) *b
 		log.V(3).Info("Peforming the sync as the local and the remote Job are suspended")
 		return &remoteJob.Status
 	}
-	if localJob.Status.StartTime == nil {
-		newLocalStatus := localJob.Status.DeepCopy()
-		newLocalStatus.Active = 0
-		newConditions, _ := ensureJobConditionStatus(newLocalStatus.Conditions,
-			batchv1.JobSuspended,
-			corev1.ConditionTrue,
-			"MultiKueueAdapted",
-			"Set by MultiKueue adapted",
-			time.Now())
-		log.V(2).Info("Updating the localJob suspended Job without startTime to set the JobSuspended=True condition")
-		newLocalStatus.Conditions = newConditions
-		return newLocalStatus
+	if _, _, finished := remoteJobInfo.Finished(ctx); finished {
+		log.V(2).Info("Remote job is finished, returning the remote job status")
+		return &remoteJob.Status
 	}
-
-	// We skip the sync when the localJob has suspend=true, and the remote job is suspend=false
-	// to prevent the race condition when the local Job is updated to suspend=false prematurely
-	// so that the injection of nodeSlectors does not work; see: https://github.com/kubernetes-sigs/kueue/pull/3685
-	log.V(2).Info("Skipping the sync when the localJob has suspend=true, and the remote job is suspend=false")
-	return nil
+	newLocalStatus := localJob.Status.DeepCopy()
+	newLocalStatus.Active = 0
+	newLocalStatus.StartTime = nil
+	newConditions, _ := ensureJobConditionStatus(newLocalStatus.Conditions,
+		batchv1.JobSuspended,
+		corev1.ConditionTrue,
+		"MultiKueueAdapter",
+		"Set by MultiKueue adapter",
+		time.Now())
+	log.V(2).Info("Updating the localJob suspended Job to set the JobSuspended=True condition")
+	newLocalStatus.Conditions = newConditions
+	return newLocalStatus
 }
 
 // ensureJobConditionStatus appends or updates an existing job condition of the
