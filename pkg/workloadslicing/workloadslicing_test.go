@@ -94,7 +94,8 @@ func TestEnabled(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			// Always false when feature is disabled (not enabled).
+			// Always false when feature is disabled.
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
 			if got := Enabled(tt.args.object); got {
 				t.Error("Enabled() = true, want false when feature is not enabled")
 			}
@@ -1244,63 +1245,6 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 				wl: testWorkload,
 			},
 			wantErr: true,
-		},
-		"BackwardsCompatibility_FallbackToOwnerReference": {
-			args: args{
-				// Client with both indexes for backwards compatibility
-				clnt: fake.NewClientBuilder().WithScheme(scheme.Scheme).
-					WithIndex(&corev1.Pod{}, indexer.WorkloadSliceNameKey, indexer.IndexPodWorkloadSliceName).
-					WithIndex(&corev1.Pod{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID).
-					WithLists(&corev1.PodList{
-						Items: []corev1.Pod{
-							// Pod without annotation but with owner reference (old pod)
-							{
-								ObjectMeta: metav1.ObjectMeta{
-									Name:            "old-pod",
-									Namespace:       "default",
-									ResourceVersion: "100",
-									OwnerReferences: []metav1.OwnerReference{
-										{UID: "job-uid-123"},
-									},
-								},
-								Spec: corev1.PodSpec{
-									SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.ElasticJobSchedulingGate}},
-								},
-							},
-						},
-					}).Build(),
-				// Workload with owner reference to job
-				wl: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-workload",
-						Namespace: "default",
-						Annotations: map[string]string{
-							kueue.WorkloadSliceNameAnnotation: "test-slice",
-						},
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: "job-uid-123"},
-						},
-					},
-				},
-			},
-			wantPods: &corev1.PodList{
-				Items: []corev1.Pod{
-					// Pod should have gate removed (resource version increased)
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:            "old-pod",
-							Namespace:       "default",
-							ResourceVersion: "101",
-							OwnerReferences: []metav1.OwnerReference{
-								{UID: "job-uid-123"},
-							},
-						},
-						Spec: corev1.PodSpec{
-							SchedulingGates: nil,
-						},
-					},
-				},
-			},
 		},
 	}
 	for name, tt := range tests {
