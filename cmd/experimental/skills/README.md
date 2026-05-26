@@ -8,6 +8,10 @@
 | [kueue-release-notes](kueue-release-notes/SKILL.md) | Review or propose a concise PR release note focused on the user-observable change. |
 | [reviewer/](reviewer/README.md) | "review this PR", "review this code", any code review of kueue changes |
 
+---
+
+### Agent-readable references
+
 @kueue-who-preempted/SKILL.md
 @kueue-lineage/SKILL.md
 @kueue-flake-debugger/SKILL.md
