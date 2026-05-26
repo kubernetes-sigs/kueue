@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package multikueue
+package extended
 
 import (
 	"cmp"
@@ -59,7 +59,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End Baseline MultiKueue Suite")
+	util.RunE2ESuite(t, "End To End Extended MultiKueue Suite")
 }
 
 var _ = ginkgo.SynchronizedBeforeSuite(
@@ -79,6 +79,29 @@ var _ = ginkgo.SynchronizedBeforeSuite(
 		util.WaitForKueueAvailability(ctx, k8sManagerClient)
 		util.WaitForKueueAvailability(ctx, k8sWorker1Client)
 		util.WaitForKueueAvailability(ctx, k8sWorker2Client)
+
+		util.WaitForJobSetAvailability(ctx, k8sManagerClient)
+		util.WaitForJobSetAvailability(ctx, k8sWorker1Client)
+		util.WaitForJobSetAvailability(ctx, k8sWorker2Client)
+
+		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sManagerClient)
+		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker1Client)
+		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker2Client)
+
+		util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker1Client)
+		util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker2Client)
+
+		util.WaitForAppWrapperAvailability(ctx, k8sManagerClient)
+		util.WaitForAppWrapperAvailability(ctx, k8sWorker1Client)
+		util.WaitForAppWrapperAvailability(ctx, k8sWorker2Client)
+
+		util.WaitForKubeRayOperatorAvailability(ctx, k8sManagerClient)
+		util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
+		util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
+
+		util.WaitForLeaderWorkerSetAvailability(ctx, k8sManagerClient)
+		util.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker1Client)
+		util.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker2Client)
 
 		ginkgo.GinkgoLogr.Info(
 			"Kueue and all required operators are available in all the clusters",
