@@ -443,21 +443,19 @@ function cluster_create {
     fi
 
     local log_file="$ARTIFACTS/$cluster-create.log"
-    local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 1m -v 5 > \"$log_file\" 2>&1"
-
-    local retry_condition="grep -q 'port is already allocated' \"$log_file\""
-
-    local cleanup_cmd="$KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
+    local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1"
+    local continue_if="grep -q 'port is already allocated' \"$log_file\""
+    local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
     echo "Creating kind cluster '$cluster'..."
     if ! "${ROOT_DIR}/hack/retry.sh" \
         --attempts 3 \
         --delay 3 \
-        --retry-condition "$retry_condition" \
+        --continue-if "$continue_if" \
         --cleanup "$cleanup_cmd" \
         -- bash -c "$create_cmd"; then
 
-        echo "ERROR: unable to start the $cluster cluster after retries." >&2
+        echo "ERROR: Unable to start the $cluster cluster after retries." >&2
         cat "$log_file" >&2
         return 1
     fi
