@@ -78,6 +78,7 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj *jobsetapi.JobSet) erro
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(obj, w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, obj)
 	if err := jobframework.ApplyDefaultForSuspend(ctx, jobSet, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}

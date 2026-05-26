@@ -13,6 +13,8 @@
 
 [context.deploy-preview]
   command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"
+  # Runs from "site"; "." includes docs, and "../netlify.toml" includes config changes.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF . ../netlify.toml"
 
 [context.branch-deploy]
   command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"

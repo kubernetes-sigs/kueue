@@ -86,6 +86,7 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 				Image(kftraining.PyTorchJobReplicaTypeMaster, util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "200Mi").
+				TerminationGracePeriod(kftraining.PyTorchJobReplicaTypeMaster, 1).
 				Obj()
 
 			ginkgo.By("Create a PyTorch", func() {

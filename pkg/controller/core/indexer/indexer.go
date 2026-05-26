@@ -261,15 +261,11 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, IndexPodWorkloadSliceName); err != nil {
 			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
 		}
-		// OwnerReferenceUID index for Pod is for backwards compatibility only.
-		// TODO(sohankunkerkar): remove in 0.18
-		if err := indexer.IndexField(ctx, &corev1.Pod{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
-			return fmt.Errorf("setting index on ownerReferences.uid for Pod: %w", err)
-		}
 	}
 	// Index DeviceClasses by extendedResourceName for fast lookup during extended resource translation.
+	// The index is skipped if the DeviceClass API is not available on the cluster.
 	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
-		if err := indexer.IndexField(ctx, &resourceapi.DeviceClass{}, DeviceClassExtendedResourceNameIndex, IndexDeviceClassExtendedResourceName); err != nil {
+		if err := indexer.IndexField(ctx, &resourceapi.DeviceClass{}, DeviceClassExtendedResourceNameIndex, IndexDeviceClassExtendedResourceName); err != nil && !apimeta.IsNoMatchError(err) {
 			return fmt.Errorf("setting index on extendedResourceName for DeviceClass: %w", err)
 		}
 	}

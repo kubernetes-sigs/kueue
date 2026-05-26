@@ -43,6 +43,23 @@ export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
+function build_kind_node_image {
+    if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then
+        echo "Skipping kind node image build for non-standard image: $E2E_KIND_VERSION"
+        return 0
+    fi
+
+    E2E_KIND_VERSION="kueue/kind-node:v${KIND_VERSION}"
+
+    if [[ "${E2E_MODE}" == "dev" ]] && docker image inspect "$E2E_KIND_VERSION" &>/dev/null; then
+        echo "Reusing existing node image: $E2E_KIND_VERSION (E2E_MODE=dev)"
+        return 0
+    fi
+
+    echo "Building kind node image: $E2E_KIND_VERSION (K8s v$KIND_VERSION)"
+    $KIND build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
+}
+
 function e2e_is_truthy {
     case "${1:-}" in
         1|true|TRUE|True|yes|YES|Yes|y|Y|on|ON|On) return 0 ;;
@@ -84,6 +101,21 @@ function e2e_docker_pull_if_needed {
 
     echo "ERROR: Failed to pull '$image' after $max_retries attempts."
     return 1
+}
+
+function e2e_wait_for_operator_in_install {
+  local kubeconfig=$1
+  local ns=$2
+  local deployment_name=$3
+
+  if ! e2e_is_truthy "${E2E_WAIT_FOR_OPERATORS_IN_INSTALL:-false}"; then
+    echo "Skipping install-time wait for deployment/${deployment_name} in ${ns};" \
+         "BeforeSuite will verify readiness."
+    return 0
+  fi
+
+  kubectl --kubeconfig="${kubeconfig}" wait deploy/"${deployment_name}" \
+    -n "${ns}" --for=condition=available --timeout=5m
 }
 
 function e2e_deployment_exists {
@@ -143,11 +175,14 @@ fi
 if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBEFLOW_MANIFEST_ORIG=${ROOT_DIR}/dep-crds/training-operator/manifests/overlays/standalone/kustomization.yaml
     export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue/baseline
-    # Extract the Kubeflow Training Operator image version tag (newTag) from the manifest.
-    # This is necessary because the image version tag does not follow the usual package versioning convention.
+    # Extract the Kubeflow Training Operator image name and version tag from the manifest.
+    # The image version tag does not follow the usual package versioning convention,
+    # and the image name must match the kustomize output so the pre-loaded image is
+    # used instead of pulling from the registry at deploy time.
+    KUBEFLOW_IMAGE_NAME=$($YQ '.images[] | select(.name | contains("training-operator")) | (.newName // .name)' "${KUBEFLOW_MANIFEST_ORIG}")
     KUBEFLOW_IMAGE_VERSION=$($YQ '.images[] | select(.name | contains("training-operator")) | .newTag' "${KUBEFLOW_MANIFEST_ORIG}")
     export KUBEFLOW_IMAGE_VERSION
-    export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
+    export KUBEFLOW_IMAGE=${KUBEFLOW_IMAGE_NAME}:${KUBEFLOW_IMAGE_VERSION}
 fi
 
 if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -675,7 +710,7 @@ function cluster_kueue_deploy {
             deploy_with_certmanager "$1"
         fi
     elif [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
-        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra"
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/baseline"
     elif [ "$E2E_USE_HELM" == 'true' ]; then
         helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
     elif [[ ${E2E_TARGET_FOLDER:-} == "multikueue/sequential" ]]; then
@@ -748,7 +783,7 @@ function install_appwrapper {
 
     cluster_kind_load_image "${name}" "${APPWRAPPER_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${APPWRAPPER_MANIFEST}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -789,7 +824,7 @@ function install_jobset {
 
     cluster_kind_load_image "${name}" "${JOBSET_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${JOBSET_MANIFEST}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -824,7 +859,7 @@ function install_kubeflow {
 
     cluster_kind_load_image "${name}" "${KUBEFLOW_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -913,7 +948,8 @@ function install_mpi {
     cluster_kind_load_image "${name}" "${KUBEFLOW_MPI_IMAGE/#v}"
     curl -sSL "${KUBEFLOW_MPI_MANIFEST}" \
         | kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
+
 }
 
 # $1 cluster name
@@ -963,7 +999,7 @@ function install_kuberay {
         kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} delete -k "${KUBERAY_MANIFEST}" --ignore-not-found=true
     fi
     kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create -k "${KUBERAY_MANIFEST}"
-    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} wait deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -1004,7 +1040,7 @@ function install_lws {
 
     cluster_kind_load_image "${name}" "${LEADERWORKERSET_IMAGE/#v}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${LEADERWORKERSET_MANIFEST}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name

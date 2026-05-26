@@ -28,6 +28,7 @@ type ConcurrentAdmissionMigrationApplyConfiguration struct {
 	// mode defines the mode of Workload's migration.
 	// The possible values are:
 	// - `TryPreferredFlavors` (default): a Workload will try to migrate to the preferred flavor after it's admitted and running.
+	// - `RetainFirstAdmission`: a Workload, once admitted to a flavor, will stick to a flavor and will not be migrated.
 	Mode *kueuev1beta2.ConcurrentAdmissionMigrationMode `json:"mode,omitempty"`
 	// constraints defines the constraints of Workload's migration.
 	Constraints *ConcurrentAdmissionConstraintsApplyConfiguration `json:"constraints,omitempty"`

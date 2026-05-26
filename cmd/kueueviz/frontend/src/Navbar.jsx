@@ -14,28 +14,111 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AppBar, Toolbar, Button, Box } from '@mui/material';
+import { AppBar, Toolbar, Button, Box, IconButton, Menu, MenuItem } from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
 import { useAuth } from './AuthContext';
 import './App.css';
 
 const Navbar = () => {
   const { token, logout, authMode } = useAuth();
+  const [anchorEl, setAnchorEl] = useState(null);
+
+  const handleOpenMenu = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleCloseMenu = () => {
+    setAnchorEl(null);
+  };
+
+  const navItems = [
+    { label: 'Dashboard', to: '/' },
+    { label: 'Workloads', to: '/workloads' },
+    { label: 'Local Queues', to: '/local-queues' },
+    { label: 'Cluster Queues', to: '/cluster-queues' },
+    { label: 'Cohorts', to: '/cohorts' },
+    { label: 'Resource Flavors', to: '/resource-flavors' },
+  ];
 
   return (
     <AppBar position="static">
       <Toolbar>
-        <Link to="/" className="navbar-link"><img src="/kueueviz.png" className="navbar-logo"/></Link>
-        <Button color="inherit" component={Link} to="/">Dashboard</Button>
-        <Button color="inherit" component={Link} to="/workloads">Workloads</Button>
-        <Button color="inherit" component={Link} to="/local-queues">Local Queues</Button>
-        <Button color="inherit" component={Link} to="/cluster-queues">Cluster Queues</Button>
-        <Button color="inherit" component={Link} to="/cohorts">Cohorts</Button>
-        <Button color="inherit" component={Link} to="/resource-flavors">Resource Flavors</Button>
+        <Link to="/" className="navbar-link">
+          <img src="/kueueviz.png" className="navbar-logo" alt="KueueViz Logo" />
+        </Link>
+
+        {/* Mobile Navigation Menu */}
+        <Box sx={{ display: { xs: 'flex', md: 'none' }, ml: 'auto' }}>
+          <IconButton
+            size="large"
+            aria-label="menu"
+            aria-controls="menu-appbar"
+            aria-haspopup="true"
+            onClick={handleOpenMenu}
+            color="inherit"
+          >
+            <MenuIcon />
+          </IconButton>
+          <Menu
+            id="menu-appbar"
+            anchorEl={anchorEl}
+            anchorOrigin={{
+              vertical: 'bottom',
+              horizontal: 'right',
+            }}
+            keepMounted
+            transformOrigin={{
+              vertical: 'top',
+              horizontal: 'right',
+            }}
+            open={Boolean(anchorEl)}
+            onClose={handleCloseMenu}
+          >
+            {navItems.map((item) => (
+              <MenuItem
+                key={item.label}
+                component={Link}
+                to={item.to}
+                onClick={handleCloseMenu}
+              >
+                {item.label}
+              </MenuItem>
+            ))}
+            {authMode !== 'Disabled' && token && (
+              <MenuItem
+                onClick={() => {
+                  handleCloseMenu();
+                  logout();
+                }}
+              >
+                Logout
+              </MenuItem>
+            )}
+          </Menu>
+        </Box>
+
+        {/* Desktop Navigation Buttons */}
+        <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 1, ml: 2 }}>
+          {navItems.map((item) => (
+            <Button
+              key={item.label}
+              color="inherit"
+              component={Link}
+              to={item.to}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </Box>
+
+        {/* Desktop Logout Button */}
         {authMode !== 'Disabled' && token && (
-          <Box sx={{ ml: 'auto' }}>
-            <Button color="inherit" onClick={logout}>Logout</Button>
+          <Box sx={{ display: { xs: 'none', md: 'flex' }, ml: 'auto' }}>
+            <Button color="inherit" onClick={logout}>
+              Logout
+            </Button>
           </Box>
         )}
       </Toolbar>

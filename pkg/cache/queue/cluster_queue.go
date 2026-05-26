@@ -641,7 +641,7 @@ func (c *ClusterQueue) pendingActiveInLocalQueue(lqRef utilqueue.LocalQueueRefer
 			active++
 		}
 	}
-	if c.inflight != nil && string(workloadKey(c.inflight)) == string(lqRef) {
+	if c.inflight != nil && utilqueue.KeyFromWorkload(c.inflight.Obj) == lqRef {
 		active++
 	}
 	return

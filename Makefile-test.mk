@@ -35,7 +35,14 @@ TEST_LOG_LEVEL ?= -3
 INTEGRATION_NPROCS ?= 4
 INTEGRATION_NPROCS_MULTIKUEUE ?= 3
 # Folder where the integration tests are located.
+ifdef INTEGRATION_TOTAL_SHARDS
+INTEGRATION_TARGET := $(shell ./hack/testing/shard-integration-tests.sh $(INTEGRATION_SHARD_INDEX) $(INTEGRATION_TOTAL_SHARDS))
+ifeq ($(INTEGRATION_TARGET),)
+$(error Aborting execution due to invalid sharding parameters (INTEGRATION_SHARD_INDEX / INTEGRATION_TOTAL_SHARDS))
+endif
+else
 INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
+endif
 INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
@@ -43,8 +50,8 @@ INTEGRATION_API_LOG_LEVEL ?= 0
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_K8S_VERSIONS ?= 1.33.7 1.34.3 1.35.0
-E2E_K8S_VERSION ?= 1.35
+E2E_K8S_VERSIONS ?= 1.34.8 1.35.5 1.36.1
+E2E_K8S_VERSION ?= 1.36
 E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
 E2E_K8S_FULL_VERSION := $(or $(E2E_K8S_FULL_VERSION),$(E2E_K8S_VERSION).0)
@@ -401,7 +408,7 @@ run-test-e2e-dra-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/baseline" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \

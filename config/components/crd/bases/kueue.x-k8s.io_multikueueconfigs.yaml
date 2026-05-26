@@ -11,6 +11,8 @@ spec:
     kind: MultiKueueConfig
     listKind: MultiKueueConfigList
     plural: multikueueconfigs
+    shortNames:
+    - mkconf
     singular: multikueueconfig
   scope: Cluster
   versions:

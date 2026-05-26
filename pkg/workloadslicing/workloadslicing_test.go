@@ -94,7 +94,8 @@ func TestEnabled(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			// Always false when feature is disabled (not enabled).
+			// Always false when feature is disabled.
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
 			if got := Enabled(tt.args.object); got {
 				t.Error("Enabled() = true, want false when feature is not enabled")
 			}
@@ -728,6 +729,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					Build(),
@@ -805,6 +807,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
@@ -817,6 +820,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("1").
 					Creation(now).
+					Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
@@ -835,6 +839,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					Build(),
@@ -848,6 +853,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("2").
 					Creation(now).
+					Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
@@ -866,6 +872,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					Build(),
@@ -879,6 +886,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("2").
 					Creation(now).
+					Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
@@ -994,6 +1002,150 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	}
 }
 
+func TestNormalizeActiveSlices(t *testing.T) {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	admitted := func(w *utiltestingapi.WorkloadWrapper) *utiltestingapi.WorkloadWrapper {
+		return w.ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+		).Obj(), now)
+	}
+
+	type want struct {
+		survivor     string
+		keptAdmitted string
+		error        bool
+	}
+
+	tests := map[string]struct {
+		workloads []kueue.Workload
+		want      want
+	}{
+		"two admitted, keep newest": {
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
+				*admitted(utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
+			},
+			want: want{survivor: "wl-b"},
+		},
+		"admitted + pending replacement, keep replacement": {
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			want: want{survivor: "wl-b", keptAdmitted: "wl-a"},
+		},
+		"evicted admitted + pending, keep pending and finish evicted": {
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).
+					EvictedAt(now).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			want: want{survivor: "wl-b"},
+		},
+		"forked DAG, both replace same finished target, keep newest": {
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-old").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
+				*admitted(utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-old").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
+			},
+			want: want{survivor: "wl-b"},
+		},
+		"all non-admitted non-evicted, keep newest": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			want: want{survivor: "wl-b"},
+		},
+		"all evicted, survivor is nil": {
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).
+					EvictedAt(now).Obj(),
+				*admitted(utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj())).
+					EvictedAt(now).Obj(),
+			},
+			want: want{survivor: ""},
+		},
+		"admitted + pending without replacement annotation, keep admitted": {
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			want: want{survivor: "wl-a"},
+		},
+		"three workloads, admitted + two pending, keep replacement targeting admitted": {
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-2 * time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-old").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+				*utiltestingapi.MakeWorkload("wl-c", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			want: want{survivor: "wl-c", keptAdmitted: "wl-a"},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			testSchema := runtime.NewScheme()
+			_ = kueue.AddToScheme(testSchema)
+			var objs []client.Object
+			for i := range tc.workloads {
+				objs = append(objs, &tc.workloads[i])
+			}
+			clnt := fake.NewClientBuilder().
+				WithScheme(testSchema).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithObjects(objs...).
+				Build()
+
+			survivor, err := normalizeActiveSlices(ctx, clnt, fakeClock, tc.workloads)
+			if (err != nil) != tc.want.error {
+				t.Fatalf("normalizeActiveSlices() error = %v, wantErr %v", err, tc.want.error)
+			}
+			gotName := ""
+			if survivor != nil {
+				gotName = survivor.Name
+			}
+			if gotName != tc.want.survivor {
+				t.Errorf("normalizeActiveSlices() survivor = %q, want %q", gotName, tc.want.survivor)
+			}
+
+			for i := range tc.workloads {
+				wl := &kueue.Workload{}
+				if err := clnt.Get(ctx, client.ObjectKeyFromObject(&tc.workloads[i]), wl); err != nil {
+					t.Fatalf("failed to get workload %s: %v", tc.workloads[i].Name, err)
+				}
+				kept := wl.Name == tc.want.survivor || wl.Name == tc.want.keptAdmitted
+				if !kept && !workload.IsFinished(wl) {
+					t.Errorf("workload %q should be finished but is not", wl.Name)
+				}
+			}
+		})
+	}
+}
+
 func Test_StartWorkloadSlicePods(t *testing.T) {
 	clientBuilder := func() *fake.ClientBuilder {
 		return fake.NewClientBuilder().WithScheme(scheme.Scheme).
@@ -1093,63 +1245,6 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 				wl: testWorkload,
 			},
 			wantErr: true,
-		},
-		"BackwardsCompatibility_FallbackToOwnerReference": {
-			args: args{
-				// Client with both indexes for backwards compatibility
-				clnt: fake.NewClientBuilder().WithScheme(scheme.Scheme).
-					WithIndex(&corev1.Pod{}, indexer.WorkloadSliceNameKey, indexer.IndexPodWorkloadSliceName).
-					WithIndex(&corev1.Pod{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID).
-					WithLists(&corev1.PodList{
-						Items: []corev1.Pod{
-							// Pod without annotation but with owner reference (old pod)
-							{
-								ObjectMeta: metav1.ObjectMeta{
-									Name:            "old-pod",
-									Namespace:       "default",
-									ResourceVersion: "100",
-									OwnerReferences: []metav1.OwnerReference{
-										{UID: "job-uid-123"},
-									},
-								},
-								Spec: corev1.PodSpec{
-									SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.ElasticJobSchedulingGate}},
-								},
-							},
-						},
-					}).Build(),
-				// Workload with owner reference to job
-				wl: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-workload",
-						Namespace: "default",
-						Annotations: map[string]string{
-							kueue.WorkloadSliceNameAnnotation: "test-slice",
-						},
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: "job-uid-123"},
-						},
-					},
-				},
-			},
-			wantPods: &corev1.PodList{
-				Items: []corev1.Pod{
-					// Pod should have gate removed (resource version increased)
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:            "old-pod",
-							Namespace:       "default",
-							ResourceVersion: "101",
-							OwnerReferences: []metav1.OwnerReference{
-								{UID: "job-uid-123"},
-							},
-						},
-						Spec: corev1.PodSpec{
-							SchedulingGates: nil,
-						},
-					},
-				},
-			},
 		},
 	}
 	for name, tt := range tests {

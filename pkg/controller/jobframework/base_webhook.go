@@ -71,6 +71,7 @@ func (w *BaseWebhook[T]) Default(ctx context.Context, obj T) error {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Applying defaults")
 	ApplyDefaultLocalQueue(job.Object(), w.Queues.DefaultLocalQueueExist)
+	ApplyDefaultWorkloadPriorityClass(ctx, w.Client, job.Object())
 	if err := ApplyDefaultForSuspend(ctx, job, w.Client, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector); err != nil {
 		return err
 	}

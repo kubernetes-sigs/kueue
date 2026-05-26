@@ -13,11 +13,11 @@ kueuePriorityBooster:
     timeSharing:
       interval: "30m"
       negativeBoost: 100000
-    # Optional: limit to workloads matching this label selector (omit = all workloads).
-    # workloadSelector:
-    #   matchLabels:
-    #     tier: batch
-    # Optional: exclude workloads with Spec.Priority greater than this (nil priority = 0).
-    # maxWorkloadPriority: 1000
+      # Optional: limit to workloads matching this label selector (omit = all workloads).
+      # workloadSelector:
+      #   matchLabels:
+      #     tier: batch
+      # Optional: exclude workloads with Spec.Priority greater than this (nil priority = 0).
+      # maxWorkloadPriority: 1000
 kueue:
   enabled: false

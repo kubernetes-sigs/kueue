@@ -61,6 +61,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.13"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: ElasticJobsViaWorkloadSlicesWithTAS
   versionedSpecs:
   - default: false
@@ -93,9 +97,9 @@
     version: "0.17"
 - name: FinishOrphanedWorkloads
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.18"
 - name: FlavorFungibility
   versionedSpecs:
@@ -486,6 +490,12 @@
   - default: true
     lockToDefault: false
     preRelease: Beta
+    version: "0.18"
+- name: WorkloadPriorityClassDefaulting
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
     version: "0.18"
 - name: WorkloadRequestUseMergePatch
   versionedSpecs:

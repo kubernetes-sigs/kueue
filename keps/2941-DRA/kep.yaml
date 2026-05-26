@@ -15,6 +15,7 @@ approvers:
 see-also:
   - "https://github.com/kubernetes/enhancements/blob/master/keps/sig-node/4381-dra-structured-parameters/README.md"
   - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5004-dra-extended-resource"
+  - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/4815-dra-partitionable-devices"
 replaces:
   - "https://github.com/kubernetes-sigs/kueue/pull/3071"
 
@@ -37,6 +38,7 @@ milestone:
 feature-gates:
   - name: KueueDRAIntegration
   - name: KueueDRAIntegrationExtendedResource
+  - name: KueueDRAIntegrationPartitionableDevices
   - name: KueueDRARejectWorkloadsWhenDRADisabled
 disable-supported: true
 

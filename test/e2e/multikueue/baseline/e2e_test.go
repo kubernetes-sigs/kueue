@@ -513,7 +513,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					for _, pod := range pods.Items {
 						g.Expect(utilpod.HasGate(&pod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Deleting the statefulset", func() {
@@ -841,6 +841,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				).
 				RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "100m").
 				RequestAndLimit("replicated-job-1", corev1.ResourceMemory, "100M").
+				TerminationGracePeriod(1).
 				Obj()
 
 			ginkgo.By("Creating the jobSet", func() {
@@ -1302,6 +1303,7 @@ app = HelloWorld.bind()`,
 				WorkloadPriorityClass(managerLowWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(extraResourceGPUHighCost, "2").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
 
@@ -1332,6 +1334,7 @@ app = HelloWorld.bind()`,
 				WorkloadPriorityClass(managerHighWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(extraResourceGPUHighCost, "2").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
@@ -1467,6 +1470,7 @@ app = HelloWorld.bind()`,
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(extraResourceGPUHighCost, "2").
 				RequestAndLimit(extraResourceGPULowCost, "1").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
 
@@ -1500,6 +1504,7 @@ app = HelloWorld.bind()`,
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(extraResourceGPUHighCost, "1").
 				RequestAndLimit(extraResourceGPULowCost, "2").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
@@ -1557,6 +1562,7 @@ app = HelloWorld.bind()`,
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(extraResourceGPUHighCost, "1").
 				RequestAndLimit(extraResourceGPULowCost, "2").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, lowJob)
 
@@ -1598,6 +1604,7 @@ app = HelloWorld.bind()`,
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(extraResourceGPUHighCost, "1").
 				RequestAndLimit(extraResourceGPULowCost, "2").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, highJob)
 
@@ -1669,6 +1676,7 @@ app = HelloWorld.bind()`,
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(extraResourceGPUHighCost, "2").
 				RequestAndLimit(extraResourceGPULowCost, "1").
+				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Creating the first job", func() {
 				util.MustCreate(ctx, k8sManagerClient, job1)
@@ -1702,6 +1710,7 @@ app = HelloWorld.bind()`,
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(extraResourceGPUHighCost, "1").
 				RequestAndLimit(extraResourceGPULowCost, "2").
+				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Creating the second job", func() {
 				util.MustCreate(ctx, k8sManagerClient, job2)

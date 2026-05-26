@@ -43,6 +43,8 @@ spec:
     kind: Cohort
     listKind: CohortList
     plural: cohorts
+    shortNames:
+      - co
     singular: cohort
   scope: Cluster
   versions:

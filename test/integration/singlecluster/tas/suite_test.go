@@ -74,7 +74,7 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager) {
+func managerSetupWithConfig(controllersCfg *config.Configuration, resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager) {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -85,7 +85,6 @@ func managerSetup(resourceTransformations ...config.ResourceTransformation) func
 		err = webhook.SetupNoopWebhook(mgr, &corev1.Pod{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		controllersCfg := &config.Configuration{}
 		mgr.GetScheme().Default(controllersCfg)
 
 		cacheOptions := []schdcache.Option{
@@ -126,4 +125,8 @@ func managerSetup(resourceTransformations ...config.ResourceTransformation) func
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+}
+
+func managerSetup(resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager) {
+	return managerSetupWithConfig(&config.Configuration{}, resourceTransformations...)
 }

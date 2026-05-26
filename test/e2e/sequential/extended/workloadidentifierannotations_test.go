@@ -116,38 +116,5 @@ var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
-
-		ginkgo.It("should fail to admit group with 52-character lws name, sts controller-revision-hash label exceeds 63 chars", func() {
-			lwsName := strings.Repeat("a", 52)
-			lws := leaderworkersettesting.MakeLeaderWorkerSet(lwsName, ns.Name).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				Size(3).Replicas(1).Queue(lq.Name).Obj()
-
-			ginkgo.By("create a LeaderWorkerSet", func() {
-				util.MustCreate(ctx, k8sClient, lws)
-			})
-
-			ginkgo.By("waiting for FailedCreate event", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					eventList := &corev1.EventList{}
-					g.Expect(k8sClient.List(ctx, eventList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-					var found bool
-					for _, e := range eventList.Items {
-						if e.Reason == "FailedCreate" && strings.Contains(e.Message, "must be no more than 63") {
-							found = true
-						}
-					}
-					g.Expect(found).To(gomega.BeTrue())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("confirming no replicas become ready", func() {
-				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
-				gomega.Consistently(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
-			})
-		})
 	})
 })

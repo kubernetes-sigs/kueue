@@ -79,6 +79,7 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj *rayv1.RayJob) error {
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}

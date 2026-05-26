@@ -92,7 +92,9 @@ func TestValidateCreate(t *testing.T) {
 							{GroupName: "w5"},
 							{GroupName: "w6"},
 							{GroupName: "w7"},
-							{GroupName: "w8"}, // 8th worker group - too many
+							{GroupName: "w8"},
+							{GroupName: "w9"},
+							{GroupName: "w10"}, // 10th worker group - too many
 						},
 					},
 				},

@@ -19,7 +19,6 @@ package workloadslicing
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 
@@ -27,6 +26,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -209,72 +209,113 @@ func EnsureWorkloadSlices(
 		// Scale-up on admitted workload → create a new slice.
 		return nil, true, nil
 
-	case 2:
-		// Two active workload slices detected.
-		//
-		// This transient state typically occurs when a new slice has been created,
-		// and the old slice is pending deactivation. The system should resolve this
-		// by deactivating the old slice, after which processing will continue under "case #1".
-		oldWorkload := workloads[0]
-		newWorkload := workloads[1]
-
-		// Finish the old workload slice if:
-		// a. It lost its quota reservation, or
-		// b. It was explicitly evicted (preemption, timeout, admin action), or
-		// c. The new workload has been admitted (has quota reservation) AND has a replacement
-		//    annotation pointing to the old workload. This handles the case where the scheduler
-		//    admitted the new slice but failed to finish the old slice.
-		replacementKey := ReplacementForKey(&newWorkload)
-		oldWorkloadKey := workload.Key(&oldWorkload)
-		newWorkloadAdmittedAsReplacement := workload.HasQuotaReservation(&newWorkload) &&
-			replacementKey != nil && *replacementKey == oldWorkloadKey
-		shouldFinishOldSlice := !workload.HasQuotaReservation(&oldWorkload) ||
-			workload.IsEvicted(&oldWorkload) ||
-			newWorkloadAdmittedAsReplacement
-		if shouldFinishOldSlice {
-			// Finish the old workload slice as out of sync.
-			reason := kueue.WorkloadFinishedReasonOutOfSync
-			message := "The workload slice is out of sync with its parent job"
-			if err := workload.Finish(ctx, clnt, &oldWorkload, reason, message, clk); err != nil {
-				return nil, true, err
-			}
+	default:
+		selectedWorkload, err := normalizeActiveSlices(ctx, clnt, clk, workloads)
+		if err != nil {
+			return nil, true, err
+		}
+		if selectedWorkload == nil {
+			return nil, true, nil
 		}
 
-		// We consider the new workload slice only when evaluating against the incoming job (pod sets).
-		newCounts := workload.ExtractPodSetCountsFromWorkload(&newWorkload)
+		selectedCounts := workload.ExtractPodSetCountsFromWorkload(selectedWorkload)
 
-		// Check if new workload and job's pod sets are compatible (have the same keys and keys count)
-		if !jobPodSetsCounts.HasSamePodSetKeys(newCounts) {
+		if !jobPodSetsCounts.HasSamePodSetKeys(selectedCounts) {
 			return nil, false, nil
 		}
 
-		// Return an error if the new workload has a reserved quota and we didn't just finish
-		// the old workload due to the replacement annotation.
-		//
-		// A combination of a new workload with a reserved quota and an active old workload is considered an anomaly.
-		// This condition may indicate a race condition or external interference. Specifically, a new workload slice
-		// should never gain a quota reservation without the prior finalization of the old slice.
-		// However, if the new workload was admitted as a replacement (and we just finished the old slice above),
-		// this is the expected cleanup path and not an error.
-		if workload.HasQuotaReservation(&newWorkload) && !newWorkloadAdmittedAsReplacement {
-			return nil, true, errors.New("unexpected combination of old and new workload slices with reserved quota")
+		if jobPodSetsCounts.EqualTo(selectedCounts) {
+			return selectedWorkload, true, nil
 		}
 
-		// If the pod set counts match, return new workload slice.
-		if jobPodSetsCounts.EqualTo(newCounts) {
-			return &newWorkload, true, nil
+		if !workload.HasQuotaReservation(selectedWorkload) || ScaledDown(selectedCounts, jobPodSetsCounts) {
+			workload.ApplyPodSetCounts(selectedWorkload, jobPodSetsCounts)
+			if err := clnt.Update(ctx, selectedWorkload); err != nil {
+				return nil, true, fmt.Errorf("failed to update workload pod set counts: %w", err)
+			}
+			return selectedWorkload, true, nil
 		}
 
-		// Update new workload slice.
-		workload.ApplyPodSetCounts(&newWorkload, jobPodSetsCounts)
-		if err := clnt.Update(ctx, &newWorkload); err != nil {
-			return nil, true, fmt.Errorf("failed to update workload pod set counts: %w", err)
-		}
-		return &newWorkload, true, nil
-	default:
-		// More than two matching slices is unexpected and considered an error.
-		return nil, true, fmt.Errorf("unexpected number of matching workload slices: %d", len(workloads))
+		// Scale-up on admitted selected workload — create a new slice.
+		return nil, true, nil
 	}
+}
+
+// normalizeActiveSlices enforces the workload slice invariant:
+//   - One non-evicted admitted workload (latestWithQuotaReservation)
+//   - At most one non-evicted pending replacement that directly replaces it
+//   - When no non-evicted admitted workload exists, the newest non-evicted
+//     workload is kept
+//   - Evicted workloads are always finished (they hold quota that must be released)
+//
+// The input slice must be sorted oldest-first.
+func normalizeActiveSlices(
+	ctx context.Context,
+	clnt client.Client,
+	clk clock.Clock,
+	workloads []kueue.Workload,
+) (*kueue.Workload, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	var latestWithQuotaReservation, pendingReplacement, latestNonEvicted *kueue.Workload
+	for i := len(workloads) - 1; i >= 0; i-- {
+		wl := &workloads[i]
+		if workload.IsEvicted(wl) {
+			continue
+		}
+		if latestNonEvicted == nil {
+			latestNonEvicted = wl
+		}
+		if workload.HasQuotaReservation(wl) {
+			if latestWithQuotaReservation == nil {
+				latestWithQuotaReservation = wl
+			}
+		}
+	}
+
+	if latestWithQuotaReservation != nil {
+		latestWithQuotaReservationKey := workload.Key(latestWithQuotaReservation)
+		for i := len(workloads) - 1; i >= 0; i-- {
+			wl := &workloads[i]
+			if workload.HasQuotaReservation(wl) || workload.IsEvicted(wl) {
+				continue
+			}
+			if replKey := ReplacementForKey(wl); replKey != nil && *replKey == latestWithQuotaReservationKey {
+				pendingReplacement = wl
+				break
+			}
+		}
+	}
+
+	log.V(3).Info("Classified workload slices",
+		"total", len(workloads),
+		"latestWithQuotaReservation", klog.KObj(latestWithQuotaReservation),
+		"pendingReplacement", klog.KObj(pendingReplacement),
+		"latestNonEvicted", klog.KObj(latestNonEvicted))
+
+	var selectedWorkload *kueue.Workload
+	switch {
+	case pendingReplacement != nil:
+		selectedWorkload = pendingReplacement
+	case latestWithQuotaReservation != nil:
+		selectedWorkload = latestWithQuotaReservation
+	default:
+		selectedWorkload = latestNonEvicted
+	}
+
+	for i := range workloads {
+		wl := &workloads[i]
+		if wl == selectedWorkload || wl == latestWithQuotaReservation {
+			continue
+		}
+		log.V(2).Info("Finishing out-of-sync workload slice", "workload", workload.Key(wl))
+		if err := workload.Finish(ctx, clnt, wl, kueue.WorkloadFinishedReasonOutOfSync,
+			"The workload slice is out of sync with its parent job", clk); err != nil {
+			return nil, err
+		}
+	}
+
+	return selectedWorkload, nil
 }
 
 // StartWorkloadSlicePods identifies pods associated with the provided workload
@@ -283,7 +324,7 @@ func EnsureWorkloadSlices(
 //
 // This function performs the following steps:
 //  1. Lists all pods in the same namespace with the WorkloadSliceNameAnnotation matching
-//     the workload slice name, falling back to OwnerReference UID for backwards compatibility.
+//     the workload slice name.
 //  2. For each pod, removes the ElasticJobSchedulingGate scheduling gate if present.
 //
 // Returns:
@@ -297,17 +338,6 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, wl *kueue.W
 	// are not immediate children of the job).
 	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
 		return fmt.Errorf("failed to list workload slice pods: %w", err)
-	}
-
-	// Fallback to owner reference lookup for backwards compatibility with pods created
-	// before the annotation was introduced.
-	// TODO(sohankunkerkar): remove in 0.18
-	if len(list.Items) == 0 && len(wl.OwnerReferences) > 0 {
-		ownerUID := string(wl.OwnerReferences[0].UID)
-		log.V(4).Info("No pods found with annotation, falling back to owner reference lookup", "ownerUID", ownerUID)
-		if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: ownerUID}); err != nil {
-			return fmt.Errorf("failed to list job pods by owner reference: %w", err)
-		}
 	}
 
 	for i := range list.Items {

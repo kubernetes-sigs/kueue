@@ -88,6 +88,7 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj *rayv1.RayCluster) 
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -149,9 +150,9 @@ func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCl
 			)
 		}
 
-		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
-		if len(spec.WorkerGroupSpecs) > 7 {
-			allErrors = append(allErrors, field.TooMany(specPath.Child("workerGroupSpecs"), len(spec.WorkerGroupSpecs), 7))
+		// Should limit the worker count to max PodSets minus the cluster head.
+		if len(spec.WorkerGroupSpecs) > jobframework.MaxPodSets-1 {
+			allErrors = append(allErrors, field.TooMany(specPath.Child("workerGroupSpecs"), len(spec.WorkerGroupSpecs), jobframework.MaxPodSets-1))
 		}
 
 		// None of the workerGroups should be named "head"

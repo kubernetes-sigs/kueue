@@ -415,12 +415,22 @@ const (
 	// disabled, the label-based identifiers are used instead.
 	WorkloadIdentifierAnnotations featuregate.Feature = "WorkloadIdentifierAnnotations"
 
+<<<<<<< feature/metric-per-flavor
 	// owner: @polinasand
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/11644
 	//
 	// Whern enabled, metrics for Kueue active admitted and pending workloads count by flavor
 	// are populated by clusterqueue.
 	KueueAdmittedAndPendingWorkloadsCountByFlavor featuregate.Feature = "KueueAdmittedAndPendingWorkloadsCountByFlavor"
+=======
+	// owner: @atosatto
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/10765-workload-priority-class-defaulting
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10765
+	// Enable defaulting of WorkloadPriorityClass to a WorkloadPriorityClass
+	// named "default" when no explicit priority class label is set.
+	WorkloadPriorityClassDefaulting featuregate.Feature = "WorkloadPriorityClassDefaulting"
+>>>>>>> main
 )
 
 func init() {
@@ -504,6 +514,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ElasticJobsViaWorkloadSlices: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ElasticJobsViaWorkloadSlicesWithTAS: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
@@ -633,7 +644,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	FinishOrphanedWorkloads: {
-		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ConcurrentAdmission: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
@@ -653,8 +664,13 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	WorkloadIdentifierAnnotations: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
+<<<<<<< feature/metric-per-flavor
 	KueueAdmittedAndPendingWorkloadsCountByFlavor: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Beta},
+=======
+	WorkloadPriorityClassDefaulting: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+>>>>>>> main
 	},
 }
 
