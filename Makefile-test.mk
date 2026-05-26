@@ -149,9 +149,17 @@ test-e2e-baseline-helm: test-e2e-baseline
 test-e2e-extended-helm: E2E_USE_HELM=true
 test-e2e-extended-helm: test-e2e-extended
 
-test-multikueue-e2e-main: E2E_NPROCS := 5
 .PHONY: test-multikueue-e2e-main
-test-multikueue-e2e-main: setup-e2e-env kind-ray-project-mini-image-build run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e-main: test-multikueue-e2e-baseline test-multikueue-e2e-extended
+
+.PHONY: test-multikueue-e2e-baseline
+test-multikueue-e2e-baseline: E2E_NPROCS := 5
+test-multikueue-e2e-baseline: setup-e2e-env run-test-multikueue-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-multikueue-e2e-extended
+test-multikueue-e2e-extended: export USE_RAY_FOR_TESTS="ray"
+test-multikueue-e2e-extended: E2E_NPROCS := 5
+test-multikueue-e2e-extended: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-sequential
 test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -282,9 +290,23 @@ run-test-e2e-extended-%:
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
-run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
-run-test-multikueue-e2e-%:
-	@echo Running multikueue e2e for k8s ${K8S_VERSION}
+run-test-multikueue-e2e-baseline-%: K8S_VERSION = $(@:run-test-multikueue-e2e-baseline-%=%)
+run-test-multikueue-e2e-baseline-%:
+	@echo Running baseline multikueue e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_TARGET_FOLDER="multikueue/baseline" \
+		E2E_CONFIG_FOLDER="multikueue/baseline" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-multikueue-test.sh
+
+run-test-multikueue-e2e-extended-%: K8S_VERSION = $(@:run-test-multikueue-e2e-extended-%=%)
+run-test-multikueue-e2e-extended-%:
+	@echo Running extended multikueue e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
 		E2E_MODE=$(E2E_MODE) \
@@ -295,6 +317,8 @@ run-test-multikueue-e2e-%:
 		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
 		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
+		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		E2E_TARGET_FOLDER="multikueue/extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
