@@ -1999,7 +1999,7 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, client cli
 	ginkgo.GinkgoHelper()
 	createdWorkload := &kueue.Workload{}
 	var workerName string
-	util.ExpectWorkloadsToBeAdmittedByKeys(ctx, client, wlLookupKey)
+	util.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, client, util.MediumTimeout, wlLookupKey)
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(client.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 		admissionCheckMessage := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName)).Message
