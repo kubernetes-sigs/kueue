@@ -414,6 +414,13 @@ const (
 	// (pod-group-name and prebuilt-workload-name) via annotations. When the gate is
 	// disabled, the label-based identifiers are used instead.
 	WorkloadIdentifierAnnotations featuregate.Feature = "WorkloadIdentifierAnnotations"
+
+	// owner: @polinasand
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/11644
+	//
+	// Whern enabled, metrics for Kueue active admitted and pending workloads count by flavor
+	// are populated by clusterqueue.
+	KueueAdmittedAndPendingWorkloadsCountByFlavor featuregate.Feature = "KueueAdmittedAndPendingWorkloadsCountByFlavor"
 )
 
 func init() {
@@ -645,6 +652,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	WorkloadIdentifierAnnotations: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	KueueAdmittedAndPendingWorkloadsCountByFlavor: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Beta},
 	},
 }
 

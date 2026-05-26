@@ -518,8 +518,10 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	}
 	metrics.ReportAdmittedActiveWorkloads(c.Name, c.admittedWorkloadsCount, c.customMetricLabelValues, c.roleTracker)
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), c.customMetricLabelValues, c.roleTracker)
-	for fr, q := range c.admittedWorkloadsCountByFlavor {
-		metrics.ReportFlavorAdmittedActiveWorkloads(c.Name, fr, q, c.customMetricLabelValues, c.roleTracker)
+	if features.Enabled(features.KueueAdmittedAndPendingWorkloadsCountByFlavor) {
+		for fr, q := range c.admittedWorkloadsCountByFlavor {
+			metrics.ReportFlavorAdmittedActiveWorkloads(c.Name, fr, q, c.customMetricLabelValues, c.roleTracker)
+		}
 	}
 }
 
