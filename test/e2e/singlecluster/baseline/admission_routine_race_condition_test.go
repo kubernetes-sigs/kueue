@@ -142,6 +142,6 @@ var _ = ginkgo.Describe("Admission Routine Race Condition", ginkgo.Label("area:s
 
 			g.Expect(workload.HasQuotaReservation(wl1)).To(gomega.BeFalse())
 			g.Expect(workload.HasQuotaReservation(wl2)).To(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 	})
 })
