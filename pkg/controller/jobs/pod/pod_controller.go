@@ -463,6 +463,15 @@ func (p *Pod) PodsReady(ctx context.Context) bool {
 		return hasPodReadyTrue(p.pod.Status.Conditions)
 	}
 
+	tc, err := p.groupTotalCount()
+	if err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to get group total count for PodsReady check")
+		return false
+	}
+	if len(p.list.Items) < tc {
+		return false
+	}
+
 	for i := range p.list.Items {
 		if !hasPodReadyTrue(p.list.Items[i].Status.Conditions) {
 			return false
