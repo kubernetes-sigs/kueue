@@ -63,8 +63,12 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		if shouldSkipSyncForSuspendedLocalJob(log, &localJob, &remoteJob) {
+		action := syncActionForSuspendedLocalJob(log, &localJob, &remoteJob)
+		if action == skipSync {
 			return nil
+		}
+		if action == skipSyncAndRetryLater {
+			return jobframework.ErrPendingUnsuspend
 		}
 
 		if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
@@ -102,58 +106,59 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func jobSuspendedConditionStatus(job *batchv1.Job) *corev1.ConditionStatus {
+func hasJobSuspendedCondition(job *batchv1.Job) bool {
 	for i := range job.Status.Conditions {
-		if job.Status.Conditions[i].Type == batchv1.JobSuspended {
-			return &job.Status.Conditions[i].Status
+		if job.Status.Conditions[i].Type == batchv1.JobSuspended && job.Status.Conditions[i].Status == corev1.ConditionTrue {
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
-func shouldSkipSyncForSuspendedLocalJob(log logr.Logger, localJob, remoteJob *batchv1.Job) bool {
+type syncAction int
+
+const (
+	syncJob syncAction = iota
+	skipSync
+	skipSyncAndRetryLater
+)
+
+func syncActionForSuspendedLocalJob(log logr.Logger, localJob, remoteJob *batchv1.Job) syncAction {
 	localJobInfo := fromObject(localJob)
 
-	log.V(2).Info("Checking shouldSkipSyncForSuspendedLocalJob", "localJob", localJob, "remoteJob", remoteJob)
+	log.V(2).Info("Checking syncActionForSuspendedLocalJob", "localJob", localJob, "remoteJob", remoteJob)
 	if !localJobInfo.IsSuspended() {
 		// Do not skip any syncs if the local Job is unsuspended
 		log.V(3).Info("Performing the sync as the local Job is unsuspended")
-		return false
-	}
-
-	remoteConditionStatus := jobSuspendedConditionStatus(remoteJob)
-	localConditionStatus := jobSuspendedConditionStatus(localJob)
-
-	// If the remote Job has the JobSuspended condition (with any status), but the local Job does not,
-	// we must perform status synchronization to propagate the condition type. This ensures the local Job status
-	// is bootstrapped with the condition type before unsuspending, satisfying Kubernetes 1.36+ validation.
-	if remoteConditionStatus != nil && localConditionStatus == nil {
-		log.V(3).Info("Performing the sync to bootstrap the JobSuspended condition type to the local Job status")
-		return false
+		return syncJob
 	}
 
 	remoteJobInfo := fromObject(remoteJob)
 	if !remoteJobInfo.IsSuspended() {
 		// We skip the sync when the local Job is suspended but the remote Job is not
-		// to prevent the race condition when the local Job is updated to suspend=false prematurely
-		// so that the injection of nodeSelectors does not work (PR #3685)
-		log.V(2).Info("Skipping the sync for suspended local Job when remote Job is unsuspended")
-		return true
+		// to prevent the race condition when the local Job gets a non-zero .Status.StartTime prematurely
+		// so that the injection of nodeSelectors does not work (PR #3685).
+		// In this case, a sync will ultimately happen, once the local job gets admitted
+		// (when MultiKueue notices an admitted remote) and consequently unsuspended.
+		// We return skipSyncAndRetryLater so that the reconciler retries the sync after a short delay,
+		// allowing time for the local Job controller to unsuspend the local Job.
+		log.V(2).Info("Skipping the sync for suspended local Job when remote Job is unsuspended; retrying later")
+		return skipSyncAndRetryLater
 	}
 
 	// If both the local and remote Jobs are suspended:
 	// We only need to perform the status synchronization if there is a meaningful difference to propagate:
 	// 1. The remote Job has the JobSuspended=True condition, but the local Job does not yet.
 	// 2. The remote Job has reached 0 active pods, but the local Job still reports active or ready pods (needed for eviction).
-	conditionTrigger := ptr.Deref(remoteConditionStatus, "") == corev1.ConditionTrue && ptr.Deref(localConditionStatus, "") != corev1.ConditionTrue
+	conditionTrigger := hasJobSuspendedCondition(remoteJob) && !hasJobSuspendedCondition(localJob)
 	inactiveTrigger := !remoteJobInfo.IsActive() && localJobInfo.IsActive()
 
 	if conditionTrigger || inactiveTrigger {
 		log.V(3).Info("Performing the sync to propagate the status from a fully suspended remote Job", "conditionTrigger", conditionTrigger, "inactiveTrigger", inactiveTrigger)
-		return false
+		return syncJob
 	}
 	log.V(3).Info("Skipping the sync as the suspended status is already fully synchronized")
-	return true
+	return skipSync
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {

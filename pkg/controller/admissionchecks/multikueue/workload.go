@@ -359,6 +359,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 		if group.jobAdapter != nil {
 			if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[remote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
+				if errors.Is(err, jobframework.ErrPendingUnsuspend) {
+					log.V(3).Info("Local Job is pending unsuspension, requeuing", "workload", klog.KObj(group.local))
+					return reconcile.Result{RequeueAfter: jobframework.MultiKueuePendingUnsuspendRetryPeriod}, nil
+				}
 				log.V(2).Error(err, "copying remote controller status", "workerCluster", remote)
 				// we should retry this
 				return reconcile.Result{}, err
@@ -383,6 +387,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		// workload evicted on manager cluster
 		if workload.IsEvicted(group.local) {
 			if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
+				if errors.Is(err, jobframework.ErrPendingUnsuspend) {
+					log.V(3).Info("Local Job is pending unsuspension, requeuing", "workload", klog.KObj(group.local))
+					return reconcile.Result{RequeueAfter: jobframework.MultiKueuePendingUnsuspendRetryPeriod}, nil
+				}
 				log.Error(err, "Syncing remote controller object")
 				// We'll retry this in the next reconciling.
 				return reconcile.Result{}, err
@@ -492,6 +500,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
+			if errors.Is(err, jobframework.ErrPendingUnsuspend) {
+				log.V(3).Info("Local Job is pending unsuspension, requeuing", "workload", klog.KObj(group.local))
+				return reconcile.Result{RequeueAfter: jobframework.MultiKueuePendingUnsuspendRetryPeriod}, nil
+			}
 			log.Error(err, "Syncing remote controller object")
 			// We'll retry this in the next reconciling.
 			return reconcile.Result{}, err

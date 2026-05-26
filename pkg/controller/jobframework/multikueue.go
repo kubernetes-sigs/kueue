@@ -18,6 +18,8 @@ package jobframework
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -26,6 +28,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
+
+var ErrPendingUnsuspend = errors.New("local object is pending unsuspension")
+
+const MultiKueuePendingUnsuspendRetryPeriod = 200 * time.Millisecond
 
 // MultiKueueAdapter interface needed for MultiKueue job delegation.
 type MultiKueueAdapter interface {
