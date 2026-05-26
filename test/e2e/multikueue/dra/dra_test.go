@@ -269,7 +269,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 						Status: corev1.ConditionTrue,
 					},
 					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("Job", createdJob))
 		})
 
 		ginkgo.It("Should handle workload when ResourceClaimTemplate is missing on worker", func() {
