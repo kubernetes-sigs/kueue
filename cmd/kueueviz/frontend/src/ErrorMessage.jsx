@@ -20,13 +20,23 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import './App.css';
 
+/**
+ * Converts an error of any type to a displayable string.
+ * Handles plain strings, Error objects, and arbitrary objects/events.
+ */
+export const errorToString = (error) => {
+  if (typeof error === 'string') return error;
+  if (error && typeof error.message === 'string' && error.message.length > 0) return error.message;
+  return JSON.stringify(error);
+};
+
 const ErrorMessage = ({ error }) => {
   const [expanded, setExpanded] = useState(false);
   
   if (!error) return null;
 
   // Extract the first line as the summary
-  const errorString = typeof error === 'string' ? error : (error.message || JSON.stringify(error));
+  const errorString = errorToString(error);
   const lines = errorString.split('\n');
   const errorSummary = lines[0];
   
