@@ -123,17 +123,16 @@ func determineStatusUpdate(log logr.Logger, localJob, remoteJob *batchv1.Job) *b
 	}
 	if localJob.Status.StartTime == nil {
 		newLocalStatus := localJob.Status.DeepCopy()
-		newConditions, updated := ensureJobConditionStatus(newLocalStatus.Conditions,
+		newLocalStatus.Active = 0
+		newConditions, _ := ensureJobConditionStatus(newLocalStatus.Conditions,
 			batchv1.JobSuspended,
 			corev1.ConditionTrue,
 			"MultiKueueAdapted",
 			"Set by MultiKueue adapted",
 			time.Now())
-		if updated {
-			log.V(2).Info("Updating the localJob suspended Job without startTime to set the JobSuspended=True condition")
-			newLocalStatus.Conditions = newConditions
-			return newLocalStatus
-		}
+		log.V(2).Info("Updating the localJob suspended Job without startTime to set the JobSuspended=True condition")
+		newLocalStatus.Conditions = newConditions
+		return newLocalStatus
 	}
 
 	// We skip the sync when the localJob has suspend=true, and the remote job is suspend=false
