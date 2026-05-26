@@ -20,9 +20,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -115,7 +117,20 @@ func shouldSkipSyncForSuspendedLocalJob(log logr.Logger, localJob, remoteJob *ba
 		// This is needed to await for updating the status.active field
 		// when the remote Job is evicted; see: https://github.com/kubernetes-sigs/kueue/pull/8151
 		log.V(3).Info("Peforming the sync as the local and the remote Job are suspended")
-		return false
+		return &remoteJob.Status
+	}
+	if localJob.Status.StartTime == nil {
+		newLocalStatus := localJob.Status.DeepCopy()
+		newLocalStatus.Active = 0
+		newConditions, _ := ensureJobConditionStatus(newLocalStatus.Conditions,
+			batchv1.JobSuspended,
+			corev1.ConditionTrue,
+			"MultiKueueAdapted",
+			"Set by MultiKueue adapted",
+			time.Now())
+		log.V(2).Info("Updating the localJob suspended Job without startTime to set the JobSuspended=True condition")
+		newLocalStatus.Conditions = newConditions
+		return newLocalStatus
 	}
 
 	// We skip the sync when the localJob has suspend=true, and the remote job is suspend=false
