@@ -261,13 +261,15 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 			createdJob := &batchv1.Job{}
-			gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-			gomega.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
-				batchv1.JobCondition{
-					Type:   batchv1.JobComplete,
-					Status: corev1.ConditionTrue,
-				},
-				cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
+			gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+				gomega.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+					batchv1.JobCondition{
+						Type:   batchv1.JobComplete,
+						Status: corev1.ConditionTrue,
+					},
+					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should handle workload when ResourceClaimTemplate is missing on worker", func() {
