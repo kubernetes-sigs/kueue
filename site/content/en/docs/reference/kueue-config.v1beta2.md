@@ -137,6 +137,14 @@ integrations (including K8S job).</p>
    <p>Resources provides additional configuration options for handling the resources.</p>
 </td>
 </tr>
+<tr><td><code>runtime</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-RuntimeConfig"><code>RuntimeConfig</code></a>
+</td>
+<td>
+   <p>Runtime configures Go runtime settings for the kueue controller, such as
+automatic memory limits derived from the container's cgroup or system memory.</p>
+</td>
+</tr>
 <tr><td><code>featureGates</code> <B>[Required]</B><br/>
 <code>map[string]bool</code>
 </td>
@@ -1175,6 +1183,44 @@ This is intended to be a map with Input as the key (enforced by validation code)
 <td>
    <p>DeviceClassMappings defines mappings from device classes to logical resources
 for Dynamic Resource Allocation support.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `RuntimeConfig`     {#config-kueue-x-k8s-io-v1beta2-RuntimeConfig}
+    
+
+**Appears in:**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
+
+
+<p>RuntimeConfig holds Go runtime tuning options for the kueue controller process.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>memlimitRatio</code><br/>
+<a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
+</td>
+<td>
+   <p>MemlimitRatio sets GOMEMLIMIT to the given ratio of the container's memory
+limit (detected via cgroup, with a fallback to total system memory).
+This helps the Go runtime stay within container memory bounds, reducing
+the risk of OOMKill.</p>
+<p>Valid values are in the range [0, 1]:</p>
+<ul>
+<li>A value of 0 (or unset) disables automatic memory limit tuning.</li>
+<li>A value of 1 uses the full container memory limit as GOMEMLIMIT.</li>
+<li>A value between 0 and 1 uses that fraction; for example, 0.9 sets
+GOMEMLIMIT to 90% of the container memory limit, leaving headroom
+for non-Go overhead.</li>
+</ul>
+<p>Values outside [0, 1] are clamped to the nearest boundary.</p>
 </td>
 </tr>
 </tbody>

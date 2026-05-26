@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/kueue/internal/goruntime" // Auto GOMEMLIMIT tuning from cgroup/system memory
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -164,6 +165,14 @@ func main() {
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit, "buildDate", version.BuildDate)
 
 	features.LogFeatureGates(setupLog)
+
+	// Automatically set GOMEMLIMIT based on the container's memory limit (detected
+	// via cgroup, with a fallback to system memory) and the configured ratio.
+	// This helps the Go runtime stay within container memory bounds, reducing the
+	// risk of OOMKill. When MemlimitRatio is 0 or unset, auto memory limit is disabled.
+	if cfg.Runtime != nil && cfg.Runtime.MemlimitRatio != nil {
+		goruntime.SetMemLimit(setupLog, cfg.Runtime.MemlimitRatio.AsApproximateFloat64())
+	}
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:

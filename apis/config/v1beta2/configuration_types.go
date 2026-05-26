@@ -20,6 +20,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
@@ -96,6 +97,11 @@ type Configuration struct {
 
 	// Resources provides additional configuration options for handling the resources.
 	Resources *Resources `json:"resources,omitempty"`
+
+	// Runtime configures Go runtime settings for the kueue controller, such as
+	// automatic memory limits derived from the container's cgroup or system memory.
+	// +optional
+	Runtime *RuntimeConfig `json:"runtime,omitempty"`
 
 	// FeatureGates is a map of feature names to bools that allows to override the
 	// default enablement status of a feature. The map cannot be used in conjunction
@@ -670,4 +676,23 @@ type VisibilityServerConfiguration struct {
 	// Defaults to 8082.
 	// +optional
 	BindPort *int32 `json:"bindPort,omitempty"`
+}
+
+// RuntimeConfig holds Go runtime tuning options for the kueue controller process.
+type RuntimeConfig struct {
+	// MemlimitRatio sets GOMEMLIMIT to the given ratio of the container's memory
+	// limit (detected via cgroup, with a fallback to total system memory).
+	// This helps the Go runtime stay within container memory bounds, reducing
+	// the risk of OOMKill.
+	//
+	// Valid values are in the range [0, 1]:
+	//   - A value of 0 (or unset) disables automatic memory limit tuning.
+	//   - A value of 1 uses the full container memory limit as GOMEMLIMIT.
+	//   - A value between 0 and 1 uses that fraction; for example, 0.9 sets
+	//     GOMEMLIMIT to 90% of the container memory limit, leaving headroom
+	//     for non-Go overhead.
+	//
+	// Values outside [0, 1] are clamped to the nearest boundary.
+	// +optional
+	MemlimitRatio *apiresource.Quantity `json:"memlimitRatio,omitempty"`
 }
