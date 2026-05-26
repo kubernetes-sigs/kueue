@@ -1365,6 +1365,17 @@ func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWor
 	return newWorkload
 }
 
+// FindNonFinishedWorkloads returns the subset of workloads that are not finished.
+func FindNonFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
+	var active []kueue.Workload
+	for i := range workloads {
+		if !workload.IsFinished(&workloads[i]) {
+			active = append(active, workloads[i])
+		}
+	}
+	return active
+}
+
 // ExpectWorkloadSliceAdmittedBeforeOldFinished watches workload events and asserts
 // that the old workload slice is not marked Finished before the new slice is Admitted.
 // The watcher must be started before the scale-up that triggers the replacement.
