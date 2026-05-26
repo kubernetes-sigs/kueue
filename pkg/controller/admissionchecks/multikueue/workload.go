@@ -258,15 +258,17 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.Admi
 	clients := make(map[string]*remoteClient, len(cfg.Spec.Clusters))
 	for _, clusterName := range cfg.Spec.Clusters {
 		if client, found := w.clusters.controllerFor(clusterName); found {
-			// Skip the client if its reconnect is ongoing.
-			if !client.connecting.Load() {
+			// Skip the client if its reconnect is ongoing or it is disconnected.
+			if !client.connecting.Load() && !client.disconnected.Load() {
 				clients[clusterName] = client
 			}
 		}
 	}
-	if len(clients) == 0 {
-		return nil, admissioncheck.ErrNoActiveClusters
-	}
+	// Return an empty map (rather than an error) when all configured clusters
+	// are disconnected or reconnecting. This allows readGroup to construct an
+	// empty group, so reconcileGroup can apply the workerLostTimeout delay via
+	// the existing "reserving remote lost" branch instead of failing with
+	// ErrNoActiveClusters and retrying via controller-runtime backoff.
 	return clients, nil
 }
 
