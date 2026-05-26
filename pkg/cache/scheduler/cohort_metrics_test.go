@@ -113,12 +113,12 @@ func TestRecordCohortMetrics_Guards(t *testing.T) {
 					{
 						cohort: cohortLeft,
 						fr:     fr,
-						quota:  resourceFloat(fr.Resource, cache.hm.Cohort(cohortLeft).resourceNode.SubtreeQuota[fr]),
+						quota:  resourceFloat(fr.Resource, cache.hm.Cohort(cohortLeft).resourceNode.SubtreeQuota[fr].Int64()),
 					},
 					{
 						cohort: cohortRoot,
 						fr:     fr,
-						quota:  resourceFloat(fr.Resource, cache.hm.Cohort(cohortRoot).resourceNode.SubtreeQuota[fr]),
+						quota:  resourceFloat(fr.Resource, cache.hm.Cohort(cohortRoot).resourceNode.SubtreeQuota[fr].Int64()),
 					},
 				}
 			},
@@ -615,7 +615,7 @@ type usageChange struct {
 // to its Cohort.
 func addTestUsage(cache *Cache, fr []usageChange) {
 	for _, val := range fr {
-		cache.hm.ClusterQueue(val.cqName).resourceNode.Usage[val.fr] = val.val
+		cache.hm.ClusterQueue(val.cqName).resourceNode.Usage[val.fr] = resources.NewAmount(val.val)
 	}
 }
 

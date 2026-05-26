@@ -625,7 +625,7 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
 			return false
 		}
-		if v > preemptionCtx.preemptorCQ.Available(fr) {
+		if v.Cmp(preemptionCtx.preemptorCQ.Available(fr)) > 0 {
 			return false
 		}
 	}
@@ -649,7 +649,7 @@ func workloadFitsForFairSharing(preemptionCtx *preemptionCtx) bool {
 // for all flavor-resources needing preemption.
 func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {
 	for fr := range preemptionCtx.frsNeedPreemption {
-		if preemptionCtx.preemptorCQ.ResourceNode.Usage[fr] >= preemptionCtx.preemptorCQ.QuotaFor(fr).Nominal {
+		if preemptionCtx.preemptorCQ.QuotaFor(fr).Nominal.Cmp(preemptionCtx.preemptorCQ.ResourceNode.Usage[fr]) <= 0 {
 			return false
 		}
 	}

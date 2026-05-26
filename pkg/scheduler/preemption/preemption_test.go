@@ -52,7 +52,7 @@ import (
 var snapCmpOpts = cmp.Options{
 	// ignore zero values during comparison, as we consider
 	// zero FlavorResource usage to be same as no map entry.
-	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v int64) bool { return v == 0 }),
+	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v resources.Amount) bool { return v.CmpInt64(0) == 0 }),
 	cmp.AllowUnexported(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
 	cmpopts.IgnoreFields(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}, "cohortFactory"),
 	cmpopts.IgnoreFields(schdcache.CohortSnapshot{}, "Cohort"),
