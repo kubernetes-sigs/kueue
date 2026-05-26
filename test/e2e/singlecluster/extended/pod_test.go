@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 
 			ginkgo.By("Deleting finished Pods", func() {
 				for _, p := range group {
-					gomega.Expect(k8sClient.Delete(ctx, p)).To(gomega.Succeed())
+					gomega.Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, p))).To(gomega.Succeed())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, p := range group {
@@ -406,7 +406,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 			ginkgo.By("Deleting finished Pods", func() {
 				for _, p := range group {
-					gomega.Expect(k8sClient.Delete(ctx, p)).To(gomega.Succeed())
+					gomega.Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, p))).To(gomega.Succeed())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, p := range group {
@@ -633,8 +633,9 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			ginkgo.By("Ensure the pod is deleted", func() {
 				var p corev1.Pod
 				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
-				gomega.Expect(k8sClient.Get(ctx, pKey, &p)).To(gomega.Succeed())
-				gomega.Expect(k8sClient.Delete(ctx, &p)).To(gomega.Succeed())
+				if client.IgnoreNotFound(k8sClient.Get(ctx, pKey, &p)) == nil {
+					gomega.Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &p))).To(gomega.Succeed())
+				}
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, pKey, &corev1.Pod{})).To(utiltesting.BeNotFoundError())
