@@ -538,6 +538,16 @@ func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, w
 
 func ExpectWorkloadsToBeAdmittedByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
+	expectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, Timeout, wlKeys...)
+}
+
+func ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx context.Context, k8sClient client.Client, timeout time.Duration, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	expectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, timeout, wlKeys...)
+}
+
+func expectWorkloadsToBeAdmittedByKeysWithTimeout(ctx context.Context, k8sClient client.Client, timeout time.Duration, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
 	wlKeys = uniqueKeys(wlKeys)
 	wlObjects := make([]*kueue.Workload, len(wlKeys))
 	gomega.Eventually(func(g gomega.Gomega) {
@@ -545,7 +555,7 @@ func ExpectWorkloadsToBeAdmittedByKeys(ctx context.Context, k8sClient client.Cli
 		admitted := filter(all, workload.IsAdmitted)
 		copy(wlObjects, all)
 		g.Expect(workloadKeys(admitted)).Should(gomega.Equal(wlKeys))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are admitted", wlObjects...))
+	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are admitted", wlObjects...))
 }
 
 func ExpectWorkloadsToBeAdmittedCount(ctx context.Context, k8sClient client.Client, count int, wls ...*kueue.Workload) {
@@ -1630,7 +1640,7 @@ func ExpectObjectToBeDeletedOnClusters[PtrT objAsPtr[T], T any](ctx context.Cont
 func ExpectWorkloadAdmittedWithCheck(ctx context.Context, wlLookupKey types.NamespacedName, acName, clusterName string, client client.Client) {
 	ginkgo.GinkgoHelper()
 	ginkgo.By(fmt.Sprintf("Waiting to be admitted in %s and manager clusters", clusterName))
-	ExpectWorkloadsToBeAdmittedByKeys(ctx, client, wlLookupKey)
+	ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, client, MediumTimeout, wlLookupKey)
 	ExpectAdmissionCheckStateWithMessage(
 		ctx, client, wlLookupKey,
 		acName,
