@@ -206,8 +206,18 @@ test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:
 ##   Run only Admission Fair Sharing tests: GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequential-baseline
 ##   Run only Certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e-sequential-baseline
 ##   Run only Failure Recovery Policy tests: GINKGO_ARGS="--label-filter=feature:failurerecoverypolicy" make test-e2e-sequential-baseline
+##   Run only shard 0 tests: make test-e2e-sequential-baseline-shard-0
+##   Run only shard 1 tests: make test-e2e-sequential-baseline-shard-1
 .PHONY: test-e2e-sequential-baseline
 test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-sequential-baseline-shard-0
+test-e2e-sequential-baseline-shard-0: GINKGO_ARGS=--label-filter=shard-0
+test-e2e-sequential-baseline-shard-0: test-e2e-sequential-baseline
+
+.PHONY: test-e2e-sequential-baseline-shard-1
+test-e2e-sequential-baseline-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-e2e-sequential-baseline-shard-1: test-e2e-sequential-baseline
 
 .PHONY: test-e2e-sequential-baseline-helm
 test-e2e-sequential-baseline-helm: E2E_USE_HELM=true
