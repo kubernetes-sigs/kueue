@@ -537,21 +537,23 @@ print([ray.get(my_task.remote(i, 1)) for i in range(64)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayJob cluster did not become ready", createdRayJob))
 		})
 
-		ginkgo.By("Waiting for 3 pods in rayjob namespace", func() {
-			// 3 rayjob pods: head, worker, submitter job
+		// The Ray autoscaler can scale workers past minReplicas before the RayJob
+		// transitions to JobDeploymentStatusRunning, so the initial pod and worker
+		// counts are lower bounds rather than exact values (see issue #11582).
+		ginkgo.By("Waiting for at least 3 pods in rayjob namespace", func() {
+			// at least head + worker + submitter job
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(podList.Items).To(gomega.HaveLen(3), "Expected exactly 3 pods in rayjob namespace")
+				g.Expect(len(podList.Items)).To(gomega.BeNumerically(">=", 3), "Expected at least 3 pods in rayjob namespace")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for exactly 1 worker pod", func() {
-			podList := &corev1.PodList{}
+		ginkgo.By("Waiting for at least 1 worker pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workerPodNames := getRunningRayWorkerPodNames(g)
-				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pod with 'workers' in the name")
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 worker pod", podList))
+				g.Expect(workerPodNames).ToNot(gomega.BeEmpty(), "Expected at least 1 pod with 'workers' in the name")
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), "Expected at least 1 worker pod")
 		})
 
 		ginkgo.By("Waiting for exactly 1 non-finished admitted workload", func() {
@@ -565,11 +567,10 @@ print([ray.get(my_task.remote(i, 1)) for i in range(64)])`,
 		})
 
 		ginkgo.By("Waiting for second scale-up to 5 workers due to high parallelism tasks", func() {
-			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				currentPodNames := getRunningRayWorkerPodNames(g)
 				g.Expect(currentPodNames).To(gomega.HaveLen(5), "Expected exactly 5 pods with 'workers' in the name after second scale-up")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Did not scale up to 5 worker pods", podList))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), "Did not scale up to 5 worker pods")
 		})
 
 		ginkgo.By("Checking podset-replica-sizes annotation is set on the RayJob after second scale-up", func() {
