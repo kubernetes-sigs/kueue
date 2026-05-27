@@ -125,7 +125,13 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 			jobframework.EnableIntegration(job.FrameworkName)
 		}
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations, nil)
+		failedCtrl, err := core.SetupControllers(
+			mgr,
+			queues,
+			cCache,
+			controllersCfg,
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
@@ -140,7 +146,13 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if opts.runScheduler {
-			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+			sched := scheduler.New(
+				queues,
+				cCache,
+				mgr.GetClient(),
+				mgr.GetEventRecorder(constants.AdmissionName),
+				scheduler.WithPreemptionExpectations(preemptionExpectations),
+			)
 			err = sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

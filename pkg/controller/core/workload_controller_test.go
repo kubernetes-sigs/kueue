@@ -3386,10 +3386,12 @@ func TestReconcile(t *testing.T) {
 							DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
 						},
 					}
-					err := dra.CreateMapperFromConfiguration(draConfig)
+					draMapper := dra.NewResourceMapper()
+					err := draMapper.PopulateFromConfiguration(draConfig)
 					if err != nil {
 						t.Fatalf("Failed to initialize DRA mapper: %v", err)
 					}
+					reconciler.draMapper = draMapper
 				}
 
 				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})

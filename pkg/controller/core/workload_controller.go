@@ -140,6 +140,12 @@ func WithAdmissionFairSharing(value *config.AdmissionFairSharing) Option {
 	}
 }
 
+func WithDRAMapper(value *dra.ResourceMapper) Option {
+	return func(r *WorkloadReconciler) {
+		r.draMapper = value
+	}
+}
+
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
@@ -156,6 +162,7 @@ type WorkloadReconciler struct {
 	clock                  clock.Clock
 	workloadRetention      *workloadRetentionConfig
 	draReconcileChannel    chan event.TypedGenericEvent[*kueue.Workload]
+	draMapper              *dra.ResourceMapper
 	admissionFSConfig      *config.AdmissionFairSharing
 	roleTracker            *roletracker.RoleTracker
 	preemptionExpectations *expectations.Store
@@ -315,7 +322,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		log.V(3).Info("Processing DRA resources for workload")
 
 		// Process ResourceClaimTemplates (existing DRA path)
-		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, &wl)
+		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, r.draMapper, &wl)
 		if len(fieldErrs) > 0 {
 			err := fieldErrs.ToAggregate()
 			log.Error(err, "Failed to process DRA resources for workload")
@@ -337,7 +344,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		var replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
 		if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 			var extFieldErrs field.ErrorList
-			extendedResources, replacedExtendedResources, extFieldErrs = dra.ResolveExtendedResourceQuota(ctx, r.client, &wl)
+			extendedResources, replacedExtendedResources, extFieldErrs = dra.ResolveExtendedResourceQuota(ctx, r.client, r.draMapper, &wl)
 			if len(extFieldErrs) > 0 {
 				err := extFieldErrs.ToAggregate()
 				log.Error(err, "Failed to process DRA extended resources for workload")
