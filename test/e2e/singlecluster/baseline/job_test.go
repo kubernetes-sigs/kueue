@@ -242,7 +242,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
 			})
 
-			gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: new(metav1.DeletePropagationOrphan)})).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationOrphan)})).To(gomega.Succeed())
 
 			createdWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
