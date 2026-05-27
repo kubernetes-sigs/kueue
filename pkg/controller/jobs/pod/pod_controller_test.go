@@ -64,36 +64,66 @@ type keyUIDs struct {
 }
 
 func TestPodsReady(t *testing.T) {
+	readyCond := corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}
+	readyPod := func(name string) corev1.Pod {
+		return *testingpod.MakePod(name, "test-ns").StatusConditions(readyCond).Obj()
+	}
+	pendingPod := func(name string) corev1.Pod {
+		return *testingpod.MakePod(name, "test-ns").Obj()
+	}
+	makePodGroup := func(totalCount string, pods ...corev1.Pod) *Pod {
+		driver := testingpod.MakePod("driver", "test-ns").
+			GroupNameLabel("test-group").
+			GroupTotalCount(totalCount)
+		return &Pod{
+			pod:     *driver.Obj(),
+			isGroup: true,
+			list:    corev1.PodList{Items: pods},
+		}
+	}
+
 	testCases := map[string]struct {
-		pod  *corev1.Pod
+		pod  *Pod
 		want bool
 	}{
-		"pod is ready": {
-			pod: testingpod.MakePod("test-pod", "test-ns").
-				Queue("test-queue").
-				StatusConditions(
-					corev1.PodCondition{
-						Type:   corev1.PodReady,
-						Status: corev1.ConditionTrue,
-					},
-				).
-				Obj(),
+		"single pod is ready": {
+			pod:  FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").StatusConditions(readyCond).Obj()),
 			want: true,
 		},
-		"pod is not ready": {
-			pod: testingpod.MakePod("test-pod", "test-ns").
-				Queue("test-queue").
-				StatusConditions().
-				Obj(),
+		"single pod is not ready": {
+			pod:  FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").Obj()),
+			want: false,
+		},
+		"pod group with all pods ready": {
+			pod:  makePodGroup("3", readyPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			want: true,
+		},
+		"pod group with fewer pods than expected": {
+			pod:  makePodGroup("3", readyPod("driver")),
+			want: false,
+		},
+		"pod group with all pods present but not all ready": {
+			pod:  makePodGroup("3", readyPod("driver"), pendingPod("worker-1"), pendingPod("worker-2")),
+			want: false,
+		},
+		"pod group without total count annotation": {
+			pod: &Pod{
+				pod:     *testingpod.MakePod("driver", "test-ns").GroupNameLabel("test-group").Obj(),
+				isGroup: true,
+				list:    corev1.PodList{Items: []corev1.Pod{readyPod("driver"), readyPod("worker-1")}},
+			},
+			want: false,
+		},
+		"pod group with malformed total count annotation": {
+			pod:  makePodGroup("invalid", readyPod("driver"), readyPod("worker-1")),
 			want: false,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			pod := FromObject(tc.pod)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := pod.PodsReady(ctx, nil)
+			got := tc.pod.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
