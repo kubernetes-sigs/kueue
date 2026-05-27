@@ -147,8 +147,3 @@ The following limitations apply to the alpha release:
   ([KEP-5075](https://github.com/kubernetes/enhancements/issues/5075),
   [KEP-5691](https://github.com/kubernetes/enhancements/issues/5691))
   that is not yet available.
-- **No DeviceClass watcher**: If a `DeviceClass` is created after a workload
-  was already rejected, the workload is not immediately retried. It will be
-  re-evaluated when the next cluster event triggers inadmissible workload
-  requeuing (e.g., another workload completes or quota changes). To avoid
-  delays, ensure the `DeviceClass` exists before submitting workloads.
