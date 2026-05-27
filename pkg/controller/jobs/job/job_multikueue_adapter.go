@@ -105,21 +105,22 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remoteJob *batchv1.Job) *batchv1.JobStatus {
 	localJobInfo := fromObject(localJob)
 
+	log.V(3).Info("Determining status update for a MultiKueue Job", "localJob", localJob, "remoteJob", remoteJob)
 	if !localJobInfo.IsSuspended() {
 		// do not skip any syncs if the local Job is unsuspnded
-		log.V(3).Info("Peforming the sync as the local Job is unsuspended")
-		return false
+		log.V(3).Info("Performing the sync as the local Job is unsuspended")
+		return &remoteJob.Status
 	}
 	remoteJobInfo := fromObject(remoteJob)
 	if remoteJobInfo.IsSuspended() {
 		// Do not skip any syncs if the remote Job is also suspended
 		// This is needed to await for updating the status.active field
 		// when the remote Job is evicted; see: https://github.com/kubernetes-sigs/kueue/pull/8151
-		log.V(3).Info("Peforming the sync as the local and the remote Job are suspended")
+		log.V(3).Info("Peforming the sync as the local and the remote Job are both suspended")
 		return &remoteJob.Status
 	}
 	if _, _, finished := remoteJobInfo.Finished(ctx); finished {
-		log.V(2).Info("Remote job is finished, returning the remote job status")
+		log.V(2).Info("Performing the sync as the remote Job is finished")
 		return &remoteJob.Status
 	}
 	newLocalStatus := localJob.Status.DeepCopy()
@@ -134,7 +135,7 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 			LastTransitionTime: metav1.Now(),
 			LastProbeTime:      metav1.Now(),
 		})
-	log.V(2).Info("Updating the localJob suspended Job to set the JobSuspended=True condition")
+	log.V(2).Info("Updating the suspended local Job with JobSuspended=True condition")
 	return newLocalStatus
 }
 
