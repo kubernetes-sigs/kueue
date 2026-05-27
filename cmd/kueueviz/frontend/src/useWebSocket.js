@@ -25,6 +25,21 @@ const WS_TOKEN_PROTOCOL_PREFIX = 'kueueviz.auth.';
 const encodeTokenForProtocol = (token) =>
   btoa(token).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 
+/**
+ * Parses a raw WebSocket message string as JSON.
+ * Returns { data, error } so callers can handle failures gracefully.
+ */
+export const parseWebSocketMessage = (raw) => {
+  try {
+    if (typeof raw !== 'string') {
+      throw new TypeError('expected string');
+    }
+    return { data: JSON.parse(raw), error: null };
+  } catch {
+    return { data: null, error: 'Received malformed data from the server.' };
+  }
+};
+
 const useWebSocket = (url) => {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -43,8 +58,13 @@ const useWebSocket = (url) => {
     };
 
     ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      setData(message);
+      const result = parseWebSocketMessage(event.data);
+      if (result.error) {
+        console.error('Failed to parse WebSocket message:', event.data);
+        setError(result.error);
+      } else {
+        setData(result.data);
+      }
     };
 
     ws.onerror = (err) => {
