@@ -25,10 +25,10 @@ import (
 )
 
 func TestNewDRAResourceMapper(t *testing.T) {
-	mapper := newDRAResourceMapper()
+	mapper := NewResourceMapper()
 
 	if mapper == nil {
-		t.Fatal("newDRAResourceMapper() returned nil")
+		t.Fatal("NewResourceMapper() returned nil")
 	}
 
 	if mapper.deviceClassToResource == nil {
@@ -36,7 +36,7 @@ func TestNewDRAResourceMapper(t *testing.T) {
 	}
 
 	// Test empty mapping lookup
-	_, found := mapper.lookup("nonexistent")
+	_, found := mapper.Lookup("nonexistent")
 	if found {
 		t.Error("Expected lookup to fail on empty mapping")
 	}
@@ -158,15 +158,15 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mapper := newDRAResourceMapper()
+			mapper := NewResourceMapper()
 
-			err := mapper.populateFromConfiguration(tt.config)
+			err := mapper.PopulateFromConfiguration(tt.config)
 			if err != nil {
 				t.Fatalf("populateFromConfiguration failed: %v", err)
 			}
 
 			for _, lookup := range tt.lookups {
-				actualResource, actualExists := mapper.lookup(lookup.deviceClass)
+				actualResource, actualExists := mapper.Lookup(lookup.deviceClass)
 
 				if actualExists != lookup.expectedExists {
 					t.Errorf("lookup(%s) exists = %v, want %v", lookup.deviceClass, actualExists, lookup.expectedExists)
@@ -242,21 +242,21 @@ func TestDRAResourceMapper_PopulateFromConfiguration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mapper := newDRAResourceMapper()
+			mapper := NewResourceMapper()
 
 			// Initial population
-			if err := mapper.populateFromConfiguration(tt.initialConfig); err != nil {
+			if err := mapper.PopulateFromConfiguration(tt.initialConfig); err != nil {
 				t.Fatalf("Initial populateFromConfiguration failed: %v", err)
 			}
 
 			// Update population
-			if err := mapper.populateFromConfiguration(tt.updateConfig); err != nil {
+			if err := mapper.PopulateFromConfiguration(tt.updateConfig); err != nil {
 				t.Fatalf("Update populateFromConfiguration failed: %v", err)
 			}
 
 			// Test final state
 			for _, lookup := range tt.finalLookups {
-				actualResource, actualExists := mapper.lookup(lookup.deviceClass)
+				actualResource, actualExists := mapper.Lookup(lookup.deviceClass)
 
 				if actualExists != lookup.expectedExists {
 					t.Errorf("lookup(%s) exists = %v, want %v", lookup.deviceClass, actualExists, lookup.expectedExists)
@@ -270,7 +270,7 @@ func TestDRAResourceMapper_PopulateFromConfiguration(t *testing.T) {
 	}
 }
 
-func TestCreateMapperFromConfiguration(t *testing.T) {
+func TestPopulateFromConfiguration(t *testing.T) {
 	config := []configapi.DeviceClassMapping{
 		{
 			Name:             corev1.ResourceName("foo"),
@@ -278,15 +278,15 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 		},
 	}
 
-	err := CreateMapperFromConfiguration(config)
+	mapper := NewResourceMapper()
+	err := mapper.PopulateFromConfiguration(config)
 	if err != nil {
-		t.Fatalf("CreateMapperFromConfiguration failed: %v", err)
+		t.Fatalf("PopulateFromConfiguration failed: %v", err)
 	}
 
-	// Test that the global mapper was populated
-	resource, found := Mapper().lookup("foo.example.com")
+	resource, found := mapper.Lookup("foo.example.com")
 	if !found {
-		t.Error("Expected to find device class in global mapper")
+		t.Error("Expected to find device class in mapper")
 	}
 	if resource != "foo" {
 		t.Errorf("Expected resource 'foo', got '%s'", resource)

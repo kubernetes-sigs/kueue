@@ -87,7 +87,13 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptexpectations.New()))
+		sched := scheduler.New(
+			queues,
+			cCache,
+			mgr.GetClient(),
+			mgr.GetEventRecorder(constants.AdmissionName),
+			scheduler.WithPreemptionExpectations(preemptexpectations.New()),
+		)
 		err := sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
@@ -119,7 +125,13 @@ func controllersSetup(
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
+	failedCtrl, err := core.SetupControllers(
+		mgr,
+		queues,
+		cCache,
+		configuration,
+		core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+	)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)

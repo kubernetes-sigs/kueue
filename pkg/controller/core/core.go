@@ -25,6 +25,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -37,27 +38,34 @@ const (
 	updateChBuffer = 10
 )
 
+// SetupControllersOpts holds optional dependencies for SetupControllers.
+type SetupControllersOpts struct {
+	RoleTracker            *roletracker.RoleTracker
+	PreemptionExpectations *expectations.Store
+	CustomLabels           *metrics.CustomLabels
+	DRAMapper              *dra.ResourceMapper
+}
+
 // SetupControllers sets up the core controllers. It returns the name of the
 // controller that failed to create and an error, if any.
-func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker,
-	preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels) (string, error) {
+func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.Cache, cfg *configapi.Configuration, opts SetupControllersOpts) (string, error) {
 	lqMetrics := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
-	rfRec := NewResourceFlavorReconciler(mgr.GetClient(), qManager, cc, roleTracker)
+	rfRec := NewResourceFlavorReconciler(mgr.GetClient(), qManager, cc, opts.RoleTracker)
 	if err := rfRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ResourceFlavor", err
 	}
-	acRec := NewAdmissionCheckReconciler(mgr.GetClient(), qManager, cc, roleTracker)
+	acRec := NewAdmissionCheckReconciler(mgr.GetClient(), qManager, cc, opts.RoleTracker)
 	if err := acRec.SetupWithManager(mgr, cfg); err != nil {
 		return "AdmissionCheck", err
 	}
-	wpcRec := NewWorkloadPriorityClassReconciler(mgr.GetClient(), roleTracker)
+	wpcRec := NewWorkloadPriorityClassReconciler(mgr.GetClient(), opts.RoleTracker)
 	if err := wpcRec.SetupWithManager(mgr, cfg); err != nil {
 		return "WorkloadPriorityClass", err
 	}
 	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc,
 		WithAdmissionFairSharingConfig(cfg.AdmissionFairSharing),
-		WithRoleTracker(roleTracker),
-		WithCustomLabels(customLabels),
+		WithRoleTracker(opts.RoleTracker),
+		WithCustomLabels(opts.CustomLabels),
 		WithLocalQueueMetrics(lqMetrics))
 	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
 		return "LocalQueue", err
@@ -67,8 +75,8 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	watchers := []ClusterQueueUpdateWatcher{rfRec, acRec}
 	cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager,
 		CohortReconcilerWithFairSharing(fairSharingEnabled),
-		CohortReconcilerWithRoleTracker(roleTracker),
-		CohortReconcilerWithCustomLabels(customLabels))
+		CohortReconcilerWithRoleTracker(opts.RoleTracker),
+		CohortReconcilerWithCustomLabels(opts.CustomLabels))
 	if err := cohortRec.SetupWithManager(mgr, cfg); err != nil {
 		return "Cohort", err
 	}
@@ -81,8 +89,8 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 		WithFairSharing(fairSharingEnabled),
 		WithWatchers(watchers...),
-		WithClusterQueueRoleTracker(roleTracker),
-		WithClusterQueueCustomLabels(customLabels),
+		WithClusterQueueRoleTracker(opts.RoleTracker),
+		WithClusterQueueCustomLabels(opts.CustomLabels),
 	)
 	rfRec.AddUpdateWatcher(cqRec)
 	acRec.AddUpdateWatchers(cqRec)
@@ -95,10 +103,11 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithWorkloadUpdateWatchers(qRec, cqRec),
 		WithWaitForPodsReady(waitForPodsReady(cfg.WaitForPodsReady)),
 		WithWorkloadRetention(workloadRetention(cfg.ObjectRetentionPolicies)),
-		WithWorkloadRoleTracker(roleTracker),
-		WithPreemptionExpectations(preemptionExpectations),
-		WithWorkloadCustomLabels(customLabels),
+		WithWorkloadRoleTracker(opts.RoleTracker),
+		WithPreemptionExpectations(opts.PreemptionExpectations),
+		WithWorkloadCustomLabels(opts.CustomLabels),
 		WithAdmissionFairSharing(cfg.AdmissionFairSharing),
+		WithDRAMapper(opts.DRAMapper),
 	)
 	if features.Enabled(features.KueueDRAIntegration) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())

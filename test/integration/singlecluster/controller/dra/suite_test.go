@@ -115,7 +115,8 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			modifyConfig(controllersCfg)
 		}
 
-		err = dra.CreateMapperFromConfiguration(controllersCfg.Resources.DeviceClassMappings)
+		draMapper := dra.NewResourceMapper()
+		err = draMapper.PopulateFromConfiguration(controllersCfg.Resources.DeviceClassMappings)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cCache := schdcache.New(mgr.GetClient())
@@ -124,7 +125,13 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		// Core controllers
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations, nil)
+		failedCtrl, err := core.SetupControllers(
+			mgr,
+			queues,
+			cCache,
+			controllersCfg,
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, DRAMapper: draMapper},
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		// Scheduler - required for workload admission

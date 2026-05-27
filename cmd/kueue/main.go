@@ -130,7 +130,12 @@ func main() {
 			"Omit this flag to use the default configuration values. ")
 
 	var featureGates string
-	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
+	flag.StringVar(
+		&featureGates,
+		"feature-gates",
+		"",
+		"A set of key=value pairs that describe feature gates for alpha/experimental features.",
+	)
 
 	customLogProcessor := zaplog.WrapCore(utillogging.NewCustomLogProcessor)
 
@@ -161,7 +166,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit, "buildDate", version.BuildDate)
+	setupLog.Info(
+		"Initializing",
+		"gitVersion",
+		version.GitVersion,
+		"gitCommit",
+		version.GitCommit,
+		"buildDate",
+		version.BuildDate,
+	)
 
 	features.LogFeatureGates(setupLog)
 
@@ -235,7 +248,10 @@ func main() {
 	// When the controller-runtime > 0.21, the client-side ratelimiting will be disabled by default.
 	// The following QPS negative value chack allows us to disable the client-side ratelimiting.
 	if *cfg.ClientConnection.QPS >= 0.0 {
-		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))
+		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(
+			*cfg.ClientConnection.QPS,
+			int(*cfg.ClientConnection.Burst),
+		)
 	}
 	setupLog.V(2).Info("K8S Client", "qps", *cfg.ClientConnection.QPS, "burst", *cfg.ClientConnection.Burst)
 
@@ -289,19 +305,26 @@ func main() {
 		qcache.WithResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 	}
 	if cfg.Resources != nil && len(cfg.Resources.ExcludeResourcePrefixes) > 0 {
-		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
+		cacheOptions = append(
+			cacheOptions,
+			schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes),
+		)
 		queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 	}
 	if cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
 		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
 		queueOptions = append(queueOptions, qcache.WithResourceTransformations(cfg.Resources.Transformations))
 	}
-	if features.Enabled(features.KueueDRAIntegration) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
-		if err := dra.CreateMapperFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
-			setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
-			os.Exit(1)
+	var draMapper *dra.ResourceMapper
+	if features.Enabled(features.KueueDRAIntegration) {
+		draMapper = dra.NewResourceMapper()
+		if cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
+			if err := draMapper.PopulateFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
+				setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
+				os.Exit(1)
+			}
+			setupLog.Info("DRA mapper initialized from configuration")
 		}
-		setupLog.Info("DRA mapper initialized from configuration")
 	}
 	if cfg.FairSharing != nil {
 		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(fairsharing.Enabled(cfg.FairSharing)))
@@ -355,7 +378,13 @@ func main() {
 		})
 	}
 
-	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, roleTracker, preemptionExpectations, customLabels); err != nil {
+	controllerOpts := core.SetupControllersOpts{
+		RoleTracker:            roleTracker,
+		PreemptionExpectations: preemptionExpectations,
+		CustomLabels:           customLabels,
+		DRAMapper:              draMapper,
+	}
+	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, controllerOpts); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
 		os.Exit(1)
 	}
@@ -397,7 +426,10 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 
 	// setup provision admission check controller indexes
 	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
-		setupLog.Error(err, "Skipping admission check controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
+		setupLog.Error(
+			err,
+			"Skipping admission check controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)",
+		)
 	} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
 		return fmt.Errorf("could not setup provisioning indexer: %w", err)
 	}
@@ -414,29 +446,37 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		}
 	}
 
-	opts := []jobframework.Option{
+	indexOpts := []jobframework.Option{
 		jobframework.WithEnabledFrameworks(cfg.Integrations.Frameworks),
 	}
-	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
+	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), indexOpts...)
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager,
-	cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher, roleTracker *roletracker.RoleTracker,
-	preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels) error {
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, roleTracker, preemptionExpectations, customLabels); err != nil {
+func setupControllers(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	cCache *schdcache.Cache,
+	queues *qcache.Manager,
+	cfg *configapi.Configuration,
+	serverVersionFetcher *kubeversion.ServerVersionFetcher,
+	opts core.SetupControllersOpts,
+) error {
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, opts); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
 	}
 	if features.Enabled(features.FailureRecoveryPolicy) {
-		if failedCtrlName, err := failurerecovery.SetupControllers(mgr, cfg, roleTracker); err != nil {
+		if failedCtrlName, err := failurerecovery.SetupControllers(mgr, cfg, opts.RoleTracker); err != nil {
 			return fmt.Errorf("could not setup FailureRecovery controller %s: %w", failedCtrlName, err)
 		}
 	}
 
 	// setup provision admission check controller
 	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
-		setupLog.Info("Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
+		setupLog.Info(
+			"Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)",
+		)
 	} else {
-		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-provisioning-request-controller"), roleTracker)
+		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-provisioning-request-controller"), opts.RoleTracker)
 		if err != nil {
 			return fmt.Errorf("could not create the provisioning controller: %w", err)
 		}
@@ -452,7 +492,8 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 			return fmt.Errorf("could not get the enabled multikueue adapters: %w", err)
 		}
 
-		if features.Enabled(features.MultiKueueAdaptersForCustomJobs) && cfg.MultiKueue != nil && len(cfg.MultiKueue.ExternalFrameworks) > 0 {
+		if features.Enabled(features.MultiKueueAdaptersForCustomJobs) && cfg.MultiKueue != nil &&
+			len(cfg.MultiKueue.ExternalFrameworks) > 0 {
 			externalAdapters, err := externalframeworks.NewAdapters(cfg.MultiKueue.ExternalFrameworks)
 			if err != nil {
 				return fmt.Errorf("could not create external framework adapters: %w", err)
@@ -473,35 +514,35 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 			multikueue.WithAdapters(adapters),
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfile),
-			multikueue.WithRoleTracker(roleTracker),
+			multikueue.WithRoleTracker(opts.RoleTracker),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}
 
-		if failedDispatcher, err := workloaddispatcher.SetupControllers(mgr, cfg, roleTracker); err != nil {
+		if failedDispatcher, err := workloaddispatcher.SetupControllers(mgr, cfg, opts.RoleTracker); err != nil {
 			return fmt.Errorf("could not setup Dispatcher controller %q for MultiKueue: %w", failedDispatcher, err)
 		}
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg, roleTracker); err != nil {
+		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg, opts.RoleTracker); err != nil {
 			return fmt.Errorf("could not setup TAS controller %s: %w", failedCtrl, err)
 		}
 	}
 
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
-		if failedCtrl, err := elasticjobs.SetupWithManager(mgr, cfg, roleTracker); err != nil {
+		if failedCtrl, err := elasticjobs.SetupWithManager(mgr, cfg, opts.RoleTracker); err != nil {
 			return fmt.Errorf("could not setup %s controller: %w", failedCtrl, err)
 		}
 	}
 
 	if features.Enabled(features.ConcurrentAdmission) {
-		if failedCtrl, err := concurrentadmission.SetupControllers(mgr, queues, cfg, roleTracker); err != nil {
+		if failedCtrl, err := concurrentadmission.SetupControllers(mgr, queues, cfg, opts.RoleTracker); err != nil {
 			return fmt.Errorf("could not setup ConcurrentAdmission controller %s: %w", failedCtrl, err)
 		}
 	}
 
-	opts := []jobframework.Option{
+	jfOpts := []jobframework.Option{
 		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(cfg.WaitForPodsReady),
 		jobframework.WithKubeServerVersion(serverVersionFetcher),
@@ -512,17 +553,21 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
-		jobframework.WithRoleTracker(roleTracker),
-		jobframework.WithCustomLabels(customLabels),
+		jobframework.WithRoleTracker(opts.RoleTracker),
+		jobframework.WithCustomLabels(opts.CustomLabels),
 	}
 	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
 	if err != nil {
 		return fmt.Errorf("failed to parse managedJobsNamespaceSelector: %w", err)
 	}
-	opts = append(opts, jobframework.WithManagedJobsNamespaceSelector(nsSelector))
+	jfOpts = append(jfOpts, jobframework.WithManagedJobsNamespaceSelector(nsSelector))
 
-	if err := jobframework.SetupControllers(ctx, mgr, setupLog, opts...); err != nil {
-		return fmt.Errorf("unable to create controller or webhook for kubernetesVersion %v: %w", serverVersionFetcher.GetServerVersion(), err)
+	if err := jobframework.SetupControllers(ctx, mgr, setupLog, jfOpts...); err != nil {
+		return fmt.Errorf(
+			"unable to create controller or webhook for kubernetesVersion %v: %w",
+			serverVersionFetcher.GetServerVersion(),
+			err,
+		)
 	}
 
 	return nil
@@ -557,8 +602,14 @@ func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) error {
 	return nil
 }
 
-func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration,
-	roleTracker *roletracker.RoleTracker, preemptionExpectations *expectations.Store, customLabels *metrics.CustomLabels,
+func setupScheduler(
+	mgr ctrl.Manager,
+	cCache *schdcache.Cache,
+	queues *qcache.Manager,
+	cfg *configapi.Configuration,
+	roleTracker *roletracker.RoleTracker,
+	preemptionExpectations *expectations.Store,
+	customLabels *metrics.CustomLabels,
 ) error {
 	sched := scheduler.New(
 		queues,
@@ -624,7 +675,8 @@ func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.Requeui
 }
 
 func quotaCheckStrategy(cfg *configapi.Configuration) configapi.QuotaCheckStrategy {
-	if features.Enabled(features.QuotaCheckStrategy) && cfg.Resources != nil && cfg.Resources.QuotaCheckStrategy != nil {
+	if features.Enabled(features.QuotaCheckStrategy) && cfg.Resources != nil &&
+		cfg.Resources.QuotaCheckStrategy != nil {
 		return *cfg.Resources.QuotaCheckStrategy
 	}
 	return configapi.QuotaCheckBlockUndeclared

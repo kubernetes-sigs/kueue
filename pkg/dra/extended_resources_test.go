@@ -487,14 +487,14 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			mapper := NewResourceMapper()
 			if tt.mapperMappings != nil {
-				_ = CreateMapperFromConfiguration(tt.mapperMappings)
-				t.Cleanup(func() { _ = CreateMapperFromConfiguration(nil) })
+				_ = mapper.PopulateFromConfiguration(tt.mapperMappings)
 			}
 
 			cl := newFakeClient(tt.deviceClasses...)
 
-			got, gotReplaced, errs := ResolveExtendedResourceQuota(t.Context(), cl, tt.workload)
+			got, gotReplaced, errs := ResolveExtendedResourceQuota(t.Context(), cl, mapper, tt.workload)
 
 			if diff := cmp.Diff(tt.wantErr, errs, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ResolveExtendedResourceQuota() error mismatch (-want +got):\n%s", diff)

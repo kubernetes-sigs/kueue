@@ -64,7 +64,10 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerAndSchedulerSetup(quotaCheckStrategy config.QuotaCheckStrategy, admissionFairSharing *config.AdmissionFairSharing) framework.ManagerSetup {
+func managerAndSchedulerSetup(
+	quotaCheckStrategy config.QuotaCheckStrategy,
+	admissionFairSharing *config.AdmissionFairSharing,
+) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -83,7 +86,13 @@ func managerAndSchedulerSetup(quotaCheckStrategy config.QuotaCheckStrategy, admi
 		}
 		mgr.GetScheme().Default(configuration)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
+		failedCtrl, err := core.SetupControllers(
+			mgr,
+			queues,
+			cCache,
+			configuration,
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)

@@ -156,6 +156,7 @@ func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc c
 func GetResourceRequestsForResourceClaimTemplates(
 	ctx context.Context,
 	cl client.Client,
+	mapper *ResourceMapper,
 	wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
 	var allErrs field.ErrorList
@@ -209,7 +210,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 			}
 
 			for dc, qty := range deviceCounts {
-				logical, found := Mapper().lookup(dc)
+				logical, found := mapper.Lookup(dc)
 				if !found {
 					allErrs = append(allErrs, field.NotFound(
 						field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j).Child("resourceClaimTemplateName"),
