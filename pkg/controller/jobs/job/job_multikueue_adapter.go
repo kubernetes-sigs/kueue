@@ -127,12 +127,12 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 	newLocalStatus.StartTime = nil
 	newLocalStatus.Conditions = setJobStatusCondition(newLocalStatus.Conditions,
 		batchv1.JobCondition{
-			Type:   batchv1.JobSuspended,
-			Status: corev1.ConditionTrue,
-			Reason: "MultiKueueAdapter",
-			Message: "Set by MultiKueue adapter",
+			Type:               batchv1.JobSuspended,
+			Status:             corev1.ConditionTrue,
+			Reason:             "MultiKueueAdapter",
+			Message:            "Set by MultiKueue adapter",
 			LastTransitionTime: metav1.Now(),
-			LastProbeTime: metav1.Now(),
+			LastProbeTime:      metav1.Now(),
 		})
 	log.V(2).Info("Updating the localJob suspended Job to set the JobSuspended=True condition")
 	return newLocalStatus
