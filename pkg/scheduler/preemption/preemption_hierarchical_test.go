@@ -1821,7 +1821,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				cl := utiltesting.NewClientBuilder().
 					WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 					WithStatusSubresource(&kueue.Workload{}).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
 					Build()
 
 				cqCache := schdcache.New(cl)

@@ -632,7 +632,8 @@ func TestReconciler(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			kcBuilder := utiltesting.NewClientBuilder(kftraining.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			kcBuilder := utiltesting.NewClientBuilder(kftraining.AddToScheme).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration})
 			indexer := utiltesting.AsIndexer(kcBuilder)
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Failed to setup indexes: %v", err)

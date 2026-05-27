@@ -32,6 +32,8 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
+	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/tools/events"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
@@ -44,6 +46,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueueac "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -1211,6 +1214,350 @@ func WithForceApply() PatchStatusOption {
 	}
 }
 
+// BaseWorkloadApplyConfiguration creates a new object based on the input workload that
+// only contains the fields necessary to identify the original object.
+// The object can be used as a base for Server-Side-Apply.
+func BaseWorkloadApplyConfiguration(w *kueue.Workload, strict bool) *kueueac.WorkloadApplyConfiguration {
+	applyConfig := kueueac.Workload(w.Name, w.Namespace).WithUID(w.UID).WithGeneration(w.Generation)
+
+	if strict {
+		applyConfig.WithResourceVersion(w.ResourceVersion)
+	}
+
+	if len(w.Labels) > 0 {
+		applyConfig.WithLabels(w.Labels)
+	}
+	if len(w.Annotations) > 0 {
+		applyConfig.WithAnnotations(w.Annotations)
+	}
+
+	return applyConfig
+}
+
+func ToWorkloadStatusApplyConfiguration(status *kueue.WorkloadStatus) *kueueac.WorkloadStatusApplyConfiguration {
+	statusConfig := kueueac.WorkloadStatus()
+
+	if condConfigs := toConditionConfigs(status.Conditions); len(condConfigs) > 0 {
+		statusConfig.WithConditions(condConfigs...)
+	}
+	if status.Admission != nil {
+		statusConfig.WithAdmission(toAdmissionConfig(status.Admission))
+	}
+	if status.RequeueState != nil {
+		statusConfig.WithRequeueState(toRequeueStateConfig(status.RequeueState))
+	}
+	if rpConfigs := toReclaimablePodConfigs(status.ReclaimablePods); len(rpConfigs) > 0 {
+		statusConfig.WithReclaimablePods(rpConfigs...)
+	}
+	if acConfigs := toAdmissionCheckConfigs(status.AdmissionChecks); len(acConfigs) > 0 {
+		statusConfig.WithAdmissionChecks(acConfigs...)
+	}
+	if rrConfigs := toResourceRequestConfigs(status.ResourceRequests); len(rrConfigs) > 0 {
+		statusConfig.WithResourceRequests(rrConfigs...)
+	}
+	if status.AccumulatedPastExecutionTimeSeconds != nil {
+		statusConfig.WithAccumulatedPastExecutionTimeSeconds(*status.AccumulatedPastExecutionTimeSeconds)
+	}
+	if status.SchedulingStats != nil {
+		statusConfig.WithSchedulingStats(toSchedulingStatsConfig(status.SchedulingStats))
+	}
+	if len(status.NominatedClusterNames) > 0 {
+		statusConfig.WithNominatedClusterNames(status.NominatedClusterNames...)
+	}
+	if status.ClusterName != nil {
+		statusConfig.WithClusterName(*status.ClusterName)
+	}
+	if unConfigs := toUnhealthyNodeConfigs(status.UnhealthyNodes); len(unConfigs) > 0 {
+		statusConfig.WithUnhealthyNodes(unConfigs...)
+	}
+	if pgConfigs := toPreemptionGateConfigs(status.PreemptionGates); len(pgConfigs) > 0 {
+		statusConfig.WithPreemptionGates(pgConfigs...)
+	}
+
+	return statusConfig
+}
+
+// toConditionConfigs converts status conditions (listMapKey=type).
+func toConditionConfigs(conditions []metav1.Condition) []*metav1ac.ConditionApplyConfiguration {
+	var condConfigs []*metav1ac.ConditionApplyConfiguration
+	for _, c := range conditions {
+		if c.Type == "" {
+			continue
+		}
+		condConfig := metav1ac.Condition().
+			WithType(c.Type).
+			WithStatus(c.Status).
+			WithReason(c.Reason).
+			WithMessage(c.Message).
+			WithObservedGeneration(c.ObservedGeneration)
+
+		if !c.LastTransitionTime.IsZero() {
+			condConfig.WithLastTransitionTime(c.LastTransitionTime)
+		}
+		condConfigs = append(condConfigs, condConfig)
+	}
+	return condConfigs
+}
+
+func toAdmissionConfig(admission *kueue.Admission) *kueueac.AdmissionApplyConfiguration {
+	admConfig := kueueac.Admission()
+	if admission.ClusterQueue != "" {
+		admConfig.WithClusterQueue(admission.ClusterQueue)
+	}
+	if psaConfigs := toPodSetAssignmentConfigs(admission.PodSetAssignments); len(psaConfigs) > 0 {
+		admConfig.WithPodSetAssignments(psaConfigs...)
+	}
+	return admConfig
+}
+
+// toPodSetAssignmentConfigs converts pod set assignments (listMapKey=name).
+func toPodSetAssignmentConfigs(podSetAssignments []kueue.PodSetAssignment) []*kueueac.PodSetAssignmentApplyConfiguration {
+	var psaConfigs []*kueueac.PodSetAssignmentApplyConfiguration
+	for _, psa := range podSetAssignments {
+		if psa.Name == "" {
+			continue
+		}
+		psaConfig := kueueac.PodSetAssignment().WithName(psa.Name)
+		if len(psa.Flavors) > 0 {
+			psaConfig.WithFlavors(psa.Flavors)
+		}
+		if len(psa.ResourceUsage) > 0 {
+			psaConfig.WithResourceUsage(psa.ResourceUsage)
+		}
+		if psa.Count != nil {
+			psaConfig.WithCount(*psa.Count)
+		}
+		if psa.TopologyAssignment != nil {
+			psaConfig.WithTopologyAssignment(toTopologyAssignmentConfig(psa.TopologyAssignment))
+		}
+		if psa.DelayedTopologyRequest != nil {
+			psaConfig.WithDelayedTopologyRequest(*psa.DelayedTopologyRequest)
+		}
+		psaConfigs = append(psaConfigs, psaConfig)
+	}
+	return psaConfigs
+}
+
+func toTopologyAssignmentConfig(ta *kueue.TopologyAssignment) *kueueac.TopologyAssignmentApplyConfiguration {
+	taConfig := kueueac.TopologyAssignment()
+	if len(ta.Levels) > 0 {
+		taConfig.WithLevels(ta.Levels...)
+	}
+	if len(ta.Slices) > 0 {
+		taConfig.WithSlices(toTopologyAssignmentSliceConfigs(ta.Slices)...)
+	}
+	return taConfig
+}
+
+func toTopologyAssignmentSliceConfigs(slices []kueue.TopologyAssignmentSlice) []*kueueac.TopologyAssignmentSliceApplyConfiguration {
+	var sliceConfigs []*kueueac.TopologyAssignmentSliceApplyConfiguration
+	for _, slice := range slices {
+		sliceConfig := kueueac.TopologyAssignmentSlice().WithDomainCount(slice.DomainCount)
+		if len(slice.ValuesPerLevel) > 0 {
+			sliceConfig.WithValuesPerLevel(toSliceLevelValuesConfigs(slice.ValuesPerLevel)...)
+		}
+		sliceConfig.WithPodCounts(toSlicePodCountsConfig(slice.PodCounts))
+		sliceConfigs = append(sliceConfigs, sliceConfig)
+	}
+	return sliceConfigs
+}
+
+func toSliceLevelValuesConfigs(valuesPerLevel []kueue.TopologyAssignmentSliceLevelValues) []*kueueac.TopologyAssignmentSliceLevelValuesApplyConfiguration {
+	var vplConfigs []*kueueac.TopologyAssignmentSliceLevelValuesApplyConfiguration
+	for _, vpl := range valuesPerLevel {
+		vplConfig := kueueac.TopologyAssignmentSliceLevelValues()
+		if vpl.Universal != nil {
+			vplConfig.WithUniversal(*vpl.Universal)
+		}
+		if vpl.Individual != nil {
+			vplConfig.WithIndividual(toIndividualValuesConfig(vpl.Individual))
+		}
+		vplConfigs = append(vplConfigs, vplConfig)
+	}
+	return vplConfigs
+}
+
+func toIndividualValuesConfig(individual *kueue.TopologyAssignmentSliceLevelIndividualValues) *kueueac.TopologyAssignmentSliceLevelIndividualValuesApplyConfiguration {
+	indConfig := kueueac.TopologyAssignmentSliceLevelIndividualValues()
+	if individual.Prefix != nil {
+		indConfig.WithPrefix(*individual.Prefix)
+	}
+	if individual.Suffix != nil {
+		indConfig.WithSuffix(*individual.Suffix)
+	}
+	if len(individual.Roots) > 0 {
+		indConfig.WithRoots(individual.Roots...)
+	}
+	return indConfig
+}
+
+func toSlicePodCountsConfig(podCounts kueue.TopologyAssignmentSlicePodCounts) *kueueac.TopologyAssignmentSlicePodCountsApplyConfiguration {
+	podCountsConfig := kueueac.TopologyAssignmentSlicePodCounts()
+	if podCounts.Universal != nil {
+		podCountsConfig.WithUniversal(*podCounts.Universal)
+	}
+	if len(podCounts.Individual) > 0 {
+		podCountsConfig.WithIndividual(podCounts.Individual...)
+	}
+	return podCountsConfig
+}
+
+func toRequeueStateConfig(requeueState *kueue.RequeueState) *kueueac.RequeueStateApplyConfiguration {
+	reqConfig := kueueac.RequeueState()
+	if requeueState.Count != nil {
+		reqConfig.WithCount(*requeueState.Count)
+	}
+	if requeueState.RequeueAt != nil && !requeueState.RequeueAt.IsZero() {
+		reqConfig.WithRequeueAt(*requeueState.RequeueAt)
+	}
+	return reqConfig
+}
+
+// toReclaimablePodConfigs converts reclaimable pods (listMapKey=name).
+func toReclaimablePodConfigs(reclaimablePods []kueue.ReclaimablePod) []*kueueac.ReclaimablePodApplyConfiguration {
+	var rpConfigs []*kueueac.ReclaimablePodApplyConfiguration
+	for _, rp := range reclaimablePods {
+		if rp.Name == "" {
+			continue
+		}
+		rpConfigs = append(rpConfigs, kueueac.ReclaimablePod().WithName(rp.Name).WithCount(rp.Count))
+	}
+	return rpConfigs
+}
+
+// toAdmissionCheckConfigs converts admission check states (listMapKey=name).
+func toAdmissionCheckConfigs(admissionChecks []kueue.AdmissionCheckState) []*kueueac.AdmissionCheckStateApplyConfiguration {
+	var acConfigs []*kueueac.AdmissionCheckStateApplyConfiguration
+	for _, ac := range admissionChecks {
+		if ac.Name == "" {
+			continue
+		}
+		acConfig := kueueac.AdmissionCheckState().
+			WithName(ac.Name).
+			WithState(ac.State).
+			WithMessage(ac.Message).
+			WithLastTransitionTime(ac.LastTransitionTime) // required, always set
+
+		if ac.RequeueAfterSeconds != nil {
+			acConfig.WithRequeueAfterSeconds(*ac.RequeueAfterSeconds)
+		}
+		if ac.RetryCount != nil {
+			acConfig.WithRetryCount(*ac.RetryCount)
+		}
+		if psuConfigs := toPodSetUpdateConfigs(ac.PodSetUpdates); len(psuConfigs) > 0 {
+			acConfig.WithPodSetUpdates(psuConfigs...)
+		}
+		acConfigs = append(acConfigs, acConfig)
+	}
+	return acConfigs
+}
+
+func toPodSetUpdateConfigs(podSetUpdates []kueue.PodSetUpdate) []*kueueac.PodSetUpdateApplyConfiguration {
+	var psuConfigs []*kueueac.PodSetUpdateApplyConfiguration
+	for _, psu := range podSetUpdates {
+		if psu.Name == "" {
+			continue
+		}
+		psuConfig := kueueac.PodSetUpdate().WithName(psu.Name)
+		if len(psu.Annotations) > 0 {
+			psuConfig.WithAnnotations(psu.Annotations)
+		}
+		if len(psu.Labels) > 0 {
+			psuConfig.WithLabels(psu.Labels)
+		}
+		if len(psu.NodeSelector) > 0 {
+			psuConfig.WithNodeSelector(psu.NodeSelector)
+		}
+		if tolConfigs := toTolerationConfigs(psu.Tolerations); len(tolConfigs) > 0 {
+			psuConfig.WithTolerations(tolConfigs...)
+		}
+		psuConfigs = append(psuConfigs, psuConfig)
+	}
+	return psuConfigs
+}
+
+func toTolerationConfigs(tolerations []corev1.Toleration) []*corev1ac.TolerationApplyConfiguration {
+	var tolConfigs []*corev1ac.TolerationApplyConfiguration
+	for _, tol := range tolerations {
+		tolConfig := corev1ac.Toleration()
+		if tol.Key != "" {
+			tolConfig.WithKey(tol.Key)
+		}
+		if tol.Operator != "" {
+			tolConfig.WithOperator(tol.Operator)
+		}
+		if tol.Value != "" {
+			tolConfig.WithValue(tol.Value)
+		}
+		if tol.Effect != "" {
+			tolConfig.WithEffect(tol.Effect)
+		}
+		if tol.TolerationSeconds != nil {
+			tolConfig.WithTolerationSeconds(*tol.TolerationSeconds)
+		}
+		tolConfigs = append(tolConfigs, tolConfig)
+	}
+	return tolConfigs
+}
+
+// toResourceRequestConfigs converts resource requests (listMapKey=name).
+func toResourceRequestConfigs(resourceRequests []kueue.PodSetRequest) []*kueueac.PodSetRequestApplyConfiguration {
+	var rrConfigs []*kueueac.PodSetRequestApplyConfiguration
+	for _, rr := range resourceRequests {
+		if rr.Name == "" {
+			continue
+		}
+		rrConfig := kueueac.PodSetRequest().WithName(rr.Name)
+		if len(rr.Resources) > 0 {
+			rrConfig.WithResources(rr.Resources)
+		}
+		rrConfigs = append(rrConfigs, rrConfig)
+	}
+	return rrConfigs
+}
+
+func toSchedulingStatsConfig(schedulingStats *kueue.SchedulingStats) *kueueac.SchedulingStatsApplyConfiguration {
+	statsConfig := kueueac.SchedulingStats()
+	if len(schedulingStats.Evictions) > 0 {
+		var evConfigs []*kueueac.WorkloadSchedulingStatsEvictionApplyConfiguration
+		for _, ev := range schedulingStats.Evictions {
+			evConfigs = append(evConfigs, kueueac.WorkloadSchedulingStatsEviction().
+				WithReason(ev.Reason).
+				WithUnderlyingCause(ev.UnderlyingCause).
+				WithCount(ev.Count))
+		}
+		statsConfig.WithEvictions(evConfigs...)
+	}
+	return statsConfig
+}
+
+// toUnhealthyNodeConfigs converts unhealthy nodes (listMapKey=name).
+func toUnhealthyNodeConfigs(unhealthyNodes []kueue.UnhealthyNode) []*kueueac.UnhealthyNodeApplyConfiguration {
+	var unConfigs []*kueueac.UnhealthyNodeApplyConfiguration
+	for _, un := range unhealthyNodes {
+		if un.Name == "" {
+			continue
+		}
+		unConfigs = append(unConfigs, kueueac.UnhealthyNode().WithName(un.Name))
+	}
+	return unConfigs
+}
+
+// toPreemptionGateConfigs converts preemption gate states (listMapKey=name).
+func toPreemptionGateConfigs(preemptionGates []kueue.PreemptionGateState) []*kueueac.PreemptionGateStateApplyConfiguration {
+	var pgConfigs []*kueueac.PreemptionGateStateApplyConfiguration
+	for _, pg := range preemptionGates {
+		if pg.Name == "" {
+			continue
+		}
+		pgConfig := kueueac.PreemptionGateState().
+			WithName(pg.Name).
+			WithPosition(pg.Position).
+			WithLastTransitionTime(pg.LastTransitionTime) // required, always set
+		pgConfigs = append(pgConfigs, pgConfig)
+	}
+	return pgConfigs
+}
 func patchStatusOptions(options []PatchStatusOption) *PatchStatusOptions {
 	opts := DefaultPatchStatusOptions()
 	for _, opt := range options {
@@ -1253,26 +1600,155 @@ func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner
 
 func PatchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, options ...PatchStatusOption) error {
 	opts := patchStatusOptions(options)
-	return patchStatus(ctx, c, wl, owner, func(wl *kueue.Workload) (bool, error) {
-		if opts.ForceApply || !features.Enabled(features.WorkloadRequestUseMergePatch) {
-			wlPatch := BaseSSAWorkload(wl, opts.StrictApply)
-			wlPatch.DeepCopyInto(wl)
+	if opts.ForceApply || !features.Enabled(features.WorkloadRequestUseMergePatch) {
+		// Start from a stripped skeleton so update() must explicitly populate every
+		// field the FieldOwner intends to claim. Without this, the apply config would
+		// echo every status field copied from wl and ForceOwnership would steal
+		// ownership of fields managed by other controllers, clobbering their values.
+		wlCopy := BaseSSAWorkload(wl, opts.StrictApply)
+		if updated, err := update(wlCopy); err != nil || !updated {
+			return err
 		}
-		return update(wl)
+
+		applyConfig := BaseWorkloadApplyConfiguration(wlCopy, opts.StrictApply)
+		applyConfig.WithStatus(ToWorkloadStatusApplyConfiguration(&wlCopy.Status))
+
+		if err := c.Status().Apply(ctx, applyConfig, owner, client.ForceOwnership); err != nil {
+			return err
+		}
+		// Refresh wl so the caller sees the post-apply resourceVersion (required for
+		// follow-up writes like RemoveFinalizer to not fail with "object was
+		// modified"). Then overlay the just-applied status changes in case the
+		// cached read has not yet observed the server-side merge.
+		if err := c.Get(ctx, client.ObjectKeyFromObject(wl), wl); err != nil {
+			return err
+		}
+		mergeAppliedStatus(&wl.Status, &wlCopy.Status)
+		return nil
+	}
+	return patchStatus(ctx, c, wl, owner, func(w *kueue.Workload) (bool, error) {
+		return update(w)
 	}, opts)
+}
+
+// mergeAppliedStatus copies fields populated by update() into dst.
+// Used after c.Status().Apply to reflect the just-applied changes locally,
+// because controller-runtime's Apply does not return the merged object.
+func mergeAppliedStatus(dst, src *kueue.WorkloadStatus) {
+	if src.Admission != nil {
+		dst.Admission = src.Admission.DeepCopy()
+	}
+	if src.RequeueState != nil {
+		dst.RequeueState = src.RequeueState.DeepCopy()
+	}
+	for _, c := range src.Conditions {
+		apimeta.SetStatusCondition(&dst.Conditions, c)
+	}
+	for _, ac := range src.AdmissionChecks {
+		replaced := false
+		for i := range dst.AdmissionChecks {
+			if dst.AdmissionChecks[i].Name == ac.Name {
+				dst.AdmissionChecks[i] = *ac.DeepCopy()
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			dst.AdmissionChecks = append(dst.AdmissionChecks, *ac.DeepCopy())
+		}
+	}
+	for _, rp := range src.ReclaimablePods {
+		replaced := false
+		for i := range dst.ReclaimablePods {
+			if dst.ReclaimablePods[i].Name == rp.Name {
+				dst.ReclaimablePods[i] = *rp.DeepCopy()
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			dst.ReclaimablePods = append(dst.ReclaimablePods, *rp.DeepCopy())
+		}
+	}
+	for _, rr := range src.ResourceRequests {
+		replaced := false
+		for i := range dst.ResourceRequests {
+			if dst.ResourceRequests[i].Name == rr.Name {
+				dst.ResourceRequests[i] = *rr.DeepCopy()
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			dst.ResourceRequests = append(dst.ResourceRequests, *rr.DeepCopy())
+		}
+	}
+	if src.AccumulatedPastExecutionTimeSeconds != nil {
+		v := *src.AccumulatedPastExecutionTimeSeconds
+		dst.AccumulatedPastExecutionTimeSeconds = &v
+	}
+	if src.SchedulingStats != nil {
+		dst.SchedulingStats = src.SchedulingStats.DeepCopy()
+	}
+	if len(src.NominatedClusterNames) > 0 {
+		dst.NominatedClusterNames = append([]string(nil), src.NominatedClusterNames...)
+	}
+	if src.ClusterName != nil {
+		v := *src.ClusterName
+		dst.ClusterName = &v
+	}
+	for _, un := range src.UnhealthyNodes {
+		replaced := false
+		for i := range dst.UnhealthyNodes {
+			if dst.UnhealthyNodes[i].Name == un.Name {
+				dst.UnhealthyNodes[i] = *un.DeepCopy()
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			dst.UnhealthyNodes = append(dst.UnhealthyNodes, *un.DeepCopy())
+		}
+	}
+	for _, pg := range src.PreemptionGates {
+		replaced := false
+		for i := range dst.PreemptionGates {
+			if dst.PreemptionGates[i].Name == pg.Name {
+				dst.PreemptionGates[i] = *pg.DeepCopy()
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			dst.PreemptionGates = append(dst.PreemptionGates, *pg.DeepCopy())
+		}
+	}
 }
 
 func PatchAdmissionStatus(ctx context.Context, c client.Client, wl *kueue.Workload, clk clock.Clock, update UpdateFunc, options ...PatchStatusOption) error {
 	opts := patchStatusOptions(options)
-	return patchStatus(ctx, c, wl, constants.AdmissionName, func(wl *kueue.Workload) (bool, error) {
-		if updated, err := update(wl); err != nil || !updated {
-			return updated, err
+	if opts.ForceApply || !features.Enabled(features.WorkloadRequestUseMergePatch) {
+		wlCopy := wl.DeepCopy()
+		if updated, err := update(wlCopy); err != nil || !updated {
+			return err
 		}
-		if opts.ForceApply || !features.Enabled(features.WorkloadRequestUseMergePatch) {
-			wlPatch := PrepareWorkloadPatch(wl, opts.StrictApply, clk)
-			wlPatch.DeepCopyInto(wl)
+		wlPatch := PrepareWorkloadPatch(wlCopy, opts.StrictApply, clk)
+
+		applyConfig := BaseWorkloadApplyConfiguration(wlPatch, opts.StrictApply)
+		applyConfig.WithStatus(ToWorkloadStatusApplyConfiguration(&wlPatch.Status))
+
+		if err := c.Status().Apply(ctx, applyConfig, client.FieldOwner(constants.AdmissionName), client.ForceOwnership); err != nil {
+			return err
 		}
-		return true, nil
+		// Reflect the just-applied changes locally (see PatchStatus for rationale).
+		if err := c.Get(ctx, client.ObjectKeyFromObject(wl), wl); err != nil {
+			return err
+		}
+		mergeAppliedStatus(&wl.Status, &wlCopy.Status)
+		return nil
+	}
+	return patchStatus(ctx, c, wl, constants.AdmissionName, func(w *kueue.Workload) (bool, error) {
+		return update(w)
 	}, opts)
 }
 
@@ -1337,8 +1813,29 @@ func EvictionPendingLatency(oldWl, newWl *kueue.Workload, now time.Time) (kueue.
 
 // UpdateReclaimablePods updates the ReclaimablePods list for the workload with SSA.
 func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
-	return PatchStatus(ctx, c, wl, constants.ReclaimablePodsMgr, func(wl *kueue.Workload) (bool, error) {
-		wl.Status.ReclaimablePods = reclaimablePods
+	opts := DefaultPatchStatusOptions()
+
+	if opts.ForceApply || !features.Enabled(features.WorkloadRequestUseMergePatch) {
+		wlCopy := wl.DeepCopy()
+		wlCopy.Status.ReclaimablePods = reclaimablePods
+
+		wlPatch := BaseSSAWorkload(wlCopy, opts.StrictApply)
+		wlPatch.Status.ReclaimablePods = reclaimablePods
+
+		applyConfig := BaseWorkloadApplyConfiguration(wlPatch, opts.StrictApply)
+		applyConfig.WithStatus(ToWorkloadStatusApplyConfiguration(&wlPatch.Status))
+		if err := c.Status().Apply(ctx, applyConfig, client.FieldOwner(constants.ReclaimablePodsMgr), client.ForceOwnership); err != nil {
+			return err
+		}
+		// Reflect the just-applied changes locally (see PatchStatus for rationale).
+		if err := c.Get(ctx, client.ObjectKeyFromObject(wl), wl); err != nil {
+			return err
+		}
+		wl.Status.ReclaimablePods = wlCopy.Status.ReclaimablePods
+		return nil
+	}
+	return PatchStatus(ctx, c, wl, constants.ReclaimablePodsMgr, func(w *kueue.Workload) (bool, error) {
+		w.Status.ReclaimablePods = reclaimablePods
 		return true, nil
 	})
 }

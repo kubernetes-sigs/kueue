@@ -250,12 +250,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			managerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			managerBuilder := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration})
 			managerBuilder = managerBuilder.WithLists(&batchv1.JobList{Items: tc.managersJobs})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
 			managerClient := managerBuilder.Build()
 
-			workerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			workerBuilder := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration})
 			workerBuilder = workerBuilder.WithLists(&batchv1.JobList{Items: tc.workerJobs})
 			workerClient := workerBuilder.Build()
 

@@ -1535,7 +1535,9 @@ func TestWlReconcile(t *testing.T) {
 
 				ctx, _ := utiltesting.ContextWithLog(t)
 				managerBuilder := getClientBuilder(ctx)
-				managerBuilder = managerBuilder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				managerBuilder = managerBuilder.WithInterceptorFuncs(
+					interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration},
+				)
 
 				workerClusters := []string{"worker1"}
 				if tc.useSecondWorker {
@@ -1558,7 +1560,7 @@ func TestWlReconcile(t *testing.T) {
 				worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
 					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
 					WithStatusSubresource(&kueue.Workload{}).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
 					Build())
 
 				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)

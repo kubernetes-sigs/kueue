@@ -3481,7 +3481,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 					)...).
 					WithStatusSubresource(&kueue.Workload{}).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+						SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 					})
 
 				cl := clientBuilder.Build()

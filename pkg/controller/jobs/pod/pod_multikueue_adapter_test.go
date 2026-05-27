@@ -281,14 +281,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder().
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
 				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName)
 			managerBuilder = managerBuilder.WithLists(&corev1.PodList{Items: tc.managersPods})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersPods, func(w *corev1.Pod) client.Object { return w })...)
 			managerClient := managerBuilder.Build()
 
 			workerBuilder := utiltesting.NewClientBuilder().
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
 				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName)
 			workerBuilder = workerBuilder.WithLists(&corev1.PodList{Items: tc.workerPods})
 			workerClient := workerBuilder.Build()

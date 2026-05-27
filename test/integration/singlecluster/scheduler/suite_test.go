@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,6 +41,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -135,6 +137,7 @@ func setupInterceptedClient() (context.Context, client.Client) {
 	ctx, baseClient := fwk.SetupClient(cfg)
 	funcs := interceptor.Funcs{
 		SubResourcePatch: fakeSubResourcePatchFrom(&fakeSubResourcePatchSpec, baseClient),
+		SubResourceApply: fakeSubResourceApplyFrom(&fakeSubResourcePatchSpec, baseClient),
 	}
 	client := interceptor.NewClient(baseClient, funcs)
 	return ctx, client
@@ -147,6 +150,7 @@ func newInterceptedClient(config *rest.Config, options client.Options) (client.C
 	}
 	funcs := interceptor.Funcs{
 		SubResourcePatch: fakeSubResourcePatchFrom(&fakeSubResourcePatchSpec, baseClient),
+		SubResourceApply: fakeSubResourceApplyFrom(&fakeSubResourcePatchSpec, baseClient),
 	}
 	client := interceptor.NewClient(baseClient, funcs)
 	return client, nil
@@ -166,6 +170,37 @@ func fakeSubResourcePatchFrom(f *fakeClientCallSpec, baseK8sClient client.Client
 		switch subResourceName {
 		case "status":
 			return baseK8sClient.Status().Patch(ctx, obj, patch, opts...)
+		default:
+			return fmt.Errorf("Unsupported subresource: %s", subResourceName)
+		}
+	}
+}
+
+// fakeSubResourceApplyFrom mirrors fakeSubResourcePatchFrom for the Apply
+// codepath. After the SSA migration the scheduler uses c.Status().Apply, so
+// tests that simulate status-write failures must hook the Apply interceptor
+// in addition to Patch.
+func fakeSubResourceApplyFrom(
+	f *fakeClientCallSpec,
+	baseK8sClient client.Client,
+) func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	if f == nil {
+		panic("Nil pointer passed to fakeSubResourceApplyFrom")
+	}
+	return func(ctx context.Context, _ client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+		if *f != nil {
+			obj, _, err := utiltesting.ConvertApplyConfigToObject(applyConf)
+			if err != nil {
+				return err
+			}
+			fakeUsage, callErr := (*f)(obj)
+			if fakeUsage == emitResponse {
+				return callErr
+			}
+		}
+		switch subResourceName {
+		case "status":
+			return baseK8sClient.Status().Apply(ctx, applyConf, opts...)
 		default:
 			return fmt.Errorf("Unsupported subresource: %s", subResourceName)
 		}

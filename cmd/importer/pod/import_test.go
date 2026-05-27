@@ -181,7 +181,8 @@ func TestImportNamespace(t *testing.T) {
 			lqList := kueue.LocalQueueList{Items: tc.localQueues}
 
 			builder := utiltesting.NewClientBuilder().
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
+				WithStatusSubresource(&kueue.Workload{}).
 				WithLists(&podsList, &cqList, &lqList)
 
 			client := builder.Build()
