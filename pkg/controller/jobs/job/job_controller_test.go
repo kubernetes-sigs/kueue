@@ -609,7 +609,7 @@ func TestReconciler(t *testing.T) {
 		wantEvents        []utiltesting.EventRecord
 		wantErr           error
 	}{
-		"job is not found with FinishOrphanedWorkloads disabled": {
+		"job is not found with FinalizeAndFinishOrphanedWorkloads disabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_job"},
 			job:          nil,
@@ -625,7 +625,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"job is not found with FinishOrphanedWorkloads enabled": {
+		"job is not found with FinalizeAndFinishOrphanedWorkloads enabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_job"},
 			job:          nil,
@@ -648,7 +648,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"job is deleted with FinishOrphanedWorkloads disabled": {
+		"job is deleted with FinalizeAndFinishOrphanedWorkloads disabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
 			job: baseJobWrapper.Clone().
 				DeletionTimestamp(now).
@@ -670,7 +670,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"job is deleted with FinishOrphanedWorkloads enabled": {
+		"job is deleted with FinalizeAndFinishOrphanedWorkloads enabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			job: baseJobWrapper.Clone().
 				DeletionTimestamp(now).

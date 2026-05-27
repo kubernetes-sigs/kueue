@@ -54,6 +54,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -213,10 +214,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
-	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
-		// manual deletion triggered by the user
-		err := workload.RemoveFinalizer(ctx, r.client, &wl)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	if isOrphanedWorkload(&wl) {
+		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, &wl, true)
+		return ctrl.Result{}, err
 	}
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
@@ -696,6 +696,29 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// isOrphanedWorkload determines if a workload is orphaned and should be finalized.
+//
+// A workload is considered orphaned when it meets **both** of the following conditions:
+//  1. It has no OwnerReferences.
+//  2. Either:
+//     - Its DeletionTimestamp is set (it's in the process of being deleted), OR
+//     - It has a JobUIDLabel (controllerconsts.JobUIDLabel), meaning it was
+//     previously owned by a Job whose OwnerReference was later removed.
+func isOrphanedWorkload(wl *kueue.Workload) bool {
+	// If it has an owner, it cannot be orphaned.
+	if len(wl.OwnerReferences) > 0 {
+		return false
+	}
+
+	// Check if the workload is actively being deleted.
+	if !wl.DeletionTimestamp.IsZero() {
+		return true
+	}
+
+	// Check if the workload is associated with a specific Job UID.
+	return features.Enabled(features.FinishOrphanedWorkloads) && wl.Labels[controllerconsts.JobUIDLabel] != ""
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
