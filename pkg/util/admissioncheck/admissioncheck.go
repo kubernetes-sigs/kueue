@@ -33,9 +33,10 @@ import (
 )
 
 var (
-	ErrNilParametersRef = errors.New("missing parameters reference")
-	ErrBadParametersRef = errors.New("bad parameters reference")
-	ErrNoActiveClusters = errors.New("no active clusters")
+	ErrNilParametersRef                  = errors.New("missing parameters reference")
+	ErrBadParametersRef                  = errors.New("bad parameters reference")
+	ErrNoActiveClusters                  = errors.New("no active clusters")
+	ErrNoRemoteClientForNominatedCluster = errors.New("no remote client for nominated cluster")
 )
 
 type objAsPtr[T any] interface {
