@@ -39,6 +39,7 @@ featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
   TASReplaceNodeOnNodeTaints: true
+  FinishOrphanedWorkloads: true
 tls:
   minVersion: "VersionTLS12"
   # this is the default ciphersuite for golang 1.25

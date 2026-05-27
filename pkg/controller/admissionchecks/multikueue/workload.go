@@ -807,8 +807,9 @@ func updateDelayedTopologyRequest(local, remote *kueue.Workload) {
 func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	remoteWl := &kueue.Workload{}
 	remoteWl.ObjectMeta = api.CloneObjectMetaForCreation(&orig.ObjectMeta)
+	delete(remoteWl.Labels, constants.JobUIDLabel)
 	if remoteWl.Labels == nil {
-		remoteWl.Labels = make(map[string]string)
+		remoteWl.Labels = make(map[string]string, 1)
 	}
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
