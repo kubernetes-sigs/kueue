@@ -414,7 +414,7 @@ const (
 	// (pod-group-name and prebuilt-workload-name) via annotations. When the gate is
 	// disabled, the label-based identifiers are used instead.
 	WorkloadIdentifierAnnotations featuregate.Feature = "WorkloadIdentifierAnnotations"
-  
+
 	// owner: @atosatto
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/10765-workload-priority-class-defaulting
 	//
@@ -429,12 +429,12 @@ const (
 	// Enable reporting of Cohort related metrics (also including ClusterQueueInfo metric).
 	MetricsForCohorts featuregate.Feature = "MetricsForCohorts"
 
-  // owner: @polinasand
+	// owner: @polinasand
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/11644
 	//
-	// Whern enabled, metrics for Kueue active admitted and pending workloads count by flavor
+	// When enabled, metrics for Kueue active admitted workloads count by flavor
 	// are populated by clusterqueue.
-	KueueAdmittedAndPendingWorkloadsCountByFlavor featuregate.Feature = "KueueAdmittedAndPendingWorkloadsCountByFlavor"
+	KueueAdmittedWorkloadsCountByFlavor featuregate.Feature = "KueueAdmittedWorkloadsCountByFlavor"
 )
 
 func init() {
@@ -668,14 +668,15 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	WorkloadIdentifierAnnotations: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
-  WorkloadPriorityClassDefaulting: {
+	WorkloadPriorityClassDefaulting: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
-  MetricsForCohorts: {
+	MetricsForCohorts: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
-	KueueAdmittedAndPendingWorkloadsCountByFlavor: {
+	KueueAdmittedWorkloadsCountByFlavor: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Beta},
+	},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

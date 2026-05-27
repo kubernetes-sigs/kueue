@@ -1391,7 +1391,6 @@ func Register() {
 		WorkloadEvictionLatencySeconds,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
-		FlavorAdmittedActiveWorkloads,
 		ClusterQueueByStatus,
 		ClusterQueueResourceReservations,
 		ClusterQueueResourcePending,
@@ -1413,6 +1412,9 @@ func Register() {
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
+	}
+	if features.Enabled(features.KueueAdmittedWorkloadsCountByFlavor) {
+		metrics.Registry.MustRegister(FlavorAdmittedActiveWorkloads)
 	}
 }
 

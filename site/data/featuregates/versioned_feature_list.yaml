@@ -117,6 +117,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.17"
+- name: KueueAdmittedWorkloadsCountByFlavor
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
