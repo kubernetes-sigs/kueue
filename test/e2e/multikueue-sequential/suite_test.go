@@ -44,6 +44,11 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
+const (
+	shard0 = "shard-0"
+	shard1 = "shard-1"
+)
+
 var (
 	managerK8SVersion  *versionutil.Version
 	managerClusterName string
