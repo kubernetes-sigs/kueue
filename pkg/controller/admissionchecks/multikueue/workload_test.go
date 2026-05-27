@@ -2209,6 +2209,15 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			nominatedWorkers: remoteNames,
 			wantCreated:      remoteNames,
 		},
+		{
+			name:                      "External controller: nominated worker cluster not yet connected",
+			dispatcherMode:            externalMultiKueueDispatcherController,
+			remotes:                   map[string]*kueue.Workload{remoteNames[0]: nil},
+			nominatedWorkers:          []string{remoteNames[0], remoteNames[1]},
+			wantCreated:               []string{remoteNames[0]},
+			wantErr:                   true,
+			wantNominatedClusterNames: []string{remoteNames[0], remoteNames[1]},
+		},
 	}
 
 	for _, tt := range tests {
