@@ -299,7 +299,26 @@ func (j *SparkApplication) Finished(ctx context.Context) (message string, succes
 }
 
 func (j *SparkApplication) PodsReady(ctx context.Context) bool {
-	return j.Status.AppState.State == sparkv1beta2.ApplicationStateRunning
+	// Driver must be running.
+	if j.Status.AppState.State != sparkv1beta2.ApplicationStateRunning {
+		return false
+	}
+	// And every requested executor must have reported a Running/Completed state.
+	// AppState.State alone goes to Running as soon as the driver starts even if
+	// executors are stuck (e.g. unschedulable), which would let the
+	// waitForPodsReady timeout never fire on heterogeneous resource shortages.
+	expected := int(ptr.Deref(j.Spec.Executor.Instances, 0))
+	if expected == 0 {
+		return true
+	}
+	ready := 0
+	for _, st := range j.Status.ExecutorState {
+		switch st {
+		case sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStateCompleted:
+			ready++
+		}
+	}
+	return ready >= expected
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

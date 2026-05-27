@@ -17,8 +17,10 @@ limitations under the License.
 package sparkapplication
 
 import (
+	"fmt"
 	"maps"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -28,12 +30,17 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
+	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -49,6 +56,7 @@ var (
 	}
 	workloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
+		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta"),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name", "Labels", "ResourceVersion", "OwnerReferences", "Finalizers"),
 		cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "Priority"),
@@ -544,12 +552,73 @@ func TestRestorePodSetsInfo(t *testing.T) {
 }
 
 func TestReconciler(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
+	const testSparkAppUID types.UID = "test-sparkapp-uid"
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", testNamespace.Name)
+
+	// Helpers for the PodsReady cases: build a SparkApplication whose status
+	// simulates "driver Running and N executors in the given state". The
+	// framework calls PodsReady() during Reconcile and we assert the resulting
+	// Workload condition.
+	withUID := func(s *sparkappv1beta2.SparkApplication) *sparkappv1beta2.SparkApplication {
+		s.UID = testSparkAppUID
+		return s
+	}
+	withExecutorsRunning := func(s *sparkappv1beta2.SparkApplication, n int32) *sparkappv1beta2.SparkApplication {
+		s.Spec.Executor.Instances = ptr.To(n)
+		s.Status.AppState.State = sparkappv1beta2.ApplicationStateRunning
+		states := make(map[string]sparkappv1beta2.ExecutorState, n)
+		for i := int32(1); i <= n; i++ {
+			states[fmt.Sprintf("%s-exec-%d", s.Name, i)] = sparkappv1beta2.ExecutorStateRunning
+		}
+		s.Status.ExecutorState = states
+		return s
+	}
+	withDriverRunningOnly := func(s *sparkappv1beta2.SparkApplication, expected int32) *sparkappv1beta2.SparkApplication {
+		s.Spec.Executor.Instances = ptr.To(expected)
+		s.Status.AppState.State = sparkappv1beta2.ApplicationStateRunning
+		// No ExecutorState entries — simulates the Spark Operator state where
+		// AppState flips to Running as soon as the driver starts even though
+		// executors haven't reported ready yet (the bug this fix addresses).
+		return s
+	}
+
+	// Build a workload whose PodSets are derived from the same SparkApplication
+	// the framework will Reconcile, so EquivalentToWorkload returns true and
+	// the workload is treated as "matching" rather than recreated.
+	makeAdmittedWorkload := func(s *sparkappv1beta2.SparkApplication) *utiltestingapi.WorkloadWrapper {
+		t.Helper()
+		podSets, err := (*SparkApplication)(s).PodSets(t.Context())
+		if err != nil {
+			t.Fatalf("PodSets returned error during test setup: %v", err)
+		}
+		psas := make([]kueue.PodSetAssignment, 0, len(podSets))
+		for i := range podSets {
+			psas = append(psas, utiltestingapi.MakePodSetAssignment(podSets[i].Name).Count(podSets[i].Count).Obj())
+		}
+		return utiltestingapi.MakeWorkload("wl", testNamespace.Name).
+			Finalizers(kueue.ResourceInUseFinalizerName).
+			ControllerReference(gvk, s.Name, string(s.UID)).
+			PodSets(podSets...).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").PodSets(psas...).Obj(),
+				now,
+			).
+			AdmittedAt(true, now)
+	}
+
+	baseWaitForPodsReadyConf := &configapi.WaitForPodsReady{}
+
+	// SparkApp variants used by the PodsReady cases.
+	sparkAppDriverRunningOnly := withDriverRunningOnly(withUID(testSparkApp.DeepCopy()), 2)
+	sparkAppAllExecutorsReady := withExecutorsRunning(withUID(testSparkApp.DeepCopy()), 2)
 
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		sparkApp          *sparkappv1beta2.SparkApplication
+		workloads         []kueue.Workload
 		wantWorkloads     []kueue.Workload
 	}{
 		"workload is created with the corresponding podsets": {
@@ -567,20 +636,77 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"PodsReady stays False/WaitForStart while AppState=Running but no executors reported ready": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			sparkApp: sparkAppDriverRunningOnly,
+			workloads: []kueue.Workload{
+				*makeAdmittedWorkload(sparkAppDriverRunningOnly).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*makeAdmittedWorkload(sparkAppDriverRunningOnly).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadWaitForStart,
+						Message: "Not all pods are ready or succeeded",
+					}).
+					Obj(),
+			},
+		},
+		"PodsReady becomes True/Started after AppState=Running and all executors reach Running": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			sparkApp: sparkAppAllExecutorsReady,
+			workloads: []kueue.Workload{
+				*makeAdmittedWorkload(sparkAppAllExecutorsReady).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*makeAdmittedWorkload(sparkAppAllExecutorsReady).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			clientBuilder := utiltesting.NewClientBuilder(sparkappv1beta2.AddToScheme)
-			kClient := clientBuilder.WithObjects(tc.sparkApp, testNamespace).Build()
+			clientBuilder := utiltesting.NewClientBuilder(sparkappv1beta2.AddToScheme).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			kClient := clientBuilder.
+				WithObjects(tc.sparkApp, testNamespace).
+				WithStatusSubresource(&kueue.Workload{}).
+				Build()
+			// Pre-existing workloads must be created via the client (not WithObjects)
+			// so that the status subresource is initialized correctly.
+			for i := range tc.workloads {
+				if err := kClient.Create(ctx, &tc.workloads[i]); err != nil {
+					t.Fatalf("Could not create pre-existing workload: %v", err)
+				}
+			}
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
+			recorder := &utiltesting.EventRecorder{}
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
+				append(tc.reconcilerOptions,
+					jobframework.WithCache(schdcache.New(kClient)),
+					jobframework.WithClock(testingclock.NewFakeClock(now)),
+				)...)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)
 			}
