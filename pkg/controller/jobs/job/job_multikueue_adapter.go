@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
@@ -126,56 +125,28 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 	newLocalStatus := localJob.Status.DeepCopy()
 	newLocalStatus.Active = 0
 	newLocalStatus.StartTime = nil
-	newConditions, _ := ensureJobConditionStatus(newLocalStatus.Conditions,
-		batchv1.JobSuspended,
-		corev1.ConditionTrue,
-		"MultiKueueAdapter",
-		"Set by MultiKueue adapter",
-		time.Now())
+	newLocalStatus.Conditions = setJobStatusCondition(newLocalStatus.Conditions,
+		batchv1.JobCondition{
+			Type:   batchv1.JobSuspended,
+			Status: corev1.ConditionTrue,
+			Reason: "MultiKueueAdapter",
+			Message: "Set by MultiKueue adapter",
+			LastTransitionTime: metav1.Now(),
+			LastProbeTime: metav1.Now(),
+		})
 	log.V(2).Info("Updating the localJob suspended Job to set the JobSuspended=True condition")
-	newLocalStatus.Conditions = newConditions
 	return newLocalStatus
 }
 
-// ensureJobConditionStatus appends or updates an existing job condition of the
-// given type with the given status value. Note that this function will not
-// append to the conditions list if the new condition's status is false
-// (because going from nothing to false is meaningless); it can, however,
-// update the status condition to false. The function returns a bool to let the
-// caller know if the list was changed (either appended or updated).
-func ensureJobConditionStatus(list []batchv1.JobCondition, cType batchv1.JobConditionType, status corev1.ConditionStatus, reason, message string, now time.Time) ([]batchv1.JobCondition, bool) {
-	if condition := findConditionByType(list, cType); condition != nil {
-		if condition.Status != status {
-			*condition = *newCondition(cType, status, reason, message, now)
-			return list, true
-		}
-		return list, false
-	}
-	// A condition with that type doesn't exist in the list.
-	if status != corev1.ConditionFalse {
-		return append(list, *newCondition(cType, status, reason, message, now)), true
-	}
-	return list, false
-}
-
-func findConditionByType(list []batchv1.JobCondition, cType batchv1.JobConditionType) *batchv1.JobCondition {
+func setJobStatusCondition(list []batchv1.JobCondition, condition batchv1.JobCondition) []batchv1.JobCondition {
 	for i := range list {
-		if list[i].Type == cType {
-			return &list[i]
+		if list[i].Type == condition.Type {
+			list[i] = condition
+			return list
 		}
 	}
-	return nil
-}
-
-func newCondition(conditionType batchv1.JobConditionType, status corev1.ConditionStatus, reason, message string, now time.Time) *batchv1.JobCondition {
-	return &batchv1.JobCondition{
-		Type:               conditionType,
-		Status:             status,
-		LastProbeTime:      metav1.NewTime(now),
-		LastTransitionTime: metav1.NewTime(now),
-		Reason:             reason,
-		Message:            message,
-	}
+	list = append(list, condition)
+	return list
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
