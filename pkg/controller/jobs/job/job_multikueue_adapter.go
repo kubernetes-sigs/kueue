@@ -107,22 +107,38 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 
 	log.V(3).Info("Determining status update for a MultiKueue Job", "localJob", localJob, "remoteJob", remoteJob)
 	if !localJobInfo.IsSuspended() {
-		// do not skip any syncs if the local Job is unsuspnded
+		// Sync status if the local Job is unsuspended.
+		// This is safe as the local Job has already reached its final spec.
+		// We expect no validation errors from further spec changes.
 		log.V(3).Info("Performing the sync as the local Job is unsuspended")
 		return &remoteJob.Status
 	}
 	remoteJobInfo := fromObject(remoteJob)
 	if remoteJobInfo.IsSuspended() {
-		// Do not skip any syncs if the remote Job is also suspended
+		// Sync status if both local and remote Job are suspended.
 		// This is needed to await for updating the status.active field
 		// when the remote Job is evicted; see: https://github.com/kubernetes-sigs/kueue/pull/8151
 		log.V(3).Info("Peforming the sync as the local and the remote Job are both suspended")
 		return &remoteJob.Status
 	}
 	if _, _, finished := remoteJobInfo.Finished(ctx); finished {
+		// Sync status if the remote Job is finished.
+		// Without this, the local Job could get stuck in the suspended state.
 		log.V(2).Info("Performing the sync as the remote Job is finished")
 		return &remoteJob.Status
 	}
+
+	// Remaining case: local Job is suspended, remote Job is unsuspended but not finished.
+	// In this case:
+	// 1. We essentially want *no sync* (to avoid prematurely setting non-zero .status.startTime
+	//    which could block further spec updates; see: https://github.com/kubernetes-sigs/kueue/pull/3685).
+	// 2. We rely on the MultiKueue admission lifecycle to eventually bring localJob to unsuspended state
+	//    (remote admitted -> MultiKueue AdmissionCheck ready -> local admitted -> local unsuspended).
+	// 3. However, to avoid clashing with K8s 1.36 validation rules
+	//    (since https://github.com/kubernetes/kubernetes/pull/135104 until https://github.com/kubernetes/kubernetes/pull/139287)
+	//    we manually patch a "JobSuspended=True" condition to unblock further spec updates.
+	// As long as we're on a K8s version unaffected by #3, we could just do:
+	//   return &localJob.Status
 	newLocalStatus := localJob.Status.DeepCopy()
 	newLocalStatus.Active = 0
 	newLocalStatus.StartTime = nil
