@@ -942,36 +942,43 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "a",
 			wantPreempted: sets.New(targetKeyReason("/b_prem1", kueue.InCohortReclamationReason)),
 		},
-		// Hierarchical topology (kubernetes-sigs/kueue#9466):
+		// Hierarchical topology (#9466) + multi-flavor DRS (nominal-first pattern):
 		//
-		//                    ROOT (20/20, quota=10)
+		//                    ROOT (premium 20/20, quota=10)
 		//                   /            \
-		//          cohort-1 (6/10)    cohort-2 (14/0)
+		//          cohort-1 (prem 6/10)  cohort-2 (prem 14/0)
 		//         /            \              \
-		//   cq-1 (3/0)    cq-2 (3/1)    cq-hogger (14/0)
+		//   cq-1 (3 prem/0 + 5 cheap/0)  cq-2 (3/1)    cq-hogger (14/0)
 		//     |               |                   |
-		//  cq1-0..2        cq2-0..2          hog-0..13
+		//  cq1-0..2         cq2-0..2          hog-00..13
+		//  cq1_cheap1..5
 		//
-		// ROOT subtreeQuota = 10 (own) + 10 (cohort-1 subtree) + 0 (cohort-2) = 20.
-		// cohort-1 subtree quota = 9 (cohort) + 0 (cq-1) + 1 (cq-2) = 10 CPU.
-		// cohort-1 usage = 6 < 10, so it is within subtree nominal.
-		// ROOT usage = 14 (hogger) + 6 (cohort-1) = 20 = ROOT subtreeQuota (full).
+		// cq-1: 3 premium (borrowed) + 5 cheap (borrowed) → high aggregate DRS.
+		// cohort-1: premium usage 6 < 10 → within subtree nominal on contested premium.
+		// cq-1: NOT within CQ nominal on premium (0 nominal).
 		//
-		// Incoming: 4 CPU on cq-1 (0 nominal, fully borrowing from cohort-1 pool).
-		// Preemption needed: ROOT available = 0. After removing each 1-CPU hog,
-		// ROOT available increases by 1. Need 4 preemptions for 4 CPU to fit.
-		// cohort-1 is within nominal (6/10) → DRS bypass applies.
-		// Expectation: preempt 4 hogs from cq-hogger with InCohortReclamation.
-		"reclaim from sibling cohort when parent cohort within nominal": {
+		// Incoming: 4 premium CPU on cq-1.
+		// Without ancestor bypass: DRS strategy path applies (InCohortFairSharing from hogger).
+		// With ancestor bypass (cohort-1 within nominal on premium): InCohortReclamation from hogger.
+		"reclaim from sibling when parent within nominal despite high DRS on other flavor": {
+			flavors: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("premium").Obj(),
+				utiltestingapi.MakeResourceFlavor("cheap").Obj(),
+			},
+			assignmentFlavor: "premium",
 			cohorts: []*kueue.Cohort{
 				utiltestingapi.MakeCohort("ROOT").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
-						Resource(corev1.ResourceCPU, "10").Obj()).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "10").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "10").Obj(),
+					).
 					Obj(),
 				utiltestingapi.MakeCohort("cohort-1").
 					Parent("ROOT").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
-						Resource(corev1.ResourceCPU, "9").Obj()).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "9").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "10").Obj(),
+					).
 					Obj(),
 				utiltestingapi.MakeCohort("cohort-2").
 					Parent("ROOT").
@@ -980,15 +987,21 @@ func TestFairPreemptions(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("cq-1").
 					Cohort("cohort-1").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
-						Resource(corev1.ResourceCPU, "0").Obj()).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "0").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "0").Obj(),
+					).
 					Preemption(kueue.ClusterQueuePreemption{
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.MayStopSearch,
+						WhenCanPreempt: kueue.MayStopSearch,
 					}).
 					Obj(),
 				utiltestingapi.MakeClusterQueue("cq-2").
 					Cohort("cohort-1").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("premium").
 						Resource(corev1.ResourceCPU, "1").Obj()).
 					Preemption(kueue.ClusterQueuePreemption{
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -997,30 +1010,33 @@ func TestFairPreemptions(t *testing.T) {
 					Obj(),
 				utiltestingapi.MakeClusterQueue("cq-hogger").
 					Cohort("cohort-2").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("premium").
 						Resource(corev1.ResourceCPU, "0").Obj()).
 					Obj(),
 			},
 			admitted: func() []kueue.Workload {
-				wls := make([]kueue.Workload, 0, 20)
+				wls := make([]kueue.Workload, 0, 25)
 				for i := range 14 {
-					wls = append(wls, *unitWl.Clone().Name(fmt.Sprintf("hog-%d", i)).Priority(-1).SimpleReserveQuota("cq-hogger", "default", now).Obj())
+					wls = append(wls, *unitWl.Clone().Name(fmt.Sprintf("hog-%02d", i)).Priority(-1).SimpleReserveQuota("cq-hogger", "premium", now).Obj())
 				}
 				for i := range 3 {
-					wls = append(wls, *unitWl.Clone().Name(fmt.Sprintf("cq1-%d", i)).SimpleReserveQuota("cq-1", "default", now).Obj())
+					wls = append(wls, *unitWl.Clone().Name(fmt.Sprintf("cq1-%d", i)).SimpleReserveQuota("cq-1", "premium", now).Obj())
+				}
+				for i := range 5 {
+					wls = append(wls, *unitWl.Clone().Name(fmt.Sprintf("cq1_cheap%d", i+1)).SimpleReserveQuota("cq-1", "cheap", now).Obj())
 				}
 				for i := range 3 {
-					wls = append(wls, *unitWl.Clone().Name(fmt.Sprintf("cq2-%d", i)).SimpleReserveQuota("cq-2", "default", now).Obj())
+					wls = append(wls, *unitWl.Clone().Name(fmt.Sprintf("cq2-%d", i)).SimpleReserveQuota("cq-2", "premium", now).Obj())
 				}
 				return wls
 			}(),
 			incoming: utiltestingapi.MakeWorkload("cq1-incoming", "").Request(corev1.ResourceCPU, "4").Obj(),
 			targetCQ: "cq-1",
 			wantPreempted: sets.New(
-				targetKeyReason("/hog-0", kueue.InCohortReclamationReason),
-				targetKeyReason("/hog-1", kueue.InCohortReclamationReason),
-				targetKeyReason("/hog-10", kueue.InCohortReclamationReason),
-				targetKeyReason("/hog-11", kueue.InCohortReclamationReason),
+				targetKeyReason("/hog-00", kueue.InCohortReclamationReason),
+				targetKeyReason("/hog-01", kueue.InCohortReclamationReason),
+				targetKeyReason("/hog-02", kueue.InCohortReclamationReason),
+				targetKeyReason("/hog-03", kueue.InCohortReclamationReason),
 			),
 		},
 	}
