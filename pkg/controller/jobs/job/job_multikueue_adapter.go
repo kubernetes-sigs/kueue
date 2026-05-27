@@ -24,6 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -63,15 +64,14 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		if shouldSkipSyncForSuspendedLocalJob(log, &localJob, &remoteJob) {
-			return nil
-		}
-
-		if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
-			localJob.Status = remoteJob.Status
-			return true, nil
-		}); err != nil {
-			return err
+		statusUpdate := determineStatusUpdate(ctx, log, &localJob, &remoteJob)
+		if !equality.Semantic.DeepEqual(localJob.Status, *statusUpdate) {
+			if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+				localJob.Status = *statusUpdate
+				return true, nil
+			}); err != nil {
+				return err
+			}
 		}
 
 		// Sync elastic workload if needed.
@@ -102,40 +102,52 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func shouldSkipSyncForSuspendedLocalJob(log logr.Logger, localJob, remoteJob *batchv1.Job) bool {
+func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remoteJob *batchv1.Job) *batchv1.JobStatus {
 	localJobInfo := fromObject(localJob)
 
+	log.V(2).Info("Checking shouldSkipSyncForSuspendedLocalJob", "localJob", localJob, "remoteJob", remoteJob)
 	if !localJobInfo.IsSuspended() {
 		// do not skip any syncs if the local Job is unsuspnded
-		return false
+		log.V(3).Info("Peforming the sync as the local Job is unsuspended")
+		return &remoteJob.Status
 	}
-	if hasSuspendedJobCondition(remoteJob) {
-		// sync of the JobSuspended=True condition cannot be skipped for a job which
-		// has suspend=true.
-		return false
+	remoteJobInfo := fromObject(remoteJob)
+	if remoteJobInfo.IsSuspended() {
+		// Do not skip any syncs if the remote Job is also suspended
+		// This is needed to await for updating the status.active field
+		// when the remote Job is evicted; see: https://github.com/kubernetes-sigs/kueue/pull/8151
+		log.V(3).Info("Peforming the sync as the local and the remote Job are suspended")
+		return &remoteJob.Status
 	}
-	if localJobInfo.IsActive() {
-		return false
+	if _, _, finished := remoteJobInfo.Finished(ctx); finished {
+		log.V(2).Info("Remote job is finished, returning the remote job status")
+		return &remoteJob.Status
 	}
-	log.V(2).Info("Skipping the sync when the localJob has suspend=true, active=0, and remote isn't setting JobSuspended=true")
-	return true
+	newLocalStatus := localJob.Status.DeepCopy()
+	newLocalStatus.Active = 0
+	newLocalStatus.StartTime = nil
+	newLocalStatus.Conditions = setJobStatusCondition(newLocalStatus.Conditions,
+		batchv1.JobCondition{
+			Type:               batchv1.JobSuspended,
+			Status:             corev1.ConditionTrue,
+			Reason:             "MultiKueueAdapter",
+			Message:            "Set by MultiKueue adapter",
+			LastTransitionTime: metav1.Now(),
+			LastProbeTime:      metav1.Now(),
+		})
+	log.V(2).Info("Updating the localJob suspended Job to set the JobSuspended=True condition")
+	return newLocalStatus
 }
 
-func hasSuspendedJobCondition(job *batchv1.Job) bool {
-	condition := findConditionByType(job, batchv1.JobSuspended)
-	return condition != nil && condition.Status == corev1.ConditionTrue
-}
-
-func findConditionByType(job *batchv1.Job, conditionType batchv1.JobConditionType) *batchv1.JobCondition {
-	if job == nil {
-		return nil
-	}
-	for i := range job.Status.Conditions {
-		if job.Status.Conditions[i].Type == conditionType {
-			return &job.Status.Conditions[i]
+func setJobStatusCondition(list []batchv1.JobCondition, condition batchv1.JobCondition) []batchv1.JobCondition {
+	for i := range list {
+		if list[i].Type == condition.Type {
+			list[i] = condition
+			return list
 		}
 	}
-	return nil
+	list = append(list, condition)
+	return list
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
