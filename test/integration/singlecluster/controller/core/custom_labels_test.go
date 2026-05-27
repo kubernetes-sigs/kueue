@@ -918,10 +918,10 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				g.Expect(k8sClient.Update(ctx, &updatedCohort)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			// ClearCohortMetrics only clears gauges (CohortInfo), not counters (AdmittedWorkloadsTotal).
+			util.ExpectCohortInfoMetric(cohort.Name, "", cohort.Name, 1, "data-test")
+			util.ExpectCohortInfoMetric(cohort.Name, "", cohort.Name, 0, "data-eng")
 			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(cohort.Name), "", 1, "data-eng")
-			util.ExpectCohortInfoMetric(cohort.Name, "", cohort.Name, 1, "data-eng")
-			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(cohort.Name), "", 0, "data-test")
-			util.ExpectCohortInfoMetric(cohort.Name, "", cohort.Name, 0, "data-test")
 		})
 	})
 
