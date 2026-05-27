@@ -221,29 +221,24 @@ func (c *Cache) recordCQInfo(cq *clusterQueue, parentCohort kueue.CohortReferenc
 	metrics.ReportClusterQueueInfo(cq.Name, parentCohort, rootCohort, customLabels, c.roleTracker)
 }
 
-// updateCohortResourceAndInfoMetrics updates subtree resources and metrics in one pass.
+// updateCohortResourceAndInfoMetrics updates subtree resources then records info metrics.
 func (c *Cache) updateCohortResourceAndInfoMetrics(cohort *cohort, root *cohort) {
-	cohort.resourceNode.SubtreeQuota = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.SubtreeQuota))
-	cohort.resourceNode.Usage = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.Usage))
+	updateCohortResourceNode(cohort)
+	c.recordTreeInfoMetrics(cohort, root)
+}
 
-	// Accumulate resources from this cohort's quotas.
-	for fr, quota := range cohort.resourceNode.Quotas {
-		cohort.resourceNode.SubtreeQuota[fr] = quota.Nominal
+// recordTreeInfoMetrics records cohort and cluster queue info metrics for the subtree.
+// It is a no-op when the MetricsForCohorts feature gate is disabled.
+func (c *Cache) recordTreeInfoMetrics(cohort *cohort, root *cohort) {
+	if !features.Enabled(features.MetricsForCohorts) {
+		return
 	}
-
 	c.recordCohortInfo(cohort, root)
-
-	// Recurse into child cohorts.
 	for _, child := range cohort.ChildCohorts() {
-		c.updateCohortResourceAndInfoMetrics(child, root)
-		accumulateFromChild(cohort, child)
+		c.recordTreeInfoMetrics(child, root)
 	}
-
-	// Recurse into child cluster queues.
 	for _, child := range cohort.ChildCQs() {
-		updateClusterQueueResourceNode(child)
 		c.recordCQInfo(child, cohort.GetName(), root.GetName())
-		accumulateFromChild(cohort, child)
 	}
 }
 
