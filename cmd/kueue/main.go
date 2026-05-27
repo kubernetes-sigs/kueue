@@ -316,8 +316,10 @@ func main() {
 		queueOptions = append(queueOptions, qcache.WithResourceTransformations(cfg.Resources.Transformations))
 	}
 	var draMapper *dra.ResourceMapper
+	var draBackedResources *dra.ExtendedResourceCache
 	if features.Enabled(features.KueueDRAIntegration) {
 		draMapper = dra.NewResourceMapper()
+		draBackedResources = dra.NewExtendedResourceCache()
 		if cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
 			if err := draMapper.PopulateFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
 				setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
@@ -344,6 +346,9 @@ func main() {
 
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
+	if draBackedResources != nil {
+		queueOptions = append(queueOptions, qcache.WithDRABackedResources(draBackedResources))
+	}
 	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions...)
 
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
@@ -383,6 +388,7 @@ func main() {
 		PreemptionExpectations: preemptionExpectations,
 		CustomLabels:           customLabels,
 		DRAMapper:              draMapper,
+		DRABackedResources:     draBackedResources,
 	}
 	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, controllerOpts); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")

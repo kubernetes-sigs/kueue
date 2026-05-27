@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -693,6 +694,112 @@ func TestSetupToleratesNoMatchErrorForDeviceClass(t *testing.T) {
 			err := Setup(t.Context(), tc.indexer)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("Setup() error = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestIndexWorkloadExtendedResources(t *testing.T) {
+	container := func(name string, requests corev1.ResourceList) corev1.Container {
+		return corev1.Container{
+			Name:      name,
+			Resources: corev1.ResourceRequirements{Requests: requests},
+		}
+	}
+
+	cases := map[string]struct {
+		obj  client.Object
+		want []string
+	}{
+		"non-Workload returns nil": {
+			obj:  makeLocalQueue("lq", "ns", "cq"),
+			want: nil,
+		},
+		"workload with only cpu and memory": {
+			obj: func() client.Object {
+				wl := makeWorkload("wl", "ns")
+				wl.Spec.PodSets = []kueue.PodSet{{
+					Name:  "main",
+					Count: 1,
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{container("c", corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("1"),
+								corev1.ResourceMemory: resource.MustParse("1Gi"),
+							})},
+						},
+					},
+				}}
+				return wl
+			}(),
+			want: nil,
+		},
+		"workload with single extended resource": {
+			obj: func() client.Object {
+				wl := makeWorkload("wl", "ns")
+				wl.Spec.PodSets = []kueue.PodSet{{
+					Name:  "main",
+					Count: 1,
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{container("c", corev1.ResourceList{
+								"nvidia.com/gpu": resource.MustParse("1"),
+							})},
+						},
+					},
+				}}
+				return wl
+			}(),
+			want: []string{"nvidia.com/gpu"},
+		},
+		"workload with multiple extended resources": {
+			obj: func() client.Object {
+				wl := makeWorkload("wl", "ns")
+				wl.Spec.PodSets = []kueue.PodSet{{
+					Name:  "main",
+					Count: 1,
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								container("c1", corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("1")}),
+								container("c2", corev1.ResourceList{"google.com/tpu": resource.MustParse("2")}),
+							},
+						},
+					},
+				}}
+				return wl
+			}(),
+			want: []string{"google.com/tpu", "nvidia.com/gpu"},
+		},
+		"duplicate extended resource across containers is deduplicated": {
+			obj: func() client.Object {
+				wl := makeWorkload("wl", "ns")
+				wl.Spec.PodSets = []kueue.PodSet{{
+					Name:  "main",
+					Count: 1,
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								container("c1", corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("1")}),
+								container("c2", corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("2")}),
+							},
+						},
+					},
+				}}
+				return wl
+			}(),
+			want: []string{"nvidia.com/gpu"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := IndexWorkloadExtendedResources(tc.obj)
+			if diff := cmp.Diff(tc.want, got,
+				cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+				cmpopts.EquateEmpty(),
+			); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

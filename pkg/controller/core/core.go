@@ -44,6 +44,7 @@ type SetupControllersOpts struct {
 	PreemptionExpectations *expectations.Store
 	CustomLabels           *metrics.CustomLabels
 	DRAMapper              *dra.ResourceMapper
+	DRABackedResources     *dra.ExtendedResourceCache
 }
 
 // SetupControllers sets up the core controllers. It returns the name of the
@@ -108,6 +109,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithWorkloadCustomLabels(opts.CustomLabels),
 		WithAdmissionFairSharing(cfg.AdmissionFairSharing),
 		WithDRAMapper(opts.DRAMapper),
+		WithDRABackedResources(opts.DRABackedResources),
 	)
 	if features.Enabled(features.KueueDRAIntegration) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())
