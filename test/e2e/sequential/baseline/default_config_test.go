@@ -44,7 +44,7 @@ const (
 	testLabelValue = "true"
 )
 
-var _ = ginkgo.Describe("Default configuration tests", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(shard0), ginkgo.Ordered, func() {
 	ginkgo.Context("Certs", func() {
 		var (
 			ns             *corev1.Namespace
