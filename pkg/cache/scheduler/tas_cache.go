@@ -122,14 +122,16 @@ func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 	}
 }
 
-// Update may add a pod to the cache, or
-// delete a terminated pod.
-func (t *tasCache) Update(pod *corev1.Pod, log logr.Logger) {
-	t.nonTasUsageCache.update(pod, log)
+// Update may add a pod to the cache, or delete a terminated pod.
+// Returns the node name when a terminated pod is removed from the cache.
+func (t *tasCache) Update(pod *corev1.Pod, log logr.Logger) string {
+	return t.nonTasUsageCache.update(pod, log)
 }
 
-func (t *tasCache) DeletePodByKey(key client.ObjectKey, log logr.Logger) {
-	t.nonTasUsageCache.delete(key, log)
+// DeletePodByKey removes a pod from the cache.
+// Returns the node name when an entry is removed.
+func (t *tasCache) DeletePodByKey(key client.ObjectKey, log logr.Logger) string {
+	return t.nonTasUsageCache.delete(key, log)
 }
 
 func (t *tasCache) SyncNode(node *corev1.Node) {
