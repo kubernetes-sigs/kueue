@@ -249,7 +249,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWl)).To(gomega.Succeed())
 				g.Expect(workload.IsFinished(createdWl)).To(gomega.BeTrue())
 				g.Expect(createdWl.Finalizers).To(gomega.BeEmpty())
-			}, util.ConsistentDuration, util.ShortConsistentDuration).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should run with prebuilt workload", func() {
