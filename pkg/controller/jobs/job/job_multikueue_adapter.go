@@ -123,6 +123,10 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 		log.V(2).Info("Remote job is finished, returning the remote job status")
 		return &remoteJob.Status
 	}
+	if hasJobSuspendedCondition(localJob) {
+		log.V(3).Info("JobSuspended=True already set, no update needed")
+		return &localJob.Status
+	}
 	newLocalStatus := localJob.Status.DeepCopy()
 	newLocalStatus.Active = 0
 	newLocalStatus.StartTime = nil
@@ -137,6 +141,15 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 		})
 	log.V(2).Info("Updating the localJob suspended Job to set the JobSuspended=True condition")
 	return newLocalStatus
+}
+
+func hasJobSuspendedCondition(job *batchv1.Job) bool {
+	for _, c := range job.Status.Conditions {
+		if c.Type == batchv1.JobSuspended && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
 
 func setJobStatusCondition(list []batchv1.JobCondition, condition batchv1.JobCondition) []batchv1.JobCondition {
