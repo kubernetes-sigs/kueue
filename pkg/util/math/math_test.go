@@ -53,3 +53,27 @@ func TestSaturatingMul(t *testing.T) {
 		})
 	}
 }
+
+func TestSaturatingSub(t *testing.T) {
+	cases := map[string]struct {
+		a    int64
+		b    int64
+		want int64
+	}{
+		"normal subtraction":              {a: 10, b: 3, want: 7},
+		"zero":                            {a: 5, b: 5, want: 0},
+		"negative result":                 {a: 3, b: 10, want: -7},
+		"underflow: MinInt64 - 1":         {a: stdmath.MinInt64, b: 1, want: stdmath.MinInt64},
+		"underflow: MinInt64 - large":     {a: stdmath.MinInt64, b: stdmath.MaxInt64, want: stdmath.MinInt64},
+		"overflow: MaxInt64 - (-1)":       {a: stdmath.MaxInt64, b: -1, want: stdmath.MaxInt64},
+		"overflow: MaxInt64 - MinInt64":   {a: stdmath.MaxInt64, b: stdmath.MinInt64, want: stdmath.MaxInt64},
+		"subtract negative: 0 - MinInt64": {a: 0, b: stdmath.MinInt64, want: stdmath.MaxInt64},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := SaturatingSub(tc.a, tc.b); got != tc.want {
+				t.Errorf("SaturatingSub(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}

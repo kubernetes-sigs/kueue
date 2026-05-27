@@ -159,7 +159,7 @@ func (f *testOracle) SimulatePreemption(
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
 	fr resources.FlavorResource,
-	quantity int64,
+	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
 	if f.simulationResult != nil {
 		if result, ok := f.simulationResult[fr]; ok {
@@ -243,8 +243,8 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "default", Resource: corev1.ResourceCPU}:    1_000,
-					{Flavor: "default", Resource: corev1.ResourceMemory}: utiltesting.Mi,
+					{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(1_000),
+					{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Mi),
 				}},
 			},
 		},
@@ -283,7 +283,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "tainted", Resource: corev1.ResourceCPU}: 1_000,
+					{Flavor: "tainted", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 				}},
 			},
 		},
@@ -314,7 +314,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "taint_and_toleration", Resource: corev1.ResourceCPU}: 1_000,
+					{Flavor: "taint_and_toleration", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 				}},
 			},
 		},
@@ -331,7 +331,7 @@ func TestAssignFlavors(t *testing.T) {
 						Obj(),
 				).Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -355,7 +355,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
+					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 				}},
 			},
 		},
@@ -413,8 +413,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}:      3_000,
-					{Flavor: "b_one", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:      resources.NewAmount(3_000),
+					{Flavor: "b_one", Resource: corev1.ResourceMemory}: resources.NewAmount(10 * utiltesting.Mi),
 				}},
 			},
 		},
@@ -479,7 +479,7 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 1,
 					}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 9_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
 				}},
 			},
 		},
@@ -558,9 +558,9 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 1,
 					}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}:    5_000,
-					{Flavor: "two", Resource: corev1.ResourceMemory}: 5,
-					{Flavor: "two", Resource: "example.com/gpu"}:     4,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:    resources.NewAmount(5_000),
+					{Flavor: "two", Resource: corev1.ResourceMemory}: resources.NewAmount(5),
+					{Flavor: "two", Resource: "example.com/gpu"}:     resources.NewAmount(4),
 				}},
 			},
 		},
@@ -664,7 +664,7 @@ func TestAssignFlavors(t *testing.T) {
 			).Obj(),
 
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 1_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 			},
 
 			wantAssignment: Assignment{
@@ -742,9 +742,9 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}:    3_000,
-					{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
-					{Flavor: "b_one", Resource: "example.com/gpu"}:   3,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:    resources.NewAmount(3_000),
+					{Flavor: "two", Resource: corev1.ResourceMemory}: resources.NewAmount(10 * utiltesting.Mi),
+					{Flavor: "b_one", Resource: "example.com/gpu"}:   resources.NewAmount(3),
 				}},
 			},
 		},
@@ -773,7 +773,7 @@ func TestAssignFlavors(t *testing.T) {
 			).Cohort("test-cohort").
 				Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
+				{Flavor: "two", Resource: corev1.ResourceMemory}: resources.NewAmount(10 * utiltesting.Mi),
 			},
 			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
 				ResourceGroup(
@@ -784,7 +784,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "b_one", Resource: "example.com/gpu"}: 2,
+				{Flavor: "b_one", Resource: "example.com/gpu"}: resources.NewAmount(2),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "two", Resource: corev1.ResourceMemory}: {preemptioncommon.Preempt, 1},
@@ -831,9 +831,9 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}:    3_000,
-					{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
-					{Flavor: "b_one", Resource: "example.com/gpu"}:   3,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:    resources.NewAmount(3_000),
+					{Flavor: "two", Resource: corev1.ResourceMemory}: resources.NewAmount(10 * utiltesting.Mi),
+					{Flavor: "b_one", Resource: "example.com/gpu"}:   resources.NewAmount(3),
 				}},
 			},
 		},
@@ -919,7 +919,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 3_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 				}},
 			},
 		},
@@ -976,7 +976,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 1_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 				}},
 			},
 		},
@@ -1038,8 +1038,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}:    1_000,
-					{Flavor: "two", Resource: corev1.ResourceMemory}: utiltesting.Mi,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:    resources.NewAmount(1_000),
+					{Flavor: "two", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Mi),
 				}},
 			},
 		},
@@ -1103,7 +1103,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 1_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 				}},
 			},
 		},
@@ -1219,8 +1219,8 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 3_000,
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 5_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(5_000),
 				}},
 			},
 		},
@@ -1288,8 +1288,8 @@ func TestAssignFlavors(t *testing.T) {
 				},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "default", Resource: corev1.ResourceCPU}:    10_000,
-					{Flavor: "default", Resource: corev1.ResourceMemory}: 5 * utiltesting.Gi,
+					{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(10_000),
+					{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(5 * utiltesting.Gi),
 				}},
 			},
 		},
@@ -1314,7 +1314,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 9_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
 			},
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -1349,7 +1349,7 @@ func TestAssignFlavors(t *testing.T) {
 				).Cohort("test-cohort").
 				Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 9_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
 			},
 			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
 				ResourceGroup(
@@ -1360,7 +1360,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 9_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
@@ -1389,7 +1389,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 				}},
 			},
 		},
@@ -1406,7 +1406,7 @@ func TestAssignFlavors(t *testing.T) {
 						Obj(),
 				).Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 1_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1430,7 +1430,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 				}},
 			},
 		},
@@ -1447,7 +1447,7 @@ func TestAssignFlavors(t *testing.T) {
 						Obj(),
 				).Cohort("test-cohort").Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
 				ResourceGroup(
@@ -1458,7 +1458,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 8_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(8_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
@@ -1487,7 +1487,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 				}},
 			},
 		},
@@ -1509,8 +1509,8 @@ func TestAssignFlavors(t *testing.T) {
 						Obj(),
 				).Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 3_000,
-				{Flavor: "two", Resource: corev1.ResourceCPU}: 3_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+				{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1542,7 +1542,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 2_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 				}},
 			},
 		},
@@ -1571,8 +1571,8 @@ func TestAssignFlavors(t *testing.T) {
 						Obj(),
 				).Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}:     3_000,
-				{Flavor: "tainted", Resource: corev1.ResourceCPU}: 3_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}:     resources.NewAmount(3_000),
+				{Flavor: "tainted", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1633,8 +1633,8 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}:     2_000,
-					{Flavor: "tainted", Resource: corev1.ResourceCPU}: 10_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}:     resources.NewAmount(2_000),
+					{Flavor: "tainted", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 				}},
 			},
 		},
@@ -1691,7 +1691,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 				}},
 			},
 			wantRepMode: Fit,
@@ -1727,8 +1727,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-					{Flavor: "default", Resource: "example.com/gpu"}:  0,
+					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+					{Flavor: "default", Resource: "example.com/gpu"}:  resources.NewAmount(0),
 				}},
 			},
 			wantRepMode: Fit,
@@ -1765,8 +1765,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 3,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "default", Resource: corev1.ResourcePods}: 3,
-					{Flavor: "default", Resource: corev1.ResourceCPU}:  3_000,
+					{Flavor: "default", Resource: corev1.ResourcePods}: resources.NewAmount(3),
+					{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(3_000),
 				}},
 			},
 			wantRepMode: Fit,
@@ -1842,8 +1842,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 3,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "default", Resource: corev1.ResourcePods}: 3,
-					{Flavor: "default", Resource: corev1.ResourceCPU}:  3_000,
+					{Flavor: "default", Resource: corev1.ResourcePods}: resources.NewAmount(3),
+					{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(3_000),
 				}},
 			},
 			wantRepMode: Fit,
@@ -1882,8 +1882,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 5,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "default", Resource: corev1.ResourcePods}: 5,
-					{Flavor: "default", Resource: corev1.ResourceCPU}:  5_000,
+					{Flavor: "default", Resource: corev1.ResourcePods}: resources.NewAmount(5),
+					{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(5_000),
 				}},
 			},
 			wantRepMode: Fit,
@@ -1909,7 +1909,7 @@ func TestAssignFlavors(t *testing.T) {
 						Obj(),
 				).Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1935,8 +1935,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: "cpu"}:  9_000,
-					{Flavor: "one", Resource: "pods"}: 1,
+					{Flavor: "one", Resource: "cpu"}:  resources.NewAmount(9_000),
+					{Flavor: "one", Resource: "pods"}: resources.NewAmount(1),
 				}},
 			},
 		},
@@ -1959,7 +1959,7 @@ func TestAssignFlavors(t *testing.T) {
 						Obj(),
 				).Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1985,8 +1985,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: "cpu"}:  9_000,
-					{Flavor: "one", Resource: "pods"}: 1,
+					{Flavor: "one", Resource: "cpu"}:  resources.NewAmount(9_000),
+					{Flavor: "one", Resource: "pods"}: resources.NewAmount(1),
 				}},
 			},
 		},
@@ -2008,7 +2008,7 @@ func TestAssignFlavors(t *testing.T) {
 						Obj(),
 				).Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -2034,8 +2034,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: "cpu"}:  9_000,
-					{Flavor: "two", Resource: "pods"}: 1,
+					{Flavor: "two", Resource: "cpu"}:  resources.NewAmount(9_000),
+					{Flavor: "two", Resource: "pods"}: resources.NewAmount(1),
 				}},
 			},
 		},
@@ -2059,7 +2059,7 @@ func TestAssignFlavors(t *testing.T) {
 				).Cohort("test-cohort").
 				Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
 				ResourceGroup(
@@ -2092,8 +2092,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
-					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
+					{Flavor: "one", Resource: corev1.ResourceCPU}:  resources.NewAmount(9_000),
+					{Flavor: "one", Resource: corev1.ResourcePods}: resources.NewAmount(1),
 				}},
 			},
 		},
@@ -2117,7 +2117,7 @@ func TestAssignFlavors(t *testing.T) {
 				).Cohort("test-cohort").
 				Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 
 			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
@@ -2147,8 +2147,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}:  9_000,
-					{Flavor: "two", Resource: corev1.ResourcePods}: 1,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:  resources.NewAmount(9_000),
+					{Flavor: "two", Resource: corev1.ResourcePods}: resources.NewAmount(1),
 				}},
 			},
 		},
@@ -2171,7 +2171,7 @@ func TestAssignFlavors(t *testing.T) {
 				).Cohort("test-cohort").
 				Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
 				ResourceGroup(
@@ -2200,8 +2200,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: "cpu"}:  9_000,
-					{Flavor: "one", Resource: "pods"}: 1,
+					{Flavor: "one", Resource: "cpu"}:  resources.NewAmount(9_000),
+					{Flavor: "one", Resource: "pods"}: resources.NewAmount(1),
 				}},
 			},
 		},
@@ -2239,7 +2239,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
@@ -2268,7 +2268,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
 				}},
 			},
 		},
@@ -2306,7 +2306,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
@@ -2335,7 +2335,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
 				}},
 			},
 		},
@@ -2373,7 +2373,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
@@ -2402,7 +2402,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
 				}},
 			},
 		},
@@ -2440,7 +2440,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
@@ -2469,7 +2469,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
 				}},
 			},
 		},
@@ -2524,7 +2524,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
 				}},
 			},
 		},
@@ -2579,7 +2579,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
 				}},
 			},
 		},
@@ -2610,7 +2610,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			wantRepMode: NoFit,
 			wantAssignment: Assignment{
@@ -2657,7 +2657,7 @@ func TestAssignFlavors(t *testing.T) {
 				).Cohort("test-cohort").
 				Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
 				ResourceGroup(
@@ -2686,8 +2686,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}:  9_000,
-					{Flavor: "two", Resource: corev1.ResourcePods}: 1,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:  resources.NewAmount(9_000),
+					{Flavor: "two", Resource: corev1.ResourcePods}: resources.NewAmount(1),
 				}},
 			},
 		},
@@ -2711,7 +2711,7 @@ func TestAssignFlavors(t *testing.T) {
 				).Cohort("test-cohort").
 				Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
 				ResourceGroup(
@@ -2746,8 +2746,8 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
-					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
+					{Flavor: "one", Resource: corev1.ResourceCPU}:  resources.NewAmount(9_000),
+					{Flavor: "one", Resource: corev1.ResourcePods}: resources.NewAmount(1),
 				}},
 			},
 		},
@@ -2786,7 +2786,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
@@ -2814,7 +2814,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 2_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 				}},
 			},
 		},
@@ -2853,7 +2853,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
@@ -2881,7 +2881,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 2_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 				}},
 			},
 		},
@@ -2899,7 +2899,7 @@ func TestAssignFlavors(t *testing.T) {
 						Obj(),
 				).Cohort("test-cohort").Obj(),
 			clusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
 				ResourceGroup(
@@ -2939,8 +2939,8 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}:  9_000,
-					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
+					{Flavor: "one", Resource: corev1.ResourceCPU}:  resources.NewAmount(9_000),
+					{Flavor: "one", Resource: corev1.ResourcePods}: resources.NewAmount(1),
 				}},
 			},
 		},
@@ -2971,7 +2971,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
@@ -3000,7 +3000,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
 				}},
 			},
 		},
@@ -3031,7 +3031,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
@@ -3060,7 +3060,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
 				}},
 			},
 		},
@@ -3091,7 +3091,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
@@ -3118,7 +3118,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
 				}},
 			},
 		},
@@ -3149,7 +3149,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
@@ -3176,7 +3176,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
 				}},
 			},
 		},
@@ -3240,8 +3240,8 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "two", Resource: corev1.ResourceCPU}:    1_000,
-					{Flavor: "two", Resource: corev1.ResourceMemory}: 0,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:    resources.NewAmount(1_000),
+					{Flavor: "two", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
 				}},
 			},
 		},
@@ -3408,10 +3408,10 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 		"Select first flavor which fits": {
 			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "uno", Resource: "gpu"}: 1,
+				{Flavor: "uno", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			otherClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "due", Resource: "gpu"}: 1,
+				{Flavor: "due", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			wantMode:      Fit,
 			wantAssigment: rfMap{"gpu": "tre"},
@@ -3419,11 +3419,11 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 		"Select first flavor where gpu reclamation is possible": {
 			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "uno", Resource: "gpu"}: 1,
+				{Flavor: "uno", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			otherClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "due", Resource: "gpu"}: 1,
-				{Flavor: "tre", Resource: "gpu"}: 1,
+				{Flavor: "due", Resource: "gpu"}: resources.NewAmount(1),
+				{Flavor: "tre", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "uno", Resource: "gpu"}: {preemptioncommon.Preempt, 0},
@@ -3435,11 +3435,11 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 		"Select first flavor when flavor fungibility is disabled": {
 			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "uno", Resource: "gpu"}: 1,
+				{Flavor: "uno", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			otherClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "due", Resource: "gpu"}: 1,
-				{Flavor: "tre", Resource: "gpu"}: 1,
+				{Flavor: "due", Resource: "gpu"}: resources.NewAmount(1),
+				{Flavor: "tre", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			flavorFungibility: &kueue.FlavorFungibility{
 				WhenCanPreempt: kueue.MayStopSearch,
@@ -3450,11 +3450,11 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 		"Select first flavor when flavor fungibility is disabled; using deprecated WhenCanPreempt=MayStopSearch": {
 			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "uno", Resource: "gpu"}: 1,
+				{Flavor: "uno", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			otherClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "due", Resource: "gpu"}: 1,
-				{Flavor: "tre", Resource: "gpu"}: 1,
+				{Flavor: "due", Resource: "gpu"}: resources.NewAmount(1),
+				{Flavor: "tre", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			flavorFungibility: &kueue.FlavorFungibility{
 				WhenCanPreempt: kueue.MayStopSearch,
@@ -3465,9 +3465,9 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 		"Select first flavor where priority based preemption is possible": {
 			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "uno", Resource: "gpu"}: 1,
-				{Flavor: "due", Resource: "gpu"}: 1,
-				{Flavor: "tre", Resource: "gpu"}: 1,
+				{Flavor: "uno", Resource: "gpu"}: resources.NewAmount(1),
+				{Flavor: "due", Resource: "gpu"}: resources.NewAmount(1),
+				{Flavor: "tre", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			wantMode:      Preempt,
 			wantAssigment: rfMap{"gpu": "uno"},
@@ -3475,13 +3475,13 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 		"Select second flavor where gpu reclamation is possible, as compute Fits": {
 			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10").Request("compute", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "uno", Resource: "gpu"}:     1,
-				{Flavor: "uno", Resource: "compute"}: 1,
-				{Flavor: "due", Resource: "compute"}: 1,
+				{Flavor: "uno", Resource: "gpu"}:     resources.NewAmount(1),
+				{Flavor: "uno", Resource: "compute"}: resources.NewAmount(1),
+				{Flavor: "due", Resource: "compute"}: resources.NewAmount(1),
 			},
 			otherClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "due", Resource: "gpu"}: 1,
-				{Flavor: "tre", Resource: "gpu"}: 1,
+				{Flavor: "due", Resource: "gpu"}: resources.NewAmount(1),
+				{Flavor: "tre", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "uno", Resource: "gpu"}: {preemptioncommon.Preempt, 0},
@@ -3619,7 +3619,7 @@ func TestDeletedFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "flavor", Resource: corev1.ResourceCPU}: 3_000,
+					{Flavor: "flavor", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 				}},
 			},
 		},
@@ -3779,10 +3779,10 @@ func TestHierarchical(t *testing.T) {
 		"Select the top flavor": {
 			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 4_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 			},
 			otherClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "two", Resource: corev1.ResourceCPU}: 4_000,
+				{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 			},
 			wantMode:      Fit,
 			wantAssigment: rfMap{corev1.ResourceCPU: "three"},
@@ -3790,7 +3790,7 @@ func TestHierarchical(t *testing.T) {
 		"Select the first flavor which fits": {
 			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: 4_000,
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 			},
 			wantMode:      Fit,
 			wantAssigment: rfMap{corev1.ResourceCPU: "two"},
@@ -4250,8 +4250,8 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 					Obj()),
 			},
 			want: resources.FlavorResourceQuantities{ // Want quantities for 2 pods.
-				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    2 * 1000,
-				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: 2 * 1048576,
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(2 * 1000),
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(2 * 1048576),
 			},
 		},
 		"WorkloadWithPartialAdmission": {
@@ -4279,8 +4279,8 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 					Obj()),
 			},
 			want: resources.FlavorResourceQuantities{ // Want quantity for 1 pod.
-				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    1000,
-				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: 1048576,
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(1000),
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(1048576),
 			},
 		},
 		"WorkloadWithReplacement": {
@@ -4313,8 +4313,8 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 					Obj()),
 			},
 			want: resources.FlavorResourceQuantities{
-				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    2 * 1000,
-				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: 2 * 1048576,
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(2 * 1000),
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(2 * 1048576),
 			},
 		},
 		"WorkloadWithZeroQuantityResourceNotInClusterQueueSkipsResourceWithoutFlavor": {
@@ -4343,8 +4343,8 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 					Obj()),
 			},
 			want: resources.FlavorResourceQuantities{
-				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    2 * 1000,
-				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: 2 * 1048576,
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(2 * 1000),
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(2 * 1048576),
 			},
 		},
 		"WorkloadWithMultiplePodSetsOneUnchangedReplacement": {
@@ -4407,8 +4407,8 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 				// coordinator: (3 - 1) * 2 CPU = 4 (need 2 more pods worth of resources)
 				// Total CPU: 0 + 4000m = 4000m
 				// Total Memory: 0 + 4Mi = 4Mi
-				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    4 * 1000,
-				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: 4 * 1048576,
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(4 * 1000),
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(4 * 1048576),
 			},
 		},
 	}

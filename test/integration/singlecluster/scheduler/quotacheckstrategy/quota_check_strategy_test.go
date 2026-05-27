@@ -46,7 +46,6 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 		)
 
 		ginkgo.BeforeAll(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.QuotaCheckStrategy, true)
 			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 				configapi.QuotaCheckIgnoreUndeclared,
 				&configapi.AdmissionFairSharing{
@@ -61,6 +60,7 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 		})
 
 		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.QuotaCheckStrategy, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-strategy-")
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -132,6 +132,23 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 				penalty := qManager.AfsEntryPenalties.Peek(lqKey)
 				g.Expect(penalty).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+		ginkgo.It("should admit workload when nominalQuota is 1E for cpu", func() {
+			updatedCq := &kueue.ClusterQueue{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)).To(gomega.Succeed())
+				updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("1E")
+				g.Expect(k8sClient.Update(ctx, updatedCq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			wl := utiltestingapi.MakeWorkload("wl-1", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			wlKey := client.ObjectKeyFromObject(wl)
+			util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
 		})
 	})
 	ginkgo.When("quota check strategy is set to IgnoreUndeclared and feature gate is disabled", func() {

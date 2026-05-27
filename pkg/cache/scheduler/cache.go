@@ -468,6 +468,9 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		}
 	}
 
+	parentCohort, rootCohort := cqImpl.parentAndRootCohort()
+	c.recordCQInfo(cqImpl, parentCohort, rootCohort)
+
 	return nil
 }
 
@@ -493,6 +496,10 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 		}
 		qImpl.resetFlavorsAndResources(cqImpl.resourceNode.Usage, cqImpl.AdmittedUsage)
 	}
+
+	parentCohort, rootCohort := cqImpl.parentAndRootCohort()
+	c.recordCQInfo(cqImpl, parentCohort, rootCohort)
+
 	return nil
 }
 
@@ -501,6 +508,8 @@ func (c *Cache) resyncClusterQueueGaugeMetricsLocked(cq *clusterQueue) {
 		return
 	}
 	metrics.ReportClusterQueueStatus(cq.Name, cq.Status, cq.customMetricLabelValues, c.roleTracker)
+	parentCohort, rootCohort := cq.parentAndRootCohort()
+	c.recordCQInfo(cq, parentCohort, rootCohort)
 	cq.reportActiveWorkloads()
 	if c.resourceMetricsEnabled {
 		cq.reportResourceMetrics(c.fairSharingEnabled)
@@ -546,6 +555,7 @@ func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.Cohor
 	if cohort == nil || hierarchy.HasCycle(cohort) {
 		return
 	}
+	c.recordCohortInfo(cohort, cohort.getRootUnsafe())
 	if c.fairSharingEnabled {
 		drs := dominantResourceShare(cohort, nil)
 		var customLabelValues []string
@@ -578,10 +588,15 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 
 	c.hm.DeleteClusterQueue(cqName)
 	metrics.ClearCacheMetrics(cq.Name)
+	if features.Enabled(features.MetricsForCohorts) {
+		metrics.ClearClusterQueueInfo(cqName)
+	}
 
 	if parent != nil {
-		// Update cohort resources after deletion
-		updateCohortTreeResourcesIfNoCycle(parent)
+		if updatedParent := c.hm.Cohort(parent.Name); updatedParent != nil {
+			c.updateCohortTreeAndInfoMetricsIfNoCycle(updatedParent)
+			parent = updatedParent
+		}
 		c.handleParentUpdate(parent)
 	}
 }
@@ -594,11 +609,12 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	cohort := c.hm.Cohort(cohortName)
 	oldParent := cohort.Parent()
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
-	err := cohort.updateCohort(apiCohort, oldParent)
-	if err != nil {
+	if err := cohort.updateCohort(apiCohort, oldParent); err != nil {
 		return err
 	}
 	c.handleParentUpdate(oldParent)
+	c.updateCohortTreeAndInfoMetricsIfNoCycle(cohort)
+
 	return nil
 }
 
@@ -612,6 +628,9 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		cohort.updateAdmittedWorkloadsCount(-cohort.admittedWorkloadsCount)
 		metrics.ClearCohortAdmittedWorkloadsMetrics(cohort.Name)
+		if features.Enabled(features.MetricsForCohorts) {
+			metrics.ClearCohortInfo(cohort.Name)
+		}
 		parent = cohort.Parent()
 	}
 
@@ -625,7 +644,7 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	}
 
 	if parent != nil {
-		updateCohortTreeResourcesIfNoCycle(parent)
+		c.updateCohortTreeAndInfoMetricsIfNoCycle(parent)
 	}
 
 	c.handleParentUpdate(parent)
@@ -644,6 +663,9 @@ func (c *Cache) handleParentUpdate(cachedParent *cohort) {
 		}
 	}
 	metrics.ClearCohortAdmittedWorkloadsMetrics(cachedParent.Name)
+	if features.Enabled(features.MetricsForCohorts) {
+		metrics.ClearCohortInfo(cachedParent.Name)
+	}
 }
 
 func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
@@ -962,11 +984,11 @@ func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.
 				used := frq[fr]
 				rUsage := kueue.ResourceUsage{
 					Name:  rName,
-					Total: resources.ResourceQuantity(rName, used),
+					Total: resources.ResourceQuantity(rName, used.Int64()),
 				}
 				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
 				if cq.HasParent() {
-					borrowed := used - rQuota.Nominal
+					borrowed := used.Sub(rQuota.Nominal).Int64()
 					if borrowed > 0 {
 						rUsage.Borrowed = resources.ResourceQuantity(rName, borrowed)
 					}
@@ -1027,7 +1049,7 @@ func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGrou
 				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
 					Name:  rName,
-					Total: resources.ResourceQuantity(rName, orig[fr]),
+					Total: resources.ResourceQuantity(rName, orig[fr].Int64()),
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.
@@ -1108,6 +1130,13 @@ func (c *Cache) ResyncGaugeMetrics(log logr.Logger) {
 		cohortNames = append(cohortNames, cohort.Name)
 	}
 	c.RUnlock()
+
+	// Reset info metrics to clear stale series for deleted entities;
+	// per-entity resyncs below re-emit current series.
+	if features.Enabled(features.MetricsForCohorts) {
+		metrics.ClusterQueueInfo.Reset()
+		metrics.CohortInfo.Reset()
+	}
 
 	for _, cqName := range cqNames {
 		c.ResyncClusterQueueGaugeMetrics(cqName)

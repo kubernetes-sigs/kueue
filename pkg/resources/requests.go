@@ -149,6 +149,16 @@ func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 	return rq.String()
 }
 
+// AmountQuantityString formats an Amount as a Kubernetes resource quantity
+// string. Unlimited amounts are formatted as "<unlimited>" rather than as
+// the raw math.MaxInt64 sentinel.
+func AmountQuantityString(name corev1.ResourceName, a Amount) string {
+	if a.Equal(Unlimited) {
+		return Unlimited.String()
+	}
+	return ResourceQuantityString(name, a.Int64())
+}
+
 // GreaterKeys returns keys where the receiver is greater than other.
 func (r Requests) GreaterKeys(other Requests) []corev1.ResourceName {
 	if len(r) == 0 || len(other) == 0 {
