@@ -816,9 +816,19 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 		reason           RequeueReason
 		lastAssignment   *workload.AssignmentClusterQueueState
 		wantInadmissible bool
+		wantSticky       bool
 	}{
 		"failure after nomination": {
 			reason:           RequeueReasonFailedAfterNomination,
+			wantInadmissible: false,
+		},
+		"pending preemption": {
+			reason:           RequeueReasonPendingPreemption,
+			wantInadmissible: false,
+			wantSticky:       true,
+		},
+		"preemption failed": {
+			reason:           RequeueReasonPreemptionFailed,
 			wantInadmissible: false,
 		},
 		"namespace doesn't match": {
@@ -878,6 +888,11 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
 			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible); diff != "" {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
+			}
+
+			gotSticky := cq.sw.matches(workload.Key(wl))
+			if diff := cmp.Diff(tc.wantSticky, gotSticky); diff != "" {
+				t.Errorf("Unexpected sticky status (-want,+got):\n%s", diff)
 			}
 
 			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), tc.reason); ok {
