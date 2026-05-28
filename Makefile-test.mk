@@ -66,7 +66,7 @@ KIND_CLUSTER_NAME ?= kind
 E2E_NPROCS ?= 1
 
 # Deferred variable: evaluated at recipe time so target-specific E2E_NPROCS overrides take effect.
-E2E_GINKGO_ARGS = $(GINKGO_ARGS) $(if $(filter-out 1,$(E2E_NPROCS)),-procs=$(E2E_NPROCS))
+E2E_GINKGO_ARGS = $(GINKGO_ARGS) $(if $(filter-out 1,$(E2E_NPROCS)),-procs=$(E2E_NPROCS)) --repeat=19
 
 # For restricting to a specific directory
 GO_TEST_TARGET ?= .
