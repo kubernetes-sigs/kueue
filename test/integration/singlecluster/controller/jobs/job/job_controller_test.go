@@ -3702,6 +3702,8 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 			ginkgo.BeforeEach(func() {
 				enableWaitForPodsReady = true
 				afterFinished = &metav1.Duration{Duration: util.TinyTimeout}
+
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FinishOrphanedWorkloads, true)
 			})
 
 			ginkgo.It("should delete orphaned Workload after finishing if the Job is deleted with PropagationPolicy=DeletePropagationOrphan", func() {
@@ -3746,7 +3748,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				})
 
 				ginkgo.By("Delete the Job with PropagationPolicy=DeletePropagationOrphan", func() {
-					gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: new(metav1.DeletePropagationOrphan)})).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationOrphan)})).To(gomega.Succeed())
 				})
 
 				ginkgo.By("Checking that the Workload is deleted", func() {

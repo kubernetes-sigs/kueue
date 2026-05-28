@@ -2574,7 +2574,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: ptr.To(util.MediumTimeout),
 					},
 				),
 			},
@@ -2601,7 +2601,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: ptr.To(util.MediumTimeout),
 					},
 				),
 			},
