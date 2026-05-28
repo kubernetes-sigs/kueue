@@ -324,7 +324,7 @@ func normalizeActiveSlices(
 //
 // This function performs the following steps:
 //  1. Lists all pods in the same namespace with the WorkloadSliceNameAnnotation matching
-//     the workload slice name, falling back to OwnerReference UID for backwards compatibility.
+//     the workload slice name.
 //  2. For each pod, removes the ElasticJobSchedulingGate scheduling gate if present.
 //
 // Returns:
@@ -338,17 +338,6 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, wl *kueue.W
 	// are not immediate children of the job).
 	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
 		return fmt.Errorf("failed to list workload slice pods: %w", err)
-	}
-
-	// Fallback to owner reference lookup for backwards compatibility with pods created
-	// before the annotation was introduced.
-	// TODO(sohankunkerkar): remove in 0.18
-	if len(list.Items) == 0 && len(wl.OwnerReferences) > 0 {
-		ownerUID := string(wl.OwnerReferences[0].UID)
-		log.V(4).Info("No pods found with annotation, falling back to owner reference lookup", "ownerUID", ownerUID)
-		if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: ownerUID}); err != nil {
-			return fmt.Errorf("failed to list job pods by owner reference: %w", err)
-		}
 	}
 
 	for i := range list.Items {

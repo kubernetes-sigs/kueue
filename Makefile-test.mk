@@ -35,7 +35,14 @@ TEST_LOG_LEVEL ?= -3
 INTEGRATION_NPROCS ?= 4
 INTEGRATION_NPROCS_MULTIKUEUE ?= 3
 # Folder where the integration tests are located.
+ifdef INTEGRATION_TOTAL_SHARDS
+INTEGRATION_TARGET := $(shell ./hack/testing/shard-integration-tests.sh $(INTEGRATION_SHARD_INDEX) $(INTEGRATION_TOTAL_SHARDS))
+ifeq ($(INTEGRATION_TARGET),)
+$(error Aborting execution due to invalid sharding parameters (INTEGRATION_SHARD_INDEX / INTEGRATION_TOTAL_SHARDS))
+endif
+else
 INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
+endif
 INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
@@ -155,6 +162,14 @@ test-multikueue-e2e-main: setup-e2e-env test-multikueue-e2e-parallel-builds run-
 .PHONY: test-multikueue-e2e-sequential
 test-multikueue-e2e-sequential: setup-e2e-env test-multikueue-e2e-parallel-builds run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+.PHONY: test-multikueue-e2e-sequential-shard-0
+test-multikueue-e2e-sequential-shard-0: GINKGO_ARGS=--label-filter=shard-0
+test-multikueue-e2e-sequential-shard-0: test-multikueue-e2e-sequential
+
+.PHONY: test-multikueue-e2e-sequential-shard-1
+test-multikueue-e2e-sequential-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-multikueue-e2e-sequential-shard-1: test-multikueue-e2e-sequential
+
 .PHONY: test-multikueue-e2e-helm
 test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
@@ -200,8 +215,18 @@ test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:
 ##   Run only Admission Fair Sharing tests: GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequential-baseline
 ##   Run only Certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e-sequential-baseline
 ##   Run only Failure Recovery Policy tests: GINKGO_ARGS="--label-filter=feature:failurerecoverypolicy" make test-e2e-sequential-baseline
+##   Run only shard 0 tests: make test-e2e-sequential-baseline-shard-0
+##   Run only shard 1 tests: make test-e2e-sequential-baseline-shard-1
 .PHONY: test-e2e-sequential-baseline
 test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-sequential-baseline-shard-0
+test-e2e-sequential-baseline-shard-0: GINKGO_ARGS=--label-filter=shard-0
+test-e2e-sequential-baseline-shard-0: test-e2e-sequential-baseline
+
+.PHONY: test-e2e-sequential-baseline-shard-1
+test-e2e-sequential-baseline-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-e2e-sequential-baseline-shard-1: test-e2e-sequential-baseline
 
 .PHONY: test-e2e-sequential-baseline-helm
 test-e2e-sequential-baseline-helm: E2E_USE_HELM=true
@@ -401,7 +426,7 @@ run-test-e2e-dra-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/baseline" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \

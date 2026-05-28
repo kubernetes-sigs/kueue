@@ -22,31 +22,30 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
-var (
-	globalMapper *ResourceMapper
-)
-
 // ResourceMapper provides device class to logical resource name mapping
 // based on Configuration API DRA settings. Initialized once at startup, immutable during runtime.
-// No locks needed due to startup-only initialization pattern.
 type ResourceMapper struct {
 	deviceClassToResource map[corev1.ResourceName]corev1.ResourceName
 }
 
-// newDRAResourceMapper creates a new empty ResourceMapper instance.
-func newDRAResourceMapper() *ResourceMapper {
+// NewResourceMapper creates a new empty ResourceMapper instance.
+func NewResourceMapper() *ResourceMapper {
 	return &ResourceMapper{
 		deviceClassToResource: make(map[corev1.ResourceName]corev1.ResourceName),
 	}
 }
 
-// lookup returns (logicalResourceName, true) on success or ("", false) when the device class is not mapped.
-func (m *ResourceMapper) lookup(deviceClass corev1.ResourceName) (corev1.ResourceName, bool) {
+// Lookup returns the logical resource name for a device class.
+func (m *ResourceMapper) Lookup(deviceClass corev1.ResourceName) (corev1.ResourceName, bool) {
+	if m == nil {
+		return "", false
+	}
 	logicalResource, found := m.deviceClassToResource[deviceClass]
 	return logicalResource, found
 }
 
-func (m *ResourceMapper) populateFromConfiguration(mappings []configapi.DeviceClassMapping) error {
+// PopulateFromConfiguration populates the mapper from Configuration API device class mappings.
+func (m *ResourceMapper) PopulateFromConfiguration(mappings []configapi.DeviceClassMapping) error {
 	if mappings == nil {
 		return nil
 	}
@@ -59,18 +58,4 @@ func (m *ResourceMapper) populateFromConfiguration(mappings []configapi.DeviceCl
 
 	m.deviceClassToResource = newMapping
 	return nil
-}
-
-// Mapper returns the singleton DRA mapper instance.
-func Mapper() *ResourceMapper {
-	if globalMapper == nil {
-		globalMapper = newDRAResourceMapper()
-	}
-	return globalMapper
-}
-
-// CreateMapperFromConfiguration creates and populates the global DRA mapper from Configuration API.
-// This is called ONCE during Kueue startup when configuration is loaded.
-func CreateMapperFromConfiguration(mappings []configapi.DeviceClassMapping) error {
-	return Mapper().populateFromConfiguration(mappings)
 }

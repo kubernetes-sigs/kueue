@@ -142,7 +142,13 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpecations, nil)
+	failedCtrl, err := core.SetupControllers(
+		mgr,
+		queues,
+		cCache,
+		configuration,
+		core.SetupControllersOpts{PreemptionExpectations: preemptionExpecations},
+	)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	failedWebhook, err := webhooks.Setup(mgr, nil)
@@ -220,7 +226,11 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = pyTorchJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadpytorchjob.SetupPyTorchJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	err = workloadpytorchjob.SetupPyTorchJobWebhook(
+		mgr,
+		jobframework.WithCache(cCache),
+		jobframework.WithQueues(queues),
+	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadxgboostjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -235,7 +245,11 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = xgboostJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadxgboostjob.SetupXGBoostJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	err = workloadxgboostjob.SetupXGBoostJobWebhook(
+		mgr,
+		jobframework.WithCache(cCache),
+		jobframework.WithQueues(queues),
+	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadmpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -277,7 +291,12 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadpod.SetupWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues), jobframework.WithManagedJobsNamespaceSelector(mjnsSelector))
+	err = workloadpod.SetupWebhook(
+		mgr,
+		jobframework.WithCache(cCache),
+		jobframework.WithQueues(queues),
+		jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
+	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -307,7 +326,11 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = rayClusterReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadraycluster.SetupRayClusterWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	err = workloadraycluster.SetupRayClusterWebhook(
+		mgr,
+		jobframework.WithCache(cCache),
+		jobframework.WithQueues(queues),
+	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadaw.SetupIndexes(ctx, mgr.GetFieldIndexer())
