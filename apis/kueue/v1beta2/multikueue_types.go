@@ -23,6 +23,7 @@ import (
 const (
 	MultiKueueConfigSecretKey = "kubeconfig"
 	MultiKueueClusterActive   = "Active"
+	MultiKueueAutoQuotaDefaultFlavorName = "multikueue-aggregated-flavor"
 
 	// MultiKueueOriginLabel is a label used to track the creator
 	// of multikueue remote objects.

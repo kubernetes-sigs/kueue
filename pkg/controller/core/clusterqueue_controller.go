@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -173,7 +174,7 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			cqObj.GetLabels(), cqObj.GetAnnotations(),
 		)
 	}
-
+		
 	if cqObj.DeletionTimestamp.IsZero() {
 		// Although we'll add the finalizer via webhook mutation now, this is still useful
 		// as a fallback.
@@ -200,6 +201,19 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				}
 			}
 			return ctrl.Result{}, nil
+		}
+	}
+
+	// Syncing EffectiveResourceGroups to spec.ResourceGorups if quota not managed automatically.
+	if isMK, err := admissioncheck.IsManagedByMultiKueue(ctx, r.client, &cqObj); err != nil {
+		return ctrl.Result{}, err
+	} else if isMK {
+		log.V(2).Info("Is a MultiKueue ManagerCluster ClusterQueue. EffectiveResourceGroups are managed by a dedicated Controller.")
+	} else if !equality.Semantic.DeepEqual(cqObj.Spec.ResourceGroups, cqObj.Status.EffectiveResourceGroups) {
+		log.V(2).Info("Syncing EffectiveResourceGroups to spec.")
+		cqObj.Status.EffectiveResourceGroups = cqObj.Spec.ResourceGroups
+		if err := r.client.Status().Update(ctx, &cqObj); err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 

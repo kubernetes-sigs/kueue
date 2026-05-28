@@ -19,6 +19,8 @@ package multikueue
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -97,56 +99,36 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	if ptr.Deref(cfg.Spec.QuotaManagement, kueue.QuotaManagementManual) == kueue.QuotaManagementManual {
-		err = r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, "NotRequested", "MultiKueue manager quota automation has not been requested.")
+		err = r.syncEffectiveQuotaToSpec(ctx, cq, "NotRequested", "MultiKueue manager quota automation has not been requested.")
 		return reconcile.Result{}, err
 	}
 
-	if len(cq.Spec.ResourceGroups) != 1 || len(cq.Spec.ResourceGroups[0].Flavors) != 1 {
-		err = r.updateQuotaAutomationCondition(
-			ctx,
-			cq,
-			metav1.ConditionFalse,
+	if len(cq.Spec.ResourceGroups) != 0 {
+		return reconcile.Result{}, r.syncEffectiveQuotaToSpec(
+			ctx, 
+			cq, 
 			"UnsupportedConfiguration",
-			"Quota automation requires that the manager-side ClusterQueue has exactly one ResourceFlavor",
+			"ResourceGroups set manually in ClusterQueue spec.",
 		)
-		return reconcile.Result{}, err
 	}
-	singleFlavor := &cq.Spec.ResourceGroups[0].Flavors[0]
 
-	aggregatedQuotas, err := r.aggregateWorkerQuotas(ctx, cq, cfg)
+	aggregatedRGs, err := r.aggregateWorkerQuotas(ctx, cq, cfg)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 
-	covered := sets.New(cq.Spec.ResourceGroups[0].CoveredResources...)
-	remoteResources := sets.KeySet(aggregatedQuotas)
-	missingResources := remoteResources.Difference(covered)
-	if missingResources.Len() > 0 {
-		errMsg := fmt.Sprintf("manager-side coveredResources is missing resources configured on workers: %v", sets.List(missingResources))
-		err = r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, "UnsupportedConfiguration", errMsg)
-		return reconcile.Result{}, err
-	}
-
-	var newResources []kueue.ResourceQuota
-	for _, resName := range cq.Spec.ResourceGroups[0].CoveredResources {
-		newResources = append(newResources, kueue.ResourceQuota{
-			Name:         resName,
-			NominalQuota: aggregatedQuotas[resName],
-		})
-	}
-
-	if !equality.Semantic.DeepEqual(singleFlavor.Resources, newResources) {
-		singleFlavor.Resources = newResources
+	if !equality.Semantic.DeepEqual(cq.Status.EffectiveResourceGroups, *aggregatedRGs) {
+		cq.Status.EffectiveResourceGroups = *aggregatedRGs
 		if err := r.client.Update(ctx, cq); err != nil {
 			return reconcile.Result{}, fmt.Errorf("updating ClusterQueue nominal quotas: %w", err)
 		}
 	}
 
-	err = r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionTrue, "QuotaAutomated", "ClusterQueue quota is automatically managed based on MultiKueue workers.")
-	return reconcile.Result{}, err
+	return reconcile.Result{}, r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionTrue, "QuotaAutomated", "ClusterQueue quota is automatically managed based on MultiKueue workers.")
 }
 
-func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.ClusterQueue, cfg *kueue.MultiKueueConfig) (map[corev1.ResourceName]resource.Quantity, error) {
+// Aggregates all worker resources into a one, global MultiKueue flavor.
+func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.ClusterQueue, cfg *kueue.MultiKueueConfig) (*[]kueue.ResourceGroup, error) {
 	localLQs := &kueue.LocalQueueList{}
 	if err := r.client.List(ctx, localLQs, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name}); err != nil {
 		return nil, fmt.Errorf("listing local LocalQueues: %w", err)
@@ -157,7 +139,7 @@ func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 		lqKeys.Insert(types.NamespacedName{Namespace: llq.Namespace, Name: llq.Name})
 	}
 
-	total := make(map[corev1.ResourceName]resource.Quantity)
+	aggrQuota := make(map[corev1.ResourceName]resource.Quantity)
 
 	for _, workerName := range cfg.Spec.Clusters {
 		rc, found := r.clusters.controllerFor(workerName)
@@ -195,16 +177,33 @@ func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 			for _, rg := range rcq.Spec.ResourceGroups {
 				for _, flavor := range rg.Flavors {
 					for _, res := range flavor.Resources {
-						curr := total[res.Name]
+						curr := aggrQuota[res.Name]
 						curr.Add(res.NominalQuota)
-						total[res.Name] = curr
+						aggrQuota[res.Name] = curr
 					}
 				}
 			}
 		}
 	}
 
-	return total, nil
+	// Ensures aggregated resources are always ordered the same way.
+	coveredResources := slices.Sorted(maps.Keys(aggrQuota))
+
+	aggregatedResources := make([]kueue.ResourceQuota, len(coveredResources))
+	for _, res := range coveredResources {
+		aggregatedResources = append(aggregatedResources, kueue.ResourceQuota{
+			Name:         res,
+			NominalQuota: aggrQuota[res],
+		})
+	}
+
+	return &[]kueue.ResourceGroup{{
+		CoveredResources: coveredResources,
+		Flavors: []kueue.FlavorQuotas{{
+			Name:      kueue.MultiKueueAutoQuotaDefaultFlavorName,
+			Resources: aggregatedResources,
+		}},
+	}}, nil
 }
 
 func (r *cqReconciler) removeQuotaAutomationCondition(ctx context.Context, cq *kueue.ClusterQueue) error {
@@ -213,6 +212,33 @@ func (r *cqReconciler) removeQuotaAutomationCondition(ctx context.Context, cq *k
 	}
 	if err := r.client.Status().Update(ctx, cq); err != nil {
 		return fmt.Errorf("removing ClusterQueue condition status: %w", err)
+	}
+	return nil
+}
+
+func (r *cqReconciler) syncEffectiveQuotaToSpec(ctx context.Context, cq *kueue.ClusterQueue, reason, message string) error {
+	needsUpdate := false
+	
+	if !equality.Semantic.DeepEqual(cq.Status.EffectiveResourceGroups, cq.Spec.ResourceGroups) {
+		needsUpdate = true
+		cq.Status.EffectiveResourceGroups = cq.Spec.ResourceGroups
+	}
+
+	oldCondition := apimeta.FindStatusCondition(cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
+	newCondition := metav1.Condition{
+		Type:               kueue.MultiKueueManagerQuotaAutomation,
+		Status:             metav1.ConditionFalse,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: cq.Generation,
+	}
+	if !cmpConditionState(oldCondition, &newCondition) {
+		needsUpdate = true
+	  apimeta.SetStatusCondition(&cq.Status.Conditions, newCondition)
+	}
+
+	if needsUpdate {
+		return r.client.Status().Update(ctx, cq)
 	}
 	return nil
 }
