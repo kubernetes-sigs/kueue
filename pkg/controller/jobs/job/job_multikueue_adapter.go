@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -64,14 +65,32 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		statusUpdate := determineStatusUpdate(ctx, log, &localJob, &remoteJob)
-		if !equality.Semantic.DeepEqual(localJob.Status, *statusUpdate) {
-			if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
-				localJob.Status = *statusUpdate
-				return true, nil
-			}); err != nil {
-				return err
+		if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
+			// Elastic workload sync takes precedence over status updates.
+			if needElasticJobSync(log, workloadName, &localJob, &remoteJob) {
+				if err := syncElasticJob(ctx, remoteClient, log, workloadName, &localJob, &remoteJob); err != nil {
+					return err
+				}
 			}
+
+			statusUpdate := determineStatusUpdate(ctx, log, &localJob, &remoteJob)
+			if !equality.Semantic.DeepEqual(localJob.Status, *statusUpdate) {
+				if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+					localJob.Status = *statusUpdate
+					return true, nil
+				}); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		}
+
+		if _, _, remoteFinished := fromObject(&remoteJob).Finished(ctx); remoteFinished {
+			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+				localJob.Status = remoteJob.Status
+				return true, nil
+			})
 		}
 
 		// Sync elastic workload if needed.
@@ -93,11 +112,17 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// drop the templates cleanup labels
 	cleanLabels(&remoteJob.Spec.Template)
 
-	// Add prebuilt workload name and multikueue origin
-	jobframework.SetMultiKueueMeta(&remoteJob, workloadName, origin)
+	// add the prebuilt workload
+	if remoteJob.Labels == nil {
+		remoteJob.Labels = map[string]string{}
+	}
+	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
+	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
 
-	// clear the managedBy enables the batch/Job controller to take over
-	remoteJob.Spec.ManagedBy = nil
+	if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
+		// clear the managedBy enables the batch/Job controller to take over
+		remoteJob.Spec.ManagedBy = nil
+	}
 
 	return remoteClient.Create(ctx, &remoteJob)
 }
@@ -177,7 +202,7 @@ func isJobStatusConditionTrue(conditions []batchv1.JobCondition, condType batchv
 	return false
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	job := batchv1.Job{}
 	job.SetName(key.Name)
 	job.SetNamespace(key.Namespace)
@@ -185,6 +210,10 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Cli
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+	if !features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
+		return true, "", nil
+	}
+
 	job := batchv1.Job{}
 	err := c.Get(ctx, key, &job)
 	if err != nil {
@@ -207,18 +236,18 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &batchv1.JobList{}
 }
 
-func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
+func (*multiKueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	job, isJob := o.(*batchv1.Job)
 	if !isJob {
-		return nil, errors.New("not a job")
+		return types.NamespacedName{}, errors.New("not a job")
 	}
 
-	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
-	if prebuiltWorkload == "" {
-		return nil, fmt.Errorf("no prebuilt workload found for job: %s", klog.KObj(job))
+	prebuiltWl, hasPrebuiltWorkload := job.Labels[constants.PrebuiltWorkloadLabel]
+	if !hasPrebuiltWorkload {
+		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for job: %s", klog.KObj(job))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.Namespace}}, nil
+	return types.NamespacedName{Name: prebuiltWl, Namespace: job.Namespace}, nil
 }
 
 // needElasticJobSync determines if a remote Job requires synchronization due to elastic job features.
@@ -251,8 +280,7 @@ func needElasticJobSync(log logr.Logger, workloadName string, localJob, remoteJo
 			"newWorkloadName", newWorkloadName)
 		return false
 	}
-
-	return oldParallelism != newParallelism || remoteJob.Labels == nil || jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName
+	return oldParallelism != newParallelism || remoteJob.Labels == nil || remoteJob.Labels[constants.PrebuiltWorkloadLabel] != workloadName
 }
 
 // syncElasticJob updates the remote job's workload label and parallelism to match the local job configuration.
@@ -266,17 +294,21 @@ func syncElasticJob(ctx context.Context, remoteClient client.Client, log logr.Lo
 
 	// Update a remote job's workload slice name and parallelism if needed.
 	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
-		// Update parallelism.
-		remoteJob.Spec.Parallelism = localJob.Spec.Parallelism
-		changed := oldParallelism != newParallelism
-
-		// Update the workload name value.
-		if cur := jobframework.PrebuiltWorkloadNameFor(remoteJob); cur == "" || cur != workloadName {
-			jobframework.SetPrebuiltWorkloadName(remoteJob, workloadName)
-			changed = true
+		// Update the workload name label.
+		labelsChanged := false
+		if remoteJob.Labels == nil {
+			remoteJob.Labels = map[string]string{constants.PrebuiltWorkloadLabel: workloadName}
+			labelsChanged = true
+		} else {
+			if cur, ok := remoteJob.Labels[constants.PrebuiltWorkloadLabel]; !ok || cur != workloadName {
+				remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
+				labelsChanged = true
+			}
 		}
 
-		return changed, nil
+		// Update parallelism.
+		remoteJob.Spec.Parallelism = localJob.Spec.Parallelism
+		return oldParallelism != newParallelism || labelsChanged, nil
 	}); err != nil {
 		return fmt.Errorf("failed to patch remote job: %w", err)
 	}

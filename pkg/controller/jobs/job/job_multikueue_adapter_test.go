@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -112,12 +111,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-<<<<<<< HEAD
-		"skip to sync intermediate status from remote suspended job": {
-=======
 		"sync intermediate status from remote suspended job": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
->>>>>>> Catch finished jobs
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().
 					Suspend(true).
@@ -713,7 +707,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				remoteJob: newJob().
 					ResourceVersion("2").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					SetAnnotation(constants.PrebuiltWorkloadAnnotation, "test-workload-new").
+					PrebuiltWorkloadLabel("test-workload-new").
 					Condition(runningJobCondition).
 					Obj(),
 			},
@@ -778,8 +772,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				remoteJob: newJob().
 					ResourceVersion("2").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					PrebuiltWorkloadLabel("test-workload").
-					SetAnnotation(constants.PrebuiltWorkloadAnnotation, "job-test-f53b2").
+					PrebuiltWorkloadLabel("job-test-f53b2").
 					Parallelism(22).
 					Condition(runningJobCondition).
 					Obj(),
