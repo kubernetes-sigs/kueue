@@ -199,6 +199,20 @@ func setSkipped(e *entry, inadmissibleMsg string) {
 	e.LastAssignment = nil
 }
 
+// markPreemptionOutcome records the outcome of IssuePreemptions and
+// clears the cached flavor assignment so the next cycle reconsiders
+// every flavor.
+func (e *entry) markPreemptionOutcome(preempted, errors int) {
+	e.LastAssignment = nil
+	if preempted != 0 {
+		e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
+		e.requeueReason = qcache.RequeueReasonPendingPreemption
+	} else if errors > 0 {
+		e.inadmissibleMsg += fmt.Sprintf(". Preempting %d workload(s) failed, will retry.", errors)
+		e.requeueReason = qcache.RequeueReasonPreemptionFailed
+	}
+}
+
 func (s *Scheduler) reportSkippedPreemptions(p map[kueue.ClusterQueueReference]int) {
 	for cqName, count := range p {
 		metrics.AdmissionCyclePreemptionSkips.WithLabelValues(string(cqName), roletracker.GetRole(s.roleTracker)).Set(float64(count))
@@ -326,19 +340,11 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		preemptionTargets, oldWorkloadSlice := workloadslicing.FindReplacedSliceTarget(e.Obj, e.preemptionTargets)
 
 		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
-			// If preemptions are issued, the next attempt should try all the flavors.
-			e.LastAssignment = nil
 			preempted, errors, err := s.preemptor.IssuePreemptions(ctx, &e.Info, preemptionTargets, e.clusterQueueSnapshot)
 			if err != nil {
 				log.Error(err, "Failed to preempt workloads")
 			}
-			if preempted != 0 {
-				e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
-				e.requeueReason = qcache.RequeueReasonPendingPreemption
-			} else if errors > 0 {
-				e.inadmissibleMsg += fmt.Sprintf(". Preempting %d workload(s) failed, will retry.", errors)
-				e.requeueReason = qcache.RequeueReasonPreemptionFailed
-			}
+			e.markPreemptionOutcome(preempted, errors)
 			continue
 		}
 
