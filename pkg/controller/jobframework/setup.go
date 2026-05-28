@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -33,6 +34,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	"sigs.k8s.io/kueue/pkg/features"
+)
+
+const (
+	errorRetryBackoff = 5 * time.Second
 )
 
 var (
@@ -111,6 +116,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 					m.crdNotifiersMu.Lock()
 					delete(m.crdNotifiers, gvk)
 					m.crdNotifiersMu.Unlock()
+					m.cancelInformerIfAllCRDsRegistered(log, m.informerCancel)
 				}
 
 				if err := m.setupControllerAndWebhook(ctx, mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
@@ -168,28 +174,38 @@ func (m *integrationManager) waitForAPI(ctx context.Context, mgr ctrl.Manager, l
 			m.crdNotifiersMu.Unlock()
 			action()
 			return
-		} else if !meta.IsNoMatchError(err) {
+		}
+
+		if !meta.IsNoMatchError(err) {
 			log.Error(err, "Failed to get REST mapping for gvk", "gvk", gvk)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(errorRetryBackoff):
+				continue
+			}
 		}
 
 		m.crdNotifiersMu.RLock()
 		crdNotifyCh, ok := m.crdNotifiers[gvk]
 		m.crdNotifiersMu.RUnlock()
 		if !ok {
-			log.V(2).Info("Channel not found for gvk", "gvk", gvk)
-			return
+			log.V(2).Info("Channel not found for gvk, rechecking", "gvk", gvk)
+			continue
 		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-crdNotifyCh:
 			log.V(2).Info("Received CRD notification, checking API availability", "gvk", gvk)
-			continue
 		}
 	}
 }
 
 func (m *integrationManager) cancelInformerIfAllCRDsRegistered(log logr.Logger, cancel context.CancelFunc) {
+	if cancel == nil {
+		return
+	}
 	m.crdNotifiersMu.RLock()
 	defer m.crdNotifiersMu.RUnlock()
 	if len(m.crdNotifiers) == 0 {
@@ -232,6 +248,7 @@ func (m *integrationManager) startCRDInformer(ctx context.Context, log logr.Logg
 	crdInformer := factory.Apiextensions().V1().CustomResourceDefinitions().Informer()
 	watchCRDReinstallation := features.Enabled(features.JobFrameworkCRDReinstallation)
 	informerCtx, informerCancel := context.WithCancel(ctx)
+	m.informerCancel = informerCancel
 
 	handler := tools.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
@@ -270,14 +287,13 @@ func (m *integrationManager) startCRDInformer(ctx context.Context, log logr.Logg
 	}
 
 	log.V(2).Info("CRD informer started successfully")
-	
-	// Keep the informer running for the lifetime of the controller to handle CRD reinstallation
+
 	go func() {
 		<-informerCtx.Done()
 		factory.Shutdown()
 		log.V(2).Info("CRD informer stopped")
 	}()
-	
+
 	return nil
 }
 
@@ -290,15 +306,14 @@ func (m *integrationManager) notifyCRDAvailable(log logr.Logger, crd *apiextensi
 		Kind:    crd.Spec.Names.Kind,
 	}
 
-	m.crdNotifiersMu.RLock()
+	m.crdNotifiersMu.Lock()
 	notifier, exists := m.crdNotifiers[gvk]
-	m.crdNotifiersMu.RUnlock()
+	if exists {
+		delete(m.crdNotifiers, gvk)
+	}
+	m.crdNotifiersMu.Unlock()
 
 	if exists {
-		m.crdNotifiersMu.Lock()
-		delete(m.crdNotifiers, gvk)
-		m.crdNotifiersMu.Unlock()
-
 		log.V(2).Info("CRD established, notifying waiters", "gvk", gvk)
 		close(notifier)
 	}
@@ -328,19 +343,17 @@ func (m *integrationManager) handleCRDDeletion(log logr.Logger, crd *apiextensio
 	}
 }
 
-// getCrdVersion returns the current CRD version
+// getCrdVersion returns the storage version for the CRD.
 func getCrdVersion(versions []apiextensionsv1.CustomResourceDefinitionVersion) string {
-	var version string
 	for _, v := range versions {
 		if v.Storage {
-			version = v.Name
-			break
+			return v.Name
 		}
 	}
-	return version
+	return ""
 }
 
-// isCRDEstablished checks if a CRD has the Established condition
+// isCRDEstablished checks if a CRD has the Established condition set to true.
 func isCRDEstablished(crd *apiextensionsv1.CustomResourceDefinition) bool {
 	for _, condition := range crd.Status.Conditions {
 		if condition.Type == apiextensionsv1.Established && condition.Status == apiextensionsv1.ConditionTrue {

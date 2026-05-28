@@ -111,6 +111,7 @@ type integrationManager struct {
 	implicitlyEnabledIntegrations sets.Set[string]
 	gvkToName                     map[schema.GroupVersionKind]string
 	crdNotifiers                  map[schema.GroupVersionKind]chan struct{}
+	informerCancel                context.CancelFunc
 	crdNotifiersMu                sync.RWMutex
 	mu                            sync.RWMutex
 }
