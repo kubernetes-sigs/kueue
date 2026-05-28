@@ -438,7 +438,6 @@ const (
 	// Enable accurately topology aware scheduling when multiple flavors cover the same Node.
 	TASHandleOverlappingFlavors featuregate.Feature = "TASHandleOverlappingFlavors"
 
-
 	// Enables the JobFramework CRD informer to stay active across CRD deletion/
 	// reinstallation events so integrations can recover from dependency upgrades.
 	JobFrameworkCRDReinstallation featuregate.Feature = "JobFrameworkCRDReinstallation"
@@ -661,7 +660,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ConcurrentAdmission: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
-<<<<<<< HEAD
+	JobFrameworkCRDReinstallation: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
 	QuotaCheckStrategy: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
