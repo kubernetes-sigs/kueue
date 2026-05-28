@@ -136,22 +136,25 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 	//    (remote admitted -> MultiKueue AdmissionCheck ready -> local admitted -> local unsuspended).
 	// 3. However, to avoid clashing with K8s 1.36 validation rules
 	//    (since https://github.com/kubernetes/kubernetes/pull/135104 until https://github.com/kubernetes/kubernetes/pull/139287)
-	//    we manually patch a "JobSuspended=True" condition to unblock further spec updates.
+	//    we manually patch a "JobSuspended=True" condition and "Active=0" to unblock further spec updates.
+	//    Similarly, to make 1.35 happy, we patch "StartTime = nil".
 	// As long as we're on a K8s version unaffected by #3, we could just do:
 	//   return &localJob.Status
 	newLocalStatus := localJob.Status.DeepCopy()
 	newLocalStatus.Active = 0
 	newLocalStatus.StartTime = nil
-	newLocalStatus.Conditions = setJobStatusCondition(newLocalStatus.Conditions,
-		batchv1.JobCondition{
-			Type:               batchv1.JobSuspended,
-			Status:             corev1.ConditionTrue,
-			Reason:             "MultiKueueAdapter",
-			Message:            "Set by MultiKueue adapter",
-			LastTransitionTime: metav1.Now(),
-			LastProbeTime:      metav1.Now(),
-		})
-	log.V(2).Info("Updating the suspended local Job with JobSuspended=True condition")
+	if !isJobStatusConditionTrue(localJob.Status.Conditions, batchv1.JobSuspended) {
+		newLocalStatus.Conditions = setJobStatusCondition(newLocalStatus.Conditions,
+			batchv1.JobCondition{
+				Type:               batchv1.JobSuspended,
+				Status:             corev1.ConditionTrue,
+				Reason:             "MultiKueueAdapter",
+				Message:            "Set by MultiKueue adapter",
+				LastTransitionTime: metav1.Now(),
+				LastProbeTime:      metav1.Now(),
+			})
+	}
+	log.V(2).Info("Updating the suspended local Job to comply with Kubernetes validation rules", "oldStatus", localJob.Status, "newStatus", newLocalStatus)
 	return newLocalStatus
 }
 
@@ -164,6 +167,15 @@ func setJobStatusCondition(list []batchv1.JobCondition, condition batchv1.JobCon
 	}
 	list = append(list, condition)
 	return list
+}
+
+func isJobStatusConditionTrue(conditions []batchv1.JobCondition, condType batchv1.JobConditionType) bool {
+	for _, c := range conditions {
+		if c.Type == condType {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
