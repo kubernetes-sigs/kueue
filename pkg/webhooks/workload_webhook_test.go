@@ -695,6 +695,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		},
 
 		"workload.podSets[].count is immutable": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),

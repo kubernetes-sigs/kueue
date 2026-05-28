@@ -76,12 +76,14 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Alpha](#alpha)
       - [KueueDRAIntegration (v0.14)](#kueuedraintegration-v014)
       - [KueueDRAIntegrationExtendedResource (v0.17)](#kueuedraintegrationextendedresource-v017)
+      - [KueueDRAIntegrationExtendedResource (v0.18)](#kueuedraintegrationextendedresource-v018)
       - [KueueDRAIntegrationPartitionableDevices (v0.18)](#kueuedraintegrationpartitionabledevices-v018)
     - [Beta](#beta)
       - [KueueDRAIntegration (v0.18)](#kueuedraintegration-v018)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource)
     - [GA](#ga)
       - [KueueDRAIntegration](#kueuedraintegration)
+      - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource-1)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -958,16 +960,22 @@ itself, not the DeviceClass name, so multiple matching DeviceClasses do not affe
    and the scheduler may resolve differently. `waitForPodsReady` handles scheduling failures.
    See [Risks and Mitigations](#risks-and-mitigations) for the full breakdown.
 
-3. DeviceClass `extendedResourceName` updated: the field indexer reflects the updated mapping
-   on the next reconciliation cycle. The same TOCTOU considerations as scenario 2 apply.
+3. DeviceClass `extendedResourceName` updated: the DeviceClass event handler triggers the
+   workload controller's Reconcile, and only the pending workloads requesting the affected
+   `extendedResourceName` are requeued (resolved via the workload index). The same TOCTOU
+   considerations as scenario 2 apply.
 
 #### Late DeviceClass Creation
 
-For Alpha, if a DeviceClass does not exist when a workload is created, the extended resource
-is treated as a normal (non-DRA) extended resource. A subsequent reconciliation cycle
-(e.g., triggered by other workload or queue events) re-evaluates the workload after the
-DeviceClass is created. Event-driven re-reconciliation on DeviceClass creation will be
-evaluated as a Beta graduation criterion.
+If a DeviceClass does not exist when a workload is created, the extended resource
+is treated as a normal (non-DRA) extended resource and may become inadmissible if the
+ClusterQueue only has quota for the DeviceClass-mapped logical name.
+
+The workload controller watches DeviceClass objects for create, update, and delete events.
+When a DeviceClass changes, only the pending workloads requesting the specific
+`extendedResourceName` from that DeviceClass are requeued for re-evaluation. Workloads
+with domain-qualified resources that are not DRA-backed (e.g., `example.com/gpu` without
+a corresponding DeviceClass) skip DRA processing entirely.
 
 ### Partitionable Devices
 
@@ -1508,6 +1516,14 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - extended resource detection and resource translation
 - double-counting prevention with `deviceClassMappings`
 
+##### KueueDRAIntegrationExtendedResource (v0.18)
+
+- event-driven DeviceClass tracking for late DeviceClass creation
+- DRABackedResources cache to ensure non-DRA workloads with domain-qualified resources
+  skip DRA processing
+- workload index by extended resource names for targeted DeviceClass event handling
+- integration and e2e tests for DeviceClass lifecycle scenarios
+
 ##### KueueDRAIntegrationPartitionableDevices (v0.18)
 
 - support for partitionable devices via counter-based quota (KEP-4815, beta in k8s 1.36)
@@ -1525,8 +1541,6 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 
 ##### KueueDRAIntegrationExtendedResource
 
-- user adoption feedback
-- re-evaluate event-driven DeviceClass tracking for late DeviceClass creation
 - re-evaluate post-scheduling quota reconciliation for DeviceClass drift
 - re-evaluate the need for indexing of resourceSlices for CEL performance lookups
 - re-evaluate pool-aware flavor assignment for counter resources
@@ -1544,6 +1558,12 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 
 - the feature gate in stable
 - TAS + DRA integration and testing
+
+##### KueueDRAIntegrationExtendedResource
+
+- the feature gate in stable
+- user adoption feedback confirms stability
+- re-evaluate DeviceClass watcher performance at scale
 
 ## Implementation History
 

@@ -26,6 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -104,8 +105,8 @@ func (c *Cache) collectCohortMetricPoints(cohortName kueue.CohortReference, simu
 			points = append(points, cohortMetricPoint{
 				cohortName:      ancestor.Name,
 				flavorResource:  fr,
-				quotaQty:        ancestorSubtreeQuota[fr],
-				reservationsQty: ancestorSubtreeReservations[fr],
+				quotaQty:        ancestorSubtreeQuota[fr].Int64(),
+				reservationsQty: ancestorSubtreeReservations[fr].Int64(),
 			})
 		}
 	}
@@ -172,7 +173,7 @@ func (m subtreeReservationMemo) total(ch *cohort) resources.FlavorResourceQuanti
 
 func accumulateReservations(total, usage resources.FlavorResourceQuantities) {
 	for fr, qty := range usage {
-		total[fr] += qty
+		total[fr] = total[fr].Add(qty)
 	}
 }
 
@@ -193,5 +194,59 @@ func (c *Cache) ReportCohortSubtreeAdmittedWorkload(log logr.Logger, wl *kueue.W
 			c.customLabels.CohortGet(ancestor),
 			c.roleTracker,
 		)
+	}
+}
+
+// recordCohortInfo records cohort info metrics.
+func (c *Cache) recordCohortInfo(cohort *cohort, rootCohort *cohort) {
+	if !features.Enabled(features.MetricsForCohorts) {
+		return
+	}
+	newParent := kueue.CohortReference("")
+	if cohort.HasParent() {
+		newParent = cohort.Parent().GetName()
+	}
+	newRoot := rootCohort.GetName()
+	metrics.ClearCohortInfo(cohort.Name)
+	metrics.ReportCohortInfo(cohort.Name, newParent, newRoot, c.customLabels.CohortGet(cohort.Name), c.roleTracker)
+}
+
+// recordCQInfo records CQ info metrics.
+func (c *Cache) recordCQInfo(cq *clusterQueue, parentCohort kueue.CohortReference, rootCohort kueue.CohortReference) {
+	if !features.Enabled(features.MetricsForCohorts) {
+		return
+	}
+	customLabels := c.customLabels.CQGet(cq.Name)
+	metrics.ClearClusterQueueInfo(cq.Name)
+	metrics.ReportClusterQueueInfo(cq.Name, parentCohort, rootCohort, customLabels, c.roleTracker)
+}
+
+// updateCohortResourceAndInfoMetrics updates subtree resources then records info metrics.
+func (c *Cache) updateCohortResourceAndInfoMetrics(cohort *cohort, root *cohort) {
+	updateCohortResourceNode(cohort)
+	c.recordTreeInfoMetrics(cohort, root)
+}
+
+// recordTreeInfoMetrics records cohort and cluster queue info metrics for the subtree.
+// It is a no-op when the MetricsForCohorts feature gate is disabled.
+func (c *Cache) recordTreeInfoMetrics(cohort *cohort, root *cohort) {
+	if !features.Enabled(features.MetricsForCohorts) {
+		return
+	}
+	c.recordCohortInfo(cohort, root)
+	for _, child := range cohort.ChildCohorts() {
+		c.recordTreeInfoMetrics(child, root)
+	}
+	for _, child := range cohort.ChildCQs() {
+		c.recordCQInfo(child, cohort.GetName(), root.GetName())
+	}
+}
+
+// updateCohortTreeAndInfoMetricsIfNoCycle updates subtree resources and metrics
+// only if there's no cycle.
+func (c *Cache) updateCohortTreeAndInfoMetricsIfNoCycle(cohort *cohort) {
+	if !hierarchy.HasCycle(cohort) {
+		root := cohort.getRootUnsafe()
+		c.updateCohortResourceAndInfoMetrics(root, root)
 	}
 }

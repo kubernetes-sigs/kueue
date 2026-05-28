@@ -546,14 +546,14 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 
 #### Beta
 
-* [ ] Feature is enabled by default in Kueue, still guarded by the feature gate for opt-out.
-* [ ] Webhook validation to reject elastic annotation on unsupported frameworks.
-* [ ] Webhook validation to reject PartialAdmission and Elastic on the same job.
+* [x] Feature is enabled by default in Kueue, still guarded by the feature gate for opt-out.
+* [x] Webhook validation to reject elastic annotation on unsupported frameworks.
+* [x] Webhook validation to reject PartialAdmission and Elastic on the same job.
 * [x] Dedicated controller for removing scheduling gates on admitted workload slices.
 * [x] At least one additional framework beyond `batch/v1.Job` integrates the WorkloadSlice flow.
 * [x] Metrics for slice lifecycle transitions (`replaced_workload_slices_total`).
 * [ ] Documentation with examples for users and integrators.
-* [ ] E2e tests for scale-up, scale-down, slice replacement, sticky flavor.
+* [x] E2e tests for scale-up, scale-down, slice replacement, sticky flavor.
 * [x] Old workload slice finished only after replacement slice is admitted.
 
 #### GA (Stable)

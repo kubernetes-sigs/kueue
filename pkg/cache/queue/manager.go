@@ -125,6 +125,12 @@ func WithResourceMetrics(enabled bool) Option {
 	}
 }
 
+func WithDRABackedResources(cache *dra.ExtendedResourceCache) Option {
+	return func(m *Manager) {
+		m.draBackedResources = cache
+	}
+}
+
 // SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
 func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
 	m.draReconcileChannel = ch
@@ -165,6 +171,7 @@ type Manager struct {
 	workloadUpdateWatchers []WorkloadUpdateWatcher
 
 	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
+	draBackedResources  *dra.ExtendedResourceCache
 
 	roleTracker            *roletracker.RoleTracker
 	customLabels           *metrics.CustomLabels
@@ -485,7 +492,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 		}
 
 		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
-		if dra.NeedsDRAReconcile(&w) {
+		if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
 			// Collect DRA workloads to send outside the lock; DeepCopy keeps a
 			// stable pointer since the range variable is reused each iteration.
 			draWorkloads = append(draWorkloads, w.DeepCopy())

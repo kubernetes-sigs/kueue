@@ -273,6 +273,17 @@ func TestMergeRestore(t *testing.T) {
 		}).
 		Obj()
 
+	podSetWithoutOperator := utiltestingapi.MakePodSet("", 1).
+		NodeSelector(map[string]string{"ns0": "ns0v"}).
+		Labels(map[string]string{"l0": "l0v"}).
+		Annotations(map[string]string{"a0": "a0v"}).
+		Toleration(corev1.Toleration{
+			Key:    "t0",
+			Value:  "t0v",
+			Effect: corev1.TaintEffectNoSchedule,
+		}).
+		Obj()
+
 	cases := map[string]struct {
 		podSet             *kueue.PodSet
 		info               PodSetInfo
@@ -357,6 +368,29 @@ func TestMergeRestore(t *testing.T) {
 				}).
 				Obj(),
 			wantRestoreChanges: true,
+		},
+		"don't duplicate tolerations that differ only by empty vs Equal Operator": {
+			podSet: basePodSet.DeepCopy(),
+			info: PodSetInfo{
+				Tolerations: []corev1.Toleration{{
+					Key:    "t0",
+					Value:  "t0v",
+					Effect: corev1.TaintEffectNoSchedule,
+				}},
+			},
+			wantPodSet: basePodSet.DeepCopy(),
+		},
+		"don't duplicate tolerations that differ only by Equal vs empty Operator": {
+			podSet: podSetWithoutOperator.DeepCopy(),
+			info: PodSetInfo{
+				Tolerations: []corev1.Toleration{{
+					Key:      "t0",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "t0v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}},
+			},
+			wantPodSet: podSetWithoutOperator.DeepCopy(),
 		},
 		"conflicting label": {
 			podSet: basePodSet.DeepCopy(),

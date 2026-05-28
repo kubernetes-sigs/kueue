@@ -1260,9 +1260,11 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 		want         []corev1.PodSchedulingGate
 	}{
 		"FeatureDisabledAndNotOptIn": {
-			args: args{job: &Job{}},
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			args:         args{job: &Job{}},
 		},
 		"FeatureDisabledAndOptIn": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 			args: args{
 				job: &Job{
 					ObjectMeta: metav1.ObjectMeta{

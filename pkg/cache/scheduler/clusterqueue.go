@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
@@ -108,6 +109,15 @@ type clusterQueue struct {
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.Name
+}
+
+// parentAndRootCohort returns the names of the CQ's parent cohort and root cohort.
+// If the CQ has no parent or the parent cohort has a cycle, both are returned as empty.
+func (c *clusterQueue) parentAndRootCohort() (parent, root kueue.CohortReference) {
+	if !c.HasParent() || hierarchy.HasCycle(c.Parent()) {
+		return
+	}
+	return c.Parent().GetName(), c.Parent().getRootUnsafe().Name
 }
 
 // implement flatResourceNode/hierarchicalResourceNode interfaces
@@ -223,9 +233,12 @@ func (c *clusterQueue) updateQuotasAndResourceGroups(in []kueue.ResourceGroup) b
 	c.resourceNode.Quotas = createResourceQuotas(in)
 
 	// Start at 1, for backwards compatibility.
+	// Use maps.EqualFunc with ResourceQuota.Equal for the Quotas map: it holds
+	// resources.Amount values whose unexported fields cause k8s
+	// equality.Semantic.DeepEqual (a forked reflect-based DeepEqual) to panic.
 	return c.AllocatableResourceGeneration == 0 ||
 		!equality.Semantic.DeepEqual(oldRG, c.ResourceGroups) ||
-		!equality.Semantic.DeepEqual(oldQuotas, c.resourceNode.Quotas)
+		!maps.EqualFunc(oldQuotas, c.resourceNode.Quotas, ResourceQuota.Equal)
 }
 
 func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
@@ -527,17 +540,17 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 	cqName := string(c.Name)
 	for fr, quota := range c.resourceNode.Quotas {
 		fName, rName := string(fr.Flavor), string(fr.Resource)
-		nominal := resourceFloat(fr.Resource, quota.Nominal)
+		nominal := resourceFloat(fr.Resource, quota.Nominal.Int64())
 		var borrowing, lending float64
 		if quota.BorrowingLimit != nil {
-			borrowing = resourceFloat(fr.Resource, *quota.BorrowingLimit)
+			borrowing = resourceFloat(fr.Resource, quota.BorrowingLimit.Int64())
 		}
 		if quota.LendingLimit != nil {
-			lending = resourceFloat(fr.Resource, *quota.LendingLimit)
+			lending = resourceFloat(fr.Resource, quota.LendingLimit.Int64())
 		}
 		metrics.ReportClusterQueueQuotas(cohort, cqName, fName, rName, nominal, borrowing, lending, c.customMetricLabelValues, c.roleTracker)
-		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.resourceNode.Usage[fr]), c.customMetricLabelValues, c.roleTracker)
-		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.AdmittedUsage[fr]), c.customMetricLabelValues, c.roleTracker)
+		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.resourceNode.Usage[fr].Int64()), c.customMetricLabelValues, c.roleTracker)
+		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.AdmittedUsage[fr].Int64()), c.customMetricLabelValues, c.roleTracker)
 	}
 	if fairSharingEnabled {
 		c.reportWeightedShare(cohort)
@@ -611,8 +624,9 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 }
 
 func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, op usageOp) {
+	sign := int64(op.asSignedOne())
 	for fr, q := range newUsage {
-		oldUsage[fr] += q * int64(op.asSignedOne())
+		oldUsage[fr] = oldUsage[fr].AddInt64(utilmath.SaturatingMul(sign, q.Int64()))
 	}
 }
 

@@ -513,7 +513,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					for _, pod := range pods.Items {
 						g.Expect(utilpod.HasGate(&pod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Deleting the statefulset", func() {
@@ -1999,7 +1999,7 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, client cli
 	ginkgo.GinkgoHelper()
 	createdWorkload := &kueue.Workload{}
 	var workerName string
-	util.ExpectWorkloadsToBeAdmittedByKeys(ctx, client, wlLookupKey)
+	util.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, client, util.MediumTimeout, wlLookupKey)
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(client.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 		admissionCheckMessage := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName)).Message

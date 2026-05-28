@@ -220,7 +220,8 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		})
 	})
 
-	ginkgo.It("Should run a rayjob with InTreeAutoscaling", func() {
+	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
+	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Serial, func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script
@@ -301,7 +302,7 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			Volumes(rayv1.HeadNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
-			TerminationGracePeriodSeconds(int64(5)).
+			TerminationGracePeriodSeconds(int64(1)).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -354,13 +355,13 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 worker pod", podList))
 		})
 
-		// RayJob is top level job, the submitter job created by RayJob will not create its own workload, there will be only 1 workload
-		ginkgo.By("Waiting for 1 workloads", func() {
-			// 1 workload for the ray cluster
+		ginkgo.By("Waiting for exactly 1 non-finished admitted workload", func() {
 			workloadList := &kueue.WorkloadList{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected exactly 1 workload")
+				activeWorkloads := util.FindNonFinishedWorkloads(workloadList.Items)
+				g.Expect(activeWorkloads).To(gomega.HaveLen(1), "Expected exactly 1 non-finished workload")
+				g.Expect(workload.IsAdmitted(&activeWorkloads[0])).To(gomega.BeTrue(), "Expected admitted workload")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -499,7 +500,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			Volumes(rayv1.HeadNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
-			TerminationGracePeriodSeconds(int64(5)).
+			TerminationGracePeriodSeconds(int64(1)).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -552,13 +553,13 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 worker pod", podList))
 		})
 
-		// RayJob is top level job, the submitter job created by RayJob will not create its own workload, there will be only 1 workload
-		ginkgo.By("Waiting for 1 workloads", func() {
-			// 1 workload for the ray cluster
+		ginkgo.By("Waiting for exactly 1 non-finished admitted workload", func() {
 			workloadList := &kueue.WorkloadList{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected exactly 1 workload")
+				activeWorkloads := util.FindNonFinishedWorkloads(workloadList.Items)
+				g.Expect(activeWorkloads).To(gomega.HaveLen(1), "Expected exactly 1 non-finished workload")
+				g.Expect(workload.IsAdmitted(&activeWorkloads[0])).To(gomega.BeTrue(), "Expected admitted workload")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -789,7 +790,8 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	ginkgo.It("Should run a rayservice with InTreeAutoscaling", func() {
+	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
+	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Serial, func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a Ray Serve application that supports a delay parameter
@@ -890,13 +892,18 @@ app = HelloWorld.bind()`,
 			gomega.Expect(k8sClient.Create(ctx, rayService)).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Checking one workload is created and admitted", func() {
+		ginkgo.By("Checking one non-finished workload is created and admitted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected one workload in namespace")
-				wl := workloadList.Items[0]
-				g.Expect(workload.IsAdmitted(&wl)).Should(gomega.BeTrue(), "Expected admitted workload")
+				var activeWorkloads []kueue.Workload
+				for i := range workloadList.Items {
+					if !workload.IsFinished(&workloadList.Items[i]) {
+						activeWorkloads = append(activeWorkloads, workloadList.Items[i])
+					}
+				}
+				g.Expect(activeWorkloads).To(gomega.HaveLen(1), "Expected exactly 1 non-finished workload")
+				g.Expect(workload.IsAdmitted(&activeWorkloads[0])).To(gomega.BeTrue(), "Expected admitted workload")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 

@@ -258,15 +258,17 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.Admi
 	clients := make(map[string]*remoteClient, len(cfg.Spec.Clusters))
 	for _, clusterName := range cfg.Spec.Clusters {
 		if client, found := w.clusters.controllerFor(clusterName); found {
-			// Skip the client if its reconnect is ongoing.
-			if !client.connecting.Load() {
+			// Skip the client if its reconnect is ongoing or it is disconnected.
+			if !client.connecting.Load() && !client.disconnected.Load() {
 				clients[clusterName] = client
 			}
 		}
 	}
-	if len(clients) == 0 {
-		return nil, admissioncheck.ErrNoActiveClusters
-	}
+	// Return an empty map (rather than an error) when all configured clusters
+	// are disconnected or reconnecting. This allows readGroup to construct an
+	// empty group, so reconcileGroup can apply the workerLostTimeout delay via
+	// the existing "reserving remote lost" branch instead of failing with
+	// ErrNoActiveClusters and retrying via controller-runtime backoff.
 	return clients, nil
 }
 
@@ -529,6 +531,13 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		requeueAfterSynchronize = requeueIn
 	}
 
+	// 8. Skip nomination while eviction is still in progress or the
+	// admission check is not yet Pending.
+	if workload.ShouldSkipClusterNomination(acs, group.local, group.IsElasticWorkload()) {
+		log.V(3).Info("Skipping cluster nomination phase")
+		return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, nil
+	}
+
 	res, err := w.nominateAndSynchronizeWorkers(ctx, group)
 	if err == nil && (res.RequeueAfter == 0 || requeueAfterSynchronize < res.RequeueAfter) {
 		res.RequeueAfter = requeueAfterSynchronize
@@ -773,12 +782,6 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		}
 
 		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			// ClusterName != nil indicates possibly stale cache (eviction just cleared ClusterName
-			// but the informer hasn't caught up yet). Avoid creating remote workloads without a
-			// confirmed nomination — wait for the cache to sync.
-			if group.local.Status.ClusterName != nil {
-				return reconcile.Result{}, nil
-			}
 			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				wl.Status.NominatedClusterNames = nominatedWorkers
 				return true, nil
@@ -792,9 +795,16 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
+	var errs []error
+	for _, nom := range nominatedWorkers {
+		if _, ok := group.remoteClients[nom]; !ok {
+			log.V(3).Info("Nominated cluster not yet connected", "cluster", nom)
+			errs = append(errs, fmt.Errorf("cluster %s: %w", nom, admissioncheck.ErrNoRemoteClientForNominatedCluster))
+		}
+	}
+
 	log.V(4).Info("Synchronize nominated worker clusters", "dispatcherName", w.dispatcherName, "nominatedWorkerClusterNames", nominatedWorkers)
 
-	var errs []error
 	for rem, remoteWl := range group.remotes {
 		if slices.Contains(nominatedWorkers, rem) {
 			if remoteWl == nil {
@@ -1112,8 +1122,9 @@ func (w *wlReconciler) workloadToOpenPreemptionGate(ctx context.Context, group *
 func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *kueue.Workload {
 	remoteWl := &kueue.Workload{}
 	remoteWl.ObjectMeta = api.CloneObjectMetaForCreation(&orig.ObjectMeta)
+	delete(remoteWl.Labels, constants.JobUIDLabel)
 	if remoteWl.Labels == nil {
-		remoteWl.Labels = make(map[string]string)
+		remoteWl.Labels = make(map[string]string, 1)
 	}
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)

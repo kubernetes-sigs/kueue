@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
@@ -156,6 +157,7 @@ func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc c
 func GetResourceRequestsForResourceClaimTemplates(
 	ctx context.Context,
 	cl client.Client,
+	mapper *ResourceMapper,
 	wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
 	var allErrs field.ErrorList
@@ -209,13 +211,16 @@ func GetResourceRequestsForResourceClaimTemplates(
 			}
 
 			for dc, qty := range deviceCounts {
-				logical, found := Mapper().lookup(dc)
+				logical, found := mapper.Lookup(dc)
 				if !found {
 					allErrs = append(allErrs, field.NotFound(
 						field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j).Child("resourceClaimTemplateName"),
 						fmt.Sprintf("DeviceClass %s is not mapped in DRA configuration for podset %s", dc, ps.Name),
 					))
 					return nil, allErrs
+				}
+				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && mapper.getCounterConfig(dc) != nil {
+					continue
 				}
 				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(strconv.FormatInt(qty, 10))})
 			}
