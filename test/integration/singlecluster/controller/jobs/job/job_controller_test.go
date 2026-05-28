@@ -3580,6 +3580,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 	var (
 		enableWaitForPodsReady  bool
 		afterDeactivatedByKueue *metav1.Duration
+		afterFinished           *metav1.Duration
 
 		ns *corev1.Namespace
 		fl *kueue.ResourceFlavor
@@ -3608,6 +3609,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 			ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{
 					AfterDeactivatedByKueue: afterDeactivatedByKueue,
+					AfterFinished:           afterFinished,
 				},
 			},
 			WaitForPodsReady: waitForPodsReady,
@@ -3638,6 +3640,9 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
 
 		fwk.StopManager(ctx)
+
+		afterDeactivatedByKueue = nil
+		afterFinished = nil
 	})
 
 	ginkgo.When("WaitForPodsReady disabled", func() {
@@ -3689,6 +3694,63 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).Should(gomega.Succeed())
 						g.Expect(createdJob.GetDeletionTimestamp()).To(gomega.BeNil())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+		})
+
+		ginkgo.When("tiny finish retention period", func() {
+			ginkgo.BeforeEach(func() {
+				enableWaitForPodsReady = true
+				afterFinished = &metav1.Duration{Duration: util.TinyTimeout}
+			})
+
+			ginkgo.It("should delete orphaned Workload after finishing if the Job is deleted with PropagationPolicy=DeletePropagationOrphan", func() {
+				job := testingjob.MakeJob("job", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					Obj()
+				util.MustCreate(ctx, k8sClient, job)
+
+				wlKey := types.NamespacedName{
+					Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+					Namespace: ns.Name,
+				}
+				wl := &kueue.Workload{}
+
+				ginkgo.By("Waiting for the Workload to be created", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Admitting the Workload", func() {
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
+							Count(wl.Spec.PodSets[0].Count).
+							Obj()).
+						Obj()
+					util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				})
+
+				// In a real scenario, it should be cleared after deletion.
+				// But sometimes the Job reconciler runs faster than the Workload reconciler.
+				// To reproduce that exact scenario, we should make the Workload orphaned.
+				ginkgo.By("Clear ownerReferences", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+						wl.OwnerReferences = nil
+						g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Delete the Job with PropagationPolicy=DeletePropagationOrphan", func() {
+					gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: new(metav1.DeletePropagationOrphan)})).To(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking that the Workload is deleted", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, false)
 				})
 			})
 		})
