@@ -933,6 +933,18 @@ function install_mpi {
     cluster_kind_load_image "${name}" "${KUBEFLOW_MPI_IMAGE/#v}"
     curl -sSL "${KUBEFLOW_MPI_MANIFEST}" \
         | kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
+
+        kubectl patch --kubeconfig="${kubeconfig}" deployment/"${deployment_name}" \
+            -n "${ns}" \
+            --type=json \
+            -p='[
+              {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--leader-elect-lease-duration=60s"},
+              {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--leader-elect-renew-deadline=40s"},
+              {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--leader-elect-retry-period=10s"},
+              {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kube-api-qps=50"},
+              {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kube-api-burst=100"}
+            ]'
+
     kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
 }
 
