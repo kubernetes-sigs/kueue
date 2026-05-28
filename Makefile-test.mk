@@ -162,6 +162,14 @@ test-multikueue-e2e-main: setup-e2e-env test-multikueue-e2e-parallel-builds run-
 .PHONY: test-multikueue-e2e-sequential
 test-multikueue-e2e-sequential: setup-e2e-env test-multikueue-e2e-parallel-builds run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+.PHONY: test-multikueue-e2e-sequential-shard-0
+test-multikueue-e2e-sequential-shard-0: GINKGO_ARGS=--label-filter=shard-0
+test-multikueue-e2e-sequential-shard-0: test-multikueue-e2e-sequential
+
+.PHONY: test-multikueue-e2e-sequential-shard-1
+test-multikueue-e2e-sequential-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-multikueue-e2e-sequential-shard-1: test-multikueue-e2e-sequential
+
 .PHONY: test-multikueue-e2e-helm
 test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
