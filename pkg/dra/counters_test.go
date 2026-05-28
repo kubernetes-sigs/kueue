@@ -17,6 +17,7 @@ limitations under the License.
 package dra
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -24,6 +25,10 @@ import (
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	dracel "k8s.io/dynamic-resource-allocation/cel"
+
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func makeDevice(name string, profile string, memoryValue string) resourcev1.Device {
@@ -279,5 +284,50 @@ func TestGroupSlicesByPool(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMatchDevicesWithSelectors_CELErrorPropagation(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	pools := map[string]*poolInfo{
+		"pool1": {
+			name:               "pool1",
+			generation:         1,
+			resourceSliceCount: 1,
+			slices: []resourcev1.ResourceSlice{
+				{
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "gpu.example.com",
+						Pool:   resourcev1.ResourcePool{Name: "pool1", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{
+								Name: "gpu-0",
+								Attributes: map[resourcev1.QualifiedName]resourcev1.DeviceAttribute{
+									"gpu.example.com/type": {},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	cache := dracel.NewCache(1, dracel.Features{})
+	result := cache.GetOrCompile("device.driver == 'gpu.example.com'")
+	if result.Error != nil {
+		t.Fatalf("CEL compilation failed: %v", result.Error)
+	}
+
+	reqPath := field.NewPath("test")
+	matched, errs := matchDevicesWithSelectors(ctx, pools, "gpu.example.com",
+		[]dracel.CompilationResult{result}, nil, nil, reqPath)
+
+	if len(errs) == 0 {
+		t.Fatalf("Expected CEL evaluation error to be propagated, got %d matched devices", len(matched))
+	}
+	if !strings.Contains(errs[0].Detail, "unsupported attribute value") {
+		t.Errorf("Expected error containing 'unsupported attribute value', got: %s", errs[0].Detail)
 	}
 }

@@ -37,6 +37,9 @@ func GetCounterResourcesForWorkload(
 	mapper *ResourceMapper,
 	wl *kueue.Workload,
 ) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
+	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Processing counter resources for workload")
+
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
 	var allErrs field.ErrorList
 	classCache := make(map[string]*resourcev1.DeviceClass)
@@ -75,6 +78,8 @@ func GetCounterResourcesForWorkload(
 					continue
 				}
 
+				log.V(4).Info("Processing counter charge", "podSet", ps.Name, "deviceClass", deviceClass, "quotaResource", quotaResource, "count", req.Exactly.Count)
+
 				reqPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j).Child("devices", "requests").Index(reqIdx)
 
 				charges, errs := processCounterCharge(ctx, cl, counterConfig, quotaResource, req.Exactly.DeviceClassName, req.Exactly.Selectors, req.Exactly.Count, classCache, reqPath)
@@ -87,11 +92,13 @@ func GetCounterResourcesForWorkload(
 					existing.Add(qty)
 					aggregated[resName] = existing
 				}
+				log.V(4).Info("Counter charge computed", "podSet", ps.Name, "deviceClass", deviceClass, "charges", charges)
 			}
 		}
 
 		if len(aggregated) > 0 {
 			perPodSet[ps.Name] = aggregated
+			log.V(3).Info("Counter resources aggregated for podSet", "podSet", ps.Name, "resources", aggregated)
 		}
 	}
 
@@ -109,6 +116,8 @@ func processCounterCharge(
 	classCache map[string]*resourcev1.DeviceClass,
 	reqPath *field.Path,
 ) (corev1.ResourceList, field.ErrorList) {
+	log := ctrl.LoggerFrom(ctx)
+
 	selectorSelectors, compErrs := compileCELSelectors(
 		[]resourcev1.DeviceSelector{counterConfig.deviceSelector},
 		reqPath, "deviceSelector CEL compilation failed",
@@ -132,8 +141,14 @@ func processCounterCharge(
 		return nil, field.ErrorList{field.InternalError(reqPath, fmt.Errorf("failed to list ResourceSlices: %w", err))}
 	}
 	pools := groupSlicesByPool(sliceList.Items, counterConfig.driver)
+	log.V(4).Info("Listed ResourceSlices for counter processing", "driver", counterConfig.driver, "pools", len(pools), "slices", len(sliceList.Items))
 
-	matched := matchDevicesWithSelectors(ctx, pools, counterConfig.driver, selectorSelectors, classSelectors, requestSelectors)
+	matched, errs := matchDevicesWithSelectors(ctx, pools, counterConfig.driver, selectorSelectors, classSelectors, requestSelectors, reqPath)
+	if len(errs) > 0 {
+		return nil, errs
+	}
+	log.V(4).Info("Matched devices for counter charge", "deviceClass", deviceClassName, "matched", len(matched), "requested", count)
+
 	if int64(len(matched)) < count {
 		return nil, field.ErrorList{field.Invalid(
 			reqPath,
@@ -162,14 +177,17 @@ func matchDevicesWithSelectors(
 	selectorSelectors []dracel.CompilationResult,
 	classSelectors []dracel.CompilationResult,
 	requestSelectors []dracel.CompilationResult,
-) []resourcev1.Device {
+	reqPath *field.Path,
+) ([]resourcev1.Device, field.ErrorList) {
 	log := ctrl.LoggerFrom(ctx)
 	var allMatched []resourcev1.Device
-	for _, pool := range pools {
+	for poolName, pool := range pools {
 		if !pool.isComplete() {
+			log.V(4).Info("Skipping incomplete pool", "pool", poolName)
 			continue
 		}
 		devices := pool.collectDevices()
+		log.V(4).Info("Evaluating devices in pool", "pool", poolName, "deviceCount", len(devices))
 		for i := range devices {
 			dev := &devices[i]
 			celDev := dracel.Device{
@@ -179,25 +197,25 @@ func matchDevicesWithSelectors(
 			}
 			if selectorMatch, err := evaluateSelectorsOnDevice(ctx, selectorSelectors, celDev); !selectorMatch {
 				if err != nil {
-					log.V(3).Info("CEL evaluation error in deviceSelector", "device", dev.Name, "error", err)
+					return nil, field.ErrorList{field.InternalError(reqPath, fmt.Errorf("CEL evaluation error in deviceSelector for device %s: %w", dev.Name, err))}
 				}
 				continue
 			}
 			if classMatch, err := evaluateSelectorsOnDevice(ctx, classSelectors, celDev); !classMatch {
 				if err != nil {
-					log.V(3).Info("CEL evaluation error in DeviceClass selector", "device", dev.Name, "error", err)
+					return nil, field.ErrorList{field.InternalError(reqPath, fmt.Errorf("CEL evaluation error in DeviceClass selector for device %s: %w", dev.Name, err))}
 				}
 				continue
 			}
 			if requestMatch, err := evaluateSelectorsOnDevice(ctx, requestSelectors, celDev); requestMatch {
 				allMatched = append(allMatched, *dev)
 			} else if err != nil {
-				log.V(3).Info("CEL evaluation error in request selector", "device", dev.Name, "error", err)
+				return nil, field.ErrorList{field.InternalError(reqPath, fmt.Errorf("CEL evaluation error in request selector for device %s: %w", dev.Name, err))}
 			}
 		}
 	}
 
-	return allMatched
+	return allMatched, nil
 }
 
 type poolInfo struct {
