@@ -298,8 +298,10 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 	})
 
 	ginkgo.Describe("The connection to a worker cluster is unreliable", ginkgo.Label(shard1), func() {
-		util.RepeatIt(20, "Should update the cluster status to reflect the connection state", func() {
-			worker1Cq2 := utiltestingapi.MakeClusterQueue("q2").
+		var worker1Cq2 *kueue.ClusterQueue
+
+		ginkgo.BeforeEach(func() {
+			worker1Cq2 = utiltestingapi.MakeClusterQueue("q2").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(worker1Flavor.Name).
 						Resource(corev1.ResourceCPU, "2").
@@ -308,7 +310,13 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 				).
 				Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq2)
+		})
 
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq2, true, util.VeryLongTimeout)			
+		})
+
+		util.RepeatIt(20, "Should update the cluster status to reflect the connection state", func() {			
 			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
 			ginkgo.By("Disconnecting worker1 node's APIServer", func() {
