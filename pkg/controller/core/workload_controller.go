@@ -196,7 +196,14 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if isOrphanedWorkload(&wl) {
 		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, &wl, true, r.roleTracker)
-		return ctrl.Result{}, err
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		// If it was deleted, there is nothing to do.
+		// Otherwise, we still need to handle finished workload logic.
+		if !features.Enabled(features.FinishOrphanedWorkloads) || !wl.DeletionTimestamp.IsZero() {
+			return ctrl.Result{}, err
+		}
 	}
 
 	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
