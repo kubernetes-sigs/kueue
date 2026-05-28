@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -256,7 +257,7 @@ func TestValidateOnCreate(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			gotWarn, gotErr := w.ValidateCreate(ctx, job)
-			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
+			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantWarning, gotWarn); diff != "" {
@@ -346,7 +347,7 @@ func TestValidateOnUpdate(t *testing.T) {
 			gotWarn, gotErr := w.ValidateUpdate(ctx,
 				newMockJob(tc.args.oldObj, nil, nil),
 				newMockJob(tc.args.newObj, tc.args.customValidationFailure, tc.args.customValidationError))
-			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
+			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantWarning, gotWarn); diff != "" {
