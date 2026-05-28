@@ -399,7 +399,6 @@ const (
 	// Enables Concurrent Admission feature which allows pursuing multiple ResourceFlavors in parallel.
 	ConcurrentAdmission featuregate.Feature = "ConcurrentAdmission"
 
-<<<<<<< HEAD
 	// Enable recording of WorkloadCreationLatency metric.
 	MetricForWorkloadCreationLatency featuregate.Feature = "MetricForWorkloadCreationLatency"
 
@@ -436,11 +435,10 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/7539
 	// Enable reporting of Cohort related metrics (also including ClusterQueueInfo metric).
 	MetricsForCohorts featuregate.Feature = "MetricsForCohorts"
-=======
+
 	// Enables the JobFramework CRD informer to stay active across CRD deletion/
 	// reinstallation events so integrations can recover from dependency upgrades.
 	JobFrameworkCRDReinstallation featuregate.Feature = "JobFrameworkCRDReinstallation"
->>>>>>> c8e7ba53a (Optimise current implementation of processing newly added Job Frameworks)
 )
 
 func init() {
@@ -663,7 +661,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ConcurrentAdmission: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
-<<<<<<< HEAD
+	JobFrameworkCRDReinstallation: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
 	QuotaCheckStrategy: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -686,11 +686,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MetricsForCohorts: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
-=======
-	JobFrameworkCRDReinstallation: {
-		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
-	},
->>>>>>> c8e7ba53a (Optimise current implementation of processing newly added Job Frameworks)
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
