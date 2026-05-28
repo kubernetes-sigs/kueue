@@ -224,6 +224,8 @@ fi
 
 if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
     export PROMETHEUS_OPERATOR_BUNDLE="https://github.com/prometheus-operator/prometheus-operator/releases/download/${PROMETHEUS_OPERATOR_VERSION}/bundle.yaml"
+    export PROMETHEUS_OPERATOR_IMAGE="quay.io/prometheus-operator/prometheus-operator:${PROMETHEUS_OPERATOR_VERSION}"
+    export PROMETHEUS_CONFIG_RELOADER_IMAGE="quay.io/prometheus-operator/prometheus-config-reloader:${PROMETHEUS_OPERATOR_VERSION}"
 fi
 
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
@@ -481,6 +483,10 @@ function prepare_docker_images {
     if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${SPARKOPERATOR_IMAGE}"
     fi
+    if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+        e2e_docker_pull_if_needed "${PROMETHEUS_OPERATOR_IMAGE}"
+        e2e_docker_pull_if_needed "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
+    fi
 }
 
 # $1 cluster
@@ -545,7 +551,7 @@ function kind_load {
         install_cert_manager "${e2e_kubeconfig}"
     fi
     if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_prometheus_operator "${e2e_kubeconfig}"
+        install_prometheus_operator "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         install_multicluster "${e2e_kubeconfig}"
@@ -1101,9 +1107,11 @@ function install_cert_manager {
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-cainjector -n "${ns}" --for=condition=available --timeout=5m || true
 }
 
-# $1 kubeconfig option
+# $1 cluster name
+# $2 kubeconfig option
 function install_prometheus_operator {
-    local kubeconfig=${1:-}
+    local name=$1
+    local kubeconfig=${2:-}
     local ns="default"
     local deployment_name="prometheus-operator"
     local expected_version="${PROMETHEUS_OPERATOR_VERSION:-}"
@@ -1129,6 +1137,8 @@ function install_prometheus_operator {
         fi
     fi
 
+    cluster_kind_load_image "${name}" "${PROMETHEUS_OPERATOR_IMAGE}"
+    cluster_kind_load_image "${name}" "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${PROMETHEUS_OPERATOR_BUNDLE}"
     kubectl wait deploy/"${deployment_name}" -n "${ns}" \
         --for=condition=available --timeout=5m --kubeconfig="${kubeconfig}"
