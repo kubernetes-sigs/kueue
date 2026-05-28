@@ -536,6 +536,41 @@ func TestPendingResources(t *testing.T) {
 	}
 }
 
+func TestPendingInLocalQueueCountsInflight(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	inflightWl := utiltestingapi.MakeWorkload("wl-inflight", defaultNamespace).
+		Queue("lq-a").
+		Creation(now).
+		Obj()
+	otherWl := utiltestingapi.MakeWorkload("wl-other", defaultNamespace).
+		Queue("lq-b").
+		Creation(now.Add(time.Second)).
+		Obj()
+
+	cq.PushOrUpdate(workload.NewInfo(inflightWl))
+	cq.PushOrUpdate(workload.NewInfo(otherWl))
+
+	popped := cq.Pop()
+	if popped == nil {
+		t.Fatal("expected to pop a workload")
+	}
+
+	lqA := utilqueue.NewLocalQueueReference(defaultNamespace, kueue.LocalQueueName("lq-a"))
+	activeA, inadmissibleA := cq.PendingInLocalQueue(lqA)
+	if activeA != 1 || inadmissibleA != 0 {
+		t.Fatalf("LocalQueue lq-a pending mismatch: active=%d inadmissible=%d, want active=1 inadmissible=0", activeA, inadmissibleA)
+	}
+
+	lqB := utilqueue.NewLocalQueueReference(defaultNamespace, kueue.LocalQueueName("lq-b"))
+	activeB, inadmissibleB := cq.PendingInLocalQueue(lqB)
+	if activeB != 1 || inadmissibleB != 0 {
+		t.Fatalf("LocalQueue lq-b pending mismatch: active=%d inadmissible=%d, want active=1 inadmissible=0", activeB, inadmissibleB)
+	}
+}
+
 func Test_DeleteFromLocalQueue(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
@@ -875,9 +910,19 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 		reason           RequeueReason
 		lastAssignment   *workload.AssignmentClusterQueueState
 		wantInadmissible bool
+		wantSticky       bool
 	}{
 		"failure after nomination": {
 			reason:           RequeueReasonFailedAfterNomination,
+			wantInadmissible: false,
+		},
+		"pending preemption": {
+			reason:           RequeueReasonPendingPreemption,
+			wantInadmissible: false,
+			wantSticky:       true,
+		},
+		"preemption failed": {
+			reason:           RequeueReasonPreemptionFailed,
 			wantInadmissible: false,
 		},
 		"namespace doesn't match": {
@@ -945,6 +990,11 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
 			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible); diff != "" {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
+			}
+
+			gotSticky := cq.sw.matches(workload.Key(wl))
+			if diff := cmp.Diff(tc.wantSticky, gotSticky); diff != "" {
+				t.Errorf("Unexpected sticky status (-want,+got):\n%s", diff)
 			}
 
 			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), tc.reason); ok {

@@ -80,10 +80,12 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if configuration.WaitForPodsReady != nil {
-			podsReadyTracking := configuration.WaitForPodsReady.BlockAdmission != nil && *configuration.WaitForPodsReady.BlockAdmission
+			podsReadyTracking := configuration.WaitForPodsReady.BlockAdmission != nil &&
+				*configuration.WaitForPodsReady.BlockAdmission
 			cacheOpts = append(cacheOpts, schdcache.WithPodsReadyTracking(podsReadyTracking))
 
-			if configuration.WaitForPodsReady.RequeuingStrategy != nil && configuration.WaitForPodsReady.RequeuingStrategy.Timestamp != nil {
+			if configuration.WaitForPodsReady.RequeuingStrategy != nil &&
+				configuration.WaitForPodsReady.RequeuingStrategy.Timestamp != nil {
 				timestamp := *configuration.WaitForPodsReady.RequeuingStrategy.Timestamp
 				queuesOpts = append(queuesOpts, qcache.WithPodsReadyRequeuingTimestamp(timestamp))
 				schedOpts = append(schedOpts, scheduler.WithPodsReadyRequeuingTimestamp(timestamp))
@@ -95,7 +97,13 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		queuesOpts = append(queuesOpts, qcache.WithPreemptionExpectations(preemptionExpectations))
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queuesOpts...)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
+		failedCtrl, err := core.SetupControllers(
+			mgr,
+			queues,
+			cCache,
+			configuration,
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)
@@ -105,7 +113,12 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		schedOpts = append(schedOpts, scheduler.WithPreemptionExpectations(preemptionExpectations))
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), schedOpts...)
+		sched := scheduler.New(
+			queues,
+			cCache,
+			mgr.GetClient(),
+			mgr.GetEventRecorder(constants.AdmissionName),
+			schedOpts...)
 
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

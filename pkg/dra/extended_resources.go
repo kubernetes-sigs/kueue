@@ -35,13 +35,9 @@ import (
 )
 
 // NeedsDRAReconcile returns true if the workload needs DRA processing in Reconcile.
-// Fast in-memory check with no API calls. Uses a broad format-based filter
-// (IsExtendedResourceName) which may over-trigger for non-DRA extended resources,
-// but this only costs one extra Reconcile that finds no DeviceClass and queues normally.
-//
-// Note: there is no DeviceClass watcher. If a DeviceClass is created after a workload
-// was marked inadmissible, requeuing depends on the next QueueInadmissibleWorkloads event.
-func NeedsDRAReconcile(wl *kueue.Workload) bool {
+// For extended resources, checks the provided cache to confirm the resource
+// is backed by a DeviceClass before triggering DRA reconciliation.
+func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool {
 	if !features.Enabled(features.KueueDRAIntegration) {
 		return features.Enabled(features.KueueDRARejectWorkloadsWhenDRADisabled) && workload.HasDRA(wl)
 	}
@@ -56,7 +52,7 @@ func NeedsDRAReconcile(wl *kueue.Workload) bool {
 		for _, containers := range [][]corev1.Container{ps.Template.Spec.InitContainers, ps.Template.Spec.Containers} {
 			for _, c := range containers {
 				for name, qty := range c.Resources.Requests {
-					if !qty.IsZero() && utilresource.IsExtendedResourceName(name) {
+					if !qty.IsZero() && utilresource.IsExtendedResourceName(name) && erCache.Has(name) {
 						return true
 					}
 				}
@@ -75,6 +71,7 @@ func NeedsDRAReconcile(wl *kueue.Workload) bool {
 func resolveContainerExtendedResources(
 	ctx context.Context,
 	cl client.Client,
+	mapper *ResourceMapper,
 	container corev1.Container,
 	containerPath *field.Path,
 ) (corev1.ResourceList, sets.Set[corev1.ResourceName], field.ErrorList) {
@@ -121,7 +118,7 @@ func resolveContainerExtendedResources(
 		// Otherwise, use the extendedResourceName directly.
 		quotaKey := resourceName
 		for _, dc := range dcList.Items {
-			if logicalName, found := Mapper().lookup(corev1.ResourceName(dc.Name)); found {
+			if logicalName, found := mapper.Lookup(corev1.ResourceName(dc.Name)); found {
 				quotaKey = logicalName
 				break
 			}
@@ -142,7 +139,7 @@ func resolveContainerExtendedResources(
 // ResolveExtendedResourceQuota converts extended resource requests across all PodSets
 // into DRA logical quota resources. Per PodSet, init containers are aggregated with
 // max (sequential) and regular containers with sum (concurrent), then combined with max.
-func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, wl *kueue.Workload) (
+func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper *ResourceMapper, wl *kueue.Workload) (
 	map[kueue.PodSetReference]corev1.ResourceList,
 	map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
 	field.ErrorList,
@@ -166,7 +163,7 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, wl *kue
 			var result corev1.ResourceList
 			for j, container := range containers {
 				containerPath := podSetPath.Child(pathSegment).Index(j)
-				res, containerReplaced, errs := resolveContainerExtendedResources(ctx, cl, container, containerPath)
+				res, containerReplaced, errs := resolveContainerExtendedResources(ctx, cl, mapper, container, containerPath)
 				allErrs = append(allErrs, errs...)
 				replaced = replaced.Union(containerReplaced)
 				result = merge(result, res)

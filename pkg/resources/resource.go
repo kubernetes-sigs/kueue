@@ -19,6 +19,7 @@ package resources
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -34,12 +35,12 @@ func (fr FlavorResource) String() string {
 	return fmt.Sprintf(`{"Flavor":"%s","Resource":"%s"}`, string(fr.Flavor), string(fr.Resource))
 }
 
-type FlavorResourceQuantities map[FlavorResource]int64
+type FlavorResourceQuantities map[FlavorResource]Amount
 
 func (frq FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
 	temp := make(map[string]int64, len(frq))
-	for flavourResource, num := range frq {
-		temp[flavourResource.String()] = num
+	for flavorResource, num := range frq {
+		temp[flavorResource.String()] = num.Int64()
 	}
 	return json.Marshal(temp)
 }
@@ -47,15 +48,29 @@ func (frq FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
 func (frq FlavorResourceQuantities) FlattenFlavors() Requests {
 	result := Requests{}
 	for key, val := range frq {
-		result[key.Resource] += val
+		result[key.Resource] += val.Int64()
 	}
 	return result
 }
 
+// Clone returns a shallow copy of the map.
+func (frq FlavorResourceQuantities) Clone() FlavorResourceQuantities {
+	if frq == nil {
+		return nil
+	}
+	out := make(FlavorResourceQuantities, len(frq))
+	maps.Copy(out, frq)
+	return out
+}
+
+// Sub returns a new map with element-wise subtraction. Missing keys on either
+// side are treated as bounded zero, except the result is omitted only when
+// the operand is missing on the receiver side. (Symmetric difference is not
+// the goal here; this matches the semantics of the prior map Sub.)
 func (frq FlavorResourceQuantities) Sub(other FlavorResourceQuantities) FlavorResourceQuantities {
 	result := make(FlavorResourceQuantities, len(frq))
 	for fr, qty := range frq {
-		result[fr] = qty - other[fr]
+		result[fr] = qty.Sub(other[fr])
 	}
 	return result
 }
