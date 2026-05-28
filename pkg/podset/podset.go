@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 )
 
 var (
@@ -131,7 +132,7 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 	// make sure we don't duplicate tolerations
 	for _, t := range o.Tolerations {
 		if !slices.ContainsFunc(podSetInfo.Tolerations, func(e corev1.Toleration) bool {
-			return tolerationsEqual(e, t)
+			return utiltolerations.Equal(e, t)
 		}) {
 			podSetInfo.Tolerations = append(podSetInfo.Tolerations, t)
 		}
@@ -143,20 +144,6 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 		}
 	}
 	return nil
-}
-
-// tolerationsEqual reports whether two tolerations describe the same toleration
-func tolerationsEqual(a, b corev1.Toleration) bool {
-	// Normalize Operator before comparing: the Kubernetes API defaults an empty
-	// Operator to "Equal", so Operator: "" and Operator: "Equal" describe the
-	// same toleration and must compare as equal here.
-	if a.Operator == "" {
-		a.Operator = corev1.TolerationOpEqual
-	}
-	if b.Operator == "" {
-		b.Operator = corev1.TolerationOpEqual
-	}
-	return a.MatchToleration(&b)
 }
 
 // AddOrUpdateLabel adds or updates the label identified by k with value v
