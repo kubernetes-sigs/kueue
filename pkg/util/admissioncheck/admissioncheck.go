@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 var (
@@ -39,6 +40,9 @@ var (
 	ErrNoRemoteClientForNominatedCluster = errors.New("no remote client for nominated cluster")
 )
 
+const (
+	AdmissionCheckControllerNameKey = "spec.controllerName"
+)
 type objAsPtr[T any] interface {
 	client.Object
 	*T
@@ -49,10 +53,45 @@ type ConfigHelper[PtrT objAsPtr[T], T any] struct {
 	client client.Client
 }
 
-type MultiKueueStoreHelper = ConfigHelper[*kueue.MultiKueueConfig, kueue.MultiKueueConfig]
+type MultiKueueStoreHelper struct {
+	*ConfigHelper[*kueue.MultiKueueConfig, kueue.MultiKueueConfig]
+}
 
 func NewMultiKueueStoreHelper(c client.Client) (*MultiKueueStoreHelper, error) {
-	return NewConfigHelper[*kueue.MultiKueueConfig](c)
+	ch, err := NewConfigHelper[*kueue.MultiKueueConfig](c)
+	return &MultiKueueStoreHelper{ConfigHelper: ch}, err
+}
+
+func (h *MultiKueueStoreHelper) ManagedByMultiKueue(ctx context.Context, cq *kueue.ClusterQueue) (bool, error) {
+	_, found, err := h.GetMultiKueueAdmissionCheck(ctx, cq)
+	return found, err
+}
+
+func (h *MultiKueueStoreHelper) GetMultiKueueAdmissionCheck(ctx context.Context, cq *kueue.ClusterQueue) (ac *kueue.AdmissionCheck, found bool, err error) {
+	if !features.Enabled(features.MultiKueue) {
+		return nil, false, nil
+	}
+
+	if cq.Spec.AdmissionChecksStrategy == nil || len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks) == 0 {
+		return nil, false, nil
+	}
+
+	mkACs := &kueue.AdmissionCheckList{}
+	if err := h.client.List(ctx, mkACs, client.MatchingFields{AdmissionCheckControllerNameKey: kueue.MultiKueueControllerName}); err != nil || len(mkACs.Items) == 0 {
+		return nil, false, err
+	}
+
+	cqACs := sets.New[string]()
+	for _, rule := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+		cqACs.Insert(string(rule.Name))
+	}
+
+	for _, ac := range mkACs.Items {
+		if cqACs.Has(ac.Name) {
+			return &ac, true, nil
+		}
+	}
+	return nil, false, nil
 }
 
 func NewConfigHelper[PtrT objAsPtr[T], T any](c client.Client) (*ConfigHelper[PtrT, T], error) {

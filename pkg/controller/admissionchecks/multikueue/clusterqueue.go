@@ -76,7 +76,7 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	ac, hasAC, err := r.getMultiKueueAdmissionCheck(ctx, cq)
+	ac, hasAC, err := r.helper.GetMultiKueueAdmissionCheck(ctx, cq)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -144,30 +144,6 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	err = r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionTrue, "QuotaAutomated", "ClusterQueue quota is automatically managed based on MultiKueue workers.")
 	return reconcile.Result{}, err
-}
-
-func (r *cqReconciler) getMultiKueueAdmissionCheck(ctx context.Context, cq *kueue.ClusterQueue) (*kueue.AdmissionCheck, bool, error) {
-	if cq.Spec.AdmissionChecksStrategy == nil {
-		return nil, false, nil
-	}
-
-	acList := &kueue.AdmissionCheckList{}
-	if err := r.client.List(ctx, acList, client.MatchingFields{AdmissionCheckControllerNameKey: kueue.MultiKueueControllerName}); err != nil {
-		return nil, false, fmt.Errorf("listing local AdmissionChecks: %w", err)
-	}
-
-	cqACNames := sets.New[string]()
-	for _, rule := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
-		cqACNames.Insert(string(rule.Name))
-	}
-
-	for _, ac := range acList.Items {
-		if cqACNames.Has(ac.Name) {
-			return &ac, true, nil
-		}
-	}
-
-	return nil, false, nil
 }
 
 func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.ClusterQueue, cfg *kueue.MultiKueueConfig) (map[corev1.ResourceName]resource.Quantity, error) {
