@@ -2454,6 +2454,9 @@ func TestScheduleForTAS(t *testing.T) {
 		// x1 (and tas-flavor-a's quota); the pending workload must land on
 		// tas-flavor-b on the free node x2.
 		"two ResourceFlavors share nodes: pending workload lands on the fallback flavor when the primary flavor is full": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label("tas-node", "true").
@@ -2591,6 +2594,9 @@ func TestScheduleForTAS(t *testing.T) {
 		// PodSet requests 300m CPU; combined 300+300m > 400m per node, so the two PodSets
 		// must land on distinct nodes.
 		"multi-PodSet workload across sibling flavors must not self-overlap on shared node": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label("tas-node", "true").
@@ -4434,6 +4440,9 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		// admissible, no preemption would fire, and the physical node would be
 		// oversubscribed (1 + 3 + 2 = 6 > 5).
 		"sibling-flavor usage on the shared node forces same-flavor preemption": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+			},
 			nodes:      defaultSingleNode,
 			topologies: []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{
