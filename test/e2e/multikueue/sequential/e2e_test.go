@@ -298,7 +298,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 	})
 
 	ginkgo.Describe("The connection to a worker cluster is unreliable", ginkgo.Label(shard1), func() {
-		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
+		util.RepeatIt(20, "Should update the cluster status to reflect the connection state", func() {
 			worker1Cq2 := utiltestingapi.MakeClusterQueue("q2").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(worker1Flavor.Name).
@@ -723,7 +723,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			})
 		})
 
-		ginkgo.It("should not trigger concurrent preemptions", func() {
+		util.RepeatIt(20, "should not trigger concurrent preemptions", func() {
 			// Fits only in worker1
 			lowJob1 := testingjob.MakeJob("low-job1", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).

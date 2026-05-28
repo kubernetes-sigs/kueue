@@ -1662,3 +1662,11 @@ func WaitForDRAExampleDriverAvailability(ctx context.Context, k8sClient client.C
 	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
 	ginkgo.GinkgoLogr.Info("DaemonSet is available in the cluster", "daemonset", dsKey, "cluster", clusterName, "waitingTime", time.Since(waitForAvailableStart))
 }
+
+func RepeatIt(n int, desc string, itFn func()) {
+	for i := range n {
+		ginkgo.It(fmt.Sprintf("%s - attempt %d / %d", desc, i+1, n), func() {
+			itFn()
+		})
+	}
+}
