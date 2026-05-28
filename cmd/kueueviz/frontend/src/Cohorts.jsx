@@ -119,7 +119,11 @@ const Cohorts = () => {
         </ToggleButtonGroup>
       </Box>
 
-      {cohortList.length === 0 ? (
+      {cohorts === null ? (
+        <Box display="flex" justifyContent="center" my={4}>
+          <CircularProgress />
+        </Box>
+      ) : cohortList.length === 0 ? (
         <Typography>No Cohorts found.</Typography>
       ) : viewMode === 'tree' ? (
         <TableContainer component={Paper} className="tableContainerWithBorder">

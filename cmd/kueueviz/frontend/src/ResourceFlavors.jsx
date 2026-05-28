@@ -37,7 +37,11 @@ const ResourceFlavors = () => {
   return (
     <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Resource Flavors</Typography>
-      {resourceFlavors.length === 0 ? (
+      {flavors === null ? (
+        <Box display="flex" justifyContent="center" my={4}>
+          <CircularProgress />
+        </Box>
+      ) : resourceFlavors.length === 0 ? (
         <Typography>No Resource Flavors found.</Typography>
       ) : (
         <TableContainer component={Paper} className="tableContainerWithBorder">

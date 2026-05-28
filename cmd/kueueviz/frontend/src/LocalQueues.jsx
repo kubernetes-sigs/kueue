@@ -52,7 +52,11 @@ const LocalQueues = () => {
   return (
     <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Local Queues</Typography>
-      {queues.length === 0 ? (
+      {localQueues === null ? (
+        <Box display="flex" justifyContent="center" my={4}>
+          <CircularProgress />
+        </Box>
+      ) : queues.length === 0 ? (
         <Typography>No Local Queues found.</Typography>
       ) : (
         <TableContainer component={Paper} className="tableContainerWithBorder">
