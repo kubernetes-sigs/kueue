@@ -2798,6 +2798,28 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"should handle finished workload logic for orphaned workloads when FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				FinishedAt(now).
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(
+					&workloadRetentionConfig{
+						afterFinished: new(util.MediumTimeout),
+					},
+				),
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				FinishedAt(now).
+				Obj(),
+			wantError: nil,
+			wantResult: reconcile.Result{
+				RequeueAfter: util.MediumTimeout,
+			},
+		},
 		"shouldn't delete the workload because, object retention not configured": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
