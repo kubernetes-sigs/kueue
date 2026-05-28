@@ -1789,9 +1789,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		*/
 
 		ginkgo.By("scale-up the job", func() {
-			getJob(manager.ctx, manager.client, job)
-			job.Spec.Parallelism = new(int32(2))
 			gomega.Eventually(func(g gomega.Gomega) {
+				getJob(manager.ctx, manager.client, job)
+				job.Spec.Parallelism = new(int32(2))
 				g.Expect(manager.client.Update(manager.ctx, job)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
