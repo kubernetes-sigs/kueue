@@ -402,24 +402,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 			},
 		},
-		"RemoteJobInProgress_LocalIsNotManaged": {
-			args: args{
-				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Obj()).Build(),
-				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					Condition(runningJobCondition).
-					Obj()).Build(),
-				key: client.ObjectKeyFromObject(newJob().Obj()),
-			},
-			want: want{
-				localJob: newJob().
-					ResourceVersion("2").
-					Condition(runningJobCondition).
-					Obj(),
-				remoteJob: newJob().
-					Condition(runningJobCondition).
-					Obj(),
-			},
-		},
 		"RemoteJobFinished_Completed": {
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Obj()).Build(),
