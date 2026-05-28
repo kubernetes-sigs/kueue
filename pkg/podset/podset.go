@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 )
 
 var (
@@ -130,7 +131,9 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 
 	// make sure we don't duplicate tolerations
 	for _, t := range o.Tolerations {
-		if slices.Index(podSetInfo.Tolerations, t) == -1 {
+		if !slices.ContainsFunc(podSetInfo.Tolerations, func(e corev1.Toleration) bool {
+			return utiltolerations.Equal(e, t)
+		}) {
 			podSetInfo.Tolerations = append(podSetInfo.Tolerations, t)
 		}
 	}
