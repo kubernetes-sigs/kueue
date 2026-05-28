@@ -12,9 +12,14 @@
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
-  - [Cohort membership: the shared `cohortName` string](#cohort-membership-the-shared-cohortname-string)
-  - [Cohort-level properties via the single-cluster `Cohort` CR](#cohort-level-properties-via-the-single-cluster-cohort-cr)
+  - [Cohort membership: the shared <code>cohortName</code> string](#cohort-membership-the-shared-cohortname-string)
+  - [Cohort-level properties via the single-cluster <code>Cohort</code> CR](#cohort-level-properties-via-the-single-cluster-cohort-cr)
   - [Worked example: per-tenant cohort across worker clusters](#worked-example-per-tenant-cohort-across-worker-clusters)
+    - [Topology](#topology)
+    - [Activation (prerequisite)](#activation-prerequisite)
+    - [Setup YAML](#setup-yaml)
+    - [What you observe (step-by-step)](#what-you-observe-step-by-step)
+    - [Why each knob matters](#why-each-knob-matters)
   - [Dispatcher mode](#dispatcher-mode)
   - [Reconcile algorithm](#reconcile-algorithm)
   - [Per-CQ preemption policy](#per-cq-preemption-policy)
@@ -37,10 +42,19 @@
 Today MultiKueue dispatches workloads across worker clusters but treats each
 worker as a black box for scheduling decisions: a workload is admitted only
 if a worker has free quota. There is no way for a workload arriving at the
-manager to reclaim its cohort's quota from a borrower running on a sibling
-worker — even when single-cluster Kueue would already do exactly that
-locally via `ReclaimWithinCohort`. Owners wait indefinitely while
-borrowers finish naturally.
+manager to reclaim its cohort's quota from a cohort-sibling tenant's
+workload that is borrowing it on a worker — even when single-cluster Kueue
+would already do exactly that locally via `ReclaimWithinCohort`. Owners
+wait indefinitely while those borrowing workloads finish naturally.
+
+Note on terminology: "borrowing" here is single-cluster Kueue's local
+cohort math, applied independently inside each worker cluster. A tenant's
+ClusterQueue on a worker is borrowing whenever its
+`Status.FlavorsUsage > NominalQuota`, which means it is using cohort
+capacity that another tenant on that same worker is not currently
+consuming. Worker clusters do not borrow from each other; the "cross-
+cluster" part is the manager's fleet-wide visibility and its ability to
+target the eviction at the right worker.
 
 This KEP introduces a cross-cluster preemption capability for MultiKueue:
 a new dispatcher mode (`kueue.x-k8s.io/multikueue-dispatcher-cross-cluster-preemption`).
@@ -66,12 +80,12 @@ Operators that split workloads across per-tenant or per-environment worker
 clusters need a way to enforce per-tenant quota guarantees across cluster
 boundaries. Without cross-cluster preemption:
 
-- A guaranteed-tier customer's workload can be blocked indefinitely when a
-  sibling cluster's borrower is occupying the customer's nominal quota,
-  because the manager has no mechanism to evict that borrower across the
-  cluster boundary.
-- Wait time is bounded only by the borrower's natural completion time,
-  which may be hours or longer.
+- A guaranteed-tier customer's workload can be blocked indefinitely when
+  a cohort-sibling tenant's workload is borrowing the customer's nominal
+  quota on a worker, because the manager has no mechanism to reach into
+  that worker and evict the borrowing workload.
+- Wait time is bounded only by how long that borrowing workload runs
+  naturally, which may be hours.
 
 Priority-driven preemption between tenants is a *secondary* use case
 this KEP enables (via `ReclaimWithinCohort=LowerPriority`), but the
@@ -139,10 +153,10 @@ A platform offers guaranteed-tier customers a bounded wait time as long as
 they remain within their per-tenant quota. Workers are split per-tenant for
 security isolation, but workers share an on-demand capacity reservation
 behind the scenes. When a guaranteed customer submits a workload within
-its quota and finds a sibling cluster's borrower occupying that quota,
-the borrower should be reclaimed within seconds, not hours — even when
-the borrower is at *equal* priority (the relevant signal is ownership of
-the nominal quota, not priority delta).
+its quota and finds that a cohort-sibling tenant's workload is borrowing
+that quota on a worker, the borrowing workload should be reclaimed within
+seconds, not hours — even at *equal* priority (the relevant signal is
+ownership of the nominal quota, not priority delta).
 
 #### Story 2 — Burst absorption across environments
 
