@@ -40,7 +40,11 @@ const ClusterQueues = () => {
   return (
     <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Cluster Queues</Typography>
-      {queues.length === 0 ? (
+      {clusterQueues === null ? (
+        <Box display="flex" justifyContent="center" my={4}>
+          <CircularProgress />
+        </Box>
+      ) : queues.length === 0 ? (
         <Typography>No Cluster Queues found.</Typography>
       ) : (
         <TableContainer component={Paper} className="tableContainerWithBorder">

@@ -84,7 +84,11 @@ const Workloads = () => {
         </Select>
       </FormControl>
       
-      {workloads.length === 0 ? (
+      {workloadsData === null ? (
+        <Box display="flex" justifyContent="center" my={4}>
+          <CircularProgress />
+        </Box>
+      ) : workloads.length === 0 ? (
         <Typography>
           {selectedNamespace === '' 
             ? 'No workloads found in any namespace.' 
