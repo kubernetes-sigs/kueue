@@ -217,6 +217,8 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
+	// TODO: ensure EffectiveResourceGroups is not empty and has flavors with non 0 quota.
+
 	newCQObj := cqObj.DeepCopy()
 	cqCondition, reason, msg := r.cache.ClusterQueueReadiness(kueue.ClusterQueueReference(newCQObj.Name))
 	if err := r.updateCqStatusIfChanged(ctx, newCQObj, cqCondition, reason, msg); err != nil {
