@@ -352,7 +352,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdJob := batchv1.Job{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
-				gomega.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(false)))
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(false)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
