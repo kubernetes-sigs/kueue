@@ -397,6 +397,10 @@ var (
 	}
 )
 
+var (
+	errTest = stderrors.New("test error")
+)
+
 func TestReconcile(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
@@ -404,14 +408,14 @@ func TestReconcile(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 
 	cases := map[string]struct {
-		featureGates map[featuregate.Feature]bool
-
+		featureGates              map[featuregate.Feature]bool
 		workload                  *kueue.Workload
 		additionalObjects         []client.Object
 		cq                        *kueue.ClusterQueue
 		lq                        *kueue.LocalQueue
 		resourceClaims            []*resourcev1.ResourceClaim
 		resourceClaimTemplates    []*resourcev1.ResourceClaimTemplate
+		patchErr                  error
 		wantDRAResourceTotal      *int64
 		wantWorkloadsInQueue      *int
 		wantWorkload              *kueue.Workload
@@ -2577,6 +2581,53 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"should handle finished workload logic for orphaned workloads when FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				JobUID("job_uid").
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(
+					&workloadRetentionConfig{
+						afterFinished: ptr.To(util.MediumTimeout),
+					},
+				),
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				JobUID("job_uid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonOwnerNotFound,
+					Message: "The workload's owner no longer exists",
+				}).
+				Obj(),
+			wantError: nil,
+			wantResult: reconcile.Result{
+				RequeueAfter: util.MediumTimeout,
+			},
+		},
+		"shouldn't handle finished workload logic for orphaned workloads on error when FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				JobUID("job_uid").
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(
+					&workloadRetentionConfig{
+						afterFinished: ptr.To(util.MediumTimeout),
+					},
+				),
+			},
+			patchErr: errTest,
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				JobUID("job_uid").
+				Obj(),
+			wantError: errTest,
+		},
 		"shouldn't delete the workload because, object retention not configured": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
@@ -3152,7 +3203,14 @@ func TestReconcile(t *testing.T) {
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithObjects(objs...).
 					WithStatusSubresource(objs...).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							if tc.patchErr != nil {
+								return tc.patchErr
+							}
+							return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+						},
+					})
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 
