@@ -435,6 +435,11 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/7539
 	// Enable reporting of Cohort related metrics (also including ClusterQueueInfo metric).
 	MetricsForCohorts featuregate.Feature = "MetricsForCohorts"
+	// owner: @tenzen-y
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10659
+	// Enable accurately topology aware scheduling when multiple flavors cover the same Node.
+	TASHandleOverlappingFlavors featuregate.Feature = "TASHandleOverlappingFlavors"
 )
 
 func init() {
@@ -675,8 +680,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	WorkloadPriorityClassDefaulting: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
-
 	MetricsForCohorts: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASHandleOverlappingFlavors: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
