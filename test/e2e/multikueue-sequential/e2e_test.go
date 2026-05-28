@@ -206,7 +206,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
-	ginkgo.When("Incremental mode", ginkgo.Ordered, func() {
+	ginkgo.Describe("Incremental mode", ginkgo.Label(shard0), ginkgo.Ordered, func() {
 		var defaultManagerKueueCfg *kueueconfig.Configuration
 
 		ginkgo.BeforeAll(func() {
@@ -296,7 +296,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.When("The connection to a worker cluster is unreliable", func() {
+	ginkgo.Describe("The connection to a worker cluster is unreliable", ginkgo.Label(shard1), func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
 			worker1Cq2 := utiltestingapi.MakeClusterQueue("q2").
 				ResourceGroup(
@@ -367,7 +367,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.When("Connection via ClusterProfile no plugins", ginkgo.Ordered, func() {
+	ginkgo.Describe("Connection via ClusterProfile no plugins", ginkgo.Label(shard0), ginkgo.Ordered, func() {
 		var (
 			workerCluster3         *kueue.MultiKueueCluster
 			defaultManagerKueueCfg *kueueconfig.Configuration
@@ -465,7 +465,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.When("Connection via ClusterProfile with plugins", ginkgo.Ordered, func() {
+	ginkgo.Describe("Connection via ClusterProfile with plugins", ginkgo.Label(shard0), ginkgo.Ordered, func() {
 		const (
 			secretReaderPath    = "/plugins/secretreader-plugin"
 			volumeName          = "plugins"
