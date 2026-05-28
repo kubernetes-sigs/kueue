@@ -129,6 +129,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: KueueDRAIntegrationPartitionableDevices
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: KueueDRARejectWorkloadsWhenDRADisabled
   versionedSpecs:
   - default: true

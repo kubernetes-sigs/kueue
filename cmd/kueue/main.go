@@ -452,6 +452,12 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		}
 	}
 
+	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+		if err := core.SetupResourceSliceIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+			return fmt.Errorf("could not setup ResourceSlice indexer: %w", err)
+		}
+	}
+
 	indexOpts := []jobframework.Option{
 		jobframework.WithEnabledFrameworks(cfg.Integrations.Frameworks),
 	}
