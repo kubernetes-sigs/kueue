@@ -76,7 +76,7 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	ac, hasAC, err := r.helper.GetMultiKueueAdmissionCheck(ctx, cq)
+	ac, hasAC, err := admissioncheck.GetMultiKueueAdmissionCheck(ctx, r.client, cq)
 	if err != nil {
 		return reconcile.Result{}, err
 	}

@@ -95,7 +95,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 		return reconcile.Result{}, nil
 	}
 
-	mkAc, err := admissioncheck.GetMultiKueueAdmissionCheck(ctx, r.client, wl)
+	mkAc, err := admissioncheck.GetMultiKueueAdmissionCheckState(ctx, r.client, wl)
 	if err != nil {
 		log.Error(err, "Can not get MultiKueue AdmissionCheckState")
 		return reconcile.Result{}, err
