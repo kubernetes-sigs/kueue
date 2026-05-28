@@ -202,6 +202,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			for _, cache := range flvTASCache {
 				c.snapshotTopologyDomainUsages(cache, aggregatedDomainUsages)
 			}
+			log.V(4).Info("Aggregated TAS usage across flavors")
 		}
 		for flavor, cache := range flvTASCache {
 			// Only when this flavor is aggregation targets,
