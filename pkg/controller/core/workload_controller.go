@@ -195,7 +195,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log.V(2).Info("Reconcile Workload")
 
 	if isOrphanedWorkload(&wl) {
-		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, &wl, true, r.roleTracker))
+		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, &wl, true, r.roleTracker)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 		// If it was deleted, there is nothing to do.
 		// Otherwise, we still need to handle finished workload logic.
 		if !features.Enabled(features.FinishOrphanedWorkloads) || !wl.DeletionTimestamp.IsZero() {
