@@ -6233,6 +6233,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 		},
 		"sibling-flavor usage on the shared hostname reduces remaining capacity": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+			},
 			levels: []string{tasBlockLabel, corev1.LabelHostname},
 			// Two nodes only, so the discrimination is unambiguous.
 			// The x1's effective capacity is 0, so x2 is the only
@@ -6276,6 +6279,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// NewTASFlavorCache gives each flavor a private map. The harness
 			// leaves tc.aggregatedDomainUsages nil. The snapshot() call then takes the
 			// per-flavor branch and iterates c.usage (empty here).
+			featureGates: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+			},
 			levels:     []string{tasBlockLabel, tasRackLabel},
 			nodes:      defaultNodes,
 			nodeLabels: map[string]string{},
@@ -6308,6 +6314,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//
 			// b1/r1 and b1/r2 are fully consumed by prior workloads of this flavor.
 			// A 1-CPU, required-rack request must land on b2.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+			},
 			levels: []string{tasBlockLabel, tasRackLabel},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1").
@@ -6746,6 +6755,9 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			// map into tc.aggregatedDomainUsages. x4 is the only candidate in r2 for
 			// replacing x3, and its effective capacity is 0 CPU, so
 			// replacement must fail with the no-capacity reason.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
