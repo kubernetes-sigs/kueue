@@ -117,6 +117,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.17"
+- name: JobFrameworkCRDReinstallation
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
