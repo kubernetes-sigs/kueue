@@ -25,6 +25,10 @@
     - [Simplification: Removal of NoReservationUnsatisfiedChecks Reason](#simplification-removal-of-noreservationunsatisfiedchecks-reason)
   - [Prometheus Metrics Schema](#prometheus-metrics-schema)
   - [Troubleshooting &amp; End-User Inspection](#troubleshooting--end-user-inspection)
+    - [Concrete Status Scenarios (Before &amp; After)](#concrete-status-scenarios-before--after)
+      - [Scenario 1: Newly Created Workload (Initial Reconcile)](#scenario-1-newly-created-workload-initial-reconcile)
+      - [Scenario 2: Waiting for Cluster Capacity (Waiting for Quota)](#scenario-2-waiting-for-cluster-capacity-waiting-for-quota)
+      - [Scenario 3: Configuration Error (e.g. Missing Queue or Flavor Mismatch)](#scenario-3-configuration-error-eg-missing-queue-or-flavor-mismatch)
   - [Future Work](#future-work)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -374,6 +378,107 @@ administrators can access these granular reasons to enable automated
 troubleshooting scripts and more precise Grafana dashboards, allowing them to
 quickly distinguish between cluster-wide resource exhaustion and individual
 workload configuration errors.
+
+#### Concrete Status Scenarios (Before & After)
+
+Below are detailed before-and-after YAML comparisons highlighting the changes across common scheduling states.
+
+##### Scenario 1: Newly Created Workload (Initial Reconcile)
+
+Newly submitted workloads in the scheduling queue awaiting their first evaluation.
+
+* **Before KEP-10852:** Both conditions are completely absent from the status:
+```yaml
+status: {}
+```
+
+* **After KEP-10852:** Explicitly updated status:
+```yaml
+status:
+  conditions:
+  # QuotaReserved condition is ONLY initialized/present on creation if the
+  # UnadmittedWorkloadsExplicitStatus gate is ENABLED. If disabled, it is absent.
+  - type: QuotaReserved
+    status: "False"
+    reason: PendingEvaluation # Tier 6 Reason: Awaiting initial scheduler evaluation
+    message: "Workload is pending evaluation in the scheduling queue"
+    observedGeneration: 1
+  # Admitted condition is ONLY initialized/present on creation if the
+  # UnadmittedWorkloadsExplicitStatus gate is ENABLED. If disabled, it is absent.
+  - type: Admitted
+    status: "False"
+    reason: NoReservation
+    message: "The workload has no reservation"
+    observedGeneration: 1
+```
+
+##### Scenario 2: Waiting for Cluster Capacity (Waiting for Quota)
+
+The workload is structurally valid but must wait because the ClusterQueue has insufficient capacity.
+
+* **Before KEP-10852:** Uses generic `Pending` reason and the `Admitted` condition is completely absent:
+```yaml
+status:
+  conditions:
+  - type: QuotaReserved
+    status: "False"
+    reason: Pending
+    message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default-flavor, 2 more needed"
+    observedGeneration: 1
+```
+
+* **After KEP-10852:** Updated status:
+```yaml
+status:
+  conditions:
+  - type: QuotaReserved
+    status: "False"
+    reason: WaitingForQuota # Tier 5 Reason
+    message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default-flavor, 2 more needed"
+    observedGeneration: 1
+  # Admitted condition is ONLY initialized/present if the
+  # UnadmittedWorkloadsExplicitStatus gate is ENABLED. If disabled, it remains absent.
+  - type: Admitted
+    status: "False"
+    reason: NoReservation
+    message: "The workload has no reservation"
+    observedGeneration: 1
+```
+
+##### Scenario 3: Configuration Error (e.g. Missing Queue or Flavor Mismatch)
+
+The workload points to a non-existent queue, blocking scheduling evaluation early.
+
+* **Before KEP-10852:**
+```yaml
+status:
+  conditions:
+  - type: QuotaReserved
+    status: "False"
+    reason: Inadmissible
+    message: "LocalQueue local-queue doesn't exist"
+    observedGeneration: 1
+```
+
+* **After KEP-10852:** Updated status:
+```yaml
+status:
+  conditions:
+  - type: QuotaReserved
+    status: "False"
+    reason: Misconfigured # Tier 2 Reason
+    message: "LocalQueue local-queue doesn't exist"
+    observedGeneration: 1
+  # Admitted condition is ONLY initialized/present if the
+  # UnadmittedWorkloadsExplicitStatus gate is ENABLED. If disabled, it remains absent.
+  - type: Admitted
+    status: "False"
+    reason: NoReservation
+    message: "The workload has no reservation"
+    observedGeneration: 1
+```
+
+
 
 ### Future Work
 
