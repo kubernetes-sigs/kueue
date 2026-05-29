@@ -14,3 +14,4 @@ spec:
         - --enable-scheme=xgboostjob
         - --enable-scheme=paddlejob
         - --enable-scheme=jaxjob
+        
