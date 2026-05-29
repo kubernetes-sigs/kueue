@@ -1,0 +1,33 @@
+title: Effective Resource Groups
+kep-number: 11823
+authors:
+  - "@dpastuszka"
+status: implementable
+creation-date: 2026-05-29
+reviewers:
+  - TBD
+approvers:
+  - TBD
+
+see-also:
+  - "keps/9988-multikueue-manager-quota-automation"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.19"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.19"
+  beta: "v0.19"
+  stable: "v0.20"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: EffectiveResourceQuotas
+disable-supported: true
