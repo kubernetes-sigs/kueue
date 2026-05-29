@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -108,6 +108,8 @@ const (
 	JobSetFailed JobSetConditionType = "Failed"
 	// JobSetSuspended means the job is suspended.
 	JobSetSuspended JobSetConditionType = "Suspended"
+	// JobSetRestarting means the JobSet is restarting.
+	JobSetRestarting JobSetConditionType = "RestartingJobSet"
 	// JobSetStartupPolicyInProgress means the StartupPolicy is in progress.
 	JobSetStartupPolicyInProgress JobSetConditionType = "StartupPolicyInProgress"
 	// JobSetStartupPolicyCompleted means the StartupPolicy has completed.
@@ -118,9 +120,11 @@ const (
 // +kubebuilder:validation:XValidation:rule="!(has(self.startupPolicy) && self.startupPolicy.startupPolicyOrder == 'InOrder' && self.replicatedJobs.exists(x, has(x.dependsOn)))",message="StartupPolicy and DependsOn APIs are mutually exclusive"
 type JobSetSpec struct {
 	// replicatedJobs is the group of jobs that will form the set.
+	// +patchMergeKey=name
+	// +patchStrategy=merge
 	// +listType=map
 	// +listMapKey=name
-	ReplicatedJobs []ReplicatedJob `json:"replicatedJobs,omitempty"`
+	ReplicatedJobs []ReplicatedJob `json:"replicatedJobs,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
 
 	// network defines the networking options for the jobset.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
@@ -197,15 +201,19 @@ type JobSetSpec struct {
 type JobSetStatus struct {
 	// conditions track status
 	// +optional
+	// +patchMergeKey=type
+	// +patchStrategy=merge
 	// +listType=map
 	// +listMapKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
-	// restarts tracks the number of times the JobSet has restarted (i.e. recreated in case of RecreateAll policy).
+	// restarts tracks the number of times the JobSet has been globally restarted.
+	// That is, restarts is the number of times the restart action RestartJobSet or RestartJobSetAndIgnoreMaxRestarts have been executed and led to the recreation of all Jobs.
 	// +optional
 	Restarts int32 `json:"restarts"`
 
-	// restartsCountTowardsMax tracks the number of times the JobSet has restarted that counts towards the maximum allowed number of restarts.
+	// restartsCountTowardsMax tracks the number of times the JobSet has been globally restarted that counts towards the maximum allowed number of restarts.
+	// That is, restartsCountTowardsMax is the number of times the restart action RestartJobSet has been executed and led to the recreation of all Jobs.
 	// +optional
 	RestartsCountTowardsMax int32 `json:"restartsCountTowardsMax,omitempty"`
 
@@ -216,9 +224,11 @@ type JobSetStatus struct {
 
 	// replicatedJobsStatus tracks the number of JobsReady for each replicatedJob.
 	// +optional
+	// +patchMergeKey=name
+	// +patchStrategy=merge
 	// +listType=map
 	// +listMapKey=name
-	ReplicatedJobsStatus []ReplicatedJobStatus `json:"replicatedJobsStatus,omitempty"`
+	ReplicatedJobsStatus []ReplicatedJobStatus `json:"replicatedJobsStatus,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
 
 	// previousInPlaceRestartAttempt tracks the previous in-place restart attempt
 	// of the JobSet. It is read by the agent. If the in-place restart
@@ -262,6 +272,20 @@ type ReplicatedJobStatus struct {
 
 	// suspended is the number of child Jobs which are in a suspended state.
 	Suspended int32 `json:"suspended"`
+
+	// jobRestarts tracks the number of times the Jobs have been individually restarted.
+	// That is, jobRestarts[jobIndex] is the number of times the restart action RestartJob or RestartJobAndIgnoreMaxRestarts have been executed for the Job with index jobIndex and led to its recreation without affecting the other Jobs.
+	// +kubebuilder:validation:MaxItems=1024
+	// +listType=atomic
+	// +optional
+	JobRestarts []int32 `json:"jobRestarts,omitempty"`
+
+	// jobRestartsCountTowardsMax tracks the number of times the Jobs have been individually restarted that count towards the maximum allowed number of restarts.
+	// That is, jobRestartsCountTowardsMax[jobIndex] is the number of times the restart action RestartJob has been executed for the Job with index jobIndex and led to its recreation without affecting the other Jobs.
+	// +kubebuilder:validation:MaxItems=1024
+	// +listType=atomic
+	// +optional
+	JobRestartsCountTowardsMax []int32 `json:"jobRestartsCountTowardsMax,omitempty"`
 }
 
 // +genclient
@@ -322,9 +346,11 @@ type ReplicatedJob struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	// +kubebuilder:validation:MaxItems=5
 	// +optional
+	// +patchMergeKey=name
+	// +patchStrategy=merge
 	// +listType=map
 	// +listMapKey=name
-	DependsOn []DependsOn `json:"dependsOn,omitempty"`
+	DependsOn []DependsOn `json:"dependsOn,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
 }
 
 // DependsOn defines the dependency on the previous ReplicatedJob status.
@@ -384,15 +410,28 @@ const (
 type FailurePolicyAction string
 
 const (
-	// Fail the JobSet immediately, regardless of maxRestarts.
+	// Fail the JobSet immediately.
 	FailJobSet FailurePolicyAction = "FailJobSet"
 
-	// Restart the JobSet if the number of restart attempts is less than MaxRestarts.
+	// Restart the JobSet globally (i.e., recreate all Jobs) if `jobSet.status.restartsCountTowardsMax + sum(jobSet.status.replicatedJobsStatus[].jobRestartsCountTowardsMax[]) < jobSet.spec.maxRestarts`.
 	// Otherwise, fail the JobSet.
+	// Bumps `jobSet.status.restarts += 1` and `jobSet.status.restartsCountTowardsMax += 1`
 	RestartJobSet FailurePolicyAction = "RestartJobSet"
 
-	// Do not count the failure against maxRestarts.
+	// Same as RestartJobSet, but does not check `jobSet.spec.maxRestarts`.
+	// Bumps `jobSet.status.restarts += 1`.
 	RestartJobSetAndIgnoreMaxRestarts FailurePolicyAction = "RestartJobSetAndIgnoreMaxRestarts"
+
+	// Restart the Job individually (i.e., recreate only the failed Job without touching the other Jobs) if `jobSet.status.restartsCountTowardsMax + sum(jobSet.status.replicatedJobsStatus[].jobRestartsCountTowardsMax[]) < jobSet.spec.maxRestarts`.
+	// Otherwise, fail the JobSet.
+	// Bumps `jobSet.status.replicatedJobsStatus[replicatedJobName].restarts[jobIndex] += 1` and `jobSet.status.replicatedJobsStatus[replicatedJobName].jobRestartsCountTowardsMax[jobIndex] += 1`.
+	// Importantly, if this action is used, all `jobSet.spec.replicatedJobs[].replicas` must be less than or equal to 1024.
+	RestartJob FailurePolicyAction = "RestartJob"
+
+	// Same as RestartJob, but does not check `jobSet.spec.maxRestarts`.
+	// Bumps `jobSet.status.replicatedJobsStatus[replicatedJobName].restarts[jobIndex] += 1`
+	// Importantly, if this action is used, all `jobSet.spec.replicatedJobs[].replicas` must be less than or equal to 1024.
+	RestartJobAndIgnoreMaxRestarts FailurePolicyAction = "RestartJobAndIgnoreMaxRestarts"
 )
 
 // FailurePolicyRule defines a FailurePolicyAction to be executed if a child job
@@ -406,7 +445,8 @@ type FailurePolicyRule struct {
 	// The name must match the regular expression "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$".
 	Name string `json:"name"`
 	// action to take if the rule is matched.
-	// +kubebuilder:validation:Enum:=FailJobSet;RestartJobSet;RestartJobSetAndIgnoreMaxRestarts
+	// Valid values are FailJobSet, RestartJobSet, RestartJobSetAndIgnoreMaxRestarts, RestartJob, RestartJobAndIgnoreMaxRestarts.
+	// +kubebuilder:validation:Enum:=FailJobSet;RestartJobSet;RestartJobSetAndIgnoreMaxRestarts;RestartJob;RestartJobAndIgnoreMaxRestarts
 	Action FailurePolicyAction `json:"action"`
 	// onJobFailureReasons is a list of job failures reasons.
 	// The requirement is satisfied
@@ -571,7 +611,3 @@ const (
 	// PVC associated with JobSet VolumeClaimTemplates will not be deleted.
 	RetentionPolicyRetain RetentionPolicyType = "Retain"
 )
-
-func init() {
-	SchemeBuilder.Register(&JobSet{}, &JobSetList{})
-}
