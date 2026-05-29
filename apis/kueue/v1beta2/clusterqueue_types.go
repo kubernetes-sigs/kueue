@@ -47,6 +47,13 @@ const (
 	ClusterQueueActiveReasonReady                                    = "Ready"
 )
 
+// MultiKueueManagerQuotaAutomation condition reasons.
+const (
+	QuotaAutomated = "QuotaAutomated"
+	QuotaAutoimationNotRequested = "NotRequested"
+	UnsupportedQuotaAutomationConfiguration = "UnsupportedConfiguration"
+)
+
 // ClusterQueueReference is the name of the ClusterQueue.
 // It must be a DNS (RFC 1123) and has the maximum length of 253 characters.
 //

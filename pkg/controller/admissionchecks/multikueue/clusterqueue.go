@@ -93,13 +93,13 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	cfg, err := r.helper.ConfigFromRef(ctx, ac.Spec.Parameters)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			err = r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, "UnsupportedConfiguration", "The referenced MultiKueueConfig was not found.")
+			err = r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, kueue.UnsupportedQuotaAutomationConfiguration, "The referenced MultiKueueConfig was not found.")
 		}
 		return reconcile.Result{}, err
 	}
 
 	if ptr.Deref(cfg.Spec.QuotaManagement, kueue.QuotaManagementManual) == kueue.QuotaManagementManual {
-		err = r.syncEffectiveQuotaToSpec(ctx, cq, "NotRequested", "MultiKueue manager quota automation has not been requested.")
+		err = r.syncEffectiveQuotaToSpec(ctx, cq, kueue.QuotaAutoimationNotRequested, "MultiKueue manager quota automation has not been requested.")
 		return reconcile.Result{}, err
 	}
 
@@ -107,7 +107,7 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, r.syncEffectiveQuotaToSpec(
 			ctx, 
 			cq, 
-			"UnsupportedConfiguration",
+			kueue.UnsupportedQuotaAutomationConfiguration,
 			"ResourceGroups set manually in ClusterQueue spec.",
 		)
 	}
@@ -124,7 +124,7 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		}
 	}
 
-	return reconcile.Result{}, r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionTrue, "QuotaAutomated", "ClusterQueue quota is automatically managed based on MultiKueue workers.")
+	return reconcile.Result{}, r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionTrue, kueue.QuotaAutomated, "ClusterQueue quota is automatically managed based on MultiKueue workers.")
 }
 
 // Aggregates all worker resources into a one, global MultiKueue flavor.
