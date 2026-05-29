@@ -57,7 +57,8 @@ function build_kind_node_image {
     fi
 
     echo "Building kind node image: $E2E_KIND_VERSION (K8s v$KIND_VERSION)"
-    $KIND build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
+    "${ROOT_DIR}/hack/retry.sh" --attempts 3 --delay 5 -- \
+        "$KIND" build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
 }
 
 function e2e_is_truthy {
