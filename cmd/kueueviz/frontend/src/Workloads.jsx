@@ -28,23 +28,16 @@ const Workloads = () => {
   
   // Fetch namespaces from our new endpoint
   const { data: namespacesData, error: namespacesError } = useWebSocket('/ws/namespaces');
-  const [namespaces, setNamespaces] = useState([]);
-  
+  const namespaces = React.useMemo(() => {
+    return namespacesData?.namespaces || [];
+  }, [namespacesData]);
+
   // Fetch workloads with namespace filter
   const workloadsUrl = selectedNamespace === '' ? '/ws/workloads' : `/ws/workloads?namespace=${selectedNamespace}`;
   const { data: workloadsData, error: workloadsError } = useWebSocket(workloadsUrl);
-  const [workloads, setWorkloads] = useState([]);
-  
-  useEffect(() => {
-    if (namespacesData?.namespaces) {
-      // Make sure we're getting an array of strings, not complex objects
-      const namespaceNames = namespacesData.namespaces;
-      setNamespaces(namespaceNames);
-    }
-  }, [namespacesData]);
-  
-  useEffect(() => {
-    setWorkloads(workloadsData?.workloads?.items || []);
+
+  const workloads = React.useMemo(() => {
+    return workloadsData?.workloads?.items || [];
   }, [workloadsData]);
 
   const error = workloadsError || namespacesError;

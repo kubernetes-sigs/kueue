@@ -25,12 +25,9 @@ import UsageBar, { aggregateResourceForQueue, computeEffectiveQuota, discoverRes
 
 const ClusterQueues = () => {
   const { data: clusterQueues, error } = useWebSocket('/ws/cluster-queues');
-  const [queues, setQueues] = useState([]);
-
-  useEffect(() => {
-    if (clusterQueues && Array.isArray(clusterQueues)) {
-      setQueues([...clusterQueues].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-    }
+  const queues = React.useMemo(() => {
+    if (!clusterQueues || !Array.isArray(clusterQueues)) return [];
+    return [...clusterQueues].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [clusterQueues]);
 
   const resourceNames = discoverResourceNames(queues);
