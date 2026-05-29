@@ -521,6 +521,9 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
 		return errors.New("cannot use a TAS profile with TAS disabled")
 	}
+	if !features.Enabled(features.TopologyAwareScheduling) && features.Enabled(features.TASHandleOverlappingFlavors) {
+		return fmt.Errorf("%s requires %s to be enabled", features.TASHandleOverlappingFlavors, features.TopologyAwareScheduling)
+	}
 
 	return nil
 }

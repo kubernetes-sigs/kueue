@@ -1030,6 +1030,30 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			},
 			errorStr: "cannot use a TAS profile with TAS disabled",
 		},
+		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):     false,
+				string(features.TASProfileMixed):             false,
+				string(features.TASHandleOverlappingFlavors): true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+				features.TopologyAwareScheduling:     true,
+				features.TASProfileMixed:             true,
+			},
+			errorStr: "TASHandleOverlappingFlavors requires TopologyAwareScheduling to be enabled",
+		},
+		"TASHandleOverlappingFlavors valid when all dependencies enabled": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):     true,
+				string(features.TASHandleOverlappingFlavors): true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+				features.TopologyAwareScheduling:     true,
+				features.TASProfileMixed:             true,
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

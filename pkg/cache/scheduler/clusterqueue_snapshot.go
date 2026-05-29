@@ -19,6 +19,7 @@ package scheduler
 import (
 	"iter"
 	"maps"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -197,13 +198,23 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		option(opts)
 	}
 
+	var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
+	if features.Enabled(features.TASHandleOverlappingFlavors) {
+		aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
+	}
+
 	result := make(TASAssignmentsResult)
-	for tasFlavor, flavorTASRequests := range tasRequestsByFlavor {
+	for _, tasFlavor := range slices.Sorted(maps.Keys(tasRequestsByFlavor)) {
+		flavorTASRequests := tasRequestsByFlavor[tasFlavor]
 		// We assume the `tasFlavor` is already in the snapshot as this was
 		// already checked earlier during flavor assignment, and the set of
 		// flavors is immutable in snapshot.
 		tasFlavorCache := c.TASFlavors[tasFlavor]
-		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, options...)
+		flvOpts := options
+		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.isLowestLevelNode {
+			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
+		}
+		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, flvOpts...)
 		maps.Copy(result, flvResult)
 	}
 	return result
