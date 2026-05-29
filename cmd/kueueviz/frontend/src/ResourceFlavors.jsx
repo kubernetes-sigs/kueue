@@ -24,12 +24,9 @@ import ViewYamlButton from './ViewYamlButton';
 
 const ResourceFlavors = () => {
   const { data: flavors, error } = useWebSocket('/ws/resource-flavors');
-  const [resourceFlavors, setResourceFlavors] = useState([]);
-
-  useEffect(() => {
-    if (flavors && Array.isArray(flavors)) {
-      setResourceFlavors([...flavors].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-    }
+  const resourceFlavors = React.useMemo(() => {
+    if (!flavors || !Array.isArray(flavors)) return [];
+    return [...flavors].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [flavors]);
 
   if (error) return <ErrorMessage error={error} />;
@@ -37,7 +34,11 @@ const ResourceFlavors = () => {
   return (
     <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Resource Flavors</Typography>
-      {resourceFlavors.length === 0 ? (
+      {flavors === null ? (
+        <Box display="flex" justifyContent="center" my={4}>
+          <CircularProgress />
+        </Box>
+      ) : resourceFlavors.length === 0 ? (
         <Typography>No Resource Flavors found.</Typography>
       ) : (
         <TableContainer component={Paper} className="tableContainerWithBorder">
