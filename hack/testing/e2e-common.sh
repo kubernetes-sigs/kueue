@@ -103,6 +103,16 @@ function e2e_docker_pull_if_needed {
     return 1
 }
 
+function e2e_kubectl_apply_url {
+    local url="$1"
+    shift
+    local extra_args=("$@")
+    local manifest
+
+    manifest=$("${ROOT_DIR}/hack/retry.sh" --attempts 7 --delay 2 --exponential -- curl -fsSL "${url}") || return 1
+    echo "${manifest}" | kubectl apply --server-side -f - "${extra_args[@]}"
+}
+
 function e2e_wait_for_operator_in_install {
   local kubeconfig=$1
   local ns=$2
@@ -837,7 +847,7 @@ function install_jobset {
     fi
 
     cluster_kind_load_image "${name}" "${JOBSET_IMAGE}"
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${JOBSET_MANIFEST}"
+    e2e_kubectl_apply_url "${JOBSET_MANIFEST}" --kubeconfig="${kubeconfig}"
     e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
@@ -1053,7 +1063,7 @@ function install_lws {
     fi
 
     cluster_kind_load_image "${name}" "${LEADERWORKERSET_IMAGE/#v}"
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${LEADERWORKERSET_MANIFEST}"
+    e2e_kubectl_apply_url "${LEADERWORKERSET_MANIFEST}" --kubeconfig="${kubeconfig}"
     e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
@@ -1133,7 +1143,7 @@ function install_cert_manager {
         fi
     fi
 
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${CERTMANAGER_MANIFEST}"
+    e2e_kubectl_apply_url "${CERTMANAGER_MANIFEST}" --kubeconfig="${kubeconfig}"
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager -n "${ns}" --for=condition=available --timeout=5m
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-webhook -n "${ns}" --for=condition=available --timeout=5m || true
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-cainjector -n "${ns}" --for=condition=available --timeout=5m || true
@@ -1171,7 +1181,7 @@ function install_prometheus_operator {
 
     cluster_kind_load_image "${name}" "${PROMETHEUS_OPERATOR_IMAGE}"
     cluster_kind_load_image "${name}" "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${PROMETHEUS_OPERATOR_BUNDLE}"
+    e2e_kubectl_apply_url "${PROMETHEUS_OPERATOR_BUNDLE}" --kubeconfig="${kubeconfig}"
     kubectl wait deploy/"${deployment_name}" -n "${ns}" \
         --for=condition=available --timeout=5m --kubeconfig="${kubeconfig}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side \
