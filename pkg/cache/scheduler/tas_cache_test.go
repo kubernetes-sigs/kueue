@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"fmt"
+	"maps"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -36,6 +37,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // PodSetTestCase defines a test case for a single podset in the consolidated test.
@@ -381,12 +383,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		featureGates map[featuregate.Feature]bool
-		nodes        []corev1.Node
-		pods         []corev1.Pod
-		levels       []string
-		nodeLabels   map[string]string
-		podSets      []PodSetTestCase
+		featureGates           map[featuregate.Feature]bool
+		nodes                  []corev1.Node
+		pods                   []corev1.Pod
+		levels                 []string
+		nodeLabels             map[string]string
+		aggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests
+		priorFlavorUsage       []workload.TopologyDomainRequests
+		priorOwnUsage          []workload.TopologyDomainRequests
+		podSets                []PodSetTestCase
 	}{
 		"minimize the number of used racks before optimizing the number of nodes; BestFit": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x1,x6,x2,x4]
@@ -6227,6 +6232,130 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"sibling-flavor usage on the shared hostname reduces remaining capacity": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+			},
+			levels: []string{tasBlockLabel, corev1.LabelHostname},
+			// Two nodes only, so the discrimination is unambiguous.
+			// The x1's effective capacity is 0, so x2 is the only
+			// candidate that can fit the request.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-x1").
+					Label(tasBlockLabel, "b1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-x2").
+					Label(tasBlockLabel, "b1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			nodeLabels: map[string]string{},
+			priorFlavorUsage: []workload.TopologyDomainRequests{
+				{
+					Values:            []string{"x1"},
+					SinglePodRequests: resources.Requests{corev1.ResourceCPU: 1000},
+					Count:             1,
+				},
+			},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "main",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.Requests{corev1.ResourceCPU: 1000},
+					count:    1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
+					},
+				},
+			},
+		},
+		"non-hostname-leaf topology: nil aggregatedDomainUsages preserves per-flavor behavior": {
+			// Topology lowest level is rack (not hostname). In the new model
+			// topologyInformation.Usage is nil for such topologies, so
+			// NewTASFlavorCache gives each flavor a private map. The harness
+			// leaves tc.aggregatedDomainUsages nil. The snapshot() call then takes the
+			// per-flavor branch and iterates c.usage (empty here).
+			featureGates: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+			},
+			levels:     []string{tasBlockLabel, tasRackLabel},
+			nodes:      defaultNodes,
+			nodeLabels: map[string]string{},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "main",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{corev1.ResourceCPU: 1000},
+					count:    1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					},
+				},
+			},
+		},
+		"non-hostname-leaf topology: prior c.usage must be applied even when aggregatedDomainUsages is non-nil empty": {
+			// Reproduces the integration regression: with TASHandleOverlappingFlavors on,
+			// Cache.Snapshot allocates aggregatedDomainUsages as a non-nil empty map and
+			// snapshotTopologyDomainUsages returns early for non-hostname-leaf flavors,
+			// leaving the map empty. snapshot() must still apply c.usage in this case.
+			//
+			//      b1            b2
+			//     /  \          /  \
+			//   r1    r2      r1    r2
+			//   |     |       |     |
+			//  b1-r1 b1-r2   b2-r1 b2-r2   (each 1 CPU)
+			//
+			// b1/r1 and b1/r2 are fully consumed by prior workloads of this flavor.
+			// A 1-CPU, required-rack request must land on b2.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+			},
+			levels: []string{tasBlockLabel, tasRackLabel},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r1").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r2").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			nodeLabels: map[string]string{},
+			priorOwnUsage: []workload.TopologyDomainRequests{
+				{Values: []string{"b1", "r1"}, SinglePodRequests: resources.Requests{corev1.ResourceCPU: 1000}, Count: 1},
+				{Values: []string{"b1", "r2"}, SinglePodRequests: resources.Requests{corev1.ResourceCPU: 1000}, Count: 1},
+			},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "main",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{corev1.ResourceCPU: 1000},
+					count:    1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b2", "r1"}}},
+					},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -6261,7 +6390,29 @@ func TestFindTopologyAssignments(t *testing.T) {
 				tasCache.Update(&pod, log)
 			}
 			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
-			snapshot := tasFlavorCache.snapshot(log, tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels))
+			if len(tc.priorOwnUsage) > 0 {
+				tasFlavorCache.addUsage("prior-wl", tc.priorOwnUsage)
+			}
+
+			if features.Enabled(features.TASHandleOverlappingFlavors) {
+				tc.aggregatedDomainUsages = aggregatedDomainUsagesForPriorFlavorUsage(
+					topologyInformation,
+					flavorInformation,
+					tc.priorFlavorUsage,
+					&tasCache,
+					tc.aggregatedDomainUsages,
+				)
+			}
+
+			var aggregatedDomainUsage map[tas.TopologyDomainID]resources.Requests
+			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
+				aggregatedDomainUsage = tc.aggregatedDomainUsages
+			}
+			snapshot := tasFlavorCache.snapshot(
+				log,
+				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
+				aggregatedDomainUsage,
+			)
 			flavorTASRequests := make([]TASPodSetRequests, 0, len(tc.podSets))
 			wantResult := make(TASAssignmentsResult)
 			for _, ps := range tc.podSets {
@@ -6314,16 +6465,19 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 	podSetName := kueue.PodSetReference("main")
 
 	cases := map[string]struct {
-		levels          []string
-		nodes           []corev1.Node
-		pods            []corev1.Pod
-		existingTA      *kueue.TopologyAssignment
-		admissionCount  int32
-		unhealthyNode   string
-		topologyRequest *kueue.PodSetTopologyRequest
-		count           int32
-		wantAssignment  *tas.TopologyAssignment
-		wantReason      string
+		featureGates           map[featuregate.Feature]bool
+		levels                 []string
+		nodes                  []corev1.Node
+		pods                   []corev1.Pod
+		existingTA             *kueue.TopologyAssignment
+		admissionCount         int32
+		unhealthyNode          string
+		topologyRequest        *kueue.PodSetTopologyRequest
+		count                  int32
+		aggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests
+		priorFlavorUsage       []workload.TopologyDomainRequests
+		wantAssignment         *tas.TopologyAssignment
+		wantReason             string
 	}{
 		"replace unhealthy node in incomplete rack slice": {
 			//       b1
@@ -6587,10 +6741,70 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			// Without fix: sliceSize=1, scatters x4(1)+x5(1) → wrongly succeeds.
 			wantReason: `topology "default" doesn't allow to fit any of 1 slice(s). Total nodes: 4; excluded: topologyDomain: 2`,
 		},
+		"sibling-flavor aggregatedDomainUsages on replacement candidate blocks the replacement": {
+			//       b1
+			//   /        \
+			//  r1        r2
+			//  /  \    /    \
+			// x1  x2  x3    x4
+			//          ^(NotReady)
+			//
+			// x4 has 1 CPU allocatable. priorFlavorUsage drives a sibling
+			// TASFlavorCache's addUsage that consumes 1 CPU on x4 through
+			// the real write path. The harness clones the resulting shared
+			// map into tc.aggregatedDomainUsages. x4 is the only candidate in r2 for
+			// replacing x3, and its effective capacity is 0 CPU, so
+			// replacement must fail with the no-capacity reason.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("b1-r2-x4").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			existingTA: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x2"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x3"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x4"}}).
+				Obj(),
+			admissionCount: 4,
+			unhealthyNode:  "x3",
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasBlockLabel),
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{Topology: tasRackLabel, Size: 2},
+				},
+			},
+			count: 4,
+			priorFlavorUsage: []workload.TopologyDomainRequests{
+				{
+					Values:            []string{"x4"},
+					SinglePodRequests: resources.Requests{corev1.ResourceCPU: 1000},
+					Count:             1,
+				},
+			},
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 3; excluded: resource "cpu": 1, topologyDomain: 2`,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASMultiLayerTopology, true)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			wl := utiltestingapi.MakeWorkload("test-wl", "test-ns").
@@ -6636,12 +6850,31 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			if tcLevels == nil {
 				tcLevels = defaultLevels
 			}
-			tasFlavorCache := tasCache.NewTASFlavorCache(
-				topologyInformation{Levels: tcLevels},
-				flavorInformation{TopologyName: "default"},
-			)
 
-			snapshot := tasFlavorCache.snapshot(log, tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels))
+			topologyInfo := topologyInformation{Levels: tcLevels}
+			flvInfo := flavorInformation{TopologyName: "default"}
+
+			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInfo, flvInfo)
+
+			if features.Enabled(features.TASHandleOverlappingFlavors) {
+				tc.aggregatedDomainUsages = aggregatedDomainUsagesForPriorFlavorUsage(
+					topologyInfo,
+					flvInfo,
+					tc.priorFlavorUsage,
+					&tasCache,
+					tc.aggregatedDomainUsages,
+				)
+			}
+
+			var aggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests
+			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
+				aggregatedDomainUsages = tc.aggregatedDomainUsages
+			}
+			snapshot := tasFlavorCache.snapshot(
+				log,
+				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
+				aggregatedDomainUsages,
+			)
 			result := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, WithWorkload(wl))
 
 			psResult, ok := result[podSetName]
@@ -6662,4 +6895,28 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TODO: Once we commonize "TestFindTopologyAssignments" and "TestFindTopologyAssignmentsMultiLayerReplacement" into one,
+// we should remove this helper function.
+func aggregatedDomainUsagesForPriorFlavorUsage(
+	topologyInfo topologyInformation,
+	flvInfo flavorInformation,
+	priorFlavorUsage []workload.TopologyDomainRequests,
+	cache *tasCache,
+	initialAggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests,
+) map[tas.TopologyDomainID]resources.Requests {
+	siblingCache := cache.NewTASFlavorCache(topologyInfo, flvInfo)
+	if len(priorFlavorUsage) > 0 {
+		siblingCache.addUsage("prior-wl", priorFlavorUsage)
+	}
+
+	aggregatedDomainUsages := maps.Clone(initialAggregatedDomainUsages)
+	if aggregatedDomainUsages == nil {
+		aggregatedDomainUsages = make(map[tas.TopologyDomainID]resources.Requests, len(siblingCache.usage))
+	}
+	for domainID, usage := range siblingCache.usage {
+		aggregatedDomainUsages[domainID] = usage.Clone()
+	}
+	return aggregatedDomainUsages
 }
