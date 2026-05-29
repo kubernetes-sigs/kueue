@@ -24,11 +24,14 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -273,6 +276,92 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
 			})
 		})
+
+		ginkgo.It("should admit a JobSet with two ReplicatedJobs", func() {
+			jobSet := testingjobset.MakeJobSet("test-jobset", ns.Name).
+				Queue(localQueue.Name).
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "rj1",
+						Image:       util.GetAgnHostImage(),
+						Args:        util.BehaviorExitFast,
+						Replicas:    1,
+						Parallelism: 1,
+						Completions: 1,
+						PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
+						},
+					},
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "rj2",
+						Image:       util.GetAgnHostImage(),
+						Args:        util.BehaviorExitFast,
+						Replicas:    1,
+						Parallelism: 1,
+						Completions: 1,
+						PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
+						},
+					},
+				).
+				RequestAndLimit("rj1", extraResource, "1").
+				RequestAndLimit("rj2", extraResource, "1").
+				Obj()
+
+			ginkgo.By("Creating the JobSet", func() {
+				util.MustCreate(ctx, k8sClient, jobSet)
+			})
+
+			ginkgo.By("waiting for the JobSet to be unsuspended", func() {
+				jobSetKey := client.ObjectKeyFromObject(jobSet)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobSetKey, jobSet)).To(gomega.Succeed())
+					g.Expect(jobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the JobSet has nodeSelector set", func() {
+				gomega.Expect(jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.NodeSelector).To(gomega.Equal(
+					map[string]string{
+						tasNodeGroupLabel: instanceType,
+					},
+				))
+			})
+
+			wlLookupKey := types.NamespacedName{Name: jobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
+			createdWorkload := &kueue.Workload{}
+
+			ginkgo.By(fmt.Sprintf("await for admission of workload %q and verify TopologyAssignment", wlLookupKey), func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Count:  1,
+							Values: []string{"kind-worker"},
+						}},
+					}),
+				))
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Count:  1,
+							Values: []string{"kind-worker2"},
+						}},
+					}),
+				))
+			})
+
+			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+			})
+		})
 	})
 })
 
@@ -280,7 +369,7 @@ func readRankAssignmentsFromJobSetPods(pods []corev1.Pod) map[string]string {
 	assignment := make(map[string]string, len(pods))
 	for _, pod := range pods {
 		podIndex := pod.Labels[batchv1.JobCompletionIndexAnnotation]
-		jobIndex := pod.Labels[jobset.JobIndexKey]
+		jobIndex := pod.Labels[jobsetapi.JobIndexKey]
 		key := fmt.Sprintf("%v/%v", jobIndex, podIndex)
 		assignment[key] = pod.Spec.NodeName
 	}
