@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -4116,6 +4117,7 @@ func TestPreemption(t *testing.T) {
 					cqCache.AddOrUpdateResourceFlavor(log, flv)
 				}
 				for _, cq := range tc.clusterQueues {
+					_ = utilqueue.SyncEffectiveResourceGroupToSpec(cq)
 					if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 						t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 					}
@@ -4188,6 +4190,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 		Preemption(kueue.ClusterQueuePreemption{
 			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 		}).
+		SyncEffectiveResourceGroups().
 		Obj()
 
 	cases := map[string]struct {
@@ -4402,6 +4405,7 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 		Preemption(kueue.ClusterQueuePreemption{
 			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 		}).
+		SyncEffectiveResourceGroups().
 		Obj()
 	targetWl := utiltestingapi.MakeWorkload("low", "").
 		UID("low-uid").
@@ -4502,6 +4506,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 		Preemption(kueue.ClusterQueuePreemption{
 			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 		}).
+		SyncEffectiveResourceGroups().
 		Obj()
 
 	cases := map[string]struct {

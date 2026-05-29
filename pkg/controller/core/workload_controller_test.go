@@ -442,7 +442,7 @@ func TestReconcile(t *testing.T) {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpus", "2").Obj(),
-				).Obj(),
+				).SyncEffectiveResourceGroups().Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
 				Queue("lq").
@@ -480,7 +480,7 @@ func TestReconcile(t *testing.T) {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpus", "2").Obj(),
-				).Obj(),
+				).SyncEffectiveResourceGroups().Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
 				Queue("lq").
@@ -518,7 +518,7 @@ func TestReconcile(t *testing.T) {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpus", "2").Obj(),
-				).Obj(),
+				).SyncEffectiveResourceGroups().Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
 				Queue("lq").
@@ -562,7 +562,7 @@ func TestReconcile(t *testing.T) {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpu", "2").Obj(),
-				).Obj(),
+				).SyncEffectiveResourceGroups().Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
 				Queue("lq").
@@ -600,7 +600,7 @@ func TestReconcile(t *testing.T) {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpu", "10").Obj(),
-				).Obj(),
+				).SyncEffectiveResourceGroups().Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wlMultiPodDRA", "ns").
 				Queue("lq").
@@ -636,7 +636,7 @@ func TestReconcile(t *testing.T) {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpu", "2").Obj(),
-				).Obj(),
+				).SyncEffectiveResourceGroups().Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: func() *kueue.Workload {
 				wl := utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
@@ -683,7 +683,7 @@ func TestReconcile(t *testing.T) {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpu", "2").Obj(),
-				).Obj(),
+				).SyncEffectiveResourceGroups().Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wlMissingTemplate", "ns").
 				Queue("lq").
@@ -720,6 +720,7 @@ func TestReconcile(t *testing.T) {
 				AdmissionCheckStrategy(
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj()).
+				SyncEffectiveResourceGroups().
 				Obj(),
 			lq: utiltestingapi.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -752,6 +753,7 @@ func TestReconcile(t *testing.T) {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionChecks("ac1", "ac2").
+				SyncEffectiveResourceGroups().
 				Obj(),
 			lq: utiltestingapi.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2467,7 +2469,9 @@ func TestReconcile(t *testing.T) {
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was deleted": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
-				AdmissionChecks("check").Obj(),
+				AdmissionChecks("check").
+				SyncEffectiveResourceGroups().
+				Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
@@ -2518,7 +2522,9 @@ func TestReconcile(t *testing.T) {
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was Hold": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
-				AdmissionChecks("check").Obj(),
+				AdmissionChecks("check").
+				SyncEffectiveResourceGroups().
+				Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -2619,7 +2625,9 @@ func TestReconcile(t *testing.T) {
 		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was Hold": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
-				AdmissionChecks("check").StopPolicy(kueue.Hold).Obj(),
+				AdmissionChecks("check").StopPolicy(kueue.Hold).
+				SyncEffectiveResourceGroups().
+				Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -3542,7 +3550,7 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(),
 					*utiltestingapi.MakeFlavorQuotas("flavor2").Obj(),
-				).Obj(),
+				).SyncEffectiveResourceGroups().Obj(),
 		},
 		"add checks from cq": {
 			wl: *utiltestingapi.MakeWorkload("wl", "ns").Obj(),
@@ -3550,7 +3558,7 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(),
 					*utiltestingapi.MakeFlavorQuotas("flavor2").Obj(),
-				).AdmissionChecks("ac1", "ac2").Obj(),
+				).AdmissionChecks("ac1", "ac2").SyncEffectiveResourceGroups().Obj(),
 			wantChecks: []kueue.AdmissionCheckState{
 				{
 					Name:  "ac1",
@@ -3571,7 +3579,7 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 				).AdmissionCheckStrategy(
 				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj(),
-			).Obj(),
+			).SyncEffectiveResourceGroups().Obj(),
 			wantChecks: []kueue.AdmissionCheckState{
 				{
 					Name:  "ac2",
@@ -3600,7 +3608,7 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2", "flavor2").Obj(),
 				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac3").Obj(),
-			).Obj(),
+			).SyncEffectiveResourceGroups().Obj(),
 			wantChecks: []kueue.AdmissionCheckState{
 				{
 					Name:  "ac1",
@@ -3631,7 +3639,7 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 				).AdmissionCheckStrategy(
 				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1").Obj(),
 				*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj(),
-			).Obj(),
+			).SyncEffectiveResourceGroups().Obj(),
 			wantChecks: []kueue.AdmissionCheckState{
 				{
 					Name:  "ac1",

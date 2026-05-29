@@ -248,7 +248,7 @@ func TestNotifyClusterQueueUpdate(t *testing.T) {
 		for i, f := range flavors {
 			fqs[i] = *utiltestingapi.MakeFlavorQuotas(f).Resource(corev1.ResourceCPU, "10").Obj()
 		}
-		return utiltestingapi.MakeClusterQueue(name).ResourceGroup(fqs...).Obj()
+		return utiltestingapi.MakeClusterQueue(name).ResourceGroup(fqs...).SyncEffectiveResourceGroups().Obj()
 	}
 
 	cases := map[string]struct {
@@ -314,7 +314,7 @@ func TestCqHandlerGeneric(t *testing.T) {
 		for i, f := range flavors {
 			fqs[i] = *utiltestingapi.MakeFlavorQuotas(f).Resource(corev1.ResourceCPU, "10").Obj()
 		}
-		return utiltestingapi.MakeClusterQueue(name).ResourceGroup(fqs...).Obj()
+		return utiltestingapi.MakeClusterQueue(name).ResourceGroup(fqs...).SyncEffectiveResourceGroups().Obj()
 	}
 
 	cases := map[string]struct {
@@ -387,7 +387,7 @@ func TestResourceFlavors(t *testing.T) {
 			}
 			w = w.ResourceGroup(fqs...)
 		}
-		return w.Obj()
+		return w.SyncEffectiveResourceGroups().Obj()
 	}
 
 	cases := map[string]struct {

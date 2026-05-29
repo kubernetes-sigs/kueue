@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -392,6 +393,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			},
 		},
 	}
+	_ = utilqueue.SyncEffectiveResourceGroupToSpec(baseQueue)
 
 	testCases := map[string]struct {
 		queue              *kueue.ClusterQueue
@@ -431,6 +433,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].BorrowingLimit = new(resource.MustParse("1"))
 				ret.Status.FlavorsReservation[0].Resources[0].Total = resource.MustParse("3")
+				_ = utilqueue.SyncEffectiveResourceGroupToSpec(ret)
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
@@ -492,6 +495,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Name = "flavor2"
 				ret.Status.FlavorsReservation[0].Name = "flavor2"
+				_ = utilqueue.SyncEffectiveResourceGroupToSpec(ret)
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
@@ -523,6 +527,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].Name = corev1.ResourceMemory
 				ret.Status.FlavorsReservation[0].Resources[0].Name = corev1.ResourceMemory
+				_ = utilqueue.SyncEffectiveResourceGroupToSpec(ret)
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{

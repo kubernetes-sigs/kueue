@@ -2153,7 +2153,7 @@ func TestGetCacheLQ(t *testing.T) {
 		).ResourceGroup(
 		*utiltestingapi.MakeFlavorQuotas("model-a").
 			Resource("example.com/gpu", "10", "10").Obj(),
-	).Obj()
+	).SyncEffectiveResourceGroups().Obj()
 	lq := utiltestingapi.MakeLocalQueue("lq-a", "ns").ClusterQueue("cq").Obj()
 	cases := map[string]struct {
 		getLq          *kueue.LocalQueue
@@ -2213,7 +2213,7 @@ func TestCacheQueueOperations(t *testing.T) {
 			).ResourceGroup(
 			*utiltestingapi.MakeFlavorQuotas("model-a").
 				Resource("example.com/gpu", "10", "10").Obj(),
-		).Obj(),
+		).SyncEffectiveResourceGroups().Obj(),
 		utiltestingapi.MakeClusterQueue("bar").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas("ondemand").
@@ -2222,7 +2222,7 @@ func TestCacheQueueOperations(t *testing.T) {
 			).ResourceGroup(
 			*utiltestingapi.MakeFlavorQuotas("model-b").
 				Resource("example.com/gpu", "5", "5").Obj(),
-		).Obj(),
+		).SyncEffectiveResourceGroups().Obj(),
 	}
 	queues := []*kueue.LocalQueue{
 		utiltestingapi.MakeLocalQueue("alpha", "ns1").ClusterQueue("foo").Obj(),

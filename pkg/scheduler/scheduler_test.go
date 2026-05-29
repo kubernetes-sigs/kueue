@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -5931,6 +5932,7 @@ func TestSchedule(t *testing.T) {
 					cqCache.AddOrUpdateResourceFlavor(log, resourceFlavors[i])
 				}
 				for _, cq := range allClusterQueues {
+					_ = utilqueue.SyncEffectiveResourceGroupToSpec(&cq)
 					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
 						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
 					}
@@ -7089,6 +7091,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					cqCache.AddOrUpdateResourceFlavor(log, resourceFlavors[i])
 				}
 				for _, cq := range tc.cqs {
+					_ = utilqueue.SyncEffectiveResourceGroupToSpec(&cq)
 					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
 						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
 					}
@@ -7575,6 +7578,7 @@ func TestResourcesToReserve(t *testing.T) {
 				Resource("gpu", "10", "5").Obj(),
 		).
 		QueueingStrategy(kueue.StrictFIFO).
+		SyncEffectiveResourceGroups().
 		Obj()
 
 	cases := []struct {
@@ -7765,7 +7769,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 			*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "1").
 				Obj(),
-		).Obj()
+		).SyncEffectiveResourceGroups().Obj()
 	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
 
 	testCases := map[string]struct {
