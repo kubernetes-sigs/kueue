@@ -269,7 +269,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
 					PodAnnotation(kueue.PodSetSliceSizeAnnotation, "2").
 					CompletionMode(batchv1.IndexedCompletion).
-					BackoffLimit(1).
+					BackoffLimit(3).
 					TerminationGracePeriod(1).
 					Obj()
 
@@ -352,7 +352,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					RequestAndLimit(extraResource, "1").
 					PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 					CompletionMode(batchv1.IndexedCompletion).
-					BackoffLimit(1).
+					BackoffLimit(3).
 					Toleration(corev1.Toleration{
 						Key:               "key1",
 						Operator:          corev1.TolerationOpEqual,
@@ -448,7 +448,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					RequestAndLimit(extraResource, "1").
 					PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 					CompletionMode(batchv1.IndexedCompletion).
-					BackoffLimit(1).
+					BackoffLimit(3).
 					SchedulingGate(artificialGate).
 					TerminationGracePeriod(1).
 					Obj()
@@ -586,7 +586,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					RequestAndLimit(extraResource, "1").
 					PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 					CompletionMode(batchv1.IndexedCompletion).
-					BackoffLimit(1).
+					BackoffLimit(3).
 					TerminationGracePeriod(1).
 					Obj()
 
