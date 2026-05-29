@@ -268,8 +268,9 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 		}
 	}
 	// Index DeviceClasses by extendedResourceName for fast lookup during extended resource translation.
+	// The index is skipped if the DeviceClass API is not available on the cluster.
 	if features.Enabled(features.DRAExtendedResources) {
-		if err := indexer.IndexField(ctx, &resourceapi.DeviceClass{}, DeviceClassExtendedResourceNameIndex, IndexDeviceClassExtendedResourceName); err != nil {
+		if err := indexer.IndexField(ctx, &resourceapi.DeviceClass{}, DeviceClassExtendedResourceNameIndex, IndexDeviceClassExtendedResourceName); err != nil && !apimeta.IsNoMatchError(err) {
 			return fmt.Errorf("setting index on extendedResourceName for DeviceClass: %w", err)
 		}
 	}
