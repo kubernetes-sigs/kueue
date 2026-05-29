@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -56,12 +55,11 @@ func TestCQReconcile(t *testing.T) {
 		workers map[string]workerState
 
 		wantQuotaAutomated bool
-		wantNominalQuotas  map[string]string // Ignored if wantQuotaAutomated == false
+		wantRGs  []kueue.ResourceGroup // Ignored if wantQuotaAutomated == false
 		wantCondition      *metav1.Condition
 	}{
 		"multiple resources for single LQs and CQs": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Resource("memory", "0").Obj()).
 				AdmissionChecks("ac1").
 				Obj(),
 			lqs: []*kueue.LocalQueue{
@@ -95,20 +93,21 @@ func TestCQReconcile(t *testing.T) {
 				},
 			},
 			wantQuotaAutomated: true,
-			wantNominalQuotas: map[string]string{
-				"cpu":    "15",
-				"memory": "30Gi",
-			},
+			wantRGs: []kueue.ResourceGroup{utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(kueue.MultiKueueAutoQuotaDefaultFlavorName).
+					Resource("cpu", "15").
+					Resource("memory", "30Gi").
+					Obj(),
+			)},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.MultiKueueManagerQuotaAutomation,
 				Status:  metav1.ConditionTrue,
-				Reason:  "QuotaAutomated",
+				Reason:  kueue.QuotaAutomated,
 				Message: "ClusterQueue quota is automatically managed based on MultiKueue workers.",
 			},
 		},
 		"unrelated CQs and inactive workers are ignored": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Obj()).
 				AdmissionChecks("ac1").
 				Obj(),
 			lqs: []*kueue.LocalQueue{
@@ -146,19 +145,20 @@ func TestCQReconcile(t *testing.T) {
 				},
 			},
 			wantQuotaAutomated: true,
-			wantNominalQuotas: map[string]string{
-				"cpu": "10",
-			},
+			wantRGs: []kueue.ResourceGroup{utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(kueue.MultiKueueAutoQuotaDefaultFlavorName).
+					Resource("cpu", "10").
+					Obj(),
+			)},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.MultiKueueManagerQuotaAutomation,
 				Status:  metav1.ConditionTrue,
-				Reason:  "QuotaAutomated",
+				Reason:  kueue.QuotaAutomated,
 				Message: "ClusterQueue quota is automatically managed based on MultiKueue workers.",
 			},
 		},
 		"multiple LQs pointing to same and different CQs on workers": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Obj()).
 				AdmissionChecks("ac1").
 				Obj(),
 			lqs: []*kueue.LocalQueue{
@@ -202,116 +202,15 @@ func TestCQReconcile(t *testing.T) {
 				},
 			},
 			wantQuotaAutomated: true,
-			wantNominalQuotas: map[string]string{
-				"cpu": "23", // 10 + 5 + 8; 10 should be counted only once
-			},
-			wantCondition: &metav1.Condition{
-				Type:    kueue.MultiKueueManagerQuotaAutomation,
-				Status:  metav1.ConditionTrue,
-				Reason:  "QuotaAutomated",
-				Message: "ClusterQueue quota is automatically managed based on MultiKueue workers.",
-			},
-		},
-		"multiple flavors and incompatible ResourceGroups across workers": {
-			cq: utiltestingapi.MakeClusterQueue("cq1").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Resource("gpu", "0").Obj()).
-				AdmissionChecks("ac1").
-				Obj(),
-			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
-			},
-			acs: []*kueue.AdmissionCheck{
-				utiltestingapi.MakeAdmissionCheck("ac1").
-					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+			wantRGs: []kueue.ResourceGroup{utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(kueue.MultiKueueAutoQuotaDefaultFlavorName).
+					Resource("cpu", "23"). // 10 + 5 + 8; 10 should be counted only once
 					Obj(),
-			},
-			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
-			},
-			workers: map[string]workerState{
-				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
-					cqs: []*kueue.ClusterQueue{
-						utiltestingapi.MakeClusterQueue("w1-cq1").
-							ResourceGroup(
-								*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Obj(),
-							).
-							ResourceGroup(
-								*utiltestingapi.MakeFlavorQuotas("gpu").Resource("gpu", "1").Obj(),
-							).
-							Obj(),
-					},
-				},
-				"worker2": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w2-cq1").Obj()},
-					cqs: []*kueue.ClusterQueue{
-						utiltestingapi.MakeClusterQueue("w2-cq1").
-							ResourceGroup(
-								*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "5").Resource("gpu", "2").Obj(),
-								*utiltestingapi.MakeFlavorQuotas("other").Resource("cpu", "4").Resource("gpu", "1").Obj(),
-							).
-							Obj(),
-					},
-				},
-			},
-			wantQuotaAutomated: true,
-			wantNominalQuotas: map[string]string{
-				"cpu": "19",
-				"gpu": "4",
-			},
+			)},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.MultiKueueManagerQuotaAutomation,
 				Status:  metav1.ConditionTrue,
-				Reason:  "QuotaAutomated",
-				Message: "ClusterQueue quota is automatically managed based on MultiKueue workers.",
-			},
-		},
-		"workers with a subset of manager resources": {
-			cq: utiltestingapi.MakeClusterQueue("cq1").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Resource("memory", "0").Resource("gpu", "0").Obj()).
-				AdmissionChecks("ac1").
-				Obj(),
-			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
-			},
-			acs: []*kueue.AdmissionCheck{
-				utiltestingapi.MakeAdmissionCheck("ac1").
-					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
-					Obj(),
-			},
-			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
-			},
-			workers: map[string]workerState{
-				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
-					cqs: []*kueue.ClusterQueue{
-						utiltestingapi.MakeClusterQueue("w1-cq1").
-							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Resource("memory", "20Gi").Obj()).
-							Obj(),
-					},
-				},
-				"worker2": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w2-cq1").Obj()},
-					cqs: []*kueue.ClusterQueue{
-						utiltestingapi.MakeClusterQueue("w2-cq1").
-							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "5").Obj()).
-							Obj(),
-					},
-				},
-			},
-			wantQuotaAutomated: true,
-			wantNominalQuotas: map[string]string{
-				"cpu":    "15",
-				"memory": "20Gi",
-				"gpu":    "0",
-			},
-			wantCondition: &metav1.Condition{
-				Type:    kueue.MultiKueueManagerQuotaAutomation,
-				Status:  metav1.ConditionTrue,
-				Reason:  "QuotaAutomated",
+				Reason:  kueue.QuotaAutomated,
 				Message: "ClusterQueue quota is automatically managed based on MultiKueue workers.",
 			},
 		},
@@ -346,11 +245,55 @@ func TestCQReconcile(t *testing.T) {
 			wantCondition: &metav1.Condition{
 				Type:    kueue.MultiKueueManagerQuotaAutomation,
 				Status:  metav1.ConditionFalse,
-				Reason:  "NotRequested",
+				Reason:  kueue.QuotaAutoimationNotRequested,
 				Message: "MultiKueue manager quota automation has not been requested.",
 			},
 		},
-		"quota automation unsupported for multiple manager flavors": {
+		"quota automation unsupported for manually set flavor": {
+			cq: utiltestingapi.MakeClusterQueue("cq1").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Obj()).
+				AdmissionChecks("ac1").
+				Obj(),
+			acs: []*kueue.AdmissionCheck{
+				utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			configs: []*kueue.MultiKueueConfig{
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
+			},
+			wantQuotaAutomated: false,
+			wantCondition: &metav1.Condition{
+				Type:    kueue.MultiKueueManagerQuotaAutomation,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.UnsupportedQuotaAutomationConfiguration,
+				Message: "ResourceGroups set manually in ClusterQueue spec.",
+			},
+		},
+		"quota automation unsupported for manually set flavors": {
+			cq: utiltestingapi.MakeClusterQueue("cq1").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "5").Obj(), *utiltestingapi.MakeFlavorQuotas("enhanced").Resource("cpu", "20").Obj()).
+				AdmissionChecks("ac1").
+				Obj(),
+			acs: []*kueue.AdmissionCheck{
+				utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			configs: []*kueue.MultiKueueConfig{
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
+			},
+			wantQuotaAutomated: false,
+			wantCondition: &metav1.Condition{
+				Type:    kueue.MultiKueueManagerQuotaAutomation,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.UnsupportedQuotaAutomationConfiguration,
+				Message: "ResourceGroups set manually in ClusterQueue spec.",
+			},
+		},
+		"quota automation unsupported for manually set resource groups": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Obj()).
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("gpu").Resource("gpu", "0").Obj()).
@@ -369,43 +312,8 @@ func TestCQReconcile(t *testing.T) {
 			wantCondition: &metav1.Condition{
 				Type:    kueue.MultiKueueManagerQuotaAutomation,
 				Status:  metav1.ConditionFalse,
-				Reason:  "UnsupportedConfiguration",
-				Message: "Quota automation requires that the manager-side ClusterQueue has exactly one ResourceFlavor",
-			},
-		},
-		"quota automation unsupported for missing manager covered resources": {
-			cq: utiltestingapi.MakeClusterQueue("cq1").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Obj()).
-				AdmissionChecks("ac1").
-				Obj(),
-			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
-			},
-			acs: []*kueue.AdmissionCheck{
-				utiltestingapi.MakeAdmissionCheck("ac1").
-					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
-					Obj(),
-			},
-			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
-			},
-			workers: map[string]workerState{
-				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
-					cqs: []*kueue.ClusterQueue{
-						utiltestingapi.MakeClusterQueue("w1-cq1").
-							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("memory", "10Gi").Resource("gpu", "2").Obj()).
-							Obj(),
-					},
-				},
-			},
-			wantQuotaAutomated: false,
-			wantCondition: &metav1.Condition{
-				Type:    kueue.MultiKueueManagerQuotaAutomation,
-				Status:  metav1.ConditionFalse,
-				Reason:  "UnsupportedConfiguration",
-				Message: "manager-side coveredResources is missing resources configured on workers: [gpu memory]",
+				Reason:  kueue.UnsupportedQuotaAutomationConfiguration,
+				Message: "ResourceGroups set manually in ClusterQueue spec.",
 			},
 		},
 		"not a MultiKueue manager ClusterQueue": {
@@ -433,7 +341,7 @@ func TestCQReconcile(t *testing.T) {
 			wantCondition: &metav1.Condition{
 				Type:    kueue.MultiKueueManagerQuotaAutomation,
 				Status:  metav1.ConditionFalse,
-				Reason:  "UnsupportedConfiguration",
+				Reason:  kueue.UnsupportedQuotaAutomationConfiguration,
 				Message: "The referenced MultiKueueConfig was not found.",
 			},
 		},
@@ -480,34 +388,16 @@ func TestCQReconcile(t *testing.T) {
 				t.Fatalf("failed to fetch local ClusterQueue: %v", err)
 			}
 
+			rgs := gotCQ.Status.EffectiveResourceGroups
+
 			// Verify quotas
-			if !tc.wantQuotaAutomated {
-				if diff := cmp.Diff(tc.cq.Spec.ResourceGroups, gotCQ.Spec.ResourceGroups); diff != "" {
-					t.Errorf("unexpected resourceGroups changes for quota automation disabled (-want/+got):\n%s", diff)
+			if tc.wantQuotaAutomated {
+				if diff := cmp.Diff(tc.wantRGs, rgs); diff != "" {
+					t.Errorf("unexpected effectiveResourceGroups for quota automation (-want/+got):\n%s", diff)
 				}
 			} else {
-				if len(gotCQ.Spec.ResourceGroups) != 1 {
-					t.Fatalf("expected exactly 1 resource group, got: %d", len(gotCQ.Spec.ResourceGroups))
-				}
-				if len(gotCQ.Spec.ResourceGroups[0].Flavors) != 1 {
-					t.Fatalf("expected exactly 1 resource flavor, got: %d", len(gotCQ.Spec.ResourceGroups[0].Flavors))
-				}
-				quotas := gotCQ.Spec.ResourceGroups[0].Flavors[0].Resources
-
-				if len(quotas) != len(tc.wantNominalQuotas) {
-					t.Errorf("expected exactly %d nominal quotas, got: %d", len(tc.wantNominalQuotas), len(quotas))
-				}
-
-				for _, resQuota := range quotas {
-					expectedVal, exists := tc.wantNominalQuotas[string(resQuota.Name)]
-					if !exists {
-						t.Errorf("unexpected resource quota: %s", resQuota.Name)
-						continue
-					}
-					expectedQty := resource.MustParse(expectedVal)
-					if !resQuota.NominalQuota.Equal(expectedQty) {
-						t.Errorf("expected resource %q nominalQuota: %s, got: %s", resQuota.Name, expectedVal, resQuota.NominalQuota.String())
-					}
+				if diff := cmp.Diff(tc.cq.Spec.ResourceGroups, rgs); diff != "" {
+					t.Errorf("unexpected effectiveResourceGroups for quota automation disabled (-want/+got):\n%s", diff)
 				}
 			}
 

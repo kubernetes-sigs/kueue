@@ -107,7 +107,7 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, r.syncEffectiveQuotaToSpec(
 			ctx, 
 			cq, 
-			kueue.UnsupportedQuotaAutomationConfiguration,
+			"UnsupportedConfiguration",
 			"ResourceGroups set manually in ClusterQueue spec.",
 		)
 	}
