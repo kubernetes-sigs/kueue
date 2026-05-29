@@ -241,5 +241,8 @@ ignoreFiles = []
       source = "static"
       target = "static"
 
+[security]
+  allowContent = ['.*']
+
 [security.node.permissions]
   allowRead = ["*"]
