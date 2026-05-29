@@ -411,10 +411,10 @@
     version: "0.9"
 - name: WorkloadIdentifierAnnotations
   versionedSpecs:
-  - default: true
+  - default: false
     lockToDefault: false
-    preRelease: Beta
-    version: "0.18"
+    preRelease: Alpha
+    version: "0.17"
 - name: WorkloadRequestUseMergePatch
   versionedSpecs:
   - default: false
