@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -527,7 +526,10 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_WorkloadNameOnlyChange_EdgeCase": {
 			fields: fields{
-				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{
+					features.ElasticJobsViaWorkloadSlices:          true,
+					features.WorkloadIdentifierAnnotations: false,
+				},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -549,14 +551,17 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				remoteJob: newJob().
 					ResourceVersion("2").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					SetAnnotation(constants.PrebuiltWorkloadAnnotation, "test-workload-new").
+					PrebuiltWorkloadLabel("test-workload-new").
 					Condition(runningJobCondition).
 					Obj(),
 			},
 		},
 		"ElasticJob_RemoteOutOfSync": {
 			fields: fields{
-				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{
+					features.ElasticJobsViaWorkloadSlices:          true,
+					features.WorkloadIdentifierAnnotations: false,
+				},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
@@ -581,8 +586,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				remoteJob: newJob().
 					ResourceVersion("2").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					PrebuiltWorkloadLabel("test-workload").
-					SetAnnotation(constants.PrebuiltWorkloadAnnotation, "job-test-f53b2").
+					PrebuiltWorkloadLabel("job-test-f53b2").
 					Parallelism(22).
 					Condition(runningJobCondition).
 					Obj(),
@@ -590,7 +594,10 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"ElasticJob_RemoteOutOfSync_PatchFailure": {
 			fields: fields{
-				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+				featureGates: map[featuregate.Feature]bool{
+					features.ElasticJobsViaWorkloadSlices:          true,
+					features.WorkloadIdentifierAnnotations: false,
+				},
 			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
