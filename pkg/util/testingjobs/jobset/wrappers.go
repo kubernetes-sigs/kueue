@@ -239,7 +239,7 @@ func (j *JobSetWrapper) TerminationGracePeriod(seconds int64) *JobSetWrapper {
 // BackoffLimit sets the backoffLimit for all replicated jobs.
 func (j *JobSetWrapper) BackoffLimit(limit int32) *JobSetWrapper {
 	for i := range j.Spec.ReplicatedJobs {
-		j.Spec.ReplicatedJobs[i].Template.Spec.BackoffLimit = ptr.To[int32](limit)
+		j.Spec.ReplicatedJobs[i].Template.Spec.BackoffLimit = new(limit)
 	}
 	return j
 }
