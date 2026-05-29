@@ -76,7 +76,10 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing, mappings ...[]config.DeviceClassMapping) framework.ManagerSetup {
+func managerAndSchedulerSetup(
+	admissionFairSharing *config.AdmissionFairSharing,
+	mappings ...[]config.DeviceClassMapping,
+) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		fairSharing := &config.FairSharing{}
 
@@ -84,13 +87,19 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing,
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var deviceClassMappings []config.DeviceClassMapping
+		var draMapper *dra.ResourceMapper
 		if len(mappings) > 0 {
 			deviceClassMappings = mappings[0]
-			err = dra.CreateMapperFromConfiguration(deviceClassMappings)
+			draMapper = dra.NewResourceMapper()
+			err = draMapper.PopulateFromConfiguration(deviceClassMappings)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		cCache := schdcache.New(mgr.GetClient(), schdcache.WithFairSharing(fairsharing.Enabled(fairSharing)), schdcache.WithAdmissionFairSharing(admissionFairSharing))
+		cCache := schdcache.New(
+			mgr.GetClient(),
+			schdcache.WithFairSharing(fairsharing.Enabled(fairSharing)),
+			schdcache.WithAdmissionFairSharing(admissionFairSharing),
+		)
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{}
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(admissionFairSharing))
@@ -111,7 +120,13 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing,
 		configuration.Metrics.EnableClusterQueueResources = true
 		mgr.GetScheme().Default(configuration)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
+		failedCtrl, err := core.SetupControllers(
+			mgr,
+			queues,
+			cCache,
+			configuration,
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, DRAMapper: draMapper},
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)
@@ -120,8 +135,17 @@ func managerAndSchedulerSetup(admissionFairSharing *config.AdmissionFairSharing,
 		err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName),
-			scheduler.WithFairSharing(fairSharing), scheduler.WithAdmissionFairSharing(admissionFairSharing), scheduler.WithPreemptionExpectations(preemptionExpectations))
+		sched := scheduler.New(
+			queues,
+			cCache,
+			mgr.GetClient(),
+			mgr.GetEventRecorder(constants.AdmissionName),
+			scheduler.WithFairSharing(
+				fairSharing,
+			),
+			scheduler.WithAdmissionFairSharing(admissionFairSharing),
+			scheduler.WithPreemptionExpectations(preemptionExpectations),
+		)
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}

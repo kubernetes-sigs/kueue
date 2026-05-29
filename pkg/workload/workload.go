@@ -37,6 +37,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -1544,6 +1545,32 @@ func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message str
 		LastTransitionTime: metav1.NewTime(clock.Now()),
 		// ObservedGeneration is added via workload.SetConditionAndUpdate
 	}
+}
+
+func FinalizeOrphanedWorkload(ctx context.Context, c client.Client, clk clock.Clock, wl *kueue.Workload, canFinish bool) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Only Finish workloads that are not currently being deleted.
+	if features.Enabled(features.FinishOrphanedWorkloads) && wl.DeletionTimestamp.IsZero() && canFinish {
+		log.V(2).Info("Workload is orphaned; finishing to release quota")
+		if err := Finish(ctx, c, wl, kueue.WorkloadFinishedReasonOwnerNotFound,
+			"The workload's owner no longer exists", clk); err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				log.Error(err, "Failed to finish Workload")
+				return err
+			}
+			return nil
+		}
+	}
+
+	if err := RemoveFinalizer(ctx, c, wl); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			log.Error(err, "Failed to remove finalizer")
+			return err
+		}
+	}
+
+	return nil
 }
 
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {

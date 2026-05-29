@@ -40,8 +40,8 @@ const WorkloadDetail = () => {
     }
   }, [eventData]);
 
-  if (!workload) return <CircularProgress />;
   if (workloadError) return <ErrorMessage error={workloadError} />;
+  if (!workload) return <CircularProgress />;
 
   return (
     <Paper style={{ padding: '16px', marginTop: '20px', alignContent: 'left', alignItems: 'left' }}>

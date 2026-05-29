@@ -220,7 +220,8 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		})
 	})
 
-	ginkgo.It("Should run a rayjob with InTreeAutoscaling", func() {
+	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
+	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Serial, func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script
@@ -301,7 +302,7 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			Volumes(rayv1.HeadNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
-			TerminationGracePeriodSeconds(int64(5)).
+			TerminationGracePeriodSeconds(int64(1)).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -499,7 +500,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			Volumes(rayv1.HeadNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
-			TerminationGracePeriodSeconds(int64(5)).
+			TerminationGracePeriodSeconds(int64(1)).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -789,7 +790,8 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	ginkgo.It("Should run a rayservice with InTreeAutoscaling", func() {
+	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
+	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Serial, func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a Ray Serve application that supports a delay parameter

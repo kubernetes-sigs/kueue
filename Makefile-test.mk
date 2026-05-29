@@ -19,7 +19,7 @@ endif
 GO_TEST_FLAGS ?= -race
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.35
+ENVTEST_K8S_VERSION ?= 1.36
 
 ENVTEST_RETRY_ATTEMPTS ?= 4
 ENVTEST_RETRY_DELAY ?= 5
@@ -151,16 +151,20 @@ test-e2e-baseline-helm: test-e2e-baseline
 test-e2e-extended-helm: E2E_USE_HELM=true
 test-e2e-extended-helm: test-e2e-extended
 
-.PHONY: test-multikueue-e2e-parallel-builds
-test-multikueue-e2e-parallel-builds:
-	$(MAKE) -j2 kind-ray-project-mini-image-build kind-secretreader-plugin-image-build
-
 test-multikueue-e2e-main: E2E_NPROCS := 5
 .PHONY: test-multikueue-e2e-main
-test-multikueue-e2e-main: setup-e2e-env test-multikueue-e2e-parallel-builds run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e-main: setup-e2e-env kind-ray-project-mini-image-build run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-sequential
-test-multikueue-e2e-sequential: setup-e2e-env test-multikueue-e2e-parallel-builds run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-multikueue-e2e-sequential-shard-0
+test-multikueue-e2e-sequential-shard-0: GINKGO_ARGS=--label-filter=shard-0
+test-multikueue-e2e-sequential-shard-0: test-multikueue-e2e-sequential
+
+.PHONY: test-multikueue-e2e-sequential-shard-1
+test-multikueue-e2e-sequential-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-multikueue-e2e-sequential-shard-1: test-multikueue-e2e-sequential
 
 .PHONY: test-multikueue-e2e-helm
 test-multikueue-e2e-helm: E2E_USE_HELM=true
@@ -207,8 +211,18 @@ test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:
 ##   Run only Admission Fair Sharing tests: GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequential-baseline
 ##   Run only Certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e-sequential-baseline
 ##   Run only Failure Recovery Policy tests: GINKGO_ARGS="--label-filter=feature:failurerecoverypolicy" make test-e2e-sequential-baseline
+##   Run only shard 0 tests: make test-e2e-sequential-baseline-shard-0
+##   Run only shard 1 tests: make test-e2e-sequential-baseline-shard-1
 .PHONY: test-e2e-sequential-baseline
 test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-sequential-baseline-shard-0
+test-e2e-sequential-baseline-shard-0: GINKGO_ARGS=--label-filter=shard-0
+test-e2e-sequential-baseline-shard-0: test-e2e-sequential-baseline
+
+.PHONY: test-e2e-sequential-baseline-shard-1
+test-e2e-sequential-baseline-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-e2e-sequential-baseline-shard-1: test-e2e-sequential-baseline
 
 .PHONY: test-e2e-sequential-baseline-helm
 test-e2e-sequential-baseline-helm: E2E_USE_HELM=true
@@ -437,6 +451,7 @@ run-test-e2e-multikueue-sequential-%:
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		E2E_TARGET_FOLDER="multikueue/sequential" \
+		E2E_CONFIG_FOLDER="multikueue/sequential" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		CLUSTERPROFILE_VERSION=$(CLUSTERPROFILE_VERSION) \
 		CLUSTERPROFILE_PLUGIN_IMAGE_VERSION=$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \

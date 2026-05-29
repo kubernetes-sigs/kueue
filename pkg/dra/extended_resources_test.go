@@ -33,6 +33,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -141,6 +142,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		workload       *kueue.Workload
 		deviceClasses  []*resourceapi.DeviceClass
 		mapperMappings []configapi.DeviceClassMapping
+		enablePD       bool
 		want           map[kueue.PodSetReference]corev1.ResourceList
 		wantReplaced   map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
 		wantErr        field.ErrorList
@@ -483,18 +485,71 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
+		{
+			name:     "extended resource with counters is rejected",
+			enablePD: true,
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "c",
+									Image: "pause",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"example.com/gpu": resource.MustParse("1"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			mapperMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "gpu.memory",
+					DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+					Sources: []configapi.DeviceClassSourceConfig{
+						{Counter: &configapi.DeviceClassCounterSource{
+							Name:   "memory",
+							Driver: "gpu.nvidia.com",
+							DeviceSelector: resourceapi.DeviceSelector{
+								CEL: &resourceapi.CELDeviceSelector{
+									Expression: "device.driver == 'gpu.nvidia.com'",
+								},
+							},
+						}},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "containers").Index(0),
+					"", "",
+				),
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.enablePD {
+				features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationPartitionableDevices, true)
+			}
+			mapper := NewResourceMapper()
 			if tt.mapperMappings != nil {
-				_ = CreateMapperFromConfiguration(tt.mapperMappings)
-				t.Cleanup(func() { _ = CreateMapperFromConfiguration(nil) })
+				_ = mapper.PopulateFromConfiguration(tt.mapperMappings)
 			}
 
 			cl := newFakeClient(tt.deviceClasses...)
 
-			got, gotReplaced, errs := ResolveExtendedResourceQuota(t.Context(), cl, tt.workload)
+			got, gotReplaced, errs := ResolveExtendedResourceQuota(t.Context(), cl, mapper, tt.workload)
 
 			if diff := cmp.Diff(tt.wantErr, errs, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ResolveExtendedResourceQuota() error mismatch (-want +got):\n%s", diff)
@@ -510,6 +565,197 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				if diff := cmp.Diff(tt.wantReplaced, gotReplaced, opts...); diff != "" {
 					t.Errorf("ResolveExtendedResourceQuota() replacedExtendedResources mismatch (-want +got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+func TestNeedsDRAReconcile(t *testing.T) {
+	tests := []struct {
+		name            string
+		workload        *kueue.Workload
+		cachedResources map[corev1.ResourceName]string
+		draGate         bool
+		erGate          bool
+		want            bool
+	}{
+		{
+			name: "workload with RCT always needs DRA reconcile",
+			workload: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "c"}},
+								ResourceClaims: []corev1.PodResourceClaim{{
+									Name:                      "gpu",
+									ResourceClaimTemplateName: new("gpu-template"),
+								}},
+							},
+						},
+					}},
+				},
+			},
+			draGate: true,
+			erGate:  true,
+			want:    true,
+		},
+		{
+			name: "extended resource not in cache returns false",
+			workload: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name: "c",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"example.com/gpu": resource.MustParse("1"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			draGate: true,
+			erGate:  true,
+			want:    false,
+		},
+		{
+			name: "extended resource in cache returns true",
+			workload: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name: "c",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"example.com/gpu": resource.MustParse("1"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			cachedResources: map[corev1.ResourceName]string{
+				"example.com/gpu": "gpu.example.com",
+			},
+			draGate: true,
+			erGate:  true,
+			want:    true,
+		},
+		{
+			name: "DRA gate disabled returns false",
+			workload: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name: "c",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"example.com/gpu": resource.MustParse("1"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			cachedResources: map[corev1.ResourceName]string{
+				"example.com/gpu": "gpu.example.com",
+			},
+			draGate: false,
+			erGate:  false,
+			want:    false,
+		},
+		{
+			name: "ER gate disabled returns false for extended resource",
+			workload: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name: "c",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"example.com/gpu": resource.MustParse("1"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			cachedResources: map[corev1.ResourceName]string{
+				"example.com/gpu": "gpu.example.com",
+			},
+			draGate: true,
+			erGate:  false,
+			want:    false,
+		},
+		{
+			name: "cpu and memory only returns false",
+			workload: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name: "c",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											corev1.ResourceCPU:    resource.MustParse("1"),
+											corev1.ResourceMemory: resource.MustParse("1Gi"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			draGate: true,
+			erGate:  true,
+			want:    false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, tc.draGate)
+			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, tc.erGate)
+			cache := NewExtendedResourceCache()
+			for resName, dcName := range tc.cachedResources {
+				cache.Add(resName, dcName)
+			}
+
+			got := NeedsDRAReconcile(tc.workload, cache)
+			if got != tc.want {
+				t.Errorf("NeedsDRAReconcile() = %v, want %v", got, tc.want)
 			}
 		})
 	}

@@ -91,7 +91,10 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	managerAndControllerSetup(nil, runScheduler)(ctx, mgr)
 }
 
-func managerAndControllerSetup(controllersCfg *config.Configuration, options ...managerSetupOption) framework.ManagerSetup {
+func managerAndControllerSetup(
+	controllersCfg *config.Configuration,
+	options ...managerSetupOption,
+) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		var opts managerSetupOpts
 		for _, opt := range options {
@@ -137,7 +140,11 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOpts...)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, opts.roleTracker, preemptionExpectations, customLabels)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, core.SetupControllersOpts{
+			RoleTracker:            opts.roleTracker,
+			PreemptionExpectations: preemptionExpectations,
+			CustomLabels:           customLabels,
+		})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		if opts.roleTracker != nil {
