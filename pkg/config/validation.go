@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
@@ -521,10 +522,42 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
 		return errors.New("cannot use a TAS profile with TAS disabled")
 	}
-	if !features.Enabled(features.TopologyAwareScheduling) && features.Enabled(features.TASHandleOverlappingFlavors) {
-		return fmt.Errorf("%s requires %s to be enabled", features.TASHandleOverlappingFlavors, features.TopologyAwareScheduling)
+	// TAS sub-features have no effect unless their dependencies are also enabled. All of them
+	// require TopologyAwareScheduling; TASFailedNodeReplacementFailFast and
+	// TASReplaceNodeOnPodTermination additionally require TASFailedNodeReplacement.
+	if errs := validateFeatureGateDependency(features.TASHandleOverlappingFlavors, features.TopologyAwareScheduling); errs != nil {
+		return errs
+	}
+	if errs := validateFeatureGateDependency(features.TASFailedNodeReplacement, features.TopologyAwareScheduling); errs != nil {
+		return errs
+	}
+	if errs := validateFeatureGateDependency(features.TASFailedNodeReplacementFailFast, features.TopologyAwareScheduling, features.TASFailedNodeReplacement); errs != nil {
+		return errs
+	}
+	if errs := validateFeatureGateDependency(features.TASReplaceNodeOnPodTermination, features.TopologyAwareScheduling, features.TASFailedNodeReplacement); errs != nil {
+		return errs
+	}
+	if errs := validateFeatureGateDependency(features.TASBalancedPlacement, features.TopologyAwareScheduling); errs != nil {
+		return errs
+	}
+	if errs := validateFeatureGateDependency(features.TASReplaceNodeOnNodeTaints, features.TopologyAwareScheduling); errs != nil {
+		return errs
 	}
 
+	return nil
+}
+
+// validateFeatureGateDependency returns an error for each dependency feature gate that is
+// disabled while gate is enabled. A gate has no effect unless all its dependencies are enabled.
+func validateFeatureGateDependency(gate featuregate.Feature, dependencies ...featuregate.Feature) error {
+	if !features.Enabled(gate) {
+		return nil
+	}
+	for _, dep := range dependencies {
+		if !features.Enabled(dep) {
+			return fmt.Errorf("%s requires %s to be enabled", gate, dep)
+		}
+	}
 	return nil
 }
 
