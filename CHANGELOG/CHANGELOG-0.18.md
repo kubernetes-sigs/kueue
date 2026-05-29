@@ -57,7 +57,7 @@ Changes since `v0.17.0`:
   ClusterQueue between Workloads with the same priority. (#9959, @vladikkuzn)
 - Improve eviction message for AdmissionChecks in Retry state to include per-check name and reason (#10623, @reruno)
 - Improved TAS balanced placement for LeaderWorkerSet: domains that meet the worker threshold stay usable even when they can't host the leader. (#10948, @ShaanveerS)
-- Increased the maximum number of PodSets per Workload from 8 to 16. As a result, RayCluster, RayJob, and RayService integrations now allow up to 15 worker groups, since one PodSet is reserved for the Ray head group. (#11388, @yuluo-yx)
+- Increased the maximum number of PodSets per Workload from 8 to 10. As a result, RayCluster, RayJob, and RayService integrations now allow up to 9 worker groups, since one PodSet is reserved for the Ray head group. (#11388, @yuluo-yx)
 - Kueue-populator: Support creating LocalQueue instances named as their ClusterQueue target. (#9746, @samzong)
 - Kueue-populator: Supports Kueue's managedJobsNamespaceSelector from the Kueue manager configuration instead of a separate Helm value. (#11218, @MatteoFari)
 - LWS integration: Allow mutating the queue-name in LeaderWorkerSet when ReadyReplicas is zero. (#4932, @mbobrovskyi)
