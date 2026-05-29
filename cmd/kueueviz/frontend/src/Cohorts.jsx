@@ -90,16 +90,14 @@ const CohortTreeNode = ({ cohort, depth = 0 }) => {
 
 const Cohorts = () => {
   const { data: cohorts, error } = useWebSocket('/ws/cohorts');
-  const [cohortList, setCohortList] = useState([]);
-  const [viewMode, setViewMode] = useState('list');
-
-  useEffect(() => {
-    if (cohorts && Array.isArray(cohorts)) {
-      setCohortList([...cohorts].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-    }
+  const cohortList = React.useMemo(() => {
+    if (!cohorts || !Array.isArray(cohorts)) return [];
+    return [...cohorts].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [cohorts]);
 
-  const cohortTree = useMemo(() => buildCohortTree(cohortList), [cohortList]);
+  const [viewMode, setViewMode] = useState('list');
+
+  const cohortTree = React.useMemo(() => buildCohortTree(cohortList), [cohortList]);
 
   if (error) return <ErrorMessage error={error} />;
 

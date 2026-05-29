@@ -25,14 +25,11 @@ import { toNumber, formatResourceValue, discoverResourceNames } from './UsageBar
 
 const LocalQueues = () => {
   const { data: localQueues, error } = useWebSocket('/ws/local-queues');
-  const [queues, setQueues] = useState([]);
-
-  useEffect(() => {
-    if (localQueues && Array.isArray(localQueues)) {
-      setQueues([...localQueues].sort((a, b) =>
-        (a.namespace || '').localeCompare(b.namespace || '') || (a.name || '').localeCompare(b.name || '')
-      ));
-    }
+  const queues = React.useMemo(() => {
+    if (!localQueues || !Array.isArray(localQueues)) return [];
+    return [...localQueues].sort((a, b) =>
+      (a.namespace || '').localeCompare(b.namespace || '') || (a.name || '').localeCompare(b.name || '')
+    );
   }, [localQueues]);
 
   if (error) return <ErrorMessage error={error} />;

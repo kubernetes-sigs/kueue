@@ -24,12 +24,9 @@ import ViewYamlButton from './ViewYamlButton';
 
 const ResourceFlavors = () => {
   const { data: flavors, error } = useWebSocket('/ws/resource-flavors');
-  const [resourceFlavors, setResourceFlavors] = useState([]);
-
-  useEffect(() => {
-    if (flavors && Array.isArray(flavors)) {
-      setResourceFlavors([...flavors].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-    }
+  const resourceFlavors = React.useMemo(() => {
+    if (!flavors || !Array.isArray(flavors)) return [];
+    return [...flavors].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [flavors]);
 
   if (error) return <ErrorMessage error={error} />;
