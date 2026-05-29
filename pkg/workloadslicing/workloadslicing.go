@@ -258,7 +258,7 @@ func normalizeActiveSlices(
 	log := ctrl.LoggerFrom(ctx)
 
 	var latestWithQuotaReservation, pendingReplacement, latestNonEvicted *kueue.Workload
-	for i := len(workloads) - 1; i >= 0; i-- {
+	for i, _ := range slices.Backward(workloads) {
 		wl := &workloads[i]
 		if workload.IsEvicted(wl) {
 			continue
@@ -275,7 +275,7 @@ func normalizeActiveSlices(
 
 	if latestWithQuotaReservation != nil {
 		latestWithQuotaReservationKey := workload.Key(latestWithQuotaReservation)
-		for i := len(workloads) - 1; i >= 0; i-- {
+		for i, _ := range slices.Backward(workloads) {
 			wl := &workloads[i]
 			if workload.HasQuotaReservation(wl) || workload.IsEvicted(wl) {
 				continue
