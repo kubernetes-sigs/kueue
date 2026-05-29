@@ -23,6 +23,8 @@ import (
 
 	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -64,21 +66,24 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// the remote job exists
 	if err == nil {
 		if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
-			if fromObject(&localJob).IsSuspended() && !fromObject(&localJob).IsActive() {
-				// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-				log.V(2).Info("Skipping the sync since the local job is still suspended")
-				return nil
-			}
 			// Elastic workload sync takes precedence over status updates.
 			if needElasticJobSync(log, workloadName, &localJob, &remoteJob) {
 				if err := syncElasticJob(ctx, remoteClient, log, workloadName, &localJob, &remoteJob); err != nil {
 					return err
 				}
 			}
-			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
-				localJob.Status = remoteJob.Status
-				return true, nil
-			})
+
+			statusUpdate := determineStatusUpdate(ctx, log, &localJob, &remoteJob)
+			if !equality.Semantic.DeepEqual(localJob.Status, *statusUpdate) {
+				if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+					localJob.Status = *statusUpdate
+					return true, nil
+				}); err != nil {
+					return err
+				}
+			}
+
+			return nil
 		}
 
 		if _, _, remoteFinished := fromObject(&remoteJob).Finished(ctx); remoteFinished {
@@ -120,6 +125,81 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	}
 
 	return remoteClient.Create(ctx, &remoteJob)
+}
+
+func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remoteJob *batchv1.Job) *batchv1.JobStatus {
+	localJobInfo := fromObject(localJob)
+
+	log.V(3).Info("Determining status update for a MultiKueue Job", "localJob", localJob, "remoteJob", remoteJob)
+	if !localJobInfo.IsSuspended() {
+		// Sync status if the local Job is unsuspended.
+		// This is safe as the local Job has already reached its final spec.
+		// We expect no validation errors from further spec changes.
+		log.V(3).Info("Performing the sync as the local Job is unsuspended")
+		return &remoteJob.Status
+	}
+	remoteJobInfo := fromObject(remoteJob)
+	if remoteJobInfo.IsSuspended() {
+		// Sync status if both local and remote Job are suspended.
+		// This is needed to await for updating the status.active field
+		// when the remote Job is evicted; see: https://github.com/kubernetes-sigs/kueue/pull/8151
+		log.V(3).Info("Peforming the sync as the local and the remote Job are both suspended")
+		return &remoteJob.Status
+	}
+	if _, _, finished := remoteJobInfo.Finished(ctx); finished {
+		// Sync status if the remote Job is finished.
+		// Without this, the local Job could get stuck in the suspended state.
+		log.V(2).Info("Performing the sync as the remote Job is finished")
+		return &remoteJob.Status
+	}
+
+	// Remaining case: local Job is suspended, remote Job is unsuspended but not finished.
+	// In this case:
+	// 1. We essentially want *no sync* (to avoid prematurely setting non-zero .status.startTime
+	//    which could block further spec updates; see: https://github.com/kubernetes-sigs/kueue/pull/3685).
+	// 2. We rely on the MultiKueue admission lifecycle to eventually bring localJob to unsuspended state
+	//    (remote admitted -> MultiKueue AdmissionCheck ready -> local admitted -> local unsuspended).
+	// 3. However, to avoid clashing with K8s 1.36 validation rules
+	//    (since https://github.com/kubernetes/kubernetes/pull/135104 until https://github.com/kubernetes/kubernetes/pull/139287)
+	//    we manually patch a "JobSuspended=True" condition to unblock further spec updates.
+	// Once we're on a K8s version unaffected by #3, the "if" block below can be removed.
+
+	if !isJobStatusConditionTrue(localJob.Status.Conditions, batchv1.JobSuspended) {
+		newLocalStatus := localJob.Status.DeepCopy()
+		newLocalStatus.Conditions = setJobStatusCondition(newLocalStatus.Conditions,
+			batchv1.JobCondition{
+				Type:               batchv1.JobSuspended,
+				Status:             corev1.ConditionTrue,
+				Reason:             "MultiKueueAdapter",
+				Message:            "Set by MultiKueue adapter",
+				LastTransitionTime: metav1.Now(),
+				LastProbeTime:      metav1.Now(),
+			})
+		log.V(2).Info("Updating the suspended local Job to comply with Kubernetes validation rules", "oldStatus", localJob.Status, "newStatus", newLocalStatus)
+		return newLocalStatus
+	}
+
+	return &localJob.Status
+}
+
+func setJobStatusCondition(list []batchv1.JobCondition, condition batchv1.JobCondition) []batchv1.JobCondition {
+	for i := range list {
+		if list[i].Type == condition.Type {
+			list[i] = condition
+			return list
+		}
+	}
+	list = append(list, condition)
+	return list
+}
+
+func isJobStatusConditionTrue(conditions []batchv1.JobCondition, condType batchv1.JobConditionType) bool {
+	for _, c := range conditions {
+		if c.Type == condType {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {

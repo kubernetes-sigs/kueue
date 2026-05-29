@@ -111,7 +111,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"skip to sync intermediate status from remote suspended job": {
+		"sync intermediate status from remote suspended job": {
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().
 					Suspend(true).
@@ -131,6 +131,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().
 					Suspend(true).
+					Active(2).
 					Obj(),
 			},
 			wantWorkerJobs: []batchv1.Job{
@@ -439,7 +440,10 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				key: client.ObjectKeyFromObject(newJob().Obj()),
 			},
 			want: want{
-				localJob: newJob().Obj(),
+				localJob: newJob().
+					ResourceVersion("2").
+					Condition(runningJobCondition).
+					Obj(),
 				remoteJob: newJob().
 					Condition(runningJobCondition).
 					Obj(),
@@ -476,7 +480,10 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				key: client.ObjectKeyFromObject(newJob().Obj()),
 			},
 			want: want{
-				localJob: newJob().Obj(),
+				localJob: newJob().
+					ResourceVersion("2").
+					Condition(runningJobCondition).
+					Obj(),
 				remoteJob: newJob().
 					Condition(runningJobCondition).
 					Obj(),
@@ -698,8 +705,9 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Condition(runningJobCondition).
 					Obj(),
 				remoteJob: newJob().
-					ResourceVersion("1").
+					ResourceVersion("2").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PrebuiltWorkloadLabel("test-workload-new").
 					Condition(runningJobCondition).
 					Obj(),
 			},
@@ -762,10 +770,10 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Condition(runningJobCondition).
 					Obj(),
 				remoteJob: newJob().
-					ResourceVersion("1").
+					ResourceVersion("2").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					PrebuiltWorkloadLabel("test-workload").
-					Parallelism(1).
+					PrebuiltWorkloadLabel("job-test-f53b2").
+					Parallelism(22).
 					Condition(runningJobCondition).
 					Obj(),
 			},
@@ -831,6 +839,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0),
 			},
 			want: want{
+				err: true,
 				localJob: newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Parallelism(22).
