@@ -16,7 +16,7 @@ limitations under the License.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box, ToggleButton, ToggleButtonGroup, List, ListItem, ListItemButton, ListItemText, Collapse, IconButton, Chip } from '@mui/material';
+import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box, ToggleButton, ToggleButtonGroup, List, ListItem, ListItemButton, ListItemText, Collapse, IconButton, Chip, CircularProgress } from '@mui/material';
 import { ExpandMore, ChevronRight, ViewList, AccountTree } from '@mui/icons-material';
 import useWebSocket from './useWebSocket';
 import './App.css';
