@@ -1,3 +1,71 @@
+## v0.17.4
+
+Changes since `v0.17.3`:
+
+## Actions Required Before Upgrading
+
+### (No, really, you MUST read this before you upgrade)
+
+- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: [`v0.16.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.16.0), [`v0.17.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.0).
+- **Patch releases:** Review the patch release notes leading up to this version, but *only* within this minor release line; see: [`v0.17.1`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.1), [`v0.17.2`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.2), [`v0.17.3`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.3).
+
+## Changes by Kind
+
+### Bug or Regression
+
+- ElasticJobsViaWorkloadSlices: Fix a bug where the workload-slice-name annotation was incorrectly set on all workloads when the ElasticJobsViaWorkloadSlices feature gate was enabled, instead of only on elastic workloads. (#11623, @sohankunkerkar)
+- ElasticJobsViaWorkloadSlices: Fix quota leak during elastic workload scale-up where old slice was finished before replacement slice was admitted. (#11557, @sohankunkerkar)
+- ElasticJobsViaWorkloadSlices: Fixed a bug where rapid elastic Job scaling could leave duplicate replacement Workload slices admitted indefinitely, causing quota to remain reserved. (#11553, @sohankunkerkar)
+- FeatureGates: Fix a bug that TAS-enhanced features can be enabled even if the dependent TopologyAwareScheduling or TASFailedNodeReplacement feature gates are disabled (#11800, @tenzen-y)
+- FeatureGates: Fixed a bug that user-specified feature gate parameters are not verified. (#11288, @MaysaMacedo)
+- Fix a bug where finished Workloads could remain stuck after object retention deletion if they still had Kueue's resource-in-use finalizer. (#11308, @ShaanveerS)
+- Fix waitForPodsReady timeout not triggering for pod groups with fast-admission when group members arrive after the first pod is Ready. (#11686, @sohankunkerkar)
+- Fixed a bug that prevented finishing the Workloads corresponding to Jobs deleted with --cascade=orphan. (#11689, @mbobrovskyi)
+- KueueViz: Fixed a bug where list pages briefly flashed "No resources found" empty state messages before data finished loading over the WebSocket connection. (#11771, @YadavAkhileshh)
+- KueueViz: Fixed a bug where non-JSON WebSocket messages from the backend could crash
+  the frontend. KueueViz now reports such messages as errors instead of freezing the UI. (#11667, @YadavAkhileshh)
+- KueueViz: Fixed a bug where workload and local queue detail pages would get stuck on a loading spinner instead of showing connection/fetching error messages on failure. (#11709, @YadavAkhileshh)
+- KueueViz: Fixed frontend crashes caused by non-string errors in the error display. (#11666, @YadavAkhileshh)
+- LeaderWorkerSet & Pods: Fixed a bug where LeaderWorkerSets with names longer than 39 characters failed to create pods with a `metadata.labels: Invalid value` error. This happened when the `kueue.x-k8s.io/pod-group-name` and
+  `kueue.x-k8s.io/prebuilt-workload-name` labels, set by the LWS integration, exceeded 63 characters. 
+  
+  The `WorkloadIdentifierAnnotations` feature gate (disabled by default) resolves this by supporting these identifiers
+  as both labels and annotations. LeaderWorkerSet now utilizes the annotation counterparts to support names up to
+  52 characters. Labels, now along with annotations, remain the user-facing API for manually defining PodGroups. (#11409, @ivnovakov)
+- MultiKueue: Add reconnect backoff guardrail to suppress redundant cluster reconciles for the MultiKueueCluster reconciler. (#11276, @reruno)
+- MultiKueue: Fixed a bug in the AllAtOnce dispatcher where workloads evicted from a
+  worker cluster could fail to be re-admitted. Kueue now waits for the ongoing eviction to
+  complete before starting a new nomination and re-admission cycle. (#11472, @mszadkow)
+- MultiKueue: Fixed a bug where a hung watch connection to one remote cluster could block
+  reconciliation of other MultiKueueClusters, leaving them inactive and preventing workload
+  admission. Kueue now applies a circuit-breaking timeout while establishing remote-cluster
+  watches: the timeout starts at 1 minute and backs off exponentially on consecutive failures,
+  up to 10 minutes. (#11328, @trilamsr)
+- MultiKueue: Fixed a bug where a lost connection to a worker cluster failed to trigger the "workerLostTimeout" delay mechanism for workload requeuing. (#11559, @yuluo-yx)
+- MultiKueue: Fixed a bug where one slow or unresponsive remote cluster could stall
+  reconciliation for other MultiKueueClusters, even when
+  `controller.groupKindConcurrency["MultiKueueCluster.kueue.x-k8s.io"]` was set above 1.
+  This could delay or block admission through other healthy clusters. (#11333, @trilamsr)
+- MultiKueue: Fixed admission for Kubernetes Jobs on Kubernetes 1.36 clusters by ensuring all Job status updates comply with the updated Kubernetes Job validation rules. See kubernetes/kubernetes#139281 for more details. (#11762, @olekzabl)
+- MultiKueue: Fixed unnecessary `status.nominatedClusterNames` updates from the AllAtOnce
+  dispatcher when the set of nominated clusters did not change. (#11508, @mszadkow)
+- ObjectRetentionPolicies: Fixed a bug that doesn't allow the deletion of orphaned finished workloads. (#11754, @mbobrovskyi)
+- Observability: fix the missing "replica-role" information from the logs generated by the controller managing the
+  MultiKueueCluster instances. (#11272, @reruno)
+- Scheduling: Fix a race condition within the admission process that could cause workloads waiting indefinitely for a preemption, causing head-of-line blocking of the affected ClusterQueues. (#11648, @kshalot)
+- Scheduling: Fixed a bug where Kueue could inject duplicate tolerations when a
+  ResourceFlavor toleration and a PodTemplate toleration differed only by `operator: ""`
+  versus `operator: "Equal"`, which represent the same Kubernetes toleration. This could
+  cause update rejections and leave Pods `scheduleGated`. (#11757, @benkermani)
+- SparkApplication: Fixed a bug where `PodsReady` returned true based on driver state alone, so workloads
+  with stuck executors never reached `waitForPodsReady.timeout`. (#11777, @hahahaheihei)
+- TAS: Fixed a scheduling bug where a workload with multiple PodSets could be admitted even when the combined PodSets exceeded node pod capacity. (#11326, @yuluo-yx)
+- TAS: ensure that `Snapshot()` does not perform update the list of workloads under the read-lock. (#11294, @mimowo)
+- TAS: fix over-subscription of nodes that belong to multiple ResourceFlavors sharing the same hostname-leaf Topology.
+  The TASHandleOverlappingFlavors is introduced as an alpha feature gate (disabled by default). (#11760, @tenzen-y)
+- Workloads: Fixed a bug where, with the `FinishOrphanedWorkloads` feature gate enabled,
+  Workloads could be marked `Finished` immediately after owner Job or JobSet creation. (#11534, @mbobrovskyi)
+
 ## v0.17.3
 
 Changes since `v0.17.2`:
