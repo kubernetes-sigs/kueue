@@ -1773,8 +1773,8 @@ sigs.k8s.io/cluster-inventory-api v0.1.0 h1:DG/hLTIJkdkKfuyMMA0ybbtBbFNWr7S4QeQc
 sigs.k8s.io/cluster-inventory-api v0.1.0/go.mod h1:7J3M6srZ1I4snZR+p5zxgEBdXnia3tlHo5ODMHJpEUk=
 sigs.k8s.io/controller-runtime v0.24.0 h1:Ck6N2LdS8Lovy1o25BB4r1xjvLEKUl1s2o9kU+KWDE4=
 sigs.k8s.io/controller-runtime v0.24.0/go.mod h1:vFkfY5fGt5xAC/sKb8IBFKgWPNKG9OUG29dR8Y2wImw=
-sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250407161039-6ad5c1dd4418 h1:04bBdoLjAbJzwbBTmcu/PukrGLTBj2suuFmQSEpmCH8=
-sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250407161039-6ad5c1dd4418/go.mod h1:bJr92VVEbIDLODpQ2NPN7Wlwsdv7uGzTAUvi9/gCgcc=
+sigs.k8s.io/controller-runtime/tools/setup-envtest v0.24.1 h1:l2AjyGE/PWub6EB165ij4/bpCK0TlY5NlhzIHfmGvmg=
+sigs.k8s.io/controller-runtime/tools/setup-envtest v0.24.1/go.mod h1:wpkYufRHTSw9ABET21/PkEL7kdGnmiZJ6o72t9p/1I8=
 sigs.k8s.io/controller-tools v0.20.1 h1:gkfMt9YodI0K85oT8rVi80NTXO/kDmabKR5Ajn5GYxs=
 sigs.k8s.io/controller-tools v0.20.1/go.mod h1:b4qPmjGU3iZwqn34alUU5tILhNa9+VXK+J3QV0fT/uU=
 sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 h1:IpInykpT6ceI+QxKBbEflcR5EXP7sU1kvOlxwZh5txg=
