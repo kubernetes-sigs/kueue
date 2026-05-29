@@ -860,6 +860,7 @@ func autoConvert_v1beta2_Resources_To_v1beta1_Resources(in *v1beta2.Resources, o
 func autoConvert_v1beta1_TLSOptions_To_v1beta2_TLSOptions(in *TLSOptions, out *v1beta2.TLSOptions, s conversion.Scope) error {
 	out.MinVersion = in.MinVersion
 	out.CipherSuites = *(*[]string)(unsafe.Pointer(&in.CipherSuites))
+	out.CurvePreferences = *(*[]int32)(unsafe.Pointer(&in.CurvePreferences))
 	return nil
 }
 
@@ -871,6 +872,7 @@ func Convert_v1beta1_TLSOptions_To_v1beta2_TLSOptions(in *TLSOptions, out *v1bet
 func autoConvert_v1beta2_TLSOptions_To_v1beta1_TLSOptions(in *v1beta2.TLSOptions, out *TLSOptions, s conversion.Scope) error {
 	out.MinVersion = in.MinVersion
 	out.CipherSuites = *(*[]string)(unsafe.Pointer(&in.CipherSuites))
+	out.CurvePreferences = *(*[]int32)(unsafe.Pointer(&in.CurvePreferences))
 	return nil
 }
 
