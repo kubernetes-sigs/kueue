@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					"kind-worker", "kind-worker2", "kind-worker3",
 				})
 			})
-			chosenPod := pods.Items[0]
+			chosenPod := findPodOnNode(pods.Items, "kind-worker")
 			node := &corev1.Node{}
 
 			ginkgo.By(fmt.Sprintf("Simulate failure of node hosting pod %s", chosenPod.Name), func() {
@@ -231,7 +231,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					"kind-worker", "kind-worker2",
 				})
 			})
-			chosenPod := pods.Items[0]
+			chosenPod := findPodOnNode(pods.Items, "kind-worker")
 			node := &corev1.Node{}
 			ginkgo.By(fmt.Sprintf("Simulate failure of node hosting pod %s", chosenPod.Name), func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: chosenPod.Spec.NodeName}, node)).To(gomega.Succeed())
@@ -304,7 +304,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						"kind-worker", "kind-worker2",
 					})
 				})
-				chosenPod := pods.Items[0]
+				chosenPod := findPodOnNode(pods.Items, "kind-worker")
 				node := &corev1.Node{}
 
 				ginkgo.By(fmt.Sprintf("Tainting node hosting pod %s", chosenPod.Name), func() {
@@ -395,7 +395,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						"kind-worker", "kind-worker2", "kind-worker3",
 					})
 				})
-				chosenPod := pods.Items[0]
+				chosenPod := findPodOnNode(pods.Items, "kind-worker")
 				node := &corev1.Node{}
 
 				ginkgo.By(fmt.Sprintf("Tainting node hosting pod %s with NoExecute", chosenPod.Name), func() {
@@ -621,7 +621,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				ginkgo.By("Verify initial topology assignment of the workload", func() {
 					expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, initialNodes)
 				})
-				chosenPod := pods.Items[0]
+				chosenPod := findPodOnNode(pods.Items, "kind-worker")
 				node := &corev1.Node{}
 
 				ginkgo.By(fmt.Sprintf("Tainting node hosting pod %s with NoSchedule", chosenPod.Name), func() {
@@ -722,4 +722,16 @@ func findPod(ctx context.Context, k8sClient client.Client, g gomega.Gomega, nsNa
 		}
 	}
 	return nil
+}
+
+func findPodOnNode(pods []corev1.Pod, nodeName string) corev1.Pod {
+	var foundPod corev1.Pod
+	for _, p := range pods {
+		if p.Spec.NodeName == nodeName {
+			foundPod = p
+			break
+		}
+	}
+	gomega.Expect(foundPod).ToNot(gomega.BeZero(), "Failed to find a pod running on node %s", nodeName)
+	return foundPod
 }
