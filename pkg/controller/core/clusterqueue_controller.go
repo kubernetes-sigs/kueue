@@ -205,11 +205,11 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Syncing EffectiveResourceGroups to spec.ResourceGorups if quota not managed automatically.
-	if isMK, err := admissioncheck.IsManagedByMultiKueue(ctx, r.client, &cqObj); err != nil {
+	if isMK, err := admissioncheck.QuotaManagedByMultiKueue(ctx, r.client, &cqObj); err != nil {
 		return ctrl.Result{}, err
 	} else if isMK {
-		log.V(2).Info("Is a MultiKueue ManagerCluster ClusterQueue. EffectiveResourceGroups are managed by a dedicated Controller.")
-	} else if !equality.Semantic.DeepEqual(cqObj.Spec.ResourceGroups, cqObj.Status.EffectiveResourceGroups) {
+		log.V(2).Info("Skipping EffectiveResourceGroup sync: MultiKueue Manager ClusterQueue quota is managed by a dedicated MultiKueue controller.")
+	} else if !equality.Semantic.DeepEqual(cqObj.Status.EffectiveResourceGroups, cqObj.Spec.ResourceGroups) {
 		log.V(2).Info("Syncing EffectiveResourceGroups to spec.")
 		cqObj.Status.EffectiveResourceGroups = cqObj.Spec.ResourceGroups
 		if err := r.client.Status().Update(ctx, &cqObj); err != nil {
