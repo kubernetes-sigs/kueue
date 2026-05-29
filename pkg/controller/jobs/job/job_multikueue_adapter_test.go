@@ -527,7 +527,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		"ElasticJob_WorkloadNameOnlyChange_EdgeCase": {
 			fields: fields{
 				featureGates: map[featuregate.Feature]bool{
-					features.ElasticJobsViaWorkloadSlices:          true,
+					features.ElasticJobsViaWorkloadSlices:  true,
 					features.WorkloadIdentifierAnnotations: false,
 				},
 			},
@@ -559,7 +559,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		"ElasticJob_RemoteOutOfSync": {
 			fields: fields{
 				featureGates: map[featuregate.Feature]bool{
-					features.ElasticJobsViaWorkloadSlices:          true,
+					features.ElasticJobsViaWorkloadSlices:  true,
 					features.WorkloadIdentifierAnnotations: false,
 				},
 			},
@@ -595,7 +595,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		"ElasticJob_RemoteOutOfSync_PatchFailure": {
 			fields: fields{
 				featureGates: map[featuregate.Feature]bool{
-					features.ElasticJobsViaWorkloadSlices:          true,
+					features.ElasticJobsViaWorkloadSlices:  true,
 					features.WorkloadIdentifierAnnotations: false,
 				},
 			},
