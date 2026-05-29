@@ -10,3 +10,4 @@ configMapGenerator:
   - controller_manager_config.yaml
   name: kueue-manager-config
   namespace: kueue-system
+  
