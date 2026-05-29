@@ -46,6 +46,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -103,11 +104,11 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, err
 	}
 
-	if len(cq.Spec.ResourceGroups) != 0 {
+	if queue.HasResourceGroupSpec(cq) {
 		return reconcile.Result{}, r.syncEffectiveQuotaToSpec(
 			ctx, 
 			cq, 
-			"UnsupportedConfiguration",
+			kueue.UnsupportedQuotaAutomationConfiguration,
 			"ResourceGroups set manually in ClusterQueue spec.",
 		)
 	}
@@ -118,7 +119,7 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	if !equality.Semantic.DeepEqual(cq.Status.EffectiveResourceGroups, *aggregatedRGs) {
-		cq.Status.EffectiveResourceGroups = *aggregatedRGs
+		queue.SetEffectiveResourceGroup(cq, aggregatedRGs)
 		if err := r.client.Update(ctx, cq); err != nil {
 			return reconcile.Result{}, fmt.Errorf("updating ClusterQueue nominal quotas: %w", err)
 		}
@@ -174,7 +175,7 @@ func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 			if !remoteCQKeys.Has(key) {
 				continue
 			}
-			for _, rg := range rcq.Spec.ResourceGroups {
+			for _, rg := range queue.GetResourceGroupSpec(&rcq) {
 				for _, flavor := range rg.Flavors {
 					for _, res := range flavor.Resources {
 						curr := aggrQuota[res.Name]
@@ -217,12 +218,7 @@ func (r *cqReconciler) removeQuotaAutomationCondition(ctx context.Context, cq *k
 }
 
 func (r *cqReconciler) syncEffectiveQuotaToSpec(ctx context.Context, cq *kueue.ClusterQueue, reason, message string) error {
-	needsUpdate := false
-	
-	if !equality.Semantic.DeepEqual(cq.Status.EffectiveResourceGroups, cq.Spec.ResourceGroups) {
-		needsUpdate = true
-		cq.Status.EffectiveResourceGroups = cq.Spec.ResourceGroups
-	}
+	needsUpdate := queue.SyncEffectiveResourceGroupToSpec(cq)
 
 	oldCondition := apimeta.FindStatusCondition(cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
 	newCondition := metav1.Condition{

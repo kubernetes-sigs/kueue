@@ -53,13 +53,13 @@ var (
 // clusterQueue is the internal implementation of kueue.clusterQueue that
 // holds admitted workloads.
 type clusterQueue struct {
-	Name              kueue.ClusterQueueReference
-	ResourceGroups    []ResourceGroup
-	Workloads         map[workload.Reference]*workload.Info
-	WorkloadsNotReady sets.Set[workload.Reference]
-	NamespaceSelector labels.Selector
-	Preemption        kueue.ClusterQueuePreemption
-	FairWeight        float64
+	Name                   kueue.ClusterQueueReference
+	EffectiveResourceGroups  []ResourceGroup
+	Workloads              map[workload.Reference]*workload.Info
+	WorkloadsNotReady      sets.Set[workload.Reference]
+	NamespaceSelector      labels.Selector
+	Preemption             kueue.ClusterQueuePreemption
+	FairWeight             float64
 	FlavorFungibility kueue.FlavorFungibility
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
@@ -148,7 +148,7 @@ func (c *clusterQueue) updateClusterQueue(
 	admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck,
 	oldParent *cohort,
 ) error {
-	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
+	if c.updateQuotasAndResourceGroups(queue.GetEffectiveResourceGroup(in)) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortTreeResourcesIfNoCycle(oldParent)
 		}
@@ -227,9 +227,9 @@ func createdResourceGroups(kueueRgs []kueue.ResourceGroup) []ResourceGroup {
 // updateQuotasAndResourceGroups updates Quotas and ResourceGroups.
 // It returns true if any changes were made.
 func (c *clusterQueue) updateQuotasAndResourceGroups(in []kueue.ResourceGroup) bool {
-	oldRG := c.ResourceGroups
+	oldRG := c.EffectiveResourceGroups
 	oldQuotas := c.resourceNode.Quotas
-	c.ResourceGroups = createdResourceGroups(in)
+	c.EffectiveResourceGroups = createdResourceGroups(in)
 	c.resourceNode.Quotas = createResourceQuotas(in)
 
 	// Start at 1, for backwards compatibility.
@@ -237,7 +237,7 @@ func (c *clusterQueue) updateQuotasAndResourceGroups(in []kueue.ResourceGroup) b
 	// resources.Amount values whose unexported fields cause k8s
 	// equality.Semantic.DeepEqual (a forked reflect-based DeepEqual) to panic.
 	return c.AllocatableResourceGeneration == 0 ||
-		!equality.Semantic.DeepEqual(oldRG, c.ResourceGroups) ||
+		!equality.Semantic.DeepEqual(oldRG, c.EffectiveResourceGroups) ||
 		!maps.EqualFunc(oldQuotas, c.resourceNode.Quotas, ResourceQuota.Equal)
 }
 
@@ -379,8 +379,8 @@ func (c *clusterQueue) UpdateWithFlavors(log logr.Logger, flavors map[kueue.Reso
 func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
 	c.missingFlavors = nil
 	c.tasFlavors = nil
-	for i := range c.ResourceGroups {
-		rg := &c.ResourceGroups[i]
+	for i := range c.EffectiveResourceGroups {
+		rg := &c.EffectiveResourceGroups[i]
 		if len(rg.Flavors) == 0 {
 			rg.LabelKeys = nil
 			continue
@@ -433,7 +433,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 				// - cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue
 				// - cannot use specify MultiKueue AdmissionCheck per flavor
 				multiKueueAdmissionChecks.Insert(acName)
-				if !flavors.Equal(AllFlavors(c.ResourceGroups)) {
+				if !flavors.Equal(AllFlavors(c.EffectiveResourceGroups)) {
 					perFlavorMultiKueueChecks = append(perFlavorMultiKueueChecks, acName)
 				}
 			}
@@ -676,7 +676,7 @@ func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 }
 
 func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
-	for _, rg := range c.ResourceGroups {
+	for _, rg := range c.EffectiveResourceGroups {
 		if slices.Contains(rg.Flavors, flavor) {
 			return true
 		}
@@ -703,7 +703,7 @@ func (c *clusterQueue) fairWeight() float64 {
 }
 
 func (c *clusterQueue) isTASOnly() bool {
-	for _, rg := range c.ResourceGroups {
+	for _, rg := range c.EffectiveResourceGroups {
 		for _, fName := range rg.Flavors {
 			if _, found := c.tasFlavors[fName]; !found {
 				return false

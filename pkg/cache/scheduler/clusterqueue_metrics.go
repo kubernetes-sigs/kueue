@@ -23,6 +23,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 )
 
 func (c *Cache) RecordClusterQueueResourceMetrics(log logr.Logger, cqName kueue.ClusterQueueReference) {
@@ -51,11 +52,10 @@ func (c *Cache) ClearClusterQueueOldResourceMetrics(log logr.Logger, oldCq *kueu
 		return
 	}
 
-	for rgi := range oldCq.Spec.ResourceGroups {
-		oldRg := &oldCq.Spec.ResourceGroups[rgi]
+	for rgi, oldRg := range queue.GetEffectiveResourceGroup(oldCq) {
 		newFlavorSet := sets.New[kueue.ResourceFlavorReference]()
-		if rgi < len(newCq.ResourceGroups) && len(newCq.ResourceGroups[rgi].Flavors) > 0 {
-			newFlavorSet.Insert(newCq.ResourceGroups[rgi].Flavors...)
+		if rgi < len(newCq.EffectiveResourceGroups) && len(newCq.EffectiveResourceGroups[rgi].Flavors) > 0 {
+			newFlavorSet.Insert(newCq.EffectiveResourceGroups[rgi].Flavors...)
 		}
 
 		for fi := range oldRg.Flavors {

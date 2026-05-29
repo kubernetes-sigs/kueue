@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -388,7 +389,7 @@ func TestCQReconcile(t *testing.T) {
 				t.Fatalf("failed to fetch local ClusterQueue: %v", err)
 			}
 
-			rgs := gotCQ.Status.EffectiveResourceGroups
+			rgs := queue.GetEffectiveResourceGroup(gotCQ)
 
 			// Verify quotas
 			if tc.wantQuotaAutomated {
@@ -396,7 +397,7 @@ func TestCQReconcile(t *testing.T) {
 					t.Errorf("unexpected effectiveResourceGroups for quota automation (-want/+got):\n%s", diff)
 				}
 			} else {
-				if diff := cmp.Diff(tc.cq.Spec.ResourceGroups, rgs); diff != "" {
+				if diff := cmp.Diff(queue.GetResourceGroupSpec(tc.cq), rgs); diff != "" {
 					t.Errorf("unexpected effectiveResourceGroups for quota automation disabled (-want/+got):\n%s", diff)
 				}
 			}

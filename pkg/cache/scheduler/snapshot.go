@@ -249,7 +249,7 @@ func (c *Cache) snapshotClusterQueue(
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
 		Name:                          cq.Name,
-		ResourceGroups:                make([]ResourceGroup, len(cq.ResourceGroups)),
+		ResourceGroups:                make([]ResourceGroup, len(cq.EffectiveResourceGroups)),
 		FlavorFungibility:             cq.FlavorFungibility,
 		FairWeight:                    cq.FairWeight,
 		AllocatableResourceGeneration: cq.AllocatableResourceGeneration,
@@ -265,7 +265,7 @@ func (c *Cache) snapshotClusterQueue(
 		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),
 		hasMultiKueueAC:               cq.hasMultiKueueAdmissionCheck(),
 	}
-	for i, rg := range cq.ResourceGroups {
+	for i, rg := range cq.EffectiveResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
 	}
 	if afs.Enabled(c.admissionFairSharing) {

@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -209,9 +210,8 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	} else if isMK {
 		log.V(2).Info("Skipping EffectiveResourceGroup sync: MultiKueue Manager ClusterQueue quota is managed by a dedicated MultiKueue controller.")
-	} else if !equality.Semantic.DeepEqual(cqObj.Status.EffectiveResourceGroups, cqObj.Spec.ResourceGroups) {
+	} else if queue.SyncEffectiveResourceGroupToSpec(&cqObj) {
 		log.V(2).Info("Syncing EffectiveResourceGroups to spec.")
-		cqObj.Status.EffectiveResourceGroups = cqObj.Spec.ResourceGroups
 		if err := r.client.Status().Update(ctx, &cqObj); err != nil {
 			return ctrl.Result{}, err
 		}

@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -130,8 +131,9 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	flavorOrder := make(map[kueue.ResourceFlavorReference]int, len(cq.Spec.ResourceGroups[0].Flavors))
-	for i, flavor := range cq.Spec.ResourceGroups[0].Flavors {
+	erg := queue.GetEffectiveResourceGroup(cq)
+	flavorOrder := make(map[kueue.ResourceFlavorReference]int, len(erg[0].Flavors))
+	for i, flavor := range erg[0].Flavors {
 		flavorOrder[flavor.Name] = i
 	}
 	variants = sortVariantsByFlavorOrder(variants, flavorOrder)

@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
 )
@@ -483,8 +484,9 @@ func (r *Recorder) RecordCQState(cq *kueue.ClusterQueue) {
 		cpuUsed = cq.Status.FlavorsUsage[0].Resources[0].Total.MilliValue()
 	}
 
-	if len(cq.Spec.ResourceGroups) > 0 && len(cq.Spec.ResourceGroups[0].Flavors) > 0 && len(cq.Spec.ResourceGroups[0].Flavors[0].Resources) > 0 {
-		cpuQuota = cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.MilliValue()
+	erg := queue.GetEffectiveResourceGroup(cq)
+	if len(erg) > 0 && len(erg[0].Flavors) > 0 && len(erg[0].Flavors[0].Resources) > 0 {
+		cpuQuota = erg[0].Flavors[0].Resources[0].NominalQuota.MilliValue()
 	}
 
 	ev := &CQEvent{
