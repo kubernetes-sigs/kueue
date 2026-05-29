@@ -40,7 +40,8 @@ import (
 )
 
 var (
-	labelsPath         = field.NewPath("metadata", "labels")
+	metadataPath       = field.NewPath("metadata")
+	labelsPath         = metadataPath.Child("labels")
 	queueNameLabelPath = labelsPath.Key(constants.QueueLabel)
 )
 
@@ -63,8 +64,21 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name:    "with prebuilt workload",
-			job:     testingutil.MakeJobSet("job", "default").Queue("queue").Label(constants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			job:     testingutil.MakeJobSet("job", "default").Queue("queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr: nil,
+		},
+		{
+			name:         "valid prebuilt workload annotation, WorkloadIdentifierAnnotations enabled",
+			job:          testingutil.MakeJobSet("job", "default").Queue("queue").PrebuiltWorkloadAnnotation("prebuilt-workload").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			wantErr:      nil,
+		},
+		{
+			name: "different prebuilt workload label and annotation, label ignored, WorkloadIdentifierAnnotations enabled",
+			job: testingutil.MakeJobSet("job", "default").Queue("queue").
+				PrebuiltWorkloadLabel("prebuilt-workload-label").
+				PrebuiltWorkloadAnnotation("prebuilt-workload-annotation").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
 		{
 			name: "valid topology request",
@@ -221,8 +235,16 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
@@ -245,8 +267,16 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
@@ -269,8 +299,16 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
@@ -503,7 +541,7 @@ func TestDefault(t *testing.T) {
 			name: "TestDefault_UserSpecifiedManagedBy",
 			jobSet: &jobset.JobSet{
 				Spec: jobset.JobSetSpec{
-					ManagedBy: ptr.To("example.com/foo"),
+					ManagedBy: new("example.com/foo"),
 				},
 				ObjectMeta: ctrl.ObjectMeta{
 					Labels: map[string]string{
@@ -527,7 +565,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To("example.com/foo"),
+			wantManagedBy: new("example.com/foo"),
 		},
 		{
 			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",

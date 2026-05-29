@@ -93,11 +93,13 @@ function check_images() {
       kueueviz-backend
       kueueviz-frontend
       kueue-populator
+      kueue-priority-booster
   )
 
     local charts=(
       kueue
       kueue-populator
+      kueue-priority-booster
   )
 
   echo "Images:"

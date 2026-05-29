@@ -47,6 +47,12 @@ func IsExplicitTAS(annots map[string]string) bool {
 	if _, ok := annots[kueue.PodSetRequiredTopologyAnnotation]; ok {
 		return true
 	}
+	if _, ok := annots[kueue.PodSetSliceRequiredTopologyAnnotation]; ok {
+		return true
+	}
+	if _, ok := annots[kueue.PodSetSliceRequiredTopologyConstraintsAnnotation]; ok {
+		return true
+	}
 	return false
 }
 

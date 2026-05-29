@@ -35,6 +35,13 @@ const (
 	// MultiKueueControllerName is the name used by the MultiKueue
 	// admission check controller.
 	MultiKueueControllerName = "kueue.x-k8s.io/multikueue"
+
+	// MultiKueueWorkerWorkloadPodLabel indicates that pod is running on the MK worker
+	// cluster and has MultiKueue origin.
+	MultiKueueWorkerWorkloadPodLabel = "kueue.x-k8s.io/multikueue-worker-workload-pod"
+
+	// MultiKueueWorkerWorkloadPodValue is the value of MultiKueueWorkerWorkloadPodLabel.
+	MultiKueueWorkerWorkloadPodValue = "true"
 )
 
 type LocationType string
@@ -109,7 +116,7 @@ type MultiKueueClusterStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={mkc}
 
 // +kubebuilder:printcolumn:name="Connected",JSONPath=".status.conditions[?(@.type=='Active')].status",type="string",description="MultiKueueCluster is connected"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
@@ -148,13 +155,34 @@ type MultiKueueConfigSpec struct {
 	// +kubebuilder:validation:items:MaxLength=256
 	// +required
 	Clusters []string `json:"clusters,omitempty,omitzero"`
+
+	// quotaManagement specifies the management of ClusterQueue quotas
+	// in the manager cluster.
+	// Supported modes:
+	// - `Manual`: Quota automation is manual.
+	// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+	// If unspecified, defaults to `Manual`.
+	// +optional
+	QuotaManagement *MultiKueueConfigQuotaManagementMode `json:"quotaManagement,omitempty"`
 }
+
+// MultiKueueConfigQuotaManagementMode specifies the automation mode.
+// Supported modes:
+// - `Manual`: Quota automation is manual.
+// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+// +kubebuilder:validation:Enum=Manual;Automated
+type MultiKueueConfigQuotaManagementMode string
+
+const (
+	QuotaManagementManual    MultiKueueConfigQuotaManagementMode = "Manual"
+	QuotaManagementAutomated MultiKueueConfigQuotaManagementMode = "Automated"
+)
 
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={mkconf}
 
 // MultiKueueConfig is the Schema for the multikueue API
 type MultiKueueConfig struct {

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package dispatcher
+package workloaddispatcher
 
 import (
 	"context"
@@ -38,6 +38,7 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -100,14 +101,8 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 		return reconcile.Result{}, err
 	}
 
-	if mkAc == nil || mkAc.State != kueue.CheckStatePending {
-		log.V(3).Info("AdmissionCheckState is not in Pending, skip the reconciliation")
-		return reconcile.Result{}, nil
-	}
-
-	// The workload is already assigned to a cluster, no need to nominate workers.
-	if wl.Status.ClusterName != nil {
-		log.V(3).Info("The workload is already assigned to a cluster, no need to nominate workers")
+	if workload.ShouldSkipClusterNomination(mkAc, wl, workloadslicing.IsElasticWorkload(wl)) {
+		log.V(3).Info("Skipping cluster nomination phase")
 		return reconcile.Result{}, nil
 	}
 

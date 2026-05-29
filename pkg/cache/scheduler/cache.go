@@ -45,6 +45,7 @@ import (
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 var (
@@ -466,6 +467,9 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		}
 	}
 
+	parentCohort, rootCohort := cqImpl.parentAndRootCohort()
+	c.recordCQInfo(cqImpl, parentCohort, rootCohort)
+
 	return nil
 }
 
@@ -484,13 +488,81 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
 		return err
 	}
+	c.handleParentUpdate(oldParent)
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
 		}
 		qImpl.resetFlavorsAndResources(cqImpl.resourceNode.Usage, cqImpl.AdmittedUsage)
 	}
+
+	parentCohort, rootCohort := cqImpl.parentAndRootCohort()
+	c.recordCQInfo(cqImpl, parentCohort, rootCohort)
+
 	return nil
+}
+
+func (c *Cache) resyncClusterQueueGaugeMetricsLocked(cq *clusterQueue) {
+	if cq == nil {
+		return
+	}
+	metrics.ReportClusterQueueStatus(cq.Name, cq.Status, cq.customMetricLabelValues, c.roleTracker)
+	parentCohort, rootCohort := cq.parentAndRootCohort()
+	c.recordCQInfo(cq, parentCohort, rootCohort)
+	cq.reportActiveWorkloads()
+	if c.resourceMetricsEnabled {
+		cq.reportResourceMetrics(c.fairSharingEnabled)
+	}
+	for _, lq := range cq.localQueues {
+		c.resyncLocalQueueGaugeMetricsLocked(cq, lq)
+	}
+}
+
+func (c *Cache) ResyncClusterQueueGaugeMetrics(cqName kueue.ClusterQueueReference) {
+	c.RLock()
+	defer c.RUnlock()
+	c.resyncClusterQueueGaugeMetricsLocked(c.hm.ClusterQueue(cqName))
+}
+
+func (c *Cache) resyncLocalQueueGaugeMetricsLocked(cq *clusterQueue, lq *LocalQueue) {
+	if cq == nil || lq == nil || !lq.shouldExposeMetrics(c.lqMetrics) {
+		return
+	}
+	lq.reportActiveWorkloads(c.roleTracker)
+	lq.reportResourceMetrics(cq.resourceNode.Quotas, c.roleTracker)
+}
+
+func (c *Cache) ResyncLocalQueueGaugeMetrics(cqName kueue.ClusterQueueReference, lqRef queue.LocalQueueReference) {
+	c.RLock()
+	defer c.RUnlock()
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return
+	}
+	lq, ok := cq.localQueues[lqRef]
+	if !ok {
+		return
+	}
+	c.resyncLocalQueueGaugeMetricsLocked(cq, lq)
+}
+
+func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.CohortReference) {
+	c.RecordCohortMetrics(log, cohortName)
+	c.RLock()
+	defer c.RUnlock()
+	cohort := c.hm.Cohort(cohortName)
+	if cohort == nil || hierarchy.HasCycle(cohort) {
+		return
+	}
+	c.recordCohortInfo(cohort, cohort.getRootUnsafe())
+	if c.fairSharingEnabled {
+		drs := dominantResourceShare(cohort, nil)
+		var customLabelValues []string
+		if features.Enabled(features.CustomMetricLabels) {
+			customLabelValues = c.customLabels.CohortGet(cohort.Name)
+		}
+		metrics.ReportCohortWeightedShare(cohort.Name, drs.PreciseWeightedShare(), customLabelValues, c.roleTracker)
+	}
 }
 
 func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
@@ -515,10 +587,16 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 
 	c.hm.DeleteClusterQueue(cqName)
 	metrics.ClearCacheMetrics(cq.Name)
+	if features.Enabled(features.MetricsForCohorts) {
+		metrics.ClearClusterQueueInfo(cqName)
+	}
 
-	// Update cohort resources after deletion
 	if parent != nil {
-		updateCohortTreeResourcesIfNoCycle(parent)
+		if updatedParent := c.hm.Cohort(parent.Name); updatedParent != nil {
+			c.updateCohortTreeAndInfoMetricsIfNoCycle(updatedParent)
+			parent = updatedParent
+		}
+		c.handleParentUpdate(parent)
 	}
 }
 
@@ -530,15 +608,29 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	cohort := c.hm.Cohort(cohortName)
 	oldParent := cohort.Parent()
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
-	return cohort.updateCohort(apiCohort, oldParent)
+	if err := cohort.updateCohort(apiCohort, oldParent); err != nil {
+		return err
+	}
+	c.handleParentUpdate(oldParent)
+	c.updateCohortTreeAndInfoMetricsIfNoCycle(cohort)
+
+	return nil
 }
 
+// DeleteCohort removes the cohort from the cache and updates the SubtreeQuota
+// of ancestor cohorts to reflect the removal.
 func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	c.Lock()
 	defer c.Unlock()
 
+	var parent *cohort
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		cohort.updateAdmittedWorkloadsCount(-cohort.admittedWorkloadsCount)
+		metrics.ClearCohortAdmittedWorkloadsMetrics(cohort.Name)
+		if features.Enabled(features.MetricsForCohorts) {
+			metrics.ClearCohortInfo(cohort.Name)
+		}
+		parent = cohort.Parent()
 	}
 
 	c.hm.DeleteCohort(cohortName)
@@ -548,6 +640,30 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	// We need to run update algorithm.
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		updateCohortResourceNode(cohort)
+	}
+
+	if parent != nil {
+		c.updateCohortTreeAndInfoMetricsIfNoCycle(parent)
+	}
+
+	c.handleParentUpdate(parent)
+}
+
+func (c *Cache) handleParentUpdate(cachedParent *cohort) {
+	if cachedParent == nil {
+		return
+	}
+	if updatedParent := c.hm.Cohort(cachedParent.Name); updatedParent != nil {
+		if updatedParent.IsExplicit() {
+			return
+		}
+		if len(updatedParent.ChildCohorts()) > 0 || len(updatedParent.ChildCQs()) > 0 {
+			return
+		}
+	}
+	metrics.ClearCohortAdmittedWorkloadsMetrics(cachedParent.Name)
+	if features.Enabled(features.MetricsForCohorts) {
+		metrics.ClearCohortInfo(cachedParent.Name)
 	}
 }
 
@@ -633,9 +749,26 @@ func (c *Cache) updateLqMetricLabels(newLq *kueue.LocalQueue) {
 	}
 }
 
+func (c *Cache) concurrentAdmissionEnabledForWithoutLock(wl *kueue.Workload) bool {
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return false
+	}
+	if wl.Status.Admission == nil {
+		return false
+	}
+	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
+	if cq == nil {
+		return false
+	}
+	return cq.ConcurrentAdmissionEnabled()
+}
+
 func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 	c.Lock()
 	defer c.Unlock()
+	if c.concurrentAdmissionEnabledForWithoutLock(w) && !concurrentadmission.IsVariant(w) {
+		return false
+	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(log, w)
 	if err != nil {
 		log.Error(err, "Updating workload in cache")
@@ -644,6 +777,9 @@ func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 }
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
+	if c.concurrentAdmissionEnabledForWithoutLock(wl) && !concurrentadmission.IsVariant(wl) {
+		return false, nil
+	}
 	wlKey := workload.Key(wl)
 	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
 
@@ -673,28 +809,6 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Worklo
 	cq.addOrUpdateWorkload(log, wl)
 
 	return true, nil
-}
-
-func (c *Cache) GetWorkloadFromCache(wlKey workload.Reference) *kueue.Workload {
-	c.RLock()
-	defer c.RUnlock()
-
-	cqRef, ok := c.workloadAssignedQueues[wlKey]
-	if !ok {
-		return nil
-	}
-
-	cq := c.hm.ClusterQueue(cqRef)
-	if cq == nil {
-		return nil
-	}
-
-	wlInfo, ok := cq.Workloads[wlKey]
-	if !ok {
-		return nil
-	}
-
-	return wlInfo.Obj
 }
 
 func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Reference, cqName kueue.ClusterQueueReference) {
@@ -869,11 +983,11 @@ func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.
 				used := frq[fr]
 				rUsage := kueue.ResourceUsage{
 					Name:  rName,
-					Total: resources.ResourceQuantity(rName, used),
+					Total: resources.ResourceQuantity(rName, used.Int64()),
 				}
 				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
 				if cq.HasParent() {
-					borrowed := used - rQuota.Nominal
+					borrowed := used.Sub(rQuota.Nominal).Int64()
 					if borrowed > 0 {
 						rUsage.Borrowed = resources.ResourceQuantity(rName, borrowed)
 					}
@@ -934,7 +1048,7 @@ func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGrou
 				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
 					Name:  rName,
-					Total: resources.ResourceQuantity(rName, orig[fr]),
+					Total: resources.ResourceQuantity(rName, orig[fr].Int64()),
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.
@@ -1002,31 +1116,32 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue
 }
 
 // ResyncGaugeMetrics re-reports CQ/LQ status, active workload, resource, and weighted share gauge metrics.
-func (c *Cache) ResyncGaugeMetrics() {
+func (c *Cache) ResyncGaugeMetrics(log logr.Logger) {
 	c.RLock()
-	defer c.RUnlock()
-	for _, cq := range c.hm.ClusterQueues() {
-		metrics.ReportClusterQueueStatus(cq.Name, cq.Status, cq.customMetricLabelValues, c.roleTracker)
-		cq.reportActiveWorkloads()
-		if c.resourceMetricsEnabled {
-			cq.reportResourceMetrics(c.fairSharingEnabled)
-		}
-		for _, lq := range cq.localQueues {
-			if lq.shouldExposeMetrics(c.lqMetrics) {
-				lq.reportActiveWorkloads(c.roleTracker)
-				lq.reportResourceMetrics(cq.resourceNode.Quotas, c.roleTracker)
-			}
-		}
+	cqs := c.hm.ClusterQueues()
+	cqNames := make([]kueue.ClusterQueueReference, 0, len(cqs))
+	for _, cq := range cqs {
+		cqNames = append(cqNames, cq.Name)
 	}
-	if c.fairSharingEnabled {
-		for _, cohort := range c.hm.Cohorts() {
-			drs := dominantResourceShare(cohort, nil)
-			var customLabelValues []string
-			if features.Enabled(features.CustomMetricLabels) {
-				customLabelValues = c.customLabels.CohortGet(cohort.Name)
-			}
-			metrics.ReportCohortWeightedShare(cohort.Name, drs.PreciseWeightedShare(), customLabelValues, c.roleTracker)
-		}
+	cohorts := c.hm.Cohorts()
+	cohortNames := make([]kueue.CohortReference, 0, len(cohorts))
+	for _, cohort := range cohorts {
+		cohortNames = append(cohortNames, cohort.Name)
+	}
+	c.RUnlock()
+
+	// Reset info metrics to clear stale series for deleted entities;
+	// per-entity resyncs below re-emit current series.
+	if features.Enabled(features.MetricsForCohorts) {
+		metrics.ClusterQueueInfo.Reset()
+		metrics.CohortInfo.Reset()
+	}
+
+	for _, cqName := range cqNames {
+		c.ResyncClusterQueueGaugeMetrics(cqName)
+	}
+	for _, cohortName := range cohortNames {
+		c.ResyncCohortGaugeMetrics(log, cohortName)
 	}
 }
 

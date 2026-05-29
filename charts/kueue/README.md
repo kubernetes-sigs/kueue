@@ -15,7 +15,7 @@ Quick start instructions for the setup and configuration of kueue using Helm.
 
 #### Installing the chart
 
-##### Install chart using Helm v3.0+
+##### Install chart using Helm v4+
 
 Either clone the kueue repository:
 
@@ -122,7 +122,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.manager.containerSecurityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}` | ControllerManager's container securityContext |
 | controllerManager.manager.image.pullPolicy | string | `"Always"` | ControllerManager's image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | controllerManager.manager.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue"` | ControllerManager's image repository |
-| controllerManager.manager.image.tag | string | `"release-0.17"` | ControllerManager's image tag |
+| controllerManager.manager.image.tag | string | `"main"` | ControllerManager's image tag |
 | controllerManager.manager.logLevel | int | `2` | Zap log level. Higher values increase verbosity. |
 | controllerManager.manager.podAnnotations | object | `{}` |  |
 | controllerManager.manager.podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | ControllerManager's pod securityContext |
@@ -154,7 +154,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.env | list | `[{"name":"KUEUEVIZ_ALLOWED_ORIGINS","value":"https://frontend.kueueviz.local"}]` | Environment variables for KueueViz backend deployment |
 | kueueViz.backend.image.pullPolicy | string | `"Always"` | KueueViz dashboard backend image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | kueueViz.backend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"` | KueueViz dashboard backend image repository |
-| kueueViz.backend.image.tag | string | `"release-0.17"` | KueueViz dashboard backend image tag |
+| kueueViz.backend.image.tag | string | `"main"` | KueueViz dashboard backend image tag |
 | kueueViz.backend.imagePullSecrets | list | `[]` | Sets ImagePullSecrets for KueueViz dashboard backend deployments. This is useful when the images are in a private registry. |
 | kueueViz.backend.ingress.annotations | object | `{"nginx.ingress.kubernetes.io/rewrite-target":"/","nginx.ingress.kubernetes.io/ssl-redirect":"true"}` | KueueViz dashboard backend ingress annotations |
 | kueueViz.backend.ingress.enabled | bool | `true` | Enable KueueViz dashboard backend ingress |
@@ -170,7 +170,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.frontend.env | list | `[]` | Environment variables for KueueViz frontend deployment |
 | kueueViz.frontend.image.pullPolicy | string | `"Always"` | KueueViz dashboard frontend image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | kueueViz.frontend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"` | KueueViz dashboard frontend image repository |
-| kueueViz.frontend.image.tag | string | `"release-0.17"` | KueueViz dashboard frontend image tag |
+| kueueViz.frontend.image.tag | string | `"main"` | KueueViz dashboard frontend image tag |
 | kueueViz.frontend.imagePullSecrets | list | `[]` | Sets ImagePullSecrets for KueueViz dashboard frontend deployments. This is useful when the images are in a private registry. |
 | kueueViz.frontend.ingress.annotations | object | `{"nginx.ingress.kubernetes.io/rewrite-target":"/","nginx.ingress.kubernetes.io/ssl-redirect":"true"}` | KueueViz dashboard frontend ingress annotations |
 | kueueViz.frontend.ingress.enabled | bool | `true` | Enable KueueViz dashboard frontend ingress |

@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
-	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -89,6 +88,7 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj *rayv1.RayCluster) 
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -140,12 +140,19 @@ func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCl
 			allErrors = append(allErrors, validateElasticJob(job)...)
 		} else if ptr.Deref(spec.EnableInTreeAutoscaling, false) {
 			// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
-			allErrors = append(allErrors, field.Invalid(specPath.Child("enableInTreeAutoscaling"), spec.EnableInTreeAutoscaling, "a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job"))
+			allErrors = append(
+				allErrors,
+				field.Invalid(
+					specPath.Child("enableInTreeAutoscaling"),
+					spec.EnableInTreeAutoscaling,
+					"a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+				),
+			)
 		}
 
-		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
-		if len(spec.WorkerGroupSpecs) > 7 {
-			allErrors = append(allErrors, field.TooMany(specPath.Child("workerGroupSpecs"), len(spec.WorkerGroupSpecs), 7))
+		// Should limit the worker count to max PodSets minus the cluster head.
+		if len(spec.WorkerGroupSpecs) > jobframework.MaxPodSets-1 {
+			allErrors = append(allErrors, field.TooMany(specPath.Child("workerGroupSpecs"), len(spec.WorkerGroupSpecs), jobframework.MaxPodSets-1))
 		}
 
 		// None of the workerGroups should be named "head"
@@ -181,12 +188,26 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 		wgs := &job.Spec.WorkerGroupSpecs[index]
 
 		if !slices.Contains(wgs.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
-			allErrors = append(allErrors, field.Invalid(specPath.Child("workerGroupSpecs").Index(index).Child("template").Child("spec").Child("schedulingGates"), wgs.Template.Spec.SchedulingGates, "an elastic job must have the ElasticJobSchedulingGate"))
+			allErrors = append(
+				allErrors,
+				field.Invalid(
+					specPath.Child("workerGroupSpecs").Index(index).Child("template").Child("spec").Child("schedulingGates"),
+					wgs.Template.Spec.SchedulingGates,
+					"an elastic job must have the ElasticJobSchedulingGate",
+				),
+			)
 		}
 	}
 
 	if !slices.Contains(job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
-		allErrors = append(allErrors, field.Invalid(specPath.Child("headGroupSpec").Child("template").Child("spec").Child("schedulingGates"), job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, "an elastic job must have the ElasticJobSchedulingGate"))
+		allErrors = append(
+			allErrors,
+			field.Invalid(
+				specPath.Child("headGroupSpec").Child("template").Child("spec").Child("schedulingGates"),
+				job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates,
+				"an elastic job must have the ElasticJobSchedulingGate",
+			),
+		)
 	}
 
 	return allErrors
@@ -195,26 +216,20 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob *RayCluster) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := jobframework.JobPodSets(ctx, rayJob)
-
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, rayJob, nil)
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
-
 	if podSetsErr == nil {
-		headGroupPodSet := podset.FindPodSetByName(podSets, headGroupPodSetName)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSet)...)
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(&rayJob.Spec, headGroupMetaPath, workerGroupSpecsPath))...)
-	}
-
-	for i, wgs := range rayJob.Spec.WorkerGroupSpecs {
-		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
-
-		if podSetsErr != nil {
-			continue
+		for i, p := range podSets {
+			if p.Name == headGroupPodSetName {
+				allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &p.Template.ObjectMeta, &p)...)
+			} else {
+				// the raycluster PodSets function places the worker podsets from index 1
+				workerGroupMetaPath := workerGroupSpecsPath.Index(i-1).Child("template", "metadata")
+				allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &p.Template.ObjectMeta)...)
+				allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &p.Template.ObjectMeta, &p)...)
+			}
 		}
-
-		podSet := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(wgs.GroupName))
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta, podSet)...)
 	}
 
 	if len(allErrs) > 0 {

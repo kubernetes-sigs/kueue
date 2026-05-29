@@ -214,6 +214,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.CohortSpecApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("CohortStatus"):
 		return &kueuev1beta2.CohortStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ConcurrentAdmissionConstraints"):
+		return &kueuev1beta2.ConcurrentAdmissionConstraintsApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ConcurrentAdmissionMigration"):
+		return &kueuev1beta2.ConcurrentAdmissionMigrationApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ConcurrentAdmissionPolicy"):
+		return &kueuev1beta2.ConcurrentAdmissionPolicyApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("FairSharing"):
 		return &kueuev1beta2.FairSharingApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("FairSharingStatus"):

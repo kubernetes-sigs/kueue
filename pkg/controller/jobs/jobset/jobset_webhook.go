@@ -31,7 +31,6 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
@@ -79,6 +78,7 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj *jobsetapi.JobSet) erro
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(obj, w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, obj)
 	if err := jobframework.ApplyDefaultForSuspend(ctx, jobSet, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -144,22 +144,14 @@ func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet) (fie
 func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := jobframework.JobPodSets(ctx, jobSet)
-
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, jobSet, nil)
 	if podSetsErr == nil {
-		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)
-	}
-
-	for i, rj := range jobSet.Spec.ReplicatedJobs {
-		replicaJobTemplateMetaPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaJobTemplateMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta)...)
-
-		if podSetsErr != nil {
-			continue
+		for i, p := range podSets {
+			rjobsPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")
+			allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(rjobsPath, &p.Template.ObjectMeta)...)
+			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(rjobsPath, &p.Template.ObjectMeta, &p)...)
 		}
-
-		podSet := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(rj.Name))
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaJobTemplateMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta, podSet)...)
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)
 	}
 
 	if len(allErrs) > 0 {

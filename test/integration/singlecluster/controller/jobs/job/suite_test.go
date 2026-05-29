@@ -32,10 +32,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -51,27 +53,25 @@ var (
 	fwk       *framework.Framework
 )
 
-func TestAPIs(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
+var (
+	miniJobConroller util.MiniJobController
+)
 
-	ginkgo.RunSpecs(t,
-		"Job Controller Suite",
-	)
+func TestAPIs(t *testing.T) {
+	util.RunSuite(t, "Job Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
+	miniJobConroller = util.NewMiniJobController(ctx, k8sClient)
+	miniJobConroller.Start()
 })
 
 var _ = ginkgo.AfterSuite(func() {
+	miniJobConroller.Stop()
 	fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
@@ -80,7 +80,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
+			mgr.GetEventRecorder(constants.JobControllerName),
 			opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -122,7 +122,13 @@ func managerAndControllersSetup(
 		opts = append(opts, jobframework.WithCache(cCache))
 		managerSetup(opts...)(ctx, mgr)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
+		failedCtrl, err := core.SetupControllers(
+			mgr,
+			queues,
+			cCache,
+			configuration,
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		if setupTASControllers {
@@ -133,8 +139,13 @@ func managerAndControllersSetup(
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+			failedCtrl, err = elasticjobs.SetupWithManager(mgr, configuration, nil)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "ElasticJobUngater controller", failedCtrl)
+		}
+
 		if enableScheduler {
-			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName),
+			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName),
 				scheduler.WithPreemptionExpectations(preemptionExpectations))
 			err = sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

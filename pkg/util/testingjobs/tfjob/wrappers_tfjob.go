@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // TFJobWrapper wraps a Job.
@@ -40,7 +41,7 @@ func MakeTFJob(name, ns string) *TFJobWrapper {
 		},
 		Spec: kftraining.TFJobSpec{
 			RunPolicy: kftraining.RunPolicy{
-				Suspend: ptr.To(true),
+				Suspend: new(true),
 			},
 			TFReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{},
 		},
@@ -58,7 +59,7 @@ type TFReplicaSpecRequirement struct {
 func (j *TFJobWrapper) TFReplicaSpecs(replicaSpecs ...TFReplicaSpecRequirement) *TFJobWrapper {
 	j.TFReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
-		j.Spec.TFReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.TFReplicaSpecs[rs.ReplicaType].Replicas = new(rs.ReplicaCount)
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "tensorflow"
@@ -80,7 +81,7 @@ func (j *TFJobWrapper) TFReplicaSpecsDefault() *TFJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:      "c",
-						Image:     "pause",
+						Image:     utiltestingjobs.TestDefaultContainerImage,
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 					},
@@ -98,7 +99,7 @@ func (j *TFJobWrapper) TFReplicaSpecsDefault() *TFJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:      "c",
-						Image:     "pause",
+						Image:     utiltestingjobs.TestDefaultContainerImage,
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 					},
@@ -116,7 +117,7 @@ func (j *TFJobWrapper) TFReplicaSpecsDefault() *TFJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:      "c",
-						Image:     "pause",
+						Image:     utiltestingjobs.TestDefaultContainerImage,
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 					},
@@ -166,6 +167,15 @@ func (j *TFJobWrapper) Label(key, value string) *TFJobWrapper {
 	return j
 }
 
+// Annotation sets the annotation key and value
+func (j *TFJobWrapper) Annotation(k, v string) *TFJobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string, 1)
+	}
+	j.Annotations[k] = v
+	return j
+}
+
 // Queue updates the queue name of the job.
 func (j *TFJobWrapper) Queue(queue string) *TFJobWrapper {
 	if j.Labels == nil {
@@ -173,6 +183,16 @@ func (j *TFJobWrapper) Queue(queue string) *TFJobWrapper {
 	}
 	j.Labels[constants.QueueLabel] = queue
 	return j
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *TFJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *TFJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *TFJobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *TFJobWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Request adds a resource request to the default container.
@@ -183,8 +203,8 @@ func (j *TFJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.Reso
 
 // Parallelism updates job parallelism.
 func (j *TFJobWrapper) Parallelism(workerParallelism, psParallelism int32) *TFJobWrapper {
-	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Replicas = ptr.To(workerParallelism)
-	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Replicas = ptr.To(psParallelism)
+	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Replicas = new(workerParallelism)
+	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Replicas = new(psParallelism)
 	return j
 }
 

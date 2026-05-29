@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -158,7 +157,7 @@ func TestPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := fromObject(tc.job).PodSets(ctx)
+			gotPodSets, err := fromObject(tc.job).PodSets(ctx, nil)
 			if err != nil {
 				t.Fatalf("failed to get pod sets: %v", err)
 			}
@@ -213,7 +212,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("aw", "ns").
 					PodSets(
 						*utiltestingapi.MakePodSet("aw-0", 2).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							Obj(),
 					).
 					Obj(),
@@ -248,7 +247,7 @@ func TestReconciler(t *testing.T) {
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					PodSets(
 						*utiltestingapi.MakePodSet("aw-0", 2).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							Obj(),
 					).
 					Obj(),
@@ -412,7 +411,7 @@ func TestReconciler(t *testing.T) {
 					t.Fatalf("Could not create Workload: %v", err)
 				}
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)

@@ -23,7 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -36,8 +36,9 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -52,7 +53,7 @@ type PodReconciler struct {
 
 const podControllerName = "statefulset_pod"
 
-func NewPodReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewPodReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 	return &PodReconciler{
 		client:                     client,
@@ -89,11 +90,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
 			if removed {
-				log.V(3).Info(
-					"Finalizing statefulset pod in group",
-					"pod", klog.KObj(pod),
-					"group", pod.Labels[podconstants.GroupNameLabel],
-				)
+				log.V(3).Info("Finalizing statefulset pod in group", "pod", klog.KObj(pod), "group", podcontroller.GetPodGroupName(pod))
 			}
 			return removed, nil
 		}))
@@ -104,7 +101,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 				return false, err
 			}
 			if updated {
-				log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", pod.Labels[podconstants.GroupNameLabel])
+				log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", podcontroller.GetPodGroupName(pod))
 			}
 			return updated, nil
 		}))
@@ -134,9 +131,16 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 		return false, err
 	}
 
-	if pod.Labels[podconstants.GroupNameLabel] == wlName {
-		if queueName != "" && pod.Labels[controllerconstants.QueueLabel] != string(queueName) {
-			pod.Labels[controllerconstants.QueueLabel] = string(queueName)
+	if pod.Labels == nil {
+		pod.Labels = make(map[string]string)
+	}
+	if pod.Annotations == nil {
+		pod.Annotations = make(map[string]string)
+	}
+
+	if groupName := podcontroller.GetPodGroupName(pod); groupName == wlName {
+		if queueName != "" && pod.Labels[ctrlconstants.QueueLabel] != string(queueName) {
+			pod.Labels[ctrlconstants.QueueLabel] = string(queueName)
 			return true, nil
 		}
 		return false, nil
@@ -146,20 +150,17 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 		return false, nil
 	}
 
-	if pod.Labels == nil {
-		pod.Labels = make(map[string]string)
-	}
 	pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-	pod.Labels[podconstants.GroupNameLabel] = wlName
-	pod.Labels[controllerconstants.PrebuiltWorkloadLabel] = wlName
 	if queueName != "" {
-		pod.Labels[controllerconstants.QueueLabel] = string(queueName)
+		pod.Labels[ctrlconstants.QueueLabel] = string(queueName)
 	}
 
 	if priorityClass := jobframework.WorkloadPriorityClassName(sts); priorityClass != "" {
-		pod.Labels[controllerconstants.WorkloadPriorityClassLabel] = priorityClass
+		pod.Labels[ctrlconstants.WorkloadPriorityClassLabel] = priorityClass
 	}
 
+	jobframework.SetPrebuiltWorkloadName(pod, wlName)
+	podcontroller.SetPodGroupName(pod, wlName)
 	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(sts.Spec.Replicas, 1))
 	pod.Annotations[podconstants.GroupFastAdmissionAnnotationKey] = podconstants.GroupFastAdmissionAnnotationValue
 	pod.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue

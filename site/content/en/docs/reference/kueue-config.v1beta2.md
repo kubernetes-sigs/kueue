@@ -602,6 +602,60 @@ must be named tls.key and tls.crt, respectively.</p>
 </tbody>
 </table>
 
+## `DeviceClassCounterSource`     {#config-kueue-x-k8s-io-v1beta2-DeviceClassCounterSource}
+    
+
+**Appears in:**
+
+- [DeviceClassSourceConfig](#config-kueue-x-k8s-io-v1beta2-DeviceClassSourceConfig)
+
+
+<p>DeviceClassCounterSource identifies where to read counter data from and which counter to track.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name is the counter name within the device's consumesCounters
+entries to track for quota. Must match a counter name published by
+the driver in ResourceSlice devices' consumesCounters field.
+Counter set names are per-device identifiers (e.g., gpu-0-counter-set,
+gpu-1-counter-set), so name matches across all counter sets
+for a given driver without requiring one mapping per device.
+The total length must not exceed 63 characters.</p>
+</td>
+</tr>
+<tr><td><code>driver</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Driver is the DRA driver name used to filter relevant ResourceSlices.
+Must match the spec.driver field on ResourceSlice objects.
+The total length must not exceed 253 characters.</p>
+</td>
+</tr>
+<tr><td><code>deviceSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#deviceselector-v1-resource"><code>k8s.io/api/resource/v1.DeviceSelector</code></a>
+</td>
+<td>
+   <p>DeviceSelector scopes which devices are eligible for counter-based
+quota accounting. Typically matches a GPU model (e.g., productName)
+so all partition profiles on that model share one quota pool.
+Per-workload charging is determined by the workload's own
+ResourceClaimTemplate selector, which narrows to the requested profile.
+The selector is compiled at config load time using the upstream dracel
+compiler.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `DeviceClassMapping`     {#config-kueue-x-k8s-io-v1beta2-DeviceClassMapping}
     
 
@@ -643,6 +697,46 @@ DNS labels consist of lower-case alphanumeric characters or hyphens,
 and must start and end with an alphanumeric character.
 DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
 The total length of each name must not exceed 253 characters.</p>
+</td>
+</tr>
+<tr><td><code>sources</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-DeviceClassSourceConfig"><code>[]DeviceClassSourceConfig</code></a>
+</td>
+<td>
+   <p>Sources configures resource accounting sources for this mapping.
+Each source defines how quota is tracked for this DeviceClass.
+Currently only counter sources are supported (for partitionable devices).
+Extended resource requests that resolve to a DeviceClass with sources
+configured are marked inadmissible.
+Requires the KueueDRAIntegrationPartitionableDevices feature gate.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `DeviceClassSourceConfig`     {#config-kueue-x-k8s-io-v1beta2-DeviceClassSourceConfig}
+    
+
+**Appears in:**
+
+- [DeviceClassMapping](#config-kueue-x-k8s-io-v1beta2-DeviceClassMapping)
+
+
+<p>DeviceClassSourceConfig defines a resource accounting source for a DeviceClassMapping.
+Exactly one of the source types must be set.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>counter</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-DeviceClassCounterSource"><code>DeviceClassCounterSource</code></a>
+</td>
+<td>
+   <p>Counter configures counter-based quota for partitionable devices.
+Maps a DRA driver counter to the parent DeviceClassMapping's Kueue quota resource.</p>
 </td>
 </tr>
 </tbody>
@@ -979,6 +1073,21 @@ A nil value disables automatic deletion of Workloads.</p>
 
 
 
+## `QuotaCheckStrategy`     {#config-kueue-x-k8s-io-v1beta2-QuotaCheckStrategy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [Resources](#config-kueue-x-k8s-io-v1beta2-Resources)
+
+
+<p>QuotaCheckStrategy determines how Kueue checks resources against quota
+during admission.</p>
+
+
+
+
 ## `RequeuingStrategy`     {#config-kueue-x-k8s-io-v1beta2-RequeuingStrategy}
     
 
@@ -1132,6 +1241,13 @@ An empty Outputs combined with a <code>Replace</code> Strategy causes the Input 
 <tbody>
     
   
+<tr><td><code>quotaCheckStrategy</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-QuotaCheckStrategy"><code>QuotaCheckStrategy</code></a>
+</td>
+<td>
+   <p>QuotaCheckStrategy determines which resources are considered during quota admission.</p>
+</td>
+</tr>
 <tr><td><code>excludeResourcePrefixes</code> <B>[Required]</B><br/>
 <code>[]string</code>
 </td>

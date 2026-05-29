@@ -175,7 +175,10 @@ const (
 	// owner: @alaypatel07
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
 	//
-	// Enable quota accounting for Dynamic Resource Allocation (DRA) devices in workloads
+	// Enable quota accounting for Dynamic Resource Allocation (DRA) devices in workloads.
+	KueueDRAIntegration featuregate.Feature = "KueueDRAIntegration"
+
+	// Deprecated: planned to be removed in 0.19. Use KueueDRAIntegration instead.
 	DynamicResourceAllocation featuregate.Feature = "DynamicResourceAllocation"
 
 	// owner: @sohankunkerkar
@@ -183,7 +186,29 @@ const (
 	//
 	// Enable extended resources support for DRA. Allows workloads to request DRA devices
 	// via standard resources.requests using DeviceClass extendedResourceName.
+	KueueDRAIntegrationExtendedResource featuregate.Feature = "KueueDRAIntegrationExtendedResource"
+
+	// Deprecated: planned to be removed in 0.19. Use KueueDRAIntegrationExtendedResource instead.
 	DRAExtendedResources featuregate.Feature = "DRAExtendedResources"
+
+	// owner: @MaysaMacedo
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7513-quota-check-strategy
+	//
+	// Enable QuotaCheckStrategy for quota admission.
+	QuotaCheckStrategy featuregate.Feature = "QuotaCheckStrategy"
+
+	// owner: @kannon92
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	//
+	// Reject workloads that use DRA resources when the DynamicResourceAllocation feature gate is disabled.
+	KueueDRARejectWorkloadsWhenDRADisabled featuregate.Feature = "KueueDRARejectWorkloadsWhenDRADisabled"
+
+	// owner: @PannagaRao
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	//
+	// Enable counter-based quota for partitionable DRA devices (e.g., MIG). Tracks
+	// counter consumption from ResourceSlice devices via consumesCounters configuration.
+	KueueDRAIntegrationPartitionableDevices featuregate.Feature = "KueueDRAIntegrationPartitionableDevices"
 
 	// owner: @khrm
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2349-multikueue-external-custom-job-support
@@ -352,6 +377,69 @@ const (
 	// Pod integration's IsActive() check, allowing quota to be released immediately
 	// when preempted pods begin terminating rather than waiting for the grace period.
 	FastQuotaReleaseInPodIntegration featuregate.Feature = "FastQuotaReleaseInPodIntegration"
+
+	// owner: @ShaanveerS
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/7259
+	// Enables rejecting updates to ClusterQueues with invalid
+	// AdmissionCheckStrategy.OnFlavors references.
+	RejectUpdatesToCQWithInvalidOnFlavors featuregate.Feature = "RejectUpdatesToCQWithInvalidOnFlavors"
+
+	// owner: @sebest
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/1789
+	// Finish workloads whose controller owner no longer exists, preventing
+	// stale workload accumulation (e.g., after PodsReady timeout eviction
+	// deletes a Deployment-owned pod).
+	FinishOrphanedWorkloads featuregate.Feature = "FinishOrphanedWorkloads"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/8691-concurrent-admission
+	//
+	// Enables Concurrent Admission feature which allows pursuing multiple ResourceFlavors in parallel.
+	ConcurrentAdmission featuregate.Feature = "ConcurrentAdmission"
+
+	// Enable recording of WorkloadCreationLatency metric.
+	MetricForWorkloadCreationLatency featuregate.Feature = "MetricForWorkloadCreationLatency"
+
+	// owner: @j-skiba
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10902
+	// Enable evaluation of preferredDuringSchedulingIgnoredDuringExecution node affinities during scheduling in TAS.
+	// The preferred affinity will take precedence over the placement policy (eg. BestFit , LeastFreeCapacity).
+	TASRespectNodeAffinityPreferred featuregate.Feature = "TASRespectNodeAffinityPreferred"
+
+	// owner: @olekzabl
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation
+	//
+	// Enables MultiKueue manager quota automation support.
+	MultiKueueManagerQuotaAutomation featuregate.Feature = "MultiKueueManagerQuotaAutomation"
+
+	// owner: @ivnovakov
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10032
+	//
+	// WorkloadIdentifierAnnotations makes Kueue read and write the workload identifiers
+	// (pod-group-name and prebuilt-workload-name) via annotations. When the gate is
+	// disabled, the label-based identifiers are used instead.
+	WorkloadIdentifierAnnotations featuregate.Feature = "WorkloadIdentifierAnnotations"
+
+	// owner: @atosatto
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/10765-workload-priority-class-defaulting
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10765
+	// Enable defaulting of WorkloadPriorityClass to a WorkloadPriorityClass
+	// named "default" when no explicit priority class label is set.
+	WorkloadPriorityClassDefaulting featuregate.Feature = "WorkloadPriorityClassDefaulting"
+
+	// owner: @mszadkow
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/7539
+	// Enable reporting of Cohort related metrics (also including ClusterQueueInfo metric).
+	MetricsForCohorts featuregate.Feature = "MetricsForCohorts"
+	// owner: @tenzen-y
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10659
+	// Enable accurately topology aware scheduling when multiple flavors cover the same Node.
+	TASHandleOverlappingFlavors featuregate.Feature = "TASHandleOverlappingFlavors"
 )
 
 func init() {
@@ -435,6 +523,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ElasticJobsViaWorkloadSlices: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ElasticJobsViaWorkloadSlicesWithTAS: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
@@ -454,12 +543,29 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASBalancedPlacement: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
+	KueueDRAIntegration: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
 	DynamicResourceAllocation: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.19
+	},
+	KueueDRAIntegrationExtendedResource: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	DRAExtendedResources: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.19
 	},
+
+	KueueDRARejectWorkloadsWhenDRADisabled: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	KueueDRAIntegrationPartitionableDevices: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	MultiKueueAdaptersForCustomJobs: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
@@ -490,16 +596,19 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	SkipFinalizersForPodsSuspendedByParent: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	MultiKueueWaitForWorkloadAdmitted: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	MultiKueueRedoAdmissionOnEvictionInWorker: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	TLSOptions: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.18
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.20 (https://github.com/kubernetes-sigs/kueue/issues/10704)
 	},
 	RemoveFinalizersWithStrictPatch: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
@@ -515,6 +624,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	SchedulingEquivalenceHashing: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	SchedulerLongRequeueInterval: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
@@ -542,6 +652,39 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FastQuotaReleaseInPodIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	RejectUpdatesToCQWithInvalidOnFlavors: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	FinishOrphanedWorkloads: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	ConcurrentAdmission: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	QuotaCheckStrategy: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MetricForWorkloadCreationLatency: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
+	},
+	TASRespectNodeAffinityPreferred: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MultiKueueManagerQuotaAutomation: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	WorkloadIdentifierAnnotations: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	WorkloadPriorityClassDefaulting: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MetricsForCohorts: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASHandleOverlappingFlavors: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

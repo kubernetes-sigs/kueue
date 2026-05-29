@@ -80,7 +80,7 @@ func (m *Manager[CQ, C]) DeleteClusterQueue(name kueue.ClusterQueueReference) {
 
 func (m *Manager[CQ, C]) AddCohort(cohortName kueue.CohortReference) {
 	oldCohort, ok := m.cohorts[cohortName]
-	if ok && oldCohort.isExplicit() {
+	if ok && oldCohort.IsExplicit() {
 		return
 	}
 	if !ok {
@@ -163,7 +163,7 @@ func (m *Manager[CQ, C]) getOrCreateCohort(cohortName kueue.CohortReference) C {
 }
 
 func (m *Manager[CQ, C]) cleanupCohort(cohort C) {
-	if !cohort.isExplicit() && !cohort.hasChildren() {
+	if !cohort.IsExplicit() && !cohort.hasChildren() {
 		delete(m.cohorts, cohort.GetName())
 	}
 }
@@ -200,7 +200,7 @@ type cohortNode[CQ nodeBase[kueue.ClusterQueueReference], C nodeBase[kueue.Cohor
 	deleteClusterQueue(CQ)
 	hasChildren() bool
 	ChildCQs() []CQ
-	isExplicit() bool
+	IsExplicit() bool
 	markExplicit()
 	nodeBase[kueue.CohortReference]
 }

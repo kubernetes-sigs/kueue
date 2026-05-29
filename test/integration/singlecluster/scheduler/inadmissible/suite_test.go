@@ -49,11 +49,7 @@ var (
 )
 
 func TestInadmissibleRequeueing(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"Scheduler Inadmissible Requeueing Suite",
-	)
+	util.RunSuite(t, "Scheduler Inadmissible Requeueing Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -68,11 +64,6 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-})
-
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -84,12 +75,23 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	batchPeriod := 2 * time.Second
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := util.NewManagerForIntegrationTestsWithBatchPeriod(ctx, mgr.GetClient(), cCache, batchPeriod, queueOptions...)
+	queues := util.NewManagerForIntegrationTestsWithBatchPeriod(
+		ctx,
+		mgr.GetClient(),
+		cCache,
+		batchPeriod,
+		queueOptions...)
 
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
+	failedCtrl, err := core.SetupControllers(
+		mgr,
+		queues,
+		cCache,
+		configuration,
+		core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+	)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	failedWebhook, err := webhooks.Setup(mgr, nil)
@@ -98,7 +100,13 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
+	sched := scheduler.New(
+		queues,
+		cCache,
+		mgr.GetClient(),
+		mgr.GetEventRecorder(constants.AdmissionName),
+		scheduler.WithPreemptionExpectations((preemptionExpectations)),
+	)
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

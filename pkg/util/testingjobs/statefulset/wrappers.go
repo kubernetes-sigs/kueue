@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -33,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // StatefulSetWrapper wraps a StatefulSet.
@@ -68,7 +68,7 @@ func MakeStatefulSet(name, ns string) *StatefulSetWrapper {
 					Containers: []corev1.Container{
 						{
 							Name:      "c",
-							Image:     "pause",
+							Image:     utiltestingjobs.TestDefaultContainerImage,
 							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 						},
 					},
@@ -87,7 +87,7 @@ func (ss *StatefulSetWrapper) Obj() *appsv1.StatefulSet {
 // Annotation sets the annotation of the StatefulSet
 func (ss *StatefulSetWrapper) Annotation(k, v string) *StatefulSetWrapper {
 	if ss.Annotations == nil {
-		ss.Annotations = make(map[string]string)
+		ss.Annotations = make(map[string]string, 1)
 	}
 	ss.Annotations[k] = v
 	return ss
@@ -105,6 +105,16 @@ func (ss *StatefulSetWrapper) Label(k, v string) *StatefulSetWrapper {
 // Queue updates the queue name of the StatefulSet
 func (ss *StatefulSetWrapper) Queue(q string) *StatefulSetWrapper {
 	return ss.Label(controllerconstants.QueueLabel, q)
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the StatefulSet
+func (ss *StatefulSetWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *StatefulSetWrapper {
+	return ss.Label(controllerconstants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the StatefulSet
+func (ss *StatefulSetWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *StatefulSetWrapper {
+	return ss.Annotation(controllerconstants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Name updated the name of the StatefulSet
@@ -127,7 +137,7 @@ func (ss *StatefulSetWrapper) UID(uid string) *StatefulSetWrapper {
 
 // OwnerReference adds a ownerReference to the StatefulSet.
 func (ss *StatefulSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *StatefulSetWrapper {
-	utiltesting.AppendOwnerReference(&ss.StatefulSet, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&ss.StatefulSet, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return ss
 }
 

@@ -313,15 +313,26 @@ func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.R
 	return usage
 }
 
-func HasTASAssignmentOnNode(psa []kueue.PodSetAssignment, nodeName string) bool {
-	for _, psa := range psa {
-		if psa.TopologyAssignment == nil || !IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
-			continue
+func HasTASAssignmentOnNode(admission *kueue.Admission, nodeName string) bool {
+	if admission == nil {
+		return false
+	}
+	for i := range admission.PodSetAssignments {
+		if HasNodeInPodSetAssignment(&admission.PodSetAssignments[i], nodeName) {
+			return true
 		}
-		for domain := range InternalSeqFrom(psa.TopologyAssignment) {
-			if len(domain.Values) > 0 && domain.Values[len(domain.Values)-1] == nodeName && domain.Count > 0 {
-				return true
-			}
+	}
+	return false
+}
+
+// HasNodeInPodSetAssignment reports whether the PodSetAssignment has pods assigned to nodeName.
+func HasNodeInPodSetAssignment(psa *kueue.PodSetAssignment, nodeName string) bool {
+	if psa == nil || psa.TopologyAssignment == nil || !IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
+		return false
+	}
+	for domain := range InternalSeqFrom(psa.TopologyAssignment) {
+		if len(domain.Values) > 0 && domain.Values[len(domain.Values)-1] == nodeName && domain.Count > 0 {
+			return true
 		}
 	}
 	return false

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package multikueue
+package tas
 
 import (
 	"context"
@@ -82,10 +82,7 @@ var (
 )
 
 func TestMultiKueue(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t,
-		"MultiKueue TAS Suite",
-	)
+	util.RunSuite(t, "MultiKueue TAS Suite")
 }
 
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
@@ -121,7 +118,13 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
+	failedCtrl, err := core.SetupControllers(
+		mgr,
+		queues,
+		cCache,
+		configuration,
+		core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+	)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil)
@@ -140,7 +143,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = jobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -153,13 +156,19 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	reconciler, err := provisioning.NewController(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
+		mgr.GetEventRecorder("kueue-provisioning-request-controller"), nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = reconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+	sched := scheduler.New(
+		queues,
+		cCache,
+		mgr.GetClient(),
+		mgr.GetEventRecorder(constants.AdmissionName),
+		scheduler.WithPreemptionExpectations(preemptionExpectations),
+	)
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
@@ -182,7 +191,7 @@ func managerAndMultiKueueSetup(
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 		multikueue.WithGCInterval(gcInterval),
 		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
-		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
+		multikueue.WithEventsBatchPeriod(250*time.Millisecond),
 		multikueue.WithAdapters(adapters),
 		multikueue.WithDispatcherName(dispatcherName),
 	)
@@ -190,25 +199,20 @@ func managerAndMultiKueueSetup(
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	var managerFeatureGates []string
 	ginkgo.By("creating the clusters", func() {
-		mu = sync.Mutex{}
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
 			// pass nil setup since the manager for the manage cluster is different in some specs.
-			c := createCluster(nil, managerFeatureGates...)
-			managerTestCluster = c
+			managerTestCluster = createCluster(nil)
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
-			c := createCluster(managerSetup)
-			worker1TestCluster = c
+			worker1TestCluster = createCluster(managerSetup)
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
-			c := createCluster(managerSetup)
-			worker2TestCluster = c
+			worker2TestCluster = createCluster(managerSetup)
 		})
 		wg.Wait()
 	})
@@ -226,9 +230,4 @@ var _ = ginkgo.AfterSuite(func() {
 	managerTestCluster.fwk.Teardown()
 	worker1TestCluster.fwk.Teardown()
 	worker2TestCluster.fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })

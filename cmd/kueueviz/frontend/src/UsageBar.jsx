@@ -205,7 +205,7 @@ const UsageBar = ({ usage = 0, borrowed = 0, quota = 0, effectiveQuota, unlimite
   );
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: compact ? 140 : 180 }}>
+    <Box data-testid="usage-bar" sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: compact ? 140 : 180 }}>
       <Tooltip title={tooltipContent} arrow placement="top">
         <Box sx={{
           width,

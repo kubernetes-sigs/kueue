@@ -26,7 +26,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -119,7 +118,7 @@ func readUIntFromStringBelowBound(value string, bound int) (*int, error) {
 	if uintValue >= uint64(bound) {
 		return nil, fmt.Errorf("%w: value should be less than %d", ErrValidation, bound)
 	}
-	return ptr.To(int(uintValue)), nil
+	return new(int(uintValue)), nil
 }
 
 func GenerateRoleHash(podSpec *corev1.PodSpec) (string, error) {

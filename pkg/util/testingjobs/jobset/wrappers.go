@@ -50,6 +50,7 @@ type ReplicatedJobRequirements struct {
 	Replicas       int32
 	Parallelism    int32
 	Completions    int32
+	BackoffLimit   *int32
 	Labels         map[string]string
 	Annotations    map[string]string
 	PodAnnotations map[string]string
@@ -80,11 +81,15 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 		jt := jobsetutil.MakeJobTemplate("", "").PodSpec(TestPodSpec).Obj()
 		jt.Labels = req.Labels
 		jt.Annotations = req.Annotations
-		jt.Spec.Parallelism = ptr.To(req.Parallelism)
-		jt.Spec.Completions = ptr.To(req.Completions)
+		jt.Spec.Parallelism = new(req.Parallelism)
+		jt.Spec.Completions = new(req.Completions)
 		jt.Spec.Template.Annotations = req.PodAnnotations
-		if len(req.Image) > 0 {
+		if req.BackoffLimit != nil {
+			jt.Spec.BackoffLimit = req.BackoffLimit
+		} else if len(req.Image) > 0 {
 			jt.Spec.BackoffLimit = ptr.To[int32](0)
+		}
+		if len(req.Image) > 0 {
 			spec := &jt.Spec.Template.Spec
 			spec.RestartPolicy = corev1.RestartPolicyNever
 			spec.TerminationGracePeriodSeconds = ptr.To[int64](0)
@@ -108,7 +113,7 @@ func (j *JobSetWrapper) UID(uid string) *JobSetWrapper {
 
 // Suspend updates the suspend status of the JobSet.
 func (j *JobSetWrapper) Suspend(s bool) *JobSetWrapper {
-	j.Spec.Suspend = ptr.To(s)
+	j.Spec.Suspend = new(s)
 	return j
 }
 
@@ -118,6 +123,15 @@ func (j *JobSetWrapper) Label(k, v string) *JobSetWrapper {
 		j.Labels = make(map[string]string)
 	}
 	j.Labels[k] = v
+	return j
+}
+
+// Annotation sets an annotation to the JobSet.
+func (j *JobSetWrapper) Annotation(k, v string) *JobSetWrapper {
+	if j.ObjectMeta.Annotations == nil {
+		j.ObjectMeta.Annotations = make(map[string]string, 1)
+	}
+	j.ObjectMeta.Annotations[k] = v
 	return j
 }
 
@@ -136,6 +150,16 @@ func (j *JobSetWrapper) SetTypeMeta() *JobSetWrapper {
 // Queue updates the queue name of the JobSet.
 func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
 	return j.Label(constants.QueueLabel, queue)
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the JobSet.
+func (j *JobSetWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JobSetWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the JobSet.
+func (j *JobSetWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *JobSetWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Request adds a resource request to the first container of the target replicatedJob.
@@ -204,8 +228,24 @@ func (j *JobSetWrapper) ManagedBy(c string) *JobSetWrapper {
 	return j
 }
 
+// TerminationGracePeriod sets the termination grace period for all replicated jobs.
+func (j *JobSetWrapper) TerminationGracePeriod(seconds int64) *JobSetWrapper {
+	for i := range j.Spec.ReplicatedJobs {
+		j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
+	}
+	return j
+}
+
+// BackoffLimit sets the backoffLimit for all replicated jobs.
+func (j *JobSetWrapper) BackoffLimit(limit int32) *JobSetWrapper {
+	for i := range j.Spec.ReplicatedJobs {
+		j.Spec.ReplicatedJobs[i].Template.Spec.BackoffLimit = new(limit)
+	}
+	return j
+}
+
 // OwnerReference adds a ownerReference to the default container.
 func (j *JobSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobSetWrapper {
-	utiltesting.AppendOwnerReference(j, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(j, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return j
 }

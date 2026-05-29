@@ -50,11 +50,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"Core Controllers Suite",
-	)
+	util.RunSuite(t, "Core Controllers Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -68,11 +64,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 type managerSetupOpts struct {
@@ -100,7 +91,10 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	managerAndControllerSetup(nil, runScheduler)(ctx, mgr)
 }
 
-func managerAndControllerSetup(controllersCfg *config.Configuration, options ...managerSetupOption) framework.ManagerSetup {
+func managerAndControllerSetup(
+	controllersCfg *config.Configuration,
+	options ...managerSetupOption,
+) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		var opts managerSetupOpts
 		for _, opt := range options {
@@ -140,24 +134,36 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 			qcache.WithLocalQueueMetrics(lqMetrics),
 			qcache.WithCustomLabels(customLabels),
 			qcache.WithPreemptionExpectations(preemptionExpectations),
+			qcache.WithResourceMetrics(controllersCfg.Metrics.EnableClusterQueueResources),
 		}
 
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOpts...)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, opts.roleTracker, preemptionExpectations, customLabels)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, core.SetupControllersOpts{
+			RoleTracker:            opts.roleTracker,
+			PreemptionExpectations: preemptionExpectations,
+			CustomLabels:           customLabels,
+		})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		if opts.roleTracker != nil {
 			opts.roleTracker.OnElected(func() {
 				metrics.ClearGaugeMetricsForRole(roletracker.RoleFollower)
-				cCache.ResyncGaugeMetrics()
+				cCache.ResyncGaugeMetrics(ginkgo.GinkgoLogr)
 				queues.ResyncGaugeMetrics()
 			})
 		}
 
 		if opts.runScheduler {
-			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations), scheduler.WithCustomLabels(customLabels))
+			sched := scheduler.New(
+				queues,
+				cCache,
+				mgr.GetClient(),
+				mgr.GetEventRecorder(constants.AdmissionName),
+				scheduler.WithPreemptionExpectations(preemptionExpectations),
+				scheduler.WithCustomLabels(customLabels),
+			)
 			err = sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

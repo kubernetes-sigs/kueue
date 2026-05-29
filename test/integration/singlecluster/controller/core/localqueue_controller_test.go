@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue", "area:core"), func() {
 	const (
 		flavorModelC = "model-c"
 		flavorModelD = "model-d"
@@ -75,15 +75,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		ac *kueue.AdmissionCheck
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-")
 	})
 
@@ -111,6 +104,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
 		}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should update conditions when clusterQueues that its localQueue references are updated", framework.SlowSpec, func() {
@@ -226,13 +220,13 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 				Obj(),
 		}
 		admissions := []*kueue.Admission{
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "2").Obj()).Obj(),
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "3").Obj()).Obj(),
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj(),
 		}
@@ -408,13 +402,13 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 				Obj(),
 		}
 		admissions := []*kueue.Admission{
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "2").Obj()).Obj(),
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "3").Obj()).Obj(),
-			utiltestingapi.MakeAdmission(clusterQueue.Name).
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj(),
 		}
@@ -546,7 +540,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 	})
 })
 
-var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("controller:localqueue", "area:core"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("controller:localqueue", "area:core"), func() {
 	var (
 		ns              *corev1.Namespace
 		clusterQueue    *kueue.ClusterQueue
@@ -558,7 +552,7 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 		}
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		customCfg := &configapi.Configuration{
 			ControllerManager: configapi.ControllerManager{
 				Metrics: configapi.ControllerMetrics{
@@ -573,15 +567,7 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 				},
 			},
 		}
-
 		fwk.StartManager(ctx, cfg, managerAndControllerSetup(customCfg))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-metrics-")
 
 		ac = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
@@ -612,6 +598,7 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
 		}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should expose metrics based on LocalQueue labels", func() {

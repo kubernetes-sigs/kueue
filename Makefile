@@ -40,14 +40,13 @@ IMAGE_REPO := $(IMAGE_REGISTRY)/kueue
 IMAGE_REPO_KUEUEVIZ_BACKEND := $(IMAGE_REGISTRY)/kueueviz-backend
 IMAGE_REPO_KUEUEVIZ_FRONTEND := $(IMAGE_REGISTRY)/kueueviz-frontend
 IMAGE_REPO_KUEUE_POPULATOR := $(IMAGE_REGISTRY)/kueue-populator
+IMAGE_REPO_KUEUE_PRIORITY_BOOSTER := $(IMAGE_REGISTRY)/kueue-priority-booster
 
 IMAGE_TAG := $(IMAGE_REPO):$(GIT_TAG)
 IMAGE_TAG_KUEUEVIZ_BACKEND := $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(GIT_TAG)
 IMAGE_TAG_KUEUEVIZ_FRONTEND := $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(GIT_TAG)
 IMAGE_TAG_KUEUE_POPULATOR := $(IMAGE_REPO_KUEUE_POPULATOR):$(GIT_TAG)
-
-RAY_VERSION := 2.41.0
-RAYMINI_VERSION ?= 0.0.1
+IMAGE_TAG_KUEUE_PRIORITY_BOOSTER := $(IMAGE_REPO_KUEUE_PRIORITY_BOOSTER):$(GIT_TAG)
 
 CLUSTERPROFILE_PLUGIN_IMAGE_VERSION ?= 0.0.1
 
@@ -55,8 +54,13 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(PROJECT_DIR)/artifacts
 RELEASE_ARTIFACTS ?= $(PROJECT_DIR)/release-artifacts
-TOOLS_DIR := $(PROJECT_DIR)/hack/tools
+HACK_DIR := $(PROJECT_DIR)/hack
+TOOLS_DIR := $(HACK_DIR)/tools
+TESTING_DIR := $(HACK_DIR)/testing
 MOCKS_DIR := internal/mocks
+
+RAY_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/ray/Dockerfile" | cut -d: -f2)
+RAYMINI_VERSION ?= 0.0.3
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
@@ -121,6 +125,7 @@ include Makefile-deps.mk
 include Makefile-test.mk
 
 include Makefile-kueue-populator.mk
+include Makefile-kueue-priority-booster.mk
 
 # Repo-wide verification is defined in a separate fragment so it can be read/maintained
 # independently of build/test logic. See `Makefile-verify.mk` for what `make verify` runs.
@@ -164,6 +169,11 @@ generate-mocks: mockgen ## Generate mockgen mocks
 		-copyright_file hack/boilerplate.txt \
 		-package mocks \
 		sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation,JobWithCustomAnnotations
+	$(MOCKGEN) \
+		-destination=$(MOCKS_DIR)/controller/core/resourceflavor_controller.go \
+		-copyright_file hack/boilerplate.txt \
+		-package mocks \
+		sigs.k8s.io/kueue/pkg/controller/core ResourceFlavorUpdateWatcher
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -278,7 +288,9 @@ clean-manifests = \
   		$(KUSTOMIZE) edit set image backend=$(STAGING_IMAGE_REGISTRY)/kueueviz-backend:$(RELEASE_BRANCH) && \
   		$(KUSTOMIZE) edit set image frontend=$(STAGING_IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH)) && \
 	(cd cmd/experimental/kueue-populator/config && \
-    	$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue-populator:$(RELEASE_BRANCH))
+    	$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue-populator:$(RELEASE_BRANCH)) && \
+	(cd cmd/experimental/kueue-priority-booster/config && \
+    	$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue-priority-booster:$(RELEASE_BRANCH))
 
 .PHONY: install
 install: compile-crd-manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -320,6 +332,7 @@ prepare-manifests:
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
 	cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
+	cd cmd/experimental/kueue-priority-booster/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
 
 .PHONY: artifacts
 artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
@@ -331,6 +344,7 @@ artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Gen
 	$(KUSTOMIZE) build config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
 	$(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
 	$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
+	$(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
 	@$(call clean-manifests)
 	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 
@@ -354,6 +368,11 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)" | .dependencies[0].version = "~$(APP_VERSION)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/Chart.yaml
 	$(YQ) e '.kueuePopulator.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
 	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
+	# Update kueue-priority-booster chart version and image tag
+	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)" | .dependencies[0].version = "~$(APP_VERSION)"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/Chart.yaml
+	$(YQ) e '.kueuePriorityBooster.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
+	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i cmd/experimental/kueue-priority-booster/README.md
+
 	$(MAKE) generate-helm-docs
 
 .PHONY: update-security-insights
@@ -461,12 +480,35 @@ kueue-populator-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kueue-populator-image: PUSH=--load
 kueue-populator-image: kueue-populator-image-build
 
+# Build the kueue-priority-booster image
+.PHONY: kueue-priority-booster-image-build
+kueue-priority-booster-image-build:
+	$(MAKE) -C cmd/experimental/kueue-priority-booster image-build \
+		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
+		IMAGE_TAG=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER) \
+		PLATFORMS="$(PLATFORMS)" \
+		BASE_IMAGE=$(BASE_IMAGE) \
+		BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		CGO_ENABLED=$(CGO_ENABLED) \
+		PUSH=$(PUSH) \
+		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_PRIORITY_BOOSTER):$(RELEASE_BRANCH)"
+
+.PHONY: kueue-priority-booster-image-push
+kueue-priority-booster-image-push: PUSH=--push
+kueue-priority-booster-image-push: kueue-priority-booster-image-build
+
+# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-priority-booster image
+.PHONY: kueue-priority-booster-image
+kueue-priority-booster-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kueue-priority-booster-image: PUSH=--load
+kueue-priority-booster-image: kueue-priority-booster-image-build
+
 .PHONY: kueuectl
 kueuectl:
 	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/kubectl-kueue cmd/kueuectl/main.go
 
 .PHONY: generate-apiref
-generate-apiref: genref
+generate-apiref: genref generate-code
 	cd $(PROJECT_DIR)/hack/genref/ && $(GENREF) -o $(PROJECT_DIR)/site/content/en/docs/reference
 
 ##@ Documentation
@@ -500,7 +542,7 @@ ray-project-mini-image-build:
 		--build-arg RAY_VERSION=$(RAY_VERSION) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
-		-f ./hack/testing/ray/Dockerfile ./ \
+		-f ./hack/testing/ray-mini/Dockerfile ./ \
 
 # The step is required for local e2e test run
 .PHONY: kind-ray-project-mini-image-build

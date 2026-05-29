@@ -17,6 +17,7 @@
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
+  - [DRA Resource Integration](#dra-resource-integration)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
 <!-- /toc -->
@@ -269,6 +270,21 @@ The graduation criterias are quite standard:
 * GA - positive feedback, no bugs, no api changes needed.
 
 We hope to have CQ+LQ in alpha for the next Kueue release (0.12).
+
+### DRA Resource Integration
+
+DRA (Dynamic Resource Allocation) logical resources participate in Admission Fair Sharing
+when both `DynamicResourceAllocation` and AFS are enabled. DRA resources flow through the
+same usage tracking pipeline as standard resources:
+
+1. DRA resources are preprocessed into logical resource counts via `DeviceClassMappings`
+2. These logical resources appear in `TotalRequests` for workloads
+3. Upon admission, they are tracked in `ConsumedResources` and contribute to fair sharing usage
+
+The existing `AdmissionFairSharing.ResourceWeights` configuration handles DRA logical resources
+naturally. The logical resource name from `deviceClassMappings.name` can be used as a key in
+`resourceWeights` to assign a custom weight. See [KEP-2941: DRA Support](../2941-DRA/README.md#integration-with-admission-fair-sharing)
+for configuration examples.
 
 ## Drawbacks
 * Adds additional complexity to the system.

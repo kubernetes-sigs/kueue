@@ -63,7 +63,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name:    "with prebuilt workload",
-			job:     testingutil.MakeMPIJob("job", "default").Queue("queue").Label(constants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			job:     testingutil.MakeMPIJob("job", "default").Queue("queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr: nil,
 		},
 		{
@@ -242,8 +242,16 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/rack").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
@@ -267,8 +275,16 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
@@ -292,8 +308,16 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
@@ -471,7 +495,7 @@ func TestDefault(t *testing.T) {
 			mpiJob: &v2beta1.MPIJob{
 				Spec: v2beta1.MPIJobSpec{
 					RunPolicy: v2beta1.RunPolicy{
-						ManagedBy: ptr.To("example.com/foo"),
+						ManagedBy: new("example.com/foo"),
 					},
 				},
 				ObjectMeta: ctrl.ObjectMeta{
@@ -496,7 +520,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To("example.com/foo"),
+			wantManagedBy: new("example.com/foo"),
 		},
 		{
 			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",

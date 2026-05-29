@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -157,7 +156,7 @@ func run() int {
 	options := ctrl.Options{
 		Scheme: scheme,
 		Controller: crconfig.Controller{
-			SkipNameValidation:   ptr.To(true),
+			SkipNameValidation:   new(true),
 			GroupKindConcurrency: groupKindConcurrency,
 		},
 		Metrics: metricsserver.Options{
@@ -219,7 +218,7 @@ func run() int {
 	go cCache.CleanUpOnContext(ctx)
 
 	// Setup core controllers
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}, nil, preemptionExpectations, nil); err != nil {
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}, core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations}); err != nil {
 		log.Error(err, "Unable to create core controller", "controller", failedCtrl)
 		return 1
 	}
@@ -236,7 +235,7 @@ func run() int {
 		queues,
 		cCache,
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.AdmissionName),
+		mgr.GetEventRecorder(constants.AdmissionName),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 	)
 

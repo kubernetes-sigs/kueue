@@ -54,7 +54,7 @@ spec:
             path: /healthz
             port: 8081
           initialDelaySeconds: {{ .Values.controllerManager.livenessProbe.initialDelaySeconds }}
-          periodSeconds: {{ .Values.controllerManager.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.controllerManager.livenessProbe.periodSeconds }}
           timeoutSeconds: {{ .Values.controllerManager.livenessProbe.timeoutSeconds }}
           failureThreshold: {{ .Values.controllerManager.livenessProbe.failureThreshold }}
           successThreshold: {{ .Values.controllerManager.livenessProbe.successThreshold }}
@@ -74,7 +74,7 @@ spec:
             path: /readyz
             port: 8081
           initialDelaySeconds: {{ .Values.controllerManager.readinessProbe.initialDelaySeconds }}
-          periodSeconds: {{ .Values.controllerManager.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.controllerManager.readinessProbe.periodSeconds }}
           timeoutSeconds: {{ .Values.controllerManager.readinessProbe.timeoutSeconds }}
           failureThreshold: {{ .Values.controllerManager.readinessProbe.failureThreshold }}
           successThreshold: {{ .Values.controllerManager.readinessProbe.successThreshold }}

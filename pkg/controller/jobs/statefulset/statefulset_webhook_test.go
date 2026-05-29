@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -50,6 +49,7 @@ import (
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	testutil "sigs.k8s.io/kueue/test/util"
 )
 
@@ -346,6 +346,19 @@ func TestValidateCreate(t *testing.T) {
 			wantErr:      nil,
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
+		"elastic job annotation is rejected": {
+			sts: testingstatefulset.MakeStatefulSet("test-sts", "default").
+				Queue("queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -385,7 +398,7 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				},
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
+					Replicas: new(int32(3)),
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
 							Labels: map[string]string{
@@ -403,7 +416,7 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				},
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
+					Replicas: new(int32(3)),
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
 							Labels: map[string]string{
@@ -647,24 +660,24 @@ func TestValidateUpdate(t *testing.T) {
 		"change in replicas (scale down to zero)": {
 			oldObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
+					Replicas: new(int32(3)),
 				},
 			},
 			newObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(0)),
+					Replicas: new(int32(0)),
 				},
 			},
 		},
 		"change in replicas (scale up from zero)": {
 			oldObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(0)),
+					Replicas: new(int32(0)),
 				},
 			},
 			newObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
+					Replicas: new(int32(3)),
 				},
 			},
 		},
@@ -1010,6 +1023,22 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr:      nil,
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		"elastic job annotation is rejected on update": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "default").
+				Queue("queue").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "default").
+				Queue("queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 	}
 

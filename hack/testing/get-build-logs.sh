@@ -18,6 +18,8 @@
 # It transforms a given URL copied from the CI into a format compatible with the gcloud storage cp command.
 # It ensures that the gcloud CLI is installed and that given URL is in fact pointing to Kueue related GCS bucket.
 # Second command line argument is optional and allows to define output directory, which by default is located in build_logs at project direcotry level.
+# On macOS, gsutil multiprocess mode is disabled by default to avoid fork-related Python crashes.
+# Set ENABLE_MULTIPROCESSING=1 to opt back into gsutil multiprocess mode.
 
 set -o errexit
 set -o nounset
@@ -51,8 +53,18 @@ if [[ "$1" != *"kubernetes-sigs_kueue"* ]]; then
 fi
 
 transformed_url=$(transform_url "$1")
-root_dir="$(cd "$(dirname "$0")/.." && pwd)"
+root_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 output_dir=${2:-"$root_dir/build_logs"}
 mkdir -p "$output_dir"
-gsutil -m cp -r "$transformed_url" "$output_dir"
 
+gsutil_args=(-m)
+
+# macOS frameworks are generally not fork-safe after threaded startup.
+# To avoid nondeterministic gsutil child crashes, default to a single process
+# while preserving multithreaded transfers.
+# Set ENABLE_MULTIPROCESSING=1 to opt in to gsutil multiprocess mode.
+if [[ "$(uname -s)" == "Darwin" ]] && [[ "${ENABLE_MULTIPROCESSING:-0}" != "1" ]]; then
+    gsutil_args+=("-o" "GSUtil:parallel_process_count=1")
+fi
+
+gsutil "${gsutil_args[@]}" cp -r "$transformed_url" "$output_dir"

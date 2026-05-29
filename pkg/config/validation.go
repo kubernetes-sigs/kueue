@@ -34,7 +34,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	apimachineryutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/component-base/featuregate"
+	dracel "k8s.io/dynamic-resource-allocation/cel"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
@@ -70,9 +73,11 @@ var (
 	visibilityServerBindAddressPath              = field.NewPath("visibilityServer", "bindAddress")
 	visibilityServerBindPortPath                 = field.NewPath("visibilityServer", "bindPort")
 	customLabelsPath                             = field.NewPath("metrics", "customLabels")
+	resourceQuotaCheckStrategyPath               = field.NewPath("resources", "quotaCheckStrategy")
 )
 
-func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
+// Validate checks the configuration for invalid values.
+func Validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
 	allErrs = append(allErrs, validateIntegrations(c, scheme)...)
@@ -87,6 +92,36 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateTLS(c)...)
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
+	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
+	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
+	return allErrs
+}
+
+func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if !features.Enabled(features.QuotaCheckStrategy) {
+		return allErrs
+	}
+	if c.Resources != nil && c.Resources.QuotaCheckStrategy != nil {
+		strategy := *c.Resources.QuotaCheckStrategy
+		if len(c.Resources.ExcludeResourcePrefixes) > 0 && strategy == configapi.QuotaCheckIgnoreUndeclared {
+			allErrs = append(allErrs, field.Invalid(
+				resourceQuotaCheckStrategyPath,
+				strategy,
+				"excludeResourcePrefixes is not allowed when quotaCheckStrategy is IgnoreUndeclared",
+			))
+		}
+		if strategy != configapi.QuotaCheckIgnoreUndeclared && strategy != configapi.QuotaCheckBlockUndeclared {
+			allErrs = append(allErrs, field.NotSupported(
+				resourceQuotaCheckStrategyPath,
+				strategy,
+				[]configapi.QuotaCheckStrategy{
+					configapi.QuotaCheckIgnoreUndeclared,
+					configapi.QuotaCheckBlockUndeclared,
+				},
+			))
+		}
+	}
 	return allErrs
 }
 
@@ -470,6 +505,44 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 				deviceClassToResource[deviceClass] = mapping.Name
 			}
 		}
+
+		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapping.Sources) > 0 {
+			if len(mapping.Sources) > 1 {
+				allErrs = append(allErrs, field.TooMany(mappingPath.Child("sources"), len(mapping.Sources), 1))
+			}
+			celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
+			for sIdx, source := range mapping.Sources {
+				sourcePath := mappingPath.Child("sources").Index(sIdx)
+				if source.Counter == nil {
+					allErrs = append(allErrs, field.Required(sourcePath.Child("counter"), "exactly one source type must be set"))
+					continue
+				}
+				counterPath := sourcePath.Child("counter")
+				if source.Counter.Name == "" {
+					allErrs = append(allErrs, field.Required(counterPath.Child("name"), ""))
+				} else if len(source.Counter.Name) > 63 {
+					allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, "must not exceed 63 characters"))
+				}
+				if source.Counter.Driver == "" {
+					allErrs = append(allErrs, field.Required(counterPath.Child("driver"), ""))
+				} else if len(source.Counter.Driver) > 253 {
+					allErrs = append(allErrs, field.Invalid(counterPath.Child("driver"), source.Counter.Driver, "must not exceed 253 characters"))
+				}
+				selectorPath := counterPath.Child("deviceSelector", "cel", "expression")
+				if source.Counter.DeviceSelector.CEL == nil || source.Counter.DeviceSelector.CEL.Expression == "" {
+					allErrs = append(allErrs, field.Required(selectorPath, ""))
+				} else {
+					result := celCache.GetOrCompile(source.Counter.DeviceSelector.CEL.Expression)
+					if result.Error != nil {
+						allErrs = append(allErrs, field.Invalid(
+							selectorPath,
+							source.Counter.DeviceSelector.CEL.Expression,
+							fmt.Sprintf("CEL compilation failed: %v", result.Error),
+						))
+					}
+				}
+			}
+		}
 	}
 
 	return allErrs
@@ -500,7 +573,16 @@ func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.Erro
 	return allErrs
 }
 
-func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) field.ErrorList {
+func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) field.ErrorList {
+	if featureGateCLI != "" {
+		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGateCLI); err != nil {
+			return field.ErrorList{field.Invalid(featureGatesPath, featureGateCLI, err.Error())}
+		}
+	} else {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(featureGateMap); err != nil {
+			return field.ErrorList{field.Invalid(featureGatesPath, featureGateMap, err.Error())}
+		}
+	}
 	var allErrs field.ErrorList
 	if featureGateCLI != "" && featureGateMap != nil {
 		allErrs = append(allErrs, field.Invalid(featureGatesPath, featureGateMap, "feature gates for CLI and configuration cannot both specified"))
@@ -519,6 +601,21 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
 		allErrs = append(allErrs, field.Invalid(featureGatesPath, enabledProfilesCount, "cannot use a TAS profile with TAS disabled"))
 	}
+	if !features.Enabled(features.TopologyAwareScheduling) && features.Enabled(features.TASHandleOverlappingFlavors) {
+		allErrs = append(allErrs, field.Invalid(featureGatesPath, features.TASHandleOverlappingFlavors,
+			fmt.Sprintf("%s requires %s to be enabled", features.TASHandleOverlappingFlavors, features.TopologyAwareScheduling)))
+	}
+
+	// TAS sub-features have no effect unless their dependencies are also enabled. All of them
+	// require TopologyAwareScheduling; TASFailedNodeReplacementFailFast and
+	// TASReplaceNodeOnPodTermination additionally require TASFailedNodeReplacement.
+	allErrs = append(allErrs, validateFeatureGateDependency(features.TASFailedNodeReplacement, features.TopologyAwareScheduling)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.TASFailedNodeReplacementFailFast, features.TopologyAwareScheduling, features.TASFailedNodeReplacement)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.TASReplaceNodeOnPodTermination, features.TopologyAwareScheduling, features.TASFailedNodeReplacement)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.TASBalancedPlacement, features.TopologyAwareScheduling)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.TASReplaceNodeOnNodeTaints, features.TopologyAwareScheduling)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.TASMultiLayerTopology, features.TopologyAwareScheduling)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.TASRespectNodeAffinityPreferred, features.TopologyAwareScheduling)...)
 
 	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
 		if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
@@ -529,9 +626,42 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 		}
 	}
 
-	if features.Enabled(features.DRAExtendedResources) {
-		if !features.Enabled(features.DynamicResourceAllocation) {
-			allErrs = append(allErrs, field.Invalid(featureGatesPath, "DRAExtendedResources", "DRAExtendedResources requires DynamicResourceAllocation to be enabled"))
+	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
+
+	return allErrs
+}
+
+// validateFeatureGateDependency returns an error for each dependency feature gate that is
+// disabled while gate is enabled. A gate has no effect unless all its dependencies are enabled.
+func validateFeatureGateDependency(gate featuregate.Feature, dependencies ...featuregate.Feature) field.ErrorList {
+	if !features.Enabled(gate) {
+		return nil
+	}
+	var allErrs field.ErrorList
+	for _, dep := range dependencies {
+		if !features.Enabled(dep) {
+			allErrs = append(allErrs, field.Invalid(featureGatesPath, gate,
+				fmt.Sprintf("%s requires %s to be enabled", gate, dep)))
+		}
+	}
+	return allErrs
+}
+
+func validateDRAFeatureGateDependencies() field.ErrorList {
+	var allErrs field.ErrorList
+	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		if !features.Enabled(features.KueueDRAIntegration) {
+			allErrs = append(allErrs, field.Invalid(featureGatesPath, "KueueDRAIntegrationExtendedResource", "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled"))
+		}
+	}
+
+	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+		if !features.Enabled(features.KueueDRAIntegration) {
+			allErrs = append(allErrs, field.Invalid(
+				featureGatesPath,
+				"KueueDRAIntegrationPartitionableDevices",
+				"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
+			))
 		}
 	}
 

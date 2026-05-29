@@ -29,6 +29,12 @@ Make sure the following conditions are met:
   for production).
 - [Kueue is installed](/docs/installation).
 
+{{% alert title="Warning" color="warning" %}}
+In Kueue 0.18, the DRA feature gates were renamed to avoid conflicts with upstream
+Kubernetes feature gates: `DynamicResourceAllocation` is now `KueueDRAIntegration`,
+and `DRAExtendedResources` is now `KueueDRAIntegrationExtendedResource`.
+{{% /alert %}}
+
 ## Choose a quota accounting path
 
 Kueue supports two paths for accounting DRA devices in quota. Choose the one
@@ -36,8 +42,8 @@ that matches how your users submit workloads:
 
 | Path | User's Pod spec | Kueue feature gate | Admin configuration |
 |------|----------------|-------------------|-------------------|
-| ResourceClaimTemplate | References a `ResourceClaimTemplate` | `DynamicResourceAllocation` | `deviceClassMappings` required |
-| Extended resource | Uses `resources.requests` (e.g., `nvidia.com/gpu: 1`) | `DynamicResourceAllocation` + `DRAExtendedResources` | No mapping needed |
+| ResourceClaimTemplate | References a `ResourceClaimTemplate` | `KueueDRAIntegration` | `deviceClassMappings` required |
+| Extended resource | Uses `resources.requests` (e.g., `nvidia.com/gpu: 1`) | `KueueDRAIntegration` + `KueueDRAIntegrationExtendedResource` | No mapping needed |
 
 ## Set up the ResourceClaimTemplate path
 
@@ -48,7 +54,7 @@ Use this path when your users submit workloads that explicitly reference
 
 ### 1. Enable the feature gate
 
-Install or reconfigure Kueue with the `DynamicResourceAllocation` feature gate
+Install or reconfigure Kueue with the `KueueDRAIntegration` feature gate
 enabled. Follow the
 [custom configuration installation instructions](/docs/installation#install-a-custom-configured-released-version).
 
@@ -61,7 +67,7 @@ Add a `deviceClassMappings` entry to the Kueue Configuration that maps each
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 featureGates:
-  DynamicResourceAllocation: true
+  KueueDRAIntegration: true
 resources:
   deviceClassMappings:
   - name: example.com/gpu           # Logical resource name for quota
@@ -116,8 +122,8 @@ Install or reconfigure Kueue with both feature gates enabled:
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 featureGates:
-  DynamicResourceAllocation: true
-  DRAExtendedResources: true
+  KueueDRAIntegration: true
+  KueueDRAIntegrationExtendedResource: true
 ```
 
 The Kubernetes cluster also needs the `DRAExtendedResource` feature gate
@@ -147,13 +153,6 @@ spec:
       expression: device.driver == "gpu.example.com"
 ```
 
-{{% alert title="Important" color="warning" %}}
-The `DeviceClass` must exist **before** users submit workloads. There is no
-DeviceClass watcher in alpha. If a `DeviceClass` is created after a workload
-was marked inadmissible, the workload will not be re-evaluated until the next
-cluster event that triggers inadmissible workload requeuing (e.g., another
-workload completes or quota changes).
-{{% /alert %}}
 
 No `deviceClassMappings` configuration is needed for this path. Kueue
 auto-discovers the mapping by indexing `DeviceClass` objects.
@@ -171,7 +170,7 @@ kubectl apply -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-queues.yaml
 
 ### Why this path exists
 
-Without the `DRAExtendedResources` feature gate, Kueue charges quota for both
+Without the `KueueDRAIntegrationExtendedResource` feature gate, Kueue charges quota for both
 the `resources.requests` entry and the auto-created `ResourceClaim`, double
 counting the same device. With the feature gate enabled, Kueue detects the
 matching `DeviceClass` and charges quota only for the extended resource.

@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -48,8 +49,9 @@ func NewTASCache(client client.Client) tasCache {
 		topologies:  make(map[kueue.TopologyReference]topologyInformation),
 		flavorCache: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
 		nonTasUsageCache: &nonTasUsageCache{
-			podUsage: make(map[types.NamespacedName]podUsageValue),
-			lock:     sync.RWMutex{},
+			podUsage:  make(map[types.NamespacedName]podUsageValue),
+			nodeUsage: make(map[string]resources.Requests),
+			lock:      sync.RWMutex{},
 		},
 		nodesCache: newNodesCache(),
 	}
@@ -126,8 +128,8 @@ func (t *tasCache) Update(pod *corev1.Pod, log logr.Logger) {
 	t.nonTasUsageCache.update(pod, log)
 }
 
-func (t *tasCache) DeletePodByKey(key client.ObjectKey) {
-	t.nonTasUsageCache.delete(key)
+func (t *tasCache) DeletePodByKey(key client.ObjectKey, log logr.Logger) {
+	t.nonTasUsageCache.delete(key, log)
 }
 
 func (t *tasCache) SyncNode(node *corev1.Node) {

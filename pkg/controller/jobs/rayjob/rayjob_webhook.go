@@ -79,6 +79,7 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj *rayv1.RayJob) error {
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults")
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -156,7 +157,7 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (
 
 func (w *RayJobWebhook) validateTopologyRequest(ctx context.Context, rayJob *rayv1.RayJob) (field.ErrorList, error) {
 	job := (*RayJob)(rayJob)
-	return raycluster.ValidateTopologyRequest(ctx, job, rayJob.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)
+	return raycluster.ValidateTopologyRequest(ctx, w.client, job, rayJob.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type

@@ -23,7 +23,6 @@ import (
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -104,7 +103,7 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 			return nil, err
 		}
 		psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
-		psTopologyReq.PodSetSliceSize = ptr.To(int32(sliceSizeIntValue))
+		psTopologyReq.PodSetSliceSize = new(int32(sliceSizeIntValue))
 	}
 
 	psTopologyReq.PodIndexLabel = p.podIndexLabel

@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -70,7 +69,7 @@ func init() {
 	}))
 }
 
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=workload.codeflare.dev,resources=appwrappers,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=workload.codeflare.dev,resources=appwrappers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
@@ -119,7 +118,7 @@ func (j *AppWrapper) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (j *AppWrapper) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *AppWrapper) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 	podSpecTemplates, awPodSets, err := awutils.GetComponentPodSpecs((*awv1beta2.AppWrapper)(j))
 	if err != nil {
@@ -139,7 +138,7 @@ func (j *AppWrapper) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		}
 		if annotation, ok := awPodSets[psIndex].Annotations[awutils.PodSetAnnotationTASSubGroupCount]; ok {
 			if count, err := strconv.Atoi(annotation); err == nil {
-				subGroupCount = ptr.To(int32(count))
+				subGroupCount = new(int32(count))
 			} else {
 				log.Error(err, "Malformed annotation ignored",
 					"annotationKey", awutils.PodSetAnnotationTASSubGroupCount,
@@ -164,7 +163,7 @@ func (j *AppWrapper) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *AppWrapper) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *AppWrapper) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
 	awPodSetsInfo := make([]awv1beta2.AppWrapperPodSetInfo, len(podSetsInfo))
 	for idx := range podSetsInfo {
 		awPodSetsInfo[idx].Annotations = podSetsInfo[idx].Annotations
@@ -200,7 +199,7 @@ func (j *AppWrapper) Finished(ctx context.Context) (message string, success, fin
 	return "", false, false
 }
 
-func (j *AppWrapper) PodsReady(ctx context.Context) bool {
+func (j *AppWrapper) PodsReady(ctx context.Context, _ client.Client) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(awv1beta2.PodsReady))
 }
 

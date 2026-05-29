@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -94,14 +93,8 @@ func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Cl
 	// Apply default transformation: remove the managedBy field
 	a.removeManagedByField(remoteObj)
 
-	// Add MultiKueue labels
-	labels := remoteObj.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string)
-	}
-	labels[constants.PrebuiltWorkloadLabel] = workloadName
-	labels[kueue.MultiKueueOriginLabel] = origin
-	remoteObj.SetLabels(labels)
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(remoteObj, workloadName, origin)
 
 	// Create the object in the remote cluster
 	log.V(2).Info("Creating remote object", "gvk", a.gvk, "name", remoteObj.GetName(), "namespace", remoteObj.GetNamespace())
@@ -152,7 +145,7 @@ func (a *Adapter) copyStatusFromRemote(localObj, remoteObj *unstructured.Unstruc
 
 // DeleteRemoteObject deletes the remote object identified by the given key from the remote cluster.
 // It first attempts to retrieve the object, and if found, deletes it with background propagation policy.
-func (a *Adapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (a *Adapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(a.gvk)
 	obj.SetName(key.Name)
@@ -222,11 +215,10 @@ func (a *Adapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, err
 		return nil, fmt.Errorf("unexpected GVK: expected %s, got %s for object %s", a.gvk, objGVK, klog.KObj(unstructuredObj))
 	}
 
-	labels := unstructuredObj.GetLabels()
-	prebuiltWl, hasPrebuiltWorkload := labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(unstructuredObj)
+	if prebuiltWorkload == "" {
 		return nil, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(unstructuredObj))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWl, Namespace: unstructuredObj.GetNamespace()}}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: unstructuredObj.GetNamespace()}}, nil
 }

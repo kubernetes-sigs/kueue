@@ -17,6 +17,8 @@ limitations under the License.
 package rayjob
 
 import (
+	"fmt"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -110,6 +112,16 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	}
 	j.Labels[constants.QueueLabel] = queue
 	return j
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *JobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *JobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *JobWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 func (j *JobWrapper) RequestWorkerGroup(name corev1.ResourceName, quantity string) *JobWrapper {
@@ -285,7 +297,10 @@ func (j *JobWrapper) Env(rayType rayv1.RayNodeType, name, value string) *JobWrap
 		if j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env == nil {
 			j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = make([]corev1.EnvVar, 0)
 		}
-		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = append(j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env, corev1.EnvVar{Name: name, Value: value})
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = append(
+			j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env,
+			corev1.EnvVar{Name: name, Value: value},
+		)
 	}
 	return j
 }
@@ -313,9 +328,9 @@ func (j *JobWrapper) VolumeMounts(rayType rayv1.RayNodeType, volumeMounts []core
 }
 
 func (j *JobWrapper) TerminationGracePeriodSeconds(seconds int64) *JobWrapper {
-	j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	for i := range len(j.Spec.RayClusterSpec.WorkerGroupSpecs) {
-		j.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	}
 	return j
 }
@@ -327,7 +342,7 @@ func (j *JobWrapper) ManagedBy(c string) *JobWrapper {
 
 func (j *JobWrapper) Annotation(key string, value string) *JobWrapper {
 	if j.Annotations == nil {
-		j.Annotations = make(map[string]string)
+		j.Annotations = make(map[string]string, 1)
 	}
 	j.Annotations[key] = value
 	return j
@@ -336,7 +351,7 @@ func (j *JobWrapper) Annotation(key string, value string) *JobWrapper {
 func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
 	enable := true
 	aggressive := rayv1.UpscalingMode("Aggressive")
-	idleTimeoutSeconds := int32(5)
+	idleTimeoutSeconds := int32(10)
 	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = &enable
 	j.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
 		UpscalingMode:      &aggressive,
@@ -344,5 +359,23 @@ func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
 	}
 	// Must set suspend to false for autoscaling, since Kueue needs KubeRay to create underlying RayCluster and then manages that RayCluster
 	j.Spec.Suspend = false
+	return j
+}
+
+func (j *JobWrapper) MaxWorkerReplicas(count int32) *JobWrapper {
+	j.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = new(count)
+	return j
+}
+
+// RayStartParam sets a Ray start param for the specified ray node type.
+func (j *JobWrapper) RayStartParam(rayType rayv1.RayNodeType, key, value string) *JobWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		j.Spec.RayClusterSpec.HeadGroupSpec.RayStartParams[key] = value
+	case rayv1.WorkerNode:
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[0].RayStartParams[key] = value
+	default:
+		panic(fmt.Sprintf("unsupported RayNodeType: %v", rayType))
+	}
 	return j
 }

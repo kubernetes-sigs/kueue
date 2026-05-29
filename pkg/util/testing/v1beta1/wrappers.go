@@ -20,7 +20,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -171,12 +170,12 @@ func (rq *ResourceQuotaWrapper) NominalQuota(quantity string) *ResourceQuotaWrap
 }
 
 func (rq *ResourceQuotaWrapper) BorrowingLimit(quantity string) *ResourceQuotaWrapper {
-	rq.ResourceQuota.BorrowingLimit = ptr.To(resource.MustParse(quantity))
+	rq.ResourceQuota.BorrowingLimit = new(resource.MustParse(quantity))
 	return rq
 }
 
 func (rq *ResourceQuotaWrapper) LendingLimit(quantity string) *ResourceQuotaWrapper {
-	rq.ResourceQuota.LendingLimit = ptr.To(resource.MustParse(quantity))
+	rq.ResourceQuota.LendingLimit = new(resource.MustParse(quantity))
 	return rq
 }
 

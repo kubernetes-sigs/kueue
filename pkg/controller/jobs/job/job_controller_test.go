@@ -168,7 +168,7 @@ func TestPodsReady(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := tc.job.PodsReady(ctx)
+			got := tc.job.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -314,7 +314,7 @@ func TestPodSetsInfo(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			origSpec := *tc.job.Spec.DeepCopy()
 
-			gotErr := tc.job.RunWithPodSetsInfo(ctx, tc.runInfo)
+			gotErr := tc.job.RunWithPodSetsInfo(ctx, nil, tc.runInfo)
 
 			if diff := cmp.Diff(tc.wantRunError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
@@ -510,7 +510,7 @@ func TestPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.job.PodSets(ctx)
+			gotPodSets, err := tc.job.PodSets(ctx, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -580,7 +580,7 @@ func TestReconciler(t *testing.T) {
 		Queue(localQueueName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-		ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now)
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now)
 
 	baseWPCWrapper := utiltestingapi.MakeWorkloadPriorityClass("test-wpc").
 		PriorityValue(100)
@@ -599,7 +599,8 @@ func TestReconciler(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 
 		reconcilerOptions []jobframework.Option
-		job               batchv1.Job
+		reconcileKey      *types.NamespacedName
+		job               *batchv1.Job
 		workloads         []kueue.Workload
 		otherJobs         []batchv1.Job
 		priorityClasses   []client.Object
@@ -608,6 +609,96 @@ func TestReconciler(t *testing.T) {
 		wantEvents        []utiltesting.EventRecord
 		wantErr           error
 	}{
+		"job is not found with FinishOrphanedWorkloads disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
+			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_job"},
+			job:          nil,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(gvk, "deleted_job", "deleted_job").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					ControllerReference(gvk, "deleted_job", "deleted_job").
+					Obj(),
+			},
+		},
+		"job is not found with FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_job"},
+			job:          nil,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(gvk, "deleted_job", "deleted_job").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					ControllerReference(gvk, "deleted_job", "deleted_job").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadFinishedReasonOwnerNotFound,
+						Message:            "The workload's owner no longer exists",
+					}).
+					Obj(),
+			},
+		},
+		"job is deleted with FinishOrphanedWorkloads disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
+			job: baseJobWrapper.Clone().
+				DeletionTimestamp(now).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				DeletionTimestamp(now).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(gvk, baseJobWrapper.GetName(), string(baseJobWrapper.GetUID())).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					ControllerReference(gvk, baseJobWrapper.GetName(), string(baseJobWrapper.GetUID())).
+					Obj(),
+			},
+		},
+		"job is deleted with FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			job: baseJobWrapper.Clone().
+				DeletionTimestamp(now).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				DeletionTimestamp(now).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(gvk, baseJobWrapper.GetName(), string(baseJobWrapper.GetUID())).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					ControllerReference(gvk, baseJobWrapper.GetName(), string(baseJobWrapper.GetUID())).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadFinishedReasonOwnerNotFound,
+						Message:            "The workload's owner no longer exists",
+					}).
+					Obj(),
+			},
+		},
 		"PodsReady is set to False before Workload is Admitted": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:                     false,
@@ -617,7 +708,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			job:     *baseJobWrapper.DeepCopy(),
+			job:     baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
 				AdmittedAt(false, now).
@@ -643,7 +734,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			job:     *baseJobWrapper.DeepCopy(),
+			job:     baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
 				AdmittedAt(true, now).
@@ -669,7 +760,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Ready(9).
 				Active(10).
@@ -709,7 +800,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Ready(10).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -745,7 +836,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Ready(10).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -775,7 +866,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Ready(9).
 				Failed(1).
 				Obj(),
@@ -813,7 +904,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Ready(9).
 				Failed(1).
@@ -853,7 +944,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Ready(10).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -889,7 +980,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			job:     *baseJobWrapper.DeepCopy(),
+			job:     baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
 				AdmittedAt(true, now).
@@ -921,7 +1012,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Ready(10).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -957,7 +1048,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			job:     *baseJobWrapper.DeepCopy(),
+			job:     baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
 				AdmittedAt(true, now).
@@ -990,7 +1081,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			job: *baseJobWrapper.DeepCopy(),
+			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -1023,7 +1114,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    false,
 			},
-			job: *baseJobWrapper.DeepCopy(),
+			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -1053,7 +1144,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.DeepCopy(),
+			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -1064,7 +1155,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueNameWith100Chars).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueNameWith100Chars)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -1073,7 +1164,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueNameWith100Chars).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueNameWith100Chars)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -1092,7 +1183,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				SetAnnotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 				SetAnnotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
 				UID("test-uid").
@@ -1129,7 +1220,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Label("toCopyKey", "toCopyValue").
 				Label("dontCopyKey", "dontCopyValue").
 				UID("test-uid").
@@ -1169,8 +1260,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
-				Obj(),
+			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodLabel("ac-key", "ac-value").
@@ -1227,7 +1317,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -1321,7 +1411,7 @@ func TestReconciler(t *testing.T) {
 					},
 				}),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -1416,7 +1506,7 @@ func TestReconciler(t *testing.T) {
 					},
 				}),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -1511,7 +1601,7 @@ func TestReconciler(t *testing.T) {
 					},
 				}),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			workloads: []kueue.Workload{
@@ -1609,7 +1699,7 @@ func TestReconciler(t *testing.T) {
 					},
 				}),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -1704,7 +1794,7 @@ func TestReconciler(t *testing.T) {
 					},
 				}),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			workloads: []kueue.Workload{
@@ -1795,7 +1885,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -1856,7 +1946,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -1941,7 +2031,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -2026,7 +2116,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -2111,7 +2201,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -2197,7 +2287,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -2272,8 +2362,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
-				Obj(),
+			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
@@ -2348,8 +2437,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
-				Obj(),
+			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
@@ -2424,8 +2512,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
-				Obj(),
+			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
@@ -2500,7 +2587,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				NodeSelector("provisioning", "spot").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -2554,8 +2641,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
-				Obj(),
+			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodAnnotation("annotation-key1", "common-value").
@@ -2672,7 +2758,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			job: *baseJobWrapper.DeepCopy(),
+			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -2708,7 +2794,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			job:     *baseJobWrapper.DeepCopy(),
+			job:     baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2736,7 +2822,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			job:     *baseJobWrapper.DeepCopy(),
+			job:     baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
@@ -2772,7 +2858,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -2788,7 +2874,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -2802,7 +2888,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -2825,7 +2911,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(false).
 				Obj(),
@@ -2841,7 +2927,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -2867,7 +2953,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
 				Queue("test-queue").
@@ -2910,7 +2996,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
 				Queue("test-queue-new").
@@ -2950,7 +3036,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
 				WorkloadPriorityClass(highWPCWrapper.Name).
@@ -3003,7 +3089,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
 				PriorityClass(basePCWrapper.Name).
@@ -3048,7 +3134,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
 				Queue("test-queue").
@@ -3089,7 +3175,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *utiltestingjob.MakeJob("job", "ns").
+			job: utiltestingjob.MakeJob("job", "ns").
 				Suspend(false).
 				Obj(),
 			wantJob: *utiltestingjob.MakeJob("job", "ns").
@@ -3102,7 +3188,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Suspend(false).
@@ -3136,7 +3222,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Suspend(false).
@@ -3155,7 +3241,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
@@ -3163,7 +3249,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
@@ -3179,7 +3265,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Suspend(false).
@@ -3223,7 +3309,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
 				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
@@ -3245,7 +3331,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					AdmittedAt(true, now).
 					Obj(),
@@ -3254,7 +3340,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					AdmittedAt(true, now).
 					Obj(),
@@ -3270,7 +3356,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
 				Parallelism(5).
@@ -3284,7 +3370,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("first-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("second-workload", "ns").
@@ -3296,7 +3382,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("first-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -3311,7 +3397,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted, suspend, reset startTime and restore node affinity": {
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(false).
 				StartTime(now).
 				NodeSelector("provisioning", "spot").
@@ -3353,7 +3439,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(true).
 				StartTime(now).
 				NodeSelector("provisioning", "spot").
@@ -3388,7 +3474,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(true).
 				NodeSelector("provisioning", "spot").
 				Active(10).
@@ -3422,7 +3508,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Condition(batchv1.JobCondition{
 					Type:    batchv1.JobComplete,
 					Status:  corev1.ConditionTrue,
@@ -3470,7 +3556,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().Obj(),
+			job: baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -3485,7 +3571,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantJob: *baseJobWrapper.Clone().Obj(),
+			wantJob: *baseJobWrapper.DeepCopy(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
@@ -3514,7 +3600,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
 				Queue("test-queue").
@@ -3563,7 +3649,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
 				Queue("test-queue").
@@ -3612,7 +3698,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
 				Queue("test-queue").
@@ -3663,7 +3749,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{},
@@ -3678,15 +3764,15 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
-				Label(controllerconsts.PrebuiltWorkloadLabel, "missing-workload").
+				PrebuiltWorkloadLabel("missing-workload").
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				Label(controllerconsts.PrebuiltWorkloadLabel, "missing-workload").
+				PrebuiltWorkloadLabel("missing-workload").
 				UID("test-uid").
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -3705,15 +3791,15 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
@@ -3753,15 +3839,15 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
@@ -3800,15 +3886,15 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
@@ -3855,7 +3941,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+			job: baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
@@ -3924,7 +4010,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+			job: baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
@@ -3957,7 +4043,7 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "",
 					}).
 					Priority(0).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(kueue.PodSetAssignment{
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(kueue.PodSetAssignment{
 						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
@@ -3986,7 +4072,7 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "",
 					}).
 					Priority(0).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(kueue.PodSetAssignment{
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(kueue.PodSetAssignment{
 						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
@@ -4003,7 +4089,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+			job: baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
@@ -4033,7 +4119,7 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "",
 					}).
 					Priority(0).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(kueue.PodSetAssignment{
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(kueue.PodSetAssignment{
 						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
@@ -4058,7 +4144,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -4113,7 +4199,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -4178,7 +4264,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -4209,7 +4295,7 @@ func TestReconciler(t *testing.T) {
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
 				features.AssignQueueLabelsForPods:                    true,
 			},
-			job: *baseJobWrapper.Clone().
+			job: baseJobWrapper.Clone().
 				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -4255,7 +4341,7 @@ func TestReconciler(t *testing.T) {
 					"managed-by-kueue": "true",
 				})),
 			},
-			job: *baseJobWrapper.
+			job: baseJobWrapper.
 				Clone().
 				Queue("test-queue").
 				Suspend(false).
@@ -4279,7 +4365,7 @@ func TestReconciler(t *testing.T) {
 				})),
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job: *utiltestingjob.MakeJob("job", "labelled-ns").
+			job: utiltestingjob.MakeJob("job", "labelled-ns").
 				Queue("test-queue").
 				Suspend(true).
 				UID("test-uid").
@@ -4335,27 +4421,28 @@ func TestReconciler(t *testing.T) {
 					Label("managed-by-kueue", "true").
 					Obj()
 
-				objs := append(tc.priorityClasses, &tc.job, utiltestingapi.MakeResourceFlavor("default").Obj(), testNamespace, labelledNamespace)
-				kcBuilder := clientBuilder.
-					WithObjects(objs...)
-
-				if len(tc.otherJobs) > 0 {
-					kcBuilder = kcBuilder.WithLists(&batchv1.JobList{Items: tc.otherJobs})
+				objs := append(tc.priorityClasses, utiltestingapi.MakeResourceFlavor("default").Obj(), testNamespace, labelledNamespace)
+				if tc.job != nil {
+					objs = append(objs, tc.job)
 				}
 
-				for i := range tc.workloads {
-					kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
+				kClient := clientBuilder.
+					WithObjects(objs...).
+					WithLists(&batchv1.JobList{Items: tc.otherJobs}).
+					WithStatusSubresource(&kueue.Workload{}).
+					Build()
+
+				prebuiltWorkload := ""
+				if tc.job != nil {
+					// For prebuilt workloads we are skipping the ownership setup in the test body and
+					// expect the reconciler to do it.
+					prebuiltWorkload = jobframework.PrebuiltWorkloadNameFor(tc.job)
 				}
 
-				// For prebuilt workloads we are skipping the ownership setup in the test body and
-				// expect the reconciler to do it.
-				_, useesPrebuiltWorkload := tc.job.Labels[controllerconsts.PrebuiltWorkloadLabel]
-
-				kClient := kcBuilder.Build()
 				for _, testWl := range tc.workloads {
 					controller := metav1.GetControllerOfNoCopy(&testWl)
-					if !useesPrebuiltWorkload && controller == nil {
-						if err := ctrl.SetControllerReference(&tc.job, &testWl, kClient.Scheme()); err != nil {
+					if prebuiltWorkload == "" && controller == nil {
+						if err := ctrl.SetControllerReference(tc.job, &testWl, kClient.Scheme()); err != nil {
 							t.Fatalf("Could not setup owner reference in Workloads: %v", err)
 						}
 					}
@@ -4370,16 +4457,19 @@ func TestReconciler(t *testing.T) {
 					t.Errorf("Error creating the reconciler: %v", err)
 				}
 
-				jobKey := client.ObjectKeyFromObject(&tc.job)
-				_, err = reconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: jobKey,
-				})
+				var reconcileRequest reconcile.Request
+				if tc.reconcileKey != nil {
+					reconcileRequest.NamespacedName = *tc.reconcileKey
+				} else {
+					reconcileRequest.NamespacedName = client.ObjectKeyFromObject(tc.job)
+				}
+				_, err = reconciler.Reconcile(ctx, reconcileRequest)
 				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 				}
 
 				var gotJob batchv1.Job
-				if err := kClient.Get(ctx, jobKey, &gotJob); client.IgnoreNotFound(err) != nil {
+				if err := kClient.Get(ctx, reconcileRequest.NamespacedName, &gotJob); client.IgnoreNotFound(err) != nil {
 					t.Fatalf("Could not get Job after reconcile: %v", err)
 				}
 				if diff := cmp.Diff(tc.wantJob, gotJob, jobCmpOpts...); diff != "" {
@@ -4391,7 +4481,7 @@ func TestReconciler(t *testing.T) {
 				}
 
 				wlCheckOpts := workloadCmpOpts
-				if useesPrebuiltWorkload {
+				if prebuiltWorkload != "" {
 					wlCheckOpts = workloadCmpOptsWithOwner
 				}
 

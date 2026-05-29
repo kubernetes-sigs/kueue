@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -67,12 +66,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
 
-	// add the prebuilt workload
-	if remoteJob.Labels == nil {
-		remoteJob.Labels = map[string]string{}
-	}
-	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remoteJob, workloadName, origin)
 
 	// clear the managedBy enables the TrainJob controller to take over
 	remoteJob.Spec.ManagedBy = nil
@@ -85,7 +80,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	job := kftrainerapi.TrainJob{}
 	job.SetName(key.Name)
 	job.SetNamespace(key.Namespace)
@@ -121,10 +116,10 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		return nil, errors.New("not a trainjob")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := trainJob.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(trainJob)
+	if prebuiltWorkload == "" {
 		return nil, fmt.Errorf("no prebuilt workload found for trainjob: %s", klog.KObj(trainJob))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWl, Namespace: trainJob.Namespace}}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: trainJob.Namespace}}, nil
 }

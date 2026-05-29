@@ -70,6 +70,7 @@ var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
 				Queue("main").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Suspend(false).
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, testJob)
 

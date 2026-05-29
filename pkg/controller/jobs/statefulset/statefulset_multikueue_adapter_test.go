@@ -25,11 +25,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -52,8 +53,10 @@ func TestMultiKueueAdapter(t *testing.T) {
 		wantError                error
 		wantManagersStatefulSets []appsv1.StatefulSet
 		wantWorkerStatefulSets   []appsv1.StatefulSet
+		featureGates             map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote statefulset": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
 					UID("manager-uid").
@@ -69,19 +72,20 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid").
 					Obj(),
 			},
 		},
 		"sync status from remote statefulset": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).Obj(),
 			},
 			workerStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusReplicas(3).
 					ReadyReplicas(2).
@@ -96,7 +100,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusReplicas(3).
 					ReadyReplicas(2).
@@ -104,19 +108,21 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"remote statefulset is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusReplicas(3).
 					ReadyReplicas(2).
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "statefulset1", Namespace: TestNamespace})
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "statefulset1", Namespace: TestNamespace})
 			},
 		},
 		"IsJobManagedByKueue returns true": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).Obj(),
 			},
@@ -134,9 +140,33 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).Obj(),
 			},
 		},
+		"sync creates missing remote statefulset, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersStatefulSets: []appsv1.StatefulSet{
+				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
+					UID("manager-uid").
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "statefulset1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersStatefulSets: []appsv1.StatefulSet{
+				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
+					UID("manager-uid").
+					Obj(),
+			},
+			wantWorkerStatefulSets: []appsv1.StatefulSet{
+				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
+					PrebuiltWorkloadAnnotation("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid").
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder(appsv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			managerBuilder = managerBuilder.WithLists(&appsv1.StatefulSetList{Items: tc.managersStatefulSets})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersStatefulSets, func(w *appsv1.StatefulSet) client.Object { return w })...)

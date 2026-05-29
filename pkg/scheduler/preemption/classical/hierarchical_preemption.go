@@ -176,7 +176,14 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 
 // visit the nodes in the hierarchy and collect the ones that exceed quota
 // avoid subtrees that are within quota and the skipped subtree
-func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, currentCohort *schdcache.CohortSnapshot, subtreeRoot *schdcache.CohortSnapshot, skipSubtree *schdcache.CohortSnapshot, hasHierarchicalAdvantage bool, result *[]*candidateElem) {
+func collectCandidatesInSubtree(
+	ctx *HierarchicalPreemptionCtx,
+	currentCohort *schdcache.CohortSnapshot,
+	subtreeRoot *schdcache.CohortSnapshot,
+	skipSubtree *schdcache.CohortSnapshot,
+	hasHierarchicalAdvantage bool,
+	result *[]*candidateElem,
+) {
 	for _, childCohort := range currentCohort.ChildCohorts() {
 		// we already processed this subtree
 		if childCohort == skipSubtree {
@@ -211,16 +218,16 @@ func getNodeHeight(node *schdcache.CohortSnapshot) int {
 // that fits additional val of resource fr. If no such subtree exists, it returns
 // height the whole cohort hierarchy. Note that height of a trivial subtree
 // with only one node is 0. It also returns if the returned subtree is smaller than the whole cohort tree.
-func FindHeightOfLowestSubtreeThatFits(c *schdcache.ClusterQueueSnapshot, fr resources.FlavorResource, val int64) (int, bool) {
+func FindHeightOfLowestSubtreeThatFits(c *schdcache.ClusterQueueSnapshot, fr resources.FlavorResource, val resources.Amount) (int, bool) {
 	if !c.BorrowingWith(fr, val) || !c.HasParent() {
 		return 0, c.HasParent()
 	}
-	remaining := val - schdcache.LocalAvailable(c, fr)
+	remaining := val.Sub(schdcache.LocalAvailable(c, fr))
 	for trackingNode := range c.PathParentToRoot() {
 		if !trackingNode.BorrowingWith(fr, remaining) {
 			return getNodeHeight(trackingNode), trackingNode.HasParent()
 		}
-		remaining -= schdcache.LocalAvailable(trackingNode, fr)
+		remaining = remaining.Sub(schdcache.LocalAvailable(trackingNode, fr))
 	}
 	// no fit found
 	return getNodeHeight(c.Parent().Root()), false

@@ -26,8 +26,17 @@ const (
 	// if QueueLabel is not specified.
 	DefaultLocalQueueName kueue.LocalQueueName = "default"
 
-	// PrebuiltWorkloadLabel is the label key of the job holding the name of the pre-built workload to use.
+	// PrebuiltWorkloadLabel is the label key on jobs that stores the name of the pre-built workload.
+	// This label is always allowed, including when the WorkloadIdentifierAnnotations feature is enabled.
+	// When the feature is enabled, we use the annotation value by default;
+	// if the annotation is absent, we fall back to this label.
 	PrebuiltWorkloadLabel = "kueue.x-k8s.io/prebuilt-workload-name"
+
+	// PrebuiltWorkloadAnnotation is the annotation key on jobs that stores the name of the pre-built workload.
+	// This annotation is allowed only when the WorkloadIdentifierAnnotations feature is enabled.
+	// When enabled, we use the value of pre-built workload from the annotation by default;
+	// if it is not present, we fall back to the label.
+	PrebuiltWorkloadAnnotation = "kueue.x-k8s.io/prebuilt-workload-name"
 
 	// JobUIDLabel is the label key in the workload resource, that holds the UID of
 	// the owner job.
@@ -37,6 +46,11 @@ const (
 	// workloadPriorityClass name.
 	// This label is always mutable because it might be useful for the preemption.
 	WorkloadPriorityClassLabel = "kueue.x-k8s.io/priority-class"
+
+	// DefaultWorkloadPriorityClassName is the name for the default
+	// WorkloadPriorityClass that is applied if WorkloadPriorityClassLabel is not
+	// specified and the WorkloadPriorityClassDefaulting feature gate is enabled.
+	DefaultWorkloadPriorityClassName = "default"
 
 	// ProvReqAnnotationPrefix is the prefix for annotations that should be pass to ProvisioningRequest as Parameters.
 	ProvReqAnnotationPrefix = "provreq.kueue.x-k8s.io/"
@@ -67,4 +81,14 @@ const (
 	// external controllers to adjust a workload's effective priority.
 	// Positive values increase priority; negative values decrease it.
 	PriorityBoostAnnotationKey = "kueue.x-k8s.io/priority-boost"
+
+	// WorkloadAllowedResourceFlavorAnnotation is an annotation used with ConcurrentAdmission feature
+	// It's set on a Workload level that defines which ResourceFlavors can be assigned to this Workload by Kueue scheduler.
+	// The value is a comma-separated list of resource flavor names (e.g., "reservation,spot").
+	WorkloadAllowedResourceFlavorAnnotation = "kueue.x-k8s.io/workload-allowed-resource-flavors"
+
+	// ConcurrentAdmissionParentLabelKey is the label key in the Workload that is a Parent of Variants.
+	// The value of this label is boolean, and it is set to "true" if the Workload is a parent of Variants.
+	// The label is used with ConcurrentAdmission feature.
+	ConcurrentAdmissionParentLabelKey = "kueue.x-k8s.io/concurrent-admission-parent"
 )

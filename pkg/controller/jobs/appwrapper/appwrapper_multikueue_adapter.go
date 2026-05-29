@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -67,12 +66,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		Spec:       *localAppWrapper.Spec.DeepCopy(),
 	}
 
-	// add the prebuilt workload
-	if remoteAppWrapper.Labels == nil {
-		remoteAppWrapper.Labels = map[string]string{}
-	}
-	remoteAppWrapper.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteAppWrapper.Labels[kueue.MultiKueueOriginLabel] = origin
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remoteAppWrapper, workloadName, origin)
 
 	// clear the managedBy to enable the remote AppWrapper controller to take over
 	remoteAppWrapper.Spec.ManagedBy = nil
@@ -80,7 +75,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteAppWrapper)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	aw := &awv1beta2.AppWrapper{}
 	aw.SetName(key.Name)
 	aw.SetNamespace(key.Namespace)
@@ -116,10 +111,10 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		return nil, errors.New("not an appwrapper")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := aw.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(aw)
+	if prebuiltWorkload == "" {
 		return nil, fmt.Errorf("no prebuilt workload found for appwrapper: %s", klog.KObj(aw))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWl, Namespace: aw.Namespace}}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: aw.Namespace}}, nil
 }

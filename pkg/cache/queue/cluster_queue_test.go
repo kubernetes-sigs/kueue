@@ -34,6 +34,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -80,7 +81,7 @@ func Test_PushOrUpdate(t *testing.T) {
 		},
 		"workload is still under the backoff waiting time": {
 			workload: wlBase.Clone().
-				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteLater))).
+				RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteLater))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -93,7 +94,7 @@ func Test_PushOrUpdate(t *testing.T) {
 			wantInAdmissibleWorkloads: inadmissibleWorkloads{
 				"default/workload-1": workload.NewInfo(wlBase.Clone().
 					ResourceVersion("1").
-					RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteLater))).
+					RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteLater))).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -165,7 +166,7 @@ func Test_PushOrUpdate(t *testing.T) {
 			if cq.PendingTotal() != 0 {
 				t.Error("ClusterQueue should be empty")
 			}
-			cq.PushOrUpdate(workload.NewInfo(tc.workload.Clone().Obj()))
+			cq.PushOrUpdate(workload.NewInfo(tc.workload.DeepCopy()))
 			if cq.PendingTotal() != 1 {
 				t.Error("ClusterQueue should have one workload")
 			}
@@ -259,7 +260,7 @@ func TestPushOrUpdateGenerationChanged(t *testing.T) {
 		"stays inadmissible when generation changed but backoff unexpired": {
 			updatedWorkload: utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
 				Creation(now).Generation(2).ResourceVersion("2").Priority(300).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(now.Add(time.Hour)))).
+				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(time.Hour)))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadRequeued,
 					Status: metav1.ConditionFalse,
@@ -287,7 +288,7 @@ func TestPushOrUpdateGenerationChanged(t *testing.T) {
 			// Simulate RequeueWorkload with info.Update: inadmissible entry gets new generation.
 			updatedInfo := workload.NewInfo(tc.updatedWorkload)
 			updatedInfo.LastEvaluatedGeneration = head.LastEvaluatedGeneration
-			cq.requeueIfNotPresent(log, updatedInfo, false)
+			cq.requeueIfNotPresent(log, updatedInfo, false, RequeueReasonGeneric)
 
 			// PushOrUpdate from informer event with the updated workload.
 			cq.PushOrUpdate(workload.NewInfo(tc.updatedWorkload))
@@ -379,11 +380,11 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 			},
 			inadmissibleWorkloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-3")).
-					RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(backoffUntil))).
+					RequeueState(ptr.To[int32](1), new(metav1.NewTime(backoffUntil))).
 					Condition(metav1.Condition{Type: kueue.WorkloadRequeued, Status: metav1.ConditionFalse}).
 					Obj(),
 				utiltestingapi.MakeWorkload("wl4", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-4")).
-					RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(backoffUntil))).
+					RequeueState(ptr.To[int32](1), new(metav1.NewTime(backoffUntil))).
 					Condition(metav1.Condition{Type: kueue.WorkloadRequeued, Status: metav1.ConditionFalse}).
 					Obj(),
 			},
@@ -399,7 +400,7 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 				cq.PushOrUpdate(workload.NewInfo(w))
 			}
 			for _, w := range tc.inadmissibleWorkloads {
-				cq.requeueIfNotPresent(log, workload.NewInfo(w), false)
+				cq.requeueIfNotPresent(log, workload.NewInfo(w), false, RequeueReasonGeneric)
 			}
 
 			firstSnap := cq.Snapshot()
@@ -417,9 +418,9 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 
 	builder := utiltesting.NewClientBuilder().WithObjects(
 		utiltestingapi.MakeLocalQueue("lq1", defaultNamespace).
-			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).Obj(),
+			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).Obj(),
 		utiltestingapi.MakeLocalQueue("lq2", defaultNamespace).
-			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).Obj(),
+			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).Obj(),
 	)
 
 	afsConsumedResources := queueafs.NewAfsConsumedResources()
@@ -477,6 +478,99 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 	}
 }
 
+func TestPendingResources(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	makePodSetWl := func(name string, cpu, memory string) *workload.Info {
+		ps := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, cpu).
+			Request(corev1.ResourceMemory, memory)
+		return workload.NewInfo(utiltestingapi.MakeWorkload(name, defaultNamespace).
+			PodSets(*ps.Obj()).
+			Creation(now).Obj())
+	}
+
+	// Empty queue returns empty map.
+	if got := cq.pendingResources(); len(got) != 0 {
+		t.Errorf("expected empty PendingResources on empty queue, got %v", got)
+	}
+
+	wl1 := makePodSetWl("wl1", "2", "1Gi")   // heap
+	wl2 := makePodSetWl("wl2", "1", "512Mi") // inadmissible
+	wl3 := makePodSetWl("wl3", "3", "2Gi")   // will be popped (inflight)
+
+	cq.PushOrUpdate(wl1)
+	cq.PushOrUpdate(wl3)
+	cq.requeueIfNotPresent(log, wl2, false, RequeueReasonGeneric)
+
+	// Pop wl1 or wl3 to make it inflight (heap pops in creation order).
+	inflight := cq.Pop()
+	if inflight == nil {
+		t.Fatal("expected to pop a workload")
+	}
+
+	got := cq.pendingResources()
+
+	// All three workloads (heap + inadmissible + inflight) should be counted.
+	if got[corev1.ResourceCPU] == 0 {
+		t.Errorf("expected non-zero CPU in PendingResources, got %v", got)
+	}
+	if got[corev1.ResourceMemory] == 0 {
+		t.Errorf("expected non-zero memory in PendingResources, got %v", got)
+	}
+
+	// Sum should equal wl1 + wl2 + wl3: CPU = 2+1+3 = 6000m, Memory = 1Gi+512Mi+2Gi.
+	wantCPU := wl1.TotalRequests[0].Requests[corev1.ResourceCPU] +
+		wl2.TotalRequests[0].Requests[corev1.ResourceCPU] +
+		wl3.TotalRequests[0].Requests[corev1.ResourceCPU]
+	wantMemory := wl1.TotalRequests[0].Requests[corev1.ResourceMemory] +
+		wl2.TotalRequests[0].Requests[corev1.ResourceMemory] +
+		wl3.TotalRequests[0].Requests[corev1.ResourceMemory]
+	if got[corev1.ResourceCPU] != wantCPU {
+		t.Errorf("CPU mismatch: want %d, got %d", wantCPU, got[corev1.ResourceCPU])
+	}
+	if got[corev1.ResourceMemory] != wantMemory {
+		t.Errorf("memory mismatch: want %d, got %d", wantMemory, got[corev1.ResourceMemory])
+	}
+}
+
+func TestPendingInLocalQueueCountsInflight(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	inflightWl := utiltestingapi.MakeWorkload("wl-inflight", defaultNamespace).
+		Queue("lq-a").
+		Creation(now).
+		Obj()
+	otherWl := utiltestingapi.MakeWorkload("wl-other", defaultNamespace).
+		Queue("lq-b").
+		Creation(now.Add(time.Second)).
+		Obj()
+
+	cq.PushOrUpdate(workload.NewInfo(inflightWl))
+	cq.PushOrUpdate(workload.NewInfo(otherWl))
+
+	popped := cq.Pop()
+	if popped == nil {
+		t.Fatal("expected to pop a workload")
+	}
+
+	lqA := utilqueue.NewLocalQueueReference(defaultNamespace, kueue.LocalQueueName("lq-a"))
+	activeA, inadmissibleA := cq.PendingInLocalQueue(lqA)
+	if activeA != 1 || inadmissibleA != 0 {
+		t.Fatalf("LocalQueue lq-a pending mismatch: active=%d inadmissible=%d, want active=1 inadmissible=0", activeA, inadmissibleA)
+	}
+
+	lqB := utilqueue.NewLocalQueueReference(defaultNamespace, kueue.LocalQueueName("lq-b"))
+	activeB, inadmissibleB := cq.PendingInLocalQueue(lqB)
+	if activeB != 1 || inadmissibleB != 0 {
+		t.Fatalf("LocalQueue lq-b pending mismatch: active=%d inadmissible=%d, want active=1 inadmissible=0", activeB, inadmissibleB)
+	}
+}
+
 func Test_DeleteFromLocalQueue(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
@@ -497,7 +591,7 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 
 	for _, w := range inadmissibleWorkloads {
 		wInfo := workload.NewInfo(w)
-		cq.requeueIfNotPresent(log, wInfo, false)
+		cq.requeueIfNotPresent(log, wInfo, false, RequeueReasonGeneric)
 		qImpl.AddOrUpdate(wInfo)
 	}
 
@@ -531,7 +625,7 @@ func TestClusterQueueImpl(t *testing.T) {
 		utiltestingapi.MakeWorkload("w2", "ns2").Queue("q2").Obj(),
 		utiltestingapi.MakeWorkload("w3", "ns3").Queue("q3").Obj(),
 		utiltestingapi.MakeWorkload("w4-requeue-state", "ns1").
-			RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(minuteLater))).
+			RequeueState(ptr.To[int32](1), new(metav1.NewTime(minuteLater))).
 			Queue("q1").
 			Condition(metav1.Condition{
 				Type:   kueue.WorkloadEvicted,
@@ -684,10 +778,10 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			for _, w := range test.inadmissibleWorkloadsToRequeue {
-				cq.requeueIfNotPresent(log, w, false)
+				cq.requeueIfNotPresent(log, w, false, RequeueReasonGeneric)
 			}
 			for _, w := range test.admissibleWorkloadsToRequeue {
-				cq.requeueIfNotPresent(log, w, true)
+				cq.requeueIfNotPresent(log, w, true, RequeueReasonGeneric)
 			}
 
 			for _, w := range test.workloadsToUpdate {
@@ -734,7 +828,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	// Simulate requeuing during scheduling attempt.
 	head := cq.Pop()
 	queueInadmissibleWorkloads(ctx, cq, cl)
-	cq.requeueIfNotPresent(log, head, false)
+	cq.requeueIfNotPresent(log, head, false, RequeueReasonGeneric)
 
 	activeWorkloads, _ = cq.Dump()
 	wantActiveWorkloads = []workload.Reference{workload.Key(wl)}
@@ -744,7 +838,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 
 	// Simulating scheduling again without requeuing.
 	head = cq.Pop()
-	cq.requeueIfNotPresent(log, head, false)
+	cq.requeueIfNotPresent(log, head, false, RequeueReasonGeneric)
 	activeWorkloads, _ = cq.Dump()
 	wantActiveWorkloads = nil
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads, cmpDump...); diff != "" {
@@ -780,7 +874,7 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 		},
 		"now already has exceeded requeueAt": {
 			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteAgo))).
+				RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteAgo))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Status: metav1.ConditionTrue,
@@ -790,7 +884,7 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 		},
 		"now hasn't yet exceeded requeueAt": {
 			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(minuteLater))).
+				RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteLater))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Status: metav1.ConditionTrue,
@@ -816,9 +910,19 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 		reason           RequeueReason
 		lastAssignment   *workload.AssignmentClusterQueueState
 		wantInadmissible bool
+		wantSticky       bool
 	}{
 		"failure after nomination": {
 			reason:           RequeueReasonFailedAfterNomination,
+			wantInadmissible: false,
+		},
+		"pending preemption": {
+			reason:           RequeueReasonPendingPreemption,
+			wantInadmissible: false,
+			wantSticky:       true,
+		},
+		"preemption failed": {
+			reason:           RequeueReasonPreemptionFailed,
 			wantInadmissible: false,
 		},
 		"namespace doesn't match": {
@@ -855,6 +959,14 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 			},
 			wantInadmissible: false,
 		},
+		"nofit": {
+			reason:           RequeueReasonNoFit,
+			wantInadmissible: true,
+		},
+		"preempt no candidates": {
+			reason:           RequeueReasonPreemptionNoCandidates,
+			wantInadmissible: true,
+		},
 	}
 
 	for name, tc := range tests {
@@ -878,6 +990,11 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
 			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible); diff != "" {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
+			}
+
+			gotSticky := cq.sw.matches(workload.Key(wl))
+			if diff := cmp.Diff(tc.wantSticky, gotSticky); diff != "" {
+				t.Errorf("Unexpected sticky status (-want,+got):\n%s", diff)
 			}
 
 			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), tc.reason); ok {
@@ -1138,12 +1255,12 @@ func TestFsAdmission(t *testing.T) {
 			lqs: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).
 					Obj(),
 				*utiltestingapi.MakeLocalQueue("lqB", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{},
@@ -1164,12 +1281,12 @@ func TestFsAdmission(t *testing.T) {
 			lqs: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).
 					Obj(),
 				*utiltestingapi.MakeLocalQueue("lqB", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{
@@ -1195,12 +1312,12 @@ func TestFsAdmission(t *testing.T) {
 			lqs: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).
 					Obj(),
 				*utiltestingapi.MakeLocalQueue("lqB", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("2")),
+						Weight: new(resource.MustParse("2")),
 					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{},
@@ -1221,7 +1338,7 @@ func TestFsAdmission(t *testing.T) {
 			lqs: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("lqA", "default").
 					FairSharing(&kueue.FairSharing{
-						Weight: ptr.To(resource.MustParse("1")),
+						Weight: new(resource.MustParse("1")),
 					}).Obj(),
 			},
 			afsConfig: &config.AdmissionFairSharing{},
@@ -1438,5 +1555,59 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 	active, inadmissible := cq.Pending()
 	if active != 1 || inadmissible != 0 {
 		t.Errorf("after requeue: active=%d inadmissible=%d, want active=1 inadmissible=0", active, inadmissible)
+	}
+}
+
+func TestRequeueHashTriggerByReason(t *testing.T) {
+	tests := map[string]struct {
+		reason   RequeueReason
+		wantHash bool
+	}{
+		"nofit triggers hash": {
+			reason:   RequeueReasonNoFit,
+			wantHash: true,
+		},
+		"preempt no candidates triggers hash": {
+			reason:   RequeueReasonPreemptionNoCandidates,
+			wantHash: true,
+		},
+		"namespace mismatch does not trigger hash": {
+			reason:   RequeueReasonNamespaceMismatch,
+			wantHash: false,
+		},
+		"preemption gated does not trigger hash": {
+			reason:   RequeueReasonPreemptionGated,
+			wantHash: false,
+		},
+		"generic does not trigger hash": {
+			reason:   RequeueReasonGeneric,
+			wantHash: false,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cq, _ := newClusterQueue(ctx, nil,
+				&kueue.ClusterQueue{
+					Spec: kueue.ClusterQueueSpec{
+						QueueingStrategy: kueue.BestEffortFIFO,
+					},
+				},
+				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
+				nil, nil, nil)
+
+			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
+				Request(corev1.ResourceCPU, "1").Obj()
+			info := workload.NewInfo(wl)
+			info.SchedulingHash = "test-hash-abc"
+			cq.RequeueIfNotPresent(ctx, info, tc.reason)
+
+			gotHash := cq.noFitSchedulingHashes.Has("test-hash-abc")
+			if gotHash != tc.wantHash {
+				t.Errorf("noFitSchedulingHashes.Has(hash) = %v, want %v", gotHash, tc.wantHash)
+			}
+		})
 	}
 }

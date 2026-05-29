@@ -20,7 +20,6 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/kubectl/pkg/util/templates"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
@@ -51,7 +50,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 		Long:                  wlLong,
 		Example:               wlExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgsFunction:     completion.WorkloadNameFunc(clientGetter, ptr.To(true)),
+		ValidArgsFunction:     completion.WorkloadNameFunc(clientGetter, new(true)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter, cmd, args)

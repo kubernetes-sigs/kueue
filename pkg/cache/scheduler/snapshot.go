@@ -33,9 +33,19 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+type inactiveCQReason string
+
+const (
+	inactiveCQReasonNotActive         inactiveCQReason = "NotActive"
+	inactiveCQReasonHasCycle          inactiveCQReason = "HasCycle"
+	inactiveCQReasonTASUsageNotSynced inactiveCQReason = "TASUsageNotSynced"
 )
 
 type Snapshot struct {
@@ -176,17 +186,36 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	log := ctrl.LoggerFrom(ctx)
 	cqNames := c.hm.ClusterQueues()
 	for _, cq := range cqNames {
-		if !cq.Active() || (cq.HasParent() && hierarchy.HasCycle(cq.Parent())) {
+		if reason := skipInactiveCQReason(cq); reason != "" {
+			log.V(3).Info("Skipping ClusterQueue", "clusterQueue", cq.Name, "reason", reason)
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
-		// ensure all workloads are accounted for TAS before building TAS snapshots
-		cq.ensureTASIsSynced(log)
 	}
 	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		for flavor, cache := range c.tasCache.Clone() {
-			tasSnapshots[flavor] = cache.snapshot(log, c.tasCache.nodesCache.find(cache.flavor.NodeLabels, cache.topology.Levels))
+		var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
+		flvTASCache := c.tasCache.Clone()
+
+		if features.Enabled(features.TASHandleOverlappingFlavors) {
+			aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
+			for _, cache := range flvTASCache {
+				c.snapshotTopologyDomainUsages(cache, aggregatedDomainUsages)
+			}
+			log.V(4).Info("Aggregated TAS usage across flavors")
+		}
+		for flavor, cache := range flvTASCache {
+			// Only when this flavor is aggregation targets,
+			// we should propagate aggregated domain usages to snapshot constructions.
+			var aggregatedDomainUsagesForFlavor map[utiltas.TopologyDomainID]resources.Requests
+			if features.Enabled(features.TASHandleOverlappingFlavors) && utiltas.IsLowestLevelHostname(cache.topology.Levels) {
+				aggregatedDomainUsagesForFlavor = aggregatedDomainUsages
+			}
+			tasSnapshots[flavor] = cache.snapshot(
+				log,
+				c.tasCache.nodesCache.find(cache.flavor.NodeLabels, cache.topology.Levels),
+				aggregatedDomainUsagesForFlavor,
+			)
 		}
 	}
 	for _, cq := range cqNames {
@@ -214,9 +243,49 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	return &snap, nil
 }
 
+func (c *Cache) snapshotTopologyDomainUsages(
+	tasFlvCache *TASFlavorCache, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+) {
+	tasFlvCache.RLock()
+	defer tasFlvCache.RUnlock()
+
+	if len(tasFlvCache.topology.Levels) == 0 || !utiltas.IsLowestLevelHostname(tasFlvCache.topology.Levels) {
+		return
+	}
+	for domainID, domainUsage := range tasFlvCache.usage {
+		if _, ok := aggregatedDomainUsages[domainID]; ok {
+			aggregatedDomainUsages[domainID].Add(domainUsage)
+		} else {
+			aggregatedDomainUsages[domainID] = domainUsage.Clone()
+		}
+	}
+}
+
+// skipInactiveCQReason reports why the CQ should not be considered for
+// admitting workloads in this scheduler snapshot. If the CQ can be considered,
+// an empty reason is returned.
+func skipInactiveCQReason(cq *clusterQueue) inactiveCQReason {
+	if !cq.Active() {
+		return inactiveCQReasonNotActive
+	}
+	if cq.HasParent() && hierarchy.HasCycle(cq.Parent()) {
+		return inactiveCQReasonHasCycle
+	}
+	if features.Enabled(features.TopologyAwareScheduling) && len(cq.tasFlavors) > 0 && !cq.isTASSynced {
+		// The CQ uses a TAS flavor, but TAS usage is not synced yet.
+		return inactiveCQReasonTASUsageNotSynced
+	}
+	return ""
+}
+
 // snapshotClusterQueue creates a copy of ClusterQueue that includes
 // references to immutable objects and deep copies of changing ones.
-func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsEntryPenalties *queueafs.AfsEntryPenalties, afsConsumedResources *queueafs.AfsConsumedResources) (*ClusterQueueSnapshot, error) {
+func (c *Cache) snapshotClusterQueue(
+	ctx context.Context,
+	cq *clusterQueue,
+	afsEntryPenalties *queueafs.AfsEntryPenalties,
+	afsConsumedResources *queueafs.AfsConsumedResources,
+) (*ClusterQueueSnapshot, error) {
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
 		Name:                          cq.Name,
@@ -230,6 +299,7 @@ func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsE
 		Status:                        cq.Status,
 		AdmissionChecks:               utilmaps.DeepCopySets(cq.AdmissionChecks),
 		ResourceNode:                  cq.resourceNode.Clone(),
+		ConcurrentAdmissionPolicy:     cq.ConcurrentAdmissionPolicy,
 		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
 		tasOnly:                       cq.isTASOnly(),
 		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),

@@ -33,6 +33,8 @@ spec:
     kind: MultiKueueConfig
     listKind: MultiKueueConfigList
     plural: multikueueconfigs
+    shortNames:
+      - mkconf
     singular: multikueueconfig
   scope: Cluster
   versions:
@@ -109,6 +111,18 @@ spec:
                   minItems: 1
                   type: array
                   x-kubernetes-list-type: set
+                quotaManagement:
+                  description: |-
+                    quotaManagement specifies the management of ClusterQueue quotas
+                    in the manager cluster.
+                    Supported modes:
+                    - `Manual`: Quota automation is manual.
+                    - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+                    If unspecified, defaults to `Manual`.
+                  enum:
+                    - Manual
+                    - Automated
+                  type: string
               required:
                 - clusters
               type: object

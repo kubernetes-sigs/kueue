@@ -17,7 +17,10 @@ limitations under the License.
 package tas
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -67,6 +70,24 @@ func TestNodeFailureReconciler(t *testing.T) {
 					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(), testStartTime,
+		).
+		AdmittedAt(true, testStartTime).
+		Obj()
+
+	baseResourceFlavor := utiltestingapi.MakeResourceFlavor("unit-test-flavor").Obj()
+
+	workloadReassigned := utiltestingapi.MakeWorkload(wlName, nsName).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName2}, 1).Obj()).
 						Obj()).
 					Obj()).
 				Obj(), testStartTime,
@@ -178,6 +199,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 		// Patching the status in tests (via fake client and strategic merge interceptor)
 		// doesn't correctly handle clearing the list.
 		ignoreUnhealthyNodes bool
+		wantError            bool
+		injectPatchError     bool
 	}{
 		"Node Found and Healthy - not marked as unavailable": {
 			initObjs: []client.Object{
@@ -316,6 +339,55 @@ func TestNodeFailureReconciler(t *testing.T) {
 			},
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+		},
+		"Node Deleted, late pod exists for reassigned workload -> UnhealthyNodes not polluted": {
+			initObjs: []client.Object{
+				workloadReassigned,
+				testingpod.MakePod("late-pod", nsName).
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					NodeSelector(corev1.LabelHostname, nodeName).
+					StatusPhase(corev1.PodPending).
+					Obj(),
+			},
+			reconcileRequests:    []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes:   nil,
+			ignoreUnhealthyNodes: false,
+		},
+		"NodeReady missing, late pod exists for reassigned workload -> UnhealthyNodes not polluted": {
+			initObjs: []client.Object{
+				testingnode.MakeNode(nodeName).Obj(),
+				workloadReassigned,
+				testingpod.MakePod("late-pod", nsName).
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					NodeSelector(corev1.LabelHostname, nodeName).
+					StatusPhase(corev1.PodPending).
+					Obj(),
+			},
+			reconcileRequests:    []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes:   nil,
+			ignoreUnhealthyNodes: false,
+		},
+		"Node NotReady, timer expired, patch fails during removal -> UnhealthyNodes not polluted": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: earlierTime}).Obj(),
+				workloadReassigned,
+				testingpod.MakePod("late-pod", nsName).
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					NodeSelector(corev1.LabelHostname, nodeName).
+					StatusPhase(corev1.PodPending).
+					Obj(),
+			},
+			reconcileRequests:    []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes:   nil,
+			ignoreUnhealthyNodes: false,
+			injectPatchError:     true,
+			wantError:            false,
 		},
 		"Two Nodes Unhealthy (NotReady), delay passed - workload evicted": {
 			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
@@ -668,6 +740,87 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: nil,
 		},
+		"Node has NoSchedule taint tolerated by assigned ResourceFlavor -> Healthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				utiltestingapi.MakeResourceFlavor("rf-toleration-flavor").
+					Toleration(corev1.Toleration{
+						Key:      "foo",
+						Effect:   corev1.TaintEffectNoSchedule,
+						Operator: corev1.TolerationOpExists,
+					}).
+					Obj(),
+				utiltestingapi.MakeWorkload(wlName, nsName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "rf-toleration-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), testStartTime,
+					).
+					AdmittedAt(true, testStartTime).
+					Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints: true,
+			},
+		},
+		"Assigned node gets NoSchedule taint tolerated by AdmissionCheck PodSetUpdate -> Healthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				utiltestingapi.MakeWorkload(wlName, nsName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), testStartTime,
+					).
+					AdmittedAt(true, testStartTime).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Tolerations: []corev1.Toleration{
+									{
+										Key:      "foo",
+										Effect:   corev1.TaintEffectNoSchedule,
+										Operator: corev1.TolerationOpExists,
+									},
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints: true,
+			},
+		},
 		"Node NotReady, pod pending (assigned via nodeSelector) -> Unhealthy": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
@@ -847,6 +1000,27 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
+		"Workload without admission (nil Admission status) - handled safely": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				utiltestingapi.MakeWorkload(wlName, nsName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+				testingpod.MakePod("stray-pod-on-node", nsName).
+					Annotation(kueue.WorkloadAnnotation, wlName).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					NodeSelector(corev1.LabelHostname, nodeName).
+					StatusPhase(corev1.PodPending).
+					Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
+			wantPatchedPods:    []string{"stray-pod-on-node"},
+		},
 		"Node NotReady, workload missing TAS assignment but has late pod -> Workload marked Healthy, pod patched": {
 			initObjs: []client.Object{
 				unassignedNode.Clone().StatusConditions(corev1.NodeCondition{
@@ -896,10 +1070,23 @@ func TestNodeFailureReconciler(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			fakeClock.SetTime(testStartTime)
 
+			initObjs := append([]client.Object{baseResourceFlavor.DeepCopy()}, tc.initObjs...)
 			clientBuilder := utiltesting.NewClientBuilder().
-				WithObjects(tc.initObjs...).
+				WithObjects(initObjs...).
 				WithStatusSubresource(tc.initObjs...).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, client client.Client, subResource string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if tc.injectPatchError && subResource == "status" {
+							if wl, ok := obj.(*kueue.Workload); ok && wl.Name == wlName {
+								// Fail only if it's trying to remove the node (it's not in the list anymore).
+								if !slices.Contains(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName}) {
+									return errors.New("injected patch error on removal")
+								}
+							}
+						}
+						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResource, obj, patch, opts...)
+					},
+				})
 			ctx, _ := utiltesting.ContextWithLog(t)
 			err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			if err != nil {
@@ -917,8 +1104,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 			var result reconcile.Result
 			for _, req := range tc.reconcileRequests {
 				result, err = r.Reconcile(ctx, req)
-				if err != nil {
-					t.Errorf("Reconcile() error = %v for request %v", err, req)
+				if (err != nil) != tc.wantError {
+					t.Errorf("Reconcile() error = %v, wantError %v for request %v", err, tc.wantError, req)
 				}
 			}
 			wl := &kueue.Workload{}
@@ -1043,14 +1230,18 @@ func TestGetWorkloadStatus(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnNodeTaints: false},
 		},
 		"Node NotReady, ReplaceNodeOnPodTermination disabled -> Unhealthy immediately": {
-			node:         testingnode.MakeNode(nodeName).StatusConditions(corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse, LastTransitionTime: metav1.NewTime(testStartTime)}).Obj(),
+			node: testingnode.MakeNode(nodeName).
+				StatusConditions(corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse, LastTransitionTime: metav1.NewTime(testStartTime)}).
+				Obj(),
 			nodeName:     nodeName,
 			initObjs:     []client.Object{baseWorkload, basePod},
 			wantStatus:   workloadUnhealthy,
 			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 		},
 		"Node NotReady, ReplaceNodeOnPodTermination enabled -> Healthy (Waiting for pod termination)": {
-			node:     testingnode.MakeNode(nodeName).StatusConditions(corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse, LastTransitionTime: metav1.NewTime(testStartTime)}).Obj(),
+			node: testingnode.MakeNode(nodeName).
+				StatusConditions(corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse, LastTransitionTime: metav1.NewTime(testStartTime)}).
+				Obj(),
 			nodeName: nodeName,
 			initObjs: []client.Object{
 				baseWorkload.DeepCopy(),

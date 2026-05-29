@@ -17,21 +17,21 @@
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "@mui/icons-material": "^7.3.9",
-    "@mui/material": "^7.3.1",
-    "ace-builds": "^1.43.6",
-    "react": "^19.2.4",
+    "@mui/icons-material": "^9.0.1",
+    "@mui/material": "^9.0.0",
+    "ace-builds": "^1.44.0",
+    "react": "^19.2.6",
     "react-ace": "^14.0.1",
-    "react-dom": "^19.2.4",
-    "react-router-dom": "^7.13.2",
-    "react-toastify": "^11.0.5"
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^7.15.1",
+    "react-toastify": "^11.1.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.1.4",
+    "@vitejs/plugin-react": "^6.0.2",
     "depcheck": "^1.4.7",
-    "vite": "^7.3.1",
-    "vitest": "^4.0.18",
-    "serve": "^14.2.6"
+    "serve": "^14.2.6",
+    "vite": "^8.0.14",
+    "vitest": "^4.1.7"
   },
   "browserslist": {
     "production": [

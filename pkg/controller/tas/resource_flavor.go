@@ -23,7 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -51,7 +51,7 @@ type rfReconciler struct {
 	queues       *qcache.Manager
 	cache        *schdcache.Cache
 	client       client.Client
-	recorder     record.EventRecorder
+	recorder     events.EventRecorder
 	roleTracker  *roletracker.RoleTracker
 	nodeUpdateCh chan event.GenericEvent
 }
@@ -63,7 +63,7 @@ var _ predicate.TypedPredicate[*kueue.ResourceFlavor] = (*rfReconciler)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
-func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder, roleTracker *roletracker.RoleTracker) *rfReconciler {
+func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder events.EventRecorder, roleTracker *roletracker.RoleTracker) *rfReconciler {
 	return &rfReconciler{
 		logName:      TASResourceFlavorController,
 		client:       c,
@@ -90,7 +90,7 @@ func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache
 		)).
 		WatchesRawSource(source.Channel(r.nodeUpdateCh, &nodeHandler{cache: cache})).
 		WithOptions(controller.Options{
-			NeedLeaderElection:      ptr.To(false),
+			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ResourceFlavor").GroupKind().String()],
 		}).
 		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASResourceFlavorController)).

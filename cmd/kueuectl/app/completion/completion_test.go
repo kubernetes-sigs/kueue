@@ -23,7 +23,6 @@ import (
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
@@ -50,7 +49,7 @@ func TestWorkloadNameCompletionFunc(t *testing.T) {
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 		"should return active workload names": {
-			status: ptr.To(true),
+			status: new(true),
 			objs: []runtime.Object{
 				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).Active(true).Obj(),
 				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).Active(false).Obj(),
@@ -59,7 +58,7 @@ func TestWorkloadNameCompletionFunc(t *testing.T) {
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 		"should return inactive workload names": {
-			status: ptr.To(false),
+			status: new(false),
 			objs: []runtime.Object{
 				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).Active(true).Obj(),
 				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).Active(false).Obj(),
@@ -117,7 +116,7 @@ func TestClusterQueueNameCompletionFunc(t *testing.T) {
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 		"should return cluster queue names": {
-			status: ptr.To(true),
+			status: new(true),
 			objs: []runtime.Object{
 				utiltestingapi.MakeClusterQueue("cq1").StopPolicy(kueue.None).Obj(),
 				utiltestingapi.MakeClusterQueue("cq2").StopPolicy(kueue.Hold).Obj(),
@@ -127,7 +126,7 @@ func TestClusterQueueNameCompletionFunc(t *testing.T) {
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 		"should return inactive cluster queue names": {
-			status: ptr.To(false),
+			status: new(false),
 			objs: []runtime.Object{
 				utiltestingapi.MakeClusterQueue("cq1").StopPolicy(kueue.None).Obj(),
 				utiltestingapi.MakeClusterQueue("cq2").StopPolicy(kueue.Hold).Obj(),
@@ -186,7 +185,7 @@ func TestLocalQueueNameCompletionFunc(t *testing.T) {
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 		"should return active local queue names": {
-			status: ptr.To(true),
+			status: new(true),
 			objs: []runtime.Object{
 				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).StopPolicy(kueue.None).Obj(),
 				utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).StopPolicy(kueue.Hold).Obj(),
@@ -196,7 +195,7 @@ func TestLocalQueueNameCompletionFunc(t *testing.T) {
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 		"should return inactive local queue names": {
-			status: ptr.To(false),
+			status: new(false),
 			objs: []runtime.Object{
 				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).StopPolicy(kueue.None).Obj(),
 				utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).StopPolicy(kueue.Hold).Obj(),

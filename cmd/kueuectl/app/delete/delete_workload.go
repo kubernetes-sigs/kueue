@@ -31,7 +31,6 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/kubectl/pkg/util/templates"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -93,7 +92,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 		Short:                 "Delete the given Workload and its corresponding Job",
 		Long:                  wlLong,
 		Example:               wlExample,
-		ValidArgsFunction:     completion.WorkloadNameFunc(clientGetter, ptr.To(true)),
+		ValidArgsFunction:     completion.WorkloadNameFunc(clientGetter, new(true)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 
@@ -228,11 +227,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		}
 	}
 
-	if err := o.deleteWorkloads(ctx, workloadResources); err != nil {
-		return err
-	}
-
-	return nil
+	return o.deleteWorkloads(ctx, workloadResources)
 }
 
 func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*kueue.Workload, bool, error) {

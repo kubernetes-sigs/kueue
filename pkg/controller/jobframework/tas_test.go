@@ -49,7 +49,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
-				Required: ptr.To("cloud.com/block"),
+				Required: new("cloud.com/block"),
 			},
 		},
 		"required annotation with pod index label": {
@@ -60,7 +60,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			},
 			podIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
 			wantReq: &kueue.PodSetTopologyRequest{
-				Required:      ptr.To("cloud.com/block"),
+				Required:      new("cloud.com/block"),
 				PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
 			},
 		},
@@ -83,10 +83,10 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			subGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
 			subGroupCount:      ptr.To[int32](1),
 			wantReq: &kueue.PodSetTopologyRequest{
-				Required:           ptr.To("cloud.com/block"),
+				Required:           new("cloud.com/block"),
 				SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
 				SubGroupCount:      ptr.To[int32](1),
-				PodSetGroupName:    ptr.To("block"),
+				PodSetGroupName:    new("block"),
 			},
 		},
 		"required annotation with sub group and pod set group name annotation": {
@@ -99,10 +99,10 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			subGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
 			subGroupCount:      ptr.To[int32](1),
 			wantReq: &kueue.PodSetTopologyRequest{
-				Required:           ptr.To("cloud.com/block"),
+				Required:           new("cloud.com/block"),
 				SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
 				SubGroupCount:      ptr.To[int32](1),
-				PodSetGroupName:    ptr.To("block"),
+				PodSetGroupName:    new("block"),
 			},
 		},
 		"preferred annotation": {
@@ -112,7 +112,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
-				Preferred: ptr.To("cloud.com/block"),
+				Preferred: new("cloud.com/block"),
 			},
 		},
 		"unconstrained annotation (true)": {
@@ -122,7 +122,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
-				Unconstrained: ptr.To(true),
+				Unconstrained: new(true),
 			},
 		},
 		"unconstrained annotation (false)": {
@@ -132,7 +132,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
-				Unconstrained: ptr.To(false),
+				Unconstrained: new(false),
 			},
 		},
 		"slice-only topology": {
@@ -143,7 +143,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
-				PodSetSliceRequiredTopology: ptr.To("cloud.com/block"),
+				PodSetSliceRequiredTopology: new("cloud.com/block"),
 				PodSetSliceSize:             ptr.To[int32](1),
 			},
 		},
@@ -172,7 +172,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			subGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
 			subGroupCount:      ptr.To[int32](1),
 			wantReq: &kueue.PodSetTopologyRequest{
-				PodSetSliceRequiredTopology: ptr.To("cloud.com/block"),
+				PodSetSliceRequiredTopology: new("cloud.com/block"),
 				PodSetSliceSize:             ptr.To[int32](1),
 				SubGroupIndexLabel:          ptr.To(jobsetapi.JobIndexKey),
 				SubGroupCount:               ptr.To[int32](1),
@@ -230,7 +230,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
-				Required: ptr.To("cloud.com/block"),
+				Required: new("cloud.com/block"),
 				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
 					{Topology: "cloud.com/rack", Size: 16},
 					{Topology: "cloud.com/sub-rack", Size: 4},
@@ -249,7 +249,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
-				Required: ptr.To("cloud.com/block"),
+				Required: new("cloud.com/block"),
 				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
 					{Topology: "cloud.com/rack", Size: 8},
 					{Topology: "kubernetes.io/hostname", Size: 2},
@@ -265,8 +265,8 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
-				Required:                    ptr.To("cloud.com/block"),
-				PodSetSliceRequiredTopology: ptr.To("cloud.com/rack"),
+				Required:                    new("cloud.com/block"),
+				PodSetSliceRequiredTopology: new("cloud.com/rack"),
 				PodSetSliceSize:             ptr.To[int32](16),
 			},
 		},

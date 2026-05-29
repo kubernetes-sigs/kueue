@@ -24,18 +24,21 @@ KIND_CLUSTER_NAME="kueue-populator-e2e"
 KUEUE_VERSION="${KUEUE_VERSION:-v0.16.0}"
 GIT_TAG=$(git describe --tags --dirty --always)
 
-# Use tools from the root project
-KUSTOMIZE="$REPO_ROOT/bin/kustomize"
-GINKGO="$REPO_ROOT/bin/ginkgo"
-KIND="$REPO_ROOT/bin/kind"
-
 # Ensure tools are built
 cd "$REPO_ROOT"
-make kustomize ginkgo kind
+make kustomize ginkgo kind yq
+
+# Reuse common e2e helpers (including kind cluster cleanup retry logic).
+ROOT_DIR="$REPO_ROOT"
+SOURCE_DIR="$REPO_ROOT/hack/testing"
+GINKGO_ARGS="${GINKGO_ARGS:-}"
+E2E_KIND_VERSION="${E2E_KIND_VERSION:-}"
+# shellcheck source=hack/testing/e2e-common.sh
+source "$SOURCE_DIR/e2e-common.sh"
 cd "$SCRIPT_DIR"
 
 function cleanup {
-  "$KIND" delete cluster --name "$KIND_CLUSTER_NAME"
+  cluster_cleanup "$KIND_CLUSTER_NAME"
 }
 trap cleanup EXIT
 

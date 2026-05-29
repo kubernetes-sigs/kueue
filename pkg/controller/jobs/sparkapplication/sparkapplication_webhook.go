@@ -41,7 +41,6 @@ var (
 	dynamicAllocationEnabledPath = specPath.Child("dynamicAllocation").Child("enabled")
 	driverSpecPath               = specPath.Child("driver")
 	executorSpecPath             = specPath.Child("executor")
-	elasticJobEnabledPath        = field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey)
 )
 
 type SparkApplicationWebhook struct {
@@ -83,6 +82,7 @@ func (w *SparkApplicationWebhook) Default(ctx context.Context, obj *sparkv1beta2
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -122,11 +122,7 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 			allErrors = append(allErrors, field.Invalid(specPath.Child("mode"), spec.Mode, "only Cluster mode is supported for a kueue managed job"))
 		}
 
-		if isAnElasticJob(job) {
-			allErrors = append(allErrors,
-				field.Invalid(elasticJobEnabledPath, workloadslicing.EnabledAnnotationValue, "elastic job is not supported in SparkApplication"),
-			)
-		} else if ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+		if !isAnElasticJob(job) && ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
 			allErrors = append(allErrors,
 				field.Invalid(dynamicAllocationEnabledPath,
 					ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled,
@@ -151,7 +147,7 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 func (w *SparkApplicationWebhook) validateTopologyRequest(ctx context.Context, sparkApp *SparkApplication) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := sparkApp.PodSets(ctx)
+	podSets, podSetsErr := sparkApp.PodSets(ctx, nil)
 
 	if podSetsErr == nil {
 		driverPodSet := podset.FindPodSetByName(podSets, driverPodSetName)

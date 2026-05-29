@@ -27,13 +27,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	kfutiltesting "sigs.k8s.io/kueue/pkg/util/testingjobs/jaxjob"
@@ -61,32 +62,35 @@ func TestMultiKueueAdapter(t *testing.T) {
 		wantError           error
 		wantManagersJAXJobs []kftraining.JAXJob
 		wantWorkerJAXJobs   []kftraining.JAXJob
+		featureGates        map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote jaxjob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJAXJobs: []kftraining.JAXJob{
-				*jaxJobBuilder.Clone().Obj(),
+				*jaxJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
 			wantManagersJAXJobs: []kftraining.JAXJob{
-				*jaxJobBuilder.Clone().Obj(),
+				*jaxJobBuilder.DeepCopy(),
 			},
 			wantWorkerJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 		},
 		"sync status from remote jaxjob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJAXJobs: []kftraining.JAXJob{
-				*jaxJobBuilder.Clone().Obj(),
+				*jaxJobBuilder.DeepCopy(),
 			},
 			workerJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
@@ -102,13 +106,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
 		},
 		"sync status from remote while local jaxjob is suspended": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().
 					Suspend(true).
@@ -116,7 +121,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
@@ -133,7 +138,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
@@ -141,17 +146,19 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"remote jaxjob is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace})
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace})
 			},
 		},
 		"missing job is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
@@ -160,6 +167,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"job with wrong managedBy is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.DeepCopy(),
 			},
@@ -174,6 +182,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"job managedBy multikueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJAXJobs: []kftraining.JAXJob{
 				*jaxJobManagedByKueueBuilder.DeepCopy(),
 			},
@@ -187,9 +196,28 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*jaxJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
+		"sync creates missing remote jaxjob, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersJAXJobs: []kftraining.JAXJob{
+				*jaxJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}, "wl1", "origin1")
+			},
+			wantManagersJAXJobs: []kftraining.JAXJob{
+				*jaxJobBuilder.DeepCopy(),
+			},
+			wantWorkerJAXJobs: []kftraining.JAXJob{
+				*jaxJobBuilder.Clone().
+					PrebuiltWorkloadAnnotation("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder(kftraining.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			managerBuilder = managerBuilder.WithLists(&kftraining.JAXJobList{Items: tc.managersJAXJobs})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJAXJobs, func(w *kftraining.JAXJob) client.Object { return w })...)

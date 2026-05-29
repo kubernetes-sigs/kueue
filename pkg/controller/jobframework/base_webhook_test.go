@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -159,7 +160,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 			mj.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
 			mj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
 			mj.MockGenericJob.EXPECT().Suspend().Do(func() {
-				tc.job.Spec.Suspend = ptr.To(true)
+				tc.job.Spec.Suspend = new(true)
 			}).AnyTimes()
 
 			mj.MockJobWithManagedBy.EXPECT().ManagedBy().Return(tc.job.Spec.ManagedBy).AnyTimes()
@@ -244,6 +245,7 @@ func TestValidateOnCreate(t *testing.T) {
 				MockJobWithCustomValidation: mocks.NewMockJobWithCustomValidation(mockctrl),
 			}
 			job.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
+			job.MockGenericJob.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
 			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate(gomock.Any()).Return(tc.customValidationFailure, tc.customValidationError).AnyTimes()
 
 			w := &jobframework.BaseWebhook[*mockJob]{
@@ -255,7 +257,7 @@ func TestValidateOnCreate(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			gotWarn, gotErr := w.ValidateCreate(ctx, job)
-			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
+			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantWarning, gotWarn); diff != "" {
@@ -345,7 +347,7 @@ func TestValidateOnUpdate(t *testing.T) {
 			gotWarn, gotErr := w.ValidateUpdate(ctx,
 				newMockJob(tc.args.oldObj, nil, nil),
 				newMockJob(tc.args.newObj, tc.args.customValidationFailure, tc.args.customValidationError))
-			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
+			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantWarning, gotWarn); diff != "" {

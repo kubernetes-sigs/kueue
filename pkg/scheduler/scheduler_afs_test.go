@@ -30,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -65,15 +64,15 @@ func TestScheduleForAFS(t *testing.T) {
 	}
 	queues := []kueue.LocalQueue{
 		*utiltestingapi.MakeLocalQueue("lq-a", "default").
-			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
 			Obj(),
 		*utiltestingapi.MakeLocalQueue("lq-b", "default").
-			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
 			Obj(),
 		*utiltestingapi.MakeLocalQueue("lq-c", "default").
-			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 			ClusterQueue("cq1").
 			Obj(),
 	}
@@ -355,25 +354,14 @@ func TestScheduleForAFS(t *testing.T) {
 							Obj(),
 					).
 					Obj(),
+				// wl-b2 has no Pending condition because SchedulingEquivalenceHashing
+				// bulk-moves it to inadmissible before individual evaluation.
 				*utiltestingapi.MakeWorkload("wl-b2", "default").
 					Queue("lq-b").
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Creation(now.Add(3 * time.Second)).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 4 more needed",
-						LastTransitionTime: metav1.NewTime(now),
-					}).
-					ResourceRequests(kueue.PodSetRequest{
-						Name: "one",
-						Resources: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("4"),
-						},
-					}).
 					Obj(),
 			},
 		},

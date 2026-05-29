@@ -46,6 +46,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -472,7 +473,15 @@ func waitForKueueControllerReadyWithWebhookEndpoints(ctx context.Context, k8sCli
 	ginkgo.GinkgoLogr.Info("Ready pods and webhook endpoints verified", "deployment", key, "waitingTime", time.Since(waitStart))
 }
 
-func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int, opts ...client.ListOption) {
+func WaitForActivePodsAndTerminate(
+	ctx context.Context,
+	k8sClient client.Client,
+	restClient *rest.RESTClient,
+	cfg *rest.Config,
+	namespace string,
+	activePodsCount, exitCode int,
+	opts ...client.ListOption,
+) {
 	var activePods []corev1.Pod
 	pods := corev1.PodList{}
 	podListOpts := &client.ListOptions{}
@@ -518,6 +527,33 @@ func waitForKueueAvailability(ctx context.Context, k8sClient client.Client, chec
 	waitForDeploymentAvailability(ctx, k8sClient, kcmKey, checkNoRestarts)
 	waitForKueueControllerReadyWithWebhookEndpoints(ctx, k8sClient, kcmKey)
 	waitForLeaderElection(ctx, k8sClient)
+}
+
+// ForceLeaderFailover deletes the current leader pod
+// and waits for a new replica to acquire the leader lease
+func ForceLeaderFailover(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
+	kueueNS := GetKueueNamespace()
+	leaseKey := types.NamespacedName{Namespace: kueueNS, Name: configapi.DefaultLeaderElectionID}
+
+	lease := &coordinationv1.Lease{}
+	gomega.Expect(k8sClient.Get(ctx, leaseKey, lease)).To(gomega.Succeed())
+
+	holderIdentity := ptr.Deref(lease.Spec.HolderIdentity, "")
+	gomega.Expect(holderIdentity).NotTo(gomega.BeEmpty(), "expected a current leader to be elected")
+	leaderPodName := strings.SplitN(holderIdentity, "_", 2)[0]
+
+	ginkgo.By(fmt.Sprintf("Deleting leader pod %q to force failover", leaderPodName))
+	leaderPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: kueueNS, Name: leaderPodName}}
+	gomega.Expect(k8sClient.Delete(ctx, leaderPod)).To(gomega.Succeed())
+
+	ginkgo.By("Waiting for a new leader to be elected")
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, leaseKey, lease)).To(gomega.Succeed())
+		newHolder := ptr.Deref(lease.Spec.HolderIdentity, "")
+		g.Expect(newHolder).NotTo(gomega.BeEmpty())
+		g.Expect(newHolder).NotTo(gomega.Equal(holderIdentity))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 // waitForLeaderElection waits for the kueue controller to acquire the leader lease
@@ -753,4 +789,38 @@ func KPortForward(cfg *rest.Config, restClient *rest.RESTClient, ns, podName str
 	case err := <-errChan:
 		return 0, nil, fmt.Errorf("port forward failed: %w", err)
 	}
+}
+
+func SetResourceNominalQuota(cq *kueue.ClusterQueue, resourceName corev1.ResourceName, value string) *kueue.ClusterQueue {
+	for rgi := range cq.Spec.ResourceGroups {
+		for fi := range cq.Spec.ResourceGroups[rgi].Flavors {
+			for ri := range cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources {
+				if cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].Name == resourceName {
+					cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].NominalQuota = resource.MustParse(value)
+					return cq
+				}
+			}
+		}
+	}
+	return cq
+}
+
+func AssertMsgForMk(ctx context.Context, msg string, wlKey client.ObjectKey, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
+	return func() string {
+		return strings.Join([]string{
+			AssertMsg("Manager", getWorkload(ctx, k8sManagerClient, wlKey))(),
+			AssertMsg("Worker1", getWorkload(ctx, k8sWorker1Client, wlKey))(),
+			AssertMsg("Worker2", getWorkload(ctx, k8sWorker2Client, wlKey))(),
+		}, "\n")
+	}
+}
+
+func getWorkload(ctx context.Context, c client.Client, wlKey client.ObjectKey) *kueue.Workload {
+	wl := &kueue.Workload{}
+	err := c.Get(ctx, wlKey, wl)
+	if err != nil {
+		gomega.Expect(client.IgnoreNotFound(err)).NotTo(gomega.HaveOccurred())
+		return nil
+	}
+	return wl
 }

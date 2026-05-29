@@ -19,6 +19,7 @@ package scheduler
 import (
 	"iter"
 	"maps"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -34,19 +35,20 @@ import (
 )
 
 type ClusterQueueSnapshot struct {
-	Name              kueue.ClusterQueueReference
-	ResourceGroups    []ResourceGroup
-	Workloads         map[workload.Reference]*workload.Info
-	WorkloadsNotReady sets.Set[workload.Reference]
-	NamespaceSelector labels.Selector
-	Preemption        kueue.ClusterQueuePreemption
-	FairWeight        float64
-	FlavorFungibility kueue.FlavorFungibility
-	AdmissionScope    kueue.AdmissionScope
+	Name                      kueue.ClusterQueueReference
+	ResourceGroups            []ResourceGroup
+	Workloads                 map[workload.Reference]*workload.Info
+	WorkloadsNotReady         sets.Set[workload.Reference]
+	NamespaceSelector         labels.Selector
+	Preemption                kueue.ClusterQueuePreemption
+	FairWeight                float64
+	FlavorFungibility         kueue.FlavorFungibility
+	AdmissionScope            kueue.AdmissionScope
+	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
 	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
-	AdmissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
+	AdmissionChecks workload.AdmissionChecks
 	Status          metrics.ClusterQueueStatus
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
 	// deleted, or the resource groups are changed.
@@ -120,7 +122,7 @@ func (c *ClusterQueueSnapshot) updateTASUsage(usage workload.TASUsage, op usageO
 
 func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) bool {
 	for fr, q := range usage.Quota {
-		if c.Available(fr) < q {
+		if c.Available(fr).Cmp(q) < 0 {
 			return false
 		}
 	}
@@ -140,25 +142,25 @@ func (c *ClusterQueueSnapshot) QuotaFor(fr resources.FlavorResource) ResourceQuo
 }
 
 func (c *ClusterQueueSnapshot) Borrowing(fr resources.FlavorResource) bool {
-	return c.BorrowingWith(fr, 0)
+	return c.BorrowingWith(fr, resources.NewAmount(0))
 }
 
-func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {
-	return c.ResourceNode.Usage[fr]+val > c.QuotaFor(fr).Nominal
+func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val resources.Amount) bool {
+	return c.QuotaFor(fr).Nominal.Cmp(c.ResourceNode.Usage[fr].Add(val)) < 0
 }
 
 // Available returns the current capacity available, before preempting
 // any workloads. Includes local capacity and capacity borrowed from
 // Cohort. When the ClusterQueue/Cohort is in debt, Available
 // will return 0.
-func (c *ClusterQueueSnapshot) Available(fr resources.FlavorResource) int64 {
-	return max(0, available(c, fr))
+func (c *ClusterQueueSnapshot) Available(fr resources.FlavorResource) resources.Amount {
+	return resources.MaxAmount(resources.NewAmount(0), available(c, fr))
 }
 
 // PotentialAvailable returns the largest workload this ClusterQueue could
 // possibly admit, accounting for its capacity and capacity borrowed
 // its from Cohort.
-func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) int64 {
+func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) resources.Amount {
 	return potentialAvailable(c, fr)
 }
 
@@ -197,13 +199,23 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		option(opts)
 	}
 
+	var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
+	if features.Enabled(features.TASHandleOverlappingFlavors) {
+		aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
+	}
+
 	result := make(TASAssignmentsResult)
-	for tasFlavor, flavorTASRequests := range tasRequestsByFlavor {
+	for _, tasFlavor := range slices.Sorted(maps.Keys(tasRequestsByFlavor)) {
+		flavorTASRequests := tasRequestsByFlavor[tasFlavor]
 		// We assume the `tasFlavor` is already in the snapshot as this was
 		// already checked earlier during flavor assignment, and the set of
 		// flavors is immutable in snapshot.
 		tasFlavorCache := c.TASFlavors[tasFlavor]
-		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, options...)
+		flvOpts := options
+		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.isLowestLevelNode {
+			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
+		}
+		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, flvOpts...)
 		maps.Copy(result, flvResult)
 	}
 	return result

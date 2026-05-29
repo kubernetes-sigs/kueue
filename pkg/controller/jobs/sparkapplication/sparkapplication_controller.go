@@ -85,7 +85,7 @@ func (j *SparkApplication) IsActive() bool {
 }
 
 func (j *SparkApplication) Suspend() {
-	j.Spec.Suspend = ptr.To(true)
+	j.Spec.Suspend = new(true)
 }
 
 func (j *SparkApplication) GVK() schema.GroupVersionKind {
@@ -96,7 +96,7 @@ func (j *SparkApplication) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", sparkcommon.LabelSparkAppName, j.Name)
 }
 
-func (j *SparkApplication) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	// driver and executor
 	podSets := make([]kueue.PodSet, 2)
 
@@ -149,13 +149,13 @@ func (j *SparkApplication) PodSets(ctx context.Context) ([]kueue.PodSet, error) 
 	return podSets, nil
 }
 
-func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := 2 // driver + executor
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.Suspend = ptr.To(false)
+	j.Spec.Suspend = new(false)
 
 	mutatePodSetInfoFor := func(role string) error {
 		var podSetInfo podset.PodSetInfo
@@ -278,7 +278,7 @@ func (j *SparkApplication) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) b
 		}
 
 		if role == sparkcommon.SparkRoleExecutor {
-			j.Spec.Executor.Instances = ptr.To(podSetInfo.Count)
+			j.Spec.Executor.Instances = new(podSetInfo.Count)
 		}
 
 		return changed
@@ -298,8 +298,27 @@ func (j *SparkApplication) Finished(ctx context.Context) (message string, succes
 			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailedSubmission
 }
 
-func (j *SparkApplication) PodsReady(ctx context.Context) bool {
-	return j.Status.AppState.State == sparkv1beta2.ApplicationStateRunning
+func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool {
+	// Driver must be running.
+	if j.Status.AppState.State != sparkv1beta2.ApplicationStateRunning {
+		return false
+	}
+	// And every requested executor must have reported a Running/Completed state.
+	// AppState.State alone goes to Running as soon as the driver starts even if
+	// executors are stuck (e.g. unschedulable), which would let the
+	// waitForPodsReady timeout never fire on heterogeneous resource shortages.
+	expected := int(ptr.Deref(j.Spec.Executor.Instances, 0))
+	if expected == 0 {
+		return true
+	}
+	ready := 0
+	for _, st := range j.Status.ExecutorState {
+		switch st {
+		case sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStateCompleted:
+			ready++
+		}
+	}
+	return ready >= expected
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

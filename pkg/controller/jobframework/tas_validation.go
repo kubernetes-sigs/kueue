@@ -82,7 +82,13 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 		}
 
 		if !preferredFound && !requiredFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when neither '%s' nor '%s' is specified", kueue.PodSetPreferredTopologyAnnotation, kueue.PodSetRequiredTopologyAnnotation)))
+			allErrs = append(
+				allErrs,
+				field.Forbidden(
+					annotationsPath.Key(kueue.PodSetGroupName),
+					fmt.Sprintf("may not be set when neither '%s' nor '%s' is specified", kueue.PodSetPreferredTopologyAnnotation, kueue.PodSetRequiredTopologyAnnotation),
+				),
+			)
 		}
 	}
 
@@ -97,7 +103,10 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 		allErrs = append(allErrs, field.Required(annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), fmt.Sprintf("must be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyAnnotation)))
 	}
 	if !sliceRequiredFound && sliceSizeFound {
-		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), fmt.Sprintf("may not be set when '%s' is not specified", kueue.PodSetSliceRequiredTopologyAnnotation)))
+		allErrs = append(
+			allErrs,
+			field.Forbidden(annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), fmt.Sprintf("may not be set when '%s' is not specified", kueue.PodSetSliceRequiredTopologyAnnotation)),
+		)
 	}
 
 	// validate multi-level constraints annotation
@@ -298,7 +307,13 @@ func topologyRequestsValid(r1, r2 *kueue.PodSetTopologyRequest) bool {
 // Topology CR's level hierarchy is unavailable at admission time (the
 // ResourceFlavor is assigned by the scheduler). Ordering validation
 // happens at scheduling time in TASFlavorSnapshot.findTopologyAssignment.
-func validateSliceRequiredTopologyConstraintsAnnotation(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta, sliceRequiredFound bool, sliceSizeFound bool, podSetGroupNameFound bool) field.ErrorList {
+func validateSliceRequiredTopologyConstraintsAnnotation(
+	annotationsPath *field.Path,
+	replicaMetadata *metav1.ObjectMeta,
+	sliceRequiredFound bool,
+	sliceSizeFound bool,
+	podSetGroupNameFound bool,
+) field.ErrorList {
 	var allErrs field.ErrorList
 
 	constraintsJSON, constraintsFound := replicaMetadata.Annotations[kueue.PodSetSliceRequiredTopologyConstraintsAnnotation]

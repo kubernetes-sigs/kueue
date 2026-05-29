@@ -206,31 +206,47 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 
 	// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
 	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && !workloadslicing.Enabled(object) {
-		allErrors = append(allErrors, field.Invalid(rayClusterSpecPath.Child("enableInTreeAutoscaling"), rayClusterSpec.EnableInTreeAutoscaling, "a kueue managed job should only use autoscaling when workload slicing is enabled"))
+		allErrors = append(
+			allErrors,
+			field.Invalid(
+				rayClusterSpecPath.Child("enableInTreeAutoscaling"),
+				rayClusterSpec.EnableInTreeAutoscaling,
+				"a kueue managed job should only use autoscaling when workload slicing is enabled",
+			),
+		)
 	}
 
-	// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
-	if len(rayClusterSpec.WorkerGroupSpecs) > 7 {
-		allErrors = append(allErrors, field.TooMany(rayClusterSpecPath.Child("workerGroupSpecs"), len(rayClusterSpec.WorkerGroupSpecs), 7))
+	// Should limit the worker count to max PodSets minus the cluster head.
+	if len(rayClusterSpec.WorkerGroupSpecs) > jobframework.MaxPodSets-1 {
+		allErrors = append(allErrors, field.TooMany(rayClusterSpecPath.Child("workerGroupSpecs"), len(rayClusterSpec.WorkerGroupSpecs), jobframework.MaxPodSets-1))
 	}
 
 	// None of the workerGroups should be named "head"
 	for i := range rayClusterSpec.WorkerGroupSpecs {
 		if rayClusterSpec.WorkerGroupSpecs[i].GroupName == headGroupPodSetName {
-			allErrors = append(allErrors, field.Forbidden(rayClusterSpecPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)))
+			allErrors = append(
+				allErrors,
+				field.Forbidden(rayClusterSpecPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
+			)
 		}
 	}
 
 	return allErrors
 }
 
-func ValidateTopologyRequest(ctx context.Context, job jobframework.GenericJob, rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) (field.ErrorList, error) {
+func ValidateTopologyRequest(
+	ctx context.Context,
+	c client.Client,
+	job jobframework.GenericJob,
+	rayClusterSpec *rayv1.RayClusterSpec,
+	headGroupMetaPath, workerGroupSpecsPath *field.Path,
+) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	if rayClusterSpec == nil {
 		return allErrs, nil
 	}
 
-	podSets, podSetsErr := jobframework.JobPodSets(ctx, job)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, job, c)
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
 
@@ -321,6 +337,7 @@ func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client
 		log := ctrl.LoggerFrom(ctx)
 
 		rayClusterGeneration := ""
+		includeRayClusterGeneration := true
 
 		var rayClusterObj rayv1.RayCluster
 		err := c.Get(ctx, types.NamespacedName{
@@ -334,17 +351,29 @@ func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client
 				return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
 			}
 		} else {
-			rayClusterGeneration = strconv.FormatInt(rayClusterObj.GetGeneration(), 10)
+			if isStandaloneRayCluster(jobObject, rayClusterName) {
+				includeRayClusterGeneration = false
+			} else {
+				rayClusterGeneration = strconv.FormatInt(rayClusterObj.GetGeneration(), 10)
+			}
 		}
 
 		podSetsJSON, err := SerializePodSetCounts(podSets)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
 		}
-		return map[string]string{
+		annotations := map[string]string{
 			RayClusterPodsetReplicaSizesAnnotation: string(podSetsJSON),
-			RayClusterGenerationAnnotation:         rayClusterGeneration,
-		}, nil
+		}
+		if includeRayClusterGeneration {
+			annotations[RayClusterGenerationAnnotation] = rayClusterGeneration
+		}
+		return annotations, nil
 	}
 	return nil, nil
+}
+
+func isStandaloneRayCluster(jobObject client.Object, rayClusterName string) bool {
+	_, isRayCluster := jobObject.(*rayv1.RayCluster)
+	return isRayCluster && rayClusterName != "" && jobObject.GetName() == rayClusterName
 }

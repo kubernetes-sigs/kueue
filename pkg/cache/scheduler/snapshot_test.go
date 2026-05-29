@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -51,6 +50,7 @@ func TestSnapshot(t *testing.T) {
 		cqs          []*kueue.ClusterQueue
 		cohorts      []*kueue.Cohort
 		rfs          []*kueue.ResourceFlavor
+		topologies   []*kueue.Topology
 		wls          []*kueue.Workload
 		wantSnapshot Snapshot
 	}{
@@ -218,14 +218,14 @@ func TestSnapshot(t *testing.T) {
 					Name: "borrowing",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "demand", Resource: corev1.ResourceCPU}: 10_000,
-							{Flavor: "spot", Resource: corev1.ResourceCPU}:   10_000,
-							{Flavor: "default", Resource: "example.com/gpu"}: 15,
+							{Flavor: "demand", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							{Flavor: "spot", Resource: corev1.ResourceCPU}:   resources.NewAmount(10_000),
+							{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(15),
 						},
 						SubtreeQuota: resources.FlavorResourceQuantities{
-							{Flavor: "demand", Resource: corev1.ResourceCPU}: 100_000,
-							{Flavor: "spot", Resource: corev1.ResourceCPU}:   300_000,
-							{Flavor: "default", Resource: "example.com/gpu"}: 50,
+							{Flavor: "demand", Resource: corev1.ResourceCPU}: resources.NewAmount(100_000),
+							{Flavor: "spot", Resource: corev1.ResourceCPU}:   resources.NewAmount(300_000),
+							{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(50),
 						},
 					},
 				}
@@ -247,15 +247,15 @@ func TestSnapshot(t *testing.T) {
 								},
 								ResourceNode: resourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
-										{Flavor: "demand", Resource: corev1.ResourceCPU}: {Nominal: 100_000},
-										{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: 200_000},
+										{Flavor: "demand", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(100_000)},
+										{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: resources.NewAmount(200_000)},
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "demand", Resource: "cpu"}: 100_000,
-										{Flavor: "spot", Resource: "cpu"}:   200_000,
+										{Flavor: "demand", Resource: "cpu"}: resources.NewAmount(100_000),
+										{Flavor: "spot", Resource: "cpu"}:   resources.NewAmount(200_000),
 									},
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "demand", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "demand", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
@@ -292,16 +292,16 @@ func TestSnapshot(t *testing.T) {
 								},
 								ResourceNode: resourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
-										{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: 100_000},
-										{Flavor: "default", Resource: "example.com/gpu"}: {Nominal: 50},
+										{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: resources.NewAmount(100_000)},
+										{Flavor: "default", Resource: "example.com/gpu"}: {Nominal: resources.NewAmount(50)},
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "spot", Resource: "cpu"}:                100_000,
-										{Flavor: "default", Resource: "example.com/gpu"}: 50,
+										{Flavor: "spot", Resource: "cpu"}:                resources.NewAmount(100_000),
+										{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(50),
 									},
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "spot", Resource: corev1.ResourceCPU}:   10_000,
-										{Flavor: "default", Resource: "example.com/gpu"}: 15,
+										{Flavor: "spot", Resource: corev1.ResourceCPU}:   resources.NewAmount(10_000),
+										{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(15),
 									},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
@@ -350,10 +350,10 @@ func TestSnapshot(t *testing.T) {
 								},
 								ResourceNode: resourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: {Nominal: 100_000},
+										{Flavor: "default", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(100_000)},
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: "cpu"}: 100_000,
+										{Flavor: "default", Resource: "cpu"}: resources.NewAmount(100_000),
 									},
 									Usage: resources.FlavorResourceQuantities{},
 								},
@@ -483,11 +483,11 @@ func TestSnapshot(t *testing.T) {
 					Name: "lending",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
+							{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 						},
 						SubtreeQuota: resources.FlavorResourceQuantities{
-							{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
-							{Flavor: "x86", Resource: corev1.ResourceCPU}: 20_000,
+							{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							{Flavor: "x86", Resource: corev1.ResourceCPU}: resources.NewAmount(20_000),
 						},
 					},
 				}
@@ -509,16 +509,16 @@ func TestSnapshot(t *testing.T) {
 								},
 								ResourceNode: resourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
-										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](5_000)},
-										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](10_000)},
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(10_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(5_000))},
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(20_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(10_000))},
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
-										{Flavor: "x86", Resource: corev1.ResourceCPU}: 20_000,
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: resources.NewAmount(20_000),
 									},
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "arm", Resource: corev1.ResourceCPU}: 15_000,
-										{Flavor: "x86", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(15_000),
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
@@ -571,12 +571,12 @@ func TestSnapshot(t *testing.T) {
 								},
 								ResourceNode: resourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
-										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](5_000)},
-										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](10_000)},
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(10_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(5_000))},
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(20_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(10_000))},
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
-										{Flavor: "x86", Resource: corev1.ResourceCPU}: 20_000,
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: resources.NewAmount(20_000),
 									},
 									Usage: resources.FlavorResourceQuantities{},
 								},
@@ -627,14 +627,14 @@ func TestSnapshot(t *testing.T) {
 							Name: "cohort",
 							ResourceNode: resourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
-									{Flavor: "arm", Resource: corev1.ResourceCPU}:  {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: nil},
-									{Flavor: "x86", Resource: corev1.ResourceCPU}:  {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: nil},
-									{Flavor: "mips", Resource: corev1.ResourceCPU}: {Nominal: 42_000, BorrowingLimit: nil, LendingLimit: nil},
+									{Flavor: "arm", Resource: corev1.ResourceCPU}:  {Nominal: resources.NewAmount(10_000), BorrowingLimit: nil, LendingLimit: nil},
+									{Flavor: "x86", Resource: corev1.ResourceCPU}:  {Nominal: resources.NewAmount(20_000), BorrowingLimit: nil, LendingLimit: nil},
+									{Flavor: "mips", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(42_000), BorrowingLimit: nil, LendingLimit: nil},
 								},
 								SubtreeQuota: resources.FlavorResourceQuantities{
-									{Flavor: "arm", Resource: corev1.ResourceCPU}:  13_000,
-									{Flavor: "x86", Resource: corev1.ResourceCPU}:  25_000,
-									{Flavor: "mips", Resource: corev1.ResourceCPU}: 42_000,
+									{Flavor: "arm", Resource: corev1.ResourceCPU}:  resources.NewAmount(13_000),
+									{Flavor: "x86", Resource: corev1.ResourceCPU}:  resources.NewAmount(25_000),
+									{Flavor: "mips", Resource: corev1.ResourceCPU}: resources.NewAmount(42_000),
 								},
 							},
 							FairWeight: defaultWeight,
@@ -652,12 +652,12 @@ func TestSnapshot(t *testing.T) {
 							},
 							ResourceNode: resourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
-									{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 7_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](3_000)},
-									{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 5_000, BorrowingLimit: nil, LendingLimit: nil},
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(7_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(3_000))},
+									{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(5_000), BorrowingLimit: nil, LendingLimit: nil},
 								},
 								SubtreeQuota: resources.FlavorResourceQuantities{
-									{Flavor: "arm", Resource: corev1.ResourceCPU}: 7_000,
-									{Flavor: "x86", Resource: corev1.ResourceCPU}: 5_000,
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(7_000),
+									{Flavor: "x86", Resource: corev1.ResourceCPU}: resources.NewAmount(5_000),
 								},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
@@ -714,7 +714,7 @@ func TestSnapshot(t *testing.T) {
 							Name: "nocycle",
 							ResourceNode: resourceNode{
 								SubtreeQuota: resources.FlavorResourceQuantities{
-									{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 								},
 							},
 							FairWeight: defaultWeight,
@@ -732,10 +732,10 @@ func TestSnapshot(t *testing.T) {
 							},
 							ResourceNode: resourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
-									{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 0},
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(0)},
 								},
 								SubtreeQuota: resources.FlavorResourceQuantities{
-									{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 								},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
@@ -768,6 +768,90 @@ func TestSnapshot(t *testing.T) {
 				),
 			},
 		},
+		"clusterQueue with unsynced TAS usage (due to missing topology) is excluded from snapshot": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("tas-cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("tas-flavor").
+					TopologyName("missing-topology").
+					Obj(),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{},
+				),
+				InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference]("tas-cq"),
+				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+					"tas-flavor": utiltestingapi.MakeResourceFlavor("tas-flavor").
+						TopologyName("missing-topology").
+						Obj(),
+				},
+			},
+		},
+		"clusterQueue with synced TAS usage is included in snapshot": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("tas-cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("tas-flavor").
+					TopologyName("topology").
+					Obj(),
+			},
+			topologies: []*kueue.Topology{
+				utiltestingapi.MakeDefaultOneLevelTopology("topology"),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						"tas-cq": {
+							Name:                          "tas-cq",
+							AllocatableResourceGeneration: 2,
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors:          []kueue.ResourceFlavorReference{"tas-flavor"},
+								},
+							},
+							ResourceNode: resourceNode{
+								Quotas: map[resources.FlavorResource]ResourceQuota{
+									{Flavor: "tas-flavor", Resource: corev1.ResourceCPU}: {
+										Nominal: resources.NewAmount(100_000),
+									},
+								},
+								SubtreeQuota: resources.FlavorResourceQuantities{
+									{Flavor: "tas-flavor", Resource: corev1.ResourceCPU}: resources.NewAmount(100_000),
+								},
+							},
+							FlavorFungibility: defaultFlavorFungibility,
+							Preemption:        defaultPreemption,
+							FairWeight:        defaultWeight,
+							NamespaceSelector: labels.Everything(),
+							Status:            active,
+						},
+					},
+				),
+				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+					"tas-flavor": utiltestingapi.MakeResourceFlavor("tas-flavor").
+						TopologyName("topology").
+						Obj(),
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -786,6 +870,9 @@ func TestSnapshot(t *testing.T) {
 			}
 			for _, rf := range tc.rfs {
 				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			for _, topology := range tc.topologies {
+				cache.AddOrUpdateTopology(log, topology)
 			}
 			for _, wl := range tc.wls {
 				cache.AddOrUpdateWorkload(log, wl)
@@ -919,9 +1006,9 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					Name: "cohort",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
-							{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
-							{Flavor: "beta", Resource: corev1.ResourceMemory}:  0,
+							{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
+							{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
+							{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(0),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
@@ -940,14 +1027,14 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  0,
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(0),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  6_000,
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi * 6,
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi * 6,
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(6_000),
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi * 6),
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi * 6),
 									},
 								},
 							},
@@ -960,10 +1047,10 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
 									},
 								},
 							},
@@ -979,9 +1066,9 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					Name: "cohort",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}:  2_000,
-							{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi,
-							{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
+							{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(2_000),
+							{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi),
+							{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
@@ -1003,14 +1090,14 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi,
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi),
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  6_000,
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi * 6,
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi * 6,
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(6_000),
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi * 6),
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi * 6),
 									},
 								},
 							},
@@ -1026,10 +1113,10 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
 									},
 								},
 							},
@@ -1045,9 +1132,9 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					Name: "cohort",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}:  3_000,
-							{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
-							{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
+							{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(3_000),
+							{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
+							{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
@@ -1069,14 +1156,14 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  1_000,
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(1_000),
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  6_000,
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi * 6,
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi * 6,
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(6_000),
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi * 6),
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi * 6),
 									},
 								},
 							},
@@ -1091,10 +1178,10 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
 									},
 								},
 							},
@@ -1230,7 +1317,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					Name: "lend",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
@@ -1249,10 +1336,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1264,10 +1351,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1283,7 +1370,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					Name: "lend",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
@@ -1302,10 +1389,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 7_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(7_000),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1318,10 +1405,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1337,7 +1424,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					Name: "lend",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
@@ -1356,10 +1443,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1372,10 +1459,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1391,7 +1478,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					Name: "lend",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
@@ -1410,10 +1497,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1426,10 +1513,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1446,7 +1533,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					Name: "lend",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
@@ -1465,10 +1552,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1481,10 +1568,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1501,7 +1588,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					Name: "lend",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
@@ -1520,10 +1607,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1535,10 +1622,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1555,7 +1642,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					Name: "lend",
 					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
+							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
@@ -1574,10 +1661,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 9_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},
@@ -1590,10 +1677,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
 									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 									},
 								},
 							},

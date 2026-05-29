@@ -1,3 +1,24 @@
+{{- $kueueConfig := dict -}}
+{{- with .Values.kueue }}
+{{- with .managerConfig }}
+{{- with .controllerManagerConfigYaml }}
+{{- $kueueConfig = . | fromYaml -}}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- $kueueNamespace := .Release.Namespace -}}
+{{- with $kueueConfig.namespace }}
+{{- $kueueNamespace = . -}}
+{{- end }}
+{{- $managedJobsNamespaceSelector := dict "matchExpressions" (list (dict "key" "kubernetes.io/metadata.name" "operator" "NotIn" "values" (list "kube-system" $kueueNamespace))) -}}
+{{- if and (hasKey $kueueConfig "managedJobsNamespaceSelector") (ne $kueueConfig.managedJobsNamespaceSelector nil) }}
+{{- $managedJobsNamespaceSelector = $kueueConfig.managedJobsNamespaceSelector -}}
+{{- end }}
+{{- with .Values.kueuePopulator.config }}
+{{- if and (hasKey . "managedJobsNamespaceSelector") (ne .managedJobsNamespaceSelector nil) }}
+{{- $managedJobsNamespaceSelector = .managedJobsNamespaceSelector -}}
+{{- end }}
+{{- end }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -62,11 +83,13 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   controller_manager_config.yaml: |
+    {{- if eq (default "Static" .Values.kueuePopulator.config.localQueue.nameMode) "AsClusterQueue" }}
+    localQueueNameMode: AsClusterQueue
+    {{- else }}
     localQueueName: {{ .Values.kueuePopulator.config.localQueue.name }}
-    {{- if .Values.kueuePopulator.config.managedJobsNamespaceSelector }}
-    managedJobsNamespaceSelector:
-      {{- toYaml .Values.kueuePopulator.config.managedJobsNamespaceSelector | nindent 6 }}
     {{- end }}
+    managedJobsNamespaceSelector:
+{{ $managedJobsNamespaceSelector | toYaml | indent 6 }}
 ---
 apiVersion: apps/v1
 kind: Deployment

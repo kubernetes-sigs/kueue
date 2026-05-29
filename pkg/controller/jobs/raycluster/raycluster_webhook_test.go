@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -127,7 +126,7 @@ func TestValidateDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	worker := rayv1.WorkerGroupSpec{}
-	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker}
+	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker, worker, worker}
 
 	testcases := map[string]struct {
 		job          *rayv1.RayCluster
@@ -136,27 +135,35 @@ func TestValidateCreate(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 	}{
 		"invalid unmanaged": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").
 				Obj(),
 			wantErr: nil,
 		},
 		"invalid managed - has auto scaler": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job"),
+				field.Invalid(
+					field.NewPath("spec", "enableInTreeAutoscaling"),
+					new(true),
+					"a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+				),
 			}.ToAggregate(),
 		},
 		"invalid managed - too many worker groups": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				WithWorkerGroups(bigWorkerGroup...).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 8, 7),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 10, 9),
 			}.ToAggregate(),
 		},
 		"worker group uses head name": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				WithWorkerGroups(rayv1.WorkerGroupSpec{
 					GroupName: headGroupPodSetName,
@@ -259,7 +266,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -272,7 +279,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg2",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -338,7 +345,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -350,7 +357,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg2",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -362,7 +369,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg3",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -391,7 +398,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -403,7 +410,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg2",
-						Replicas:  ptr.To(int32(10)),
+						Replicas:  new(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -438,7 +445,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -451,8 +458,16 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.headGroupSpec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.headGroupSpec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
@@ -471,7 +486,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -484,8 +499,16 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.headGroupSpec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.headGroupSpec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
@@ -504,7 +527,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -517,10 +540,25 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.headGroupSpec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(
+					field.NewPath("spec.headGroupSpec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'",
+				),
+				field.Invalid(
+					field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'",
+				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"valid with prebuilt workload annotation, WorkloadIdentifierAnnotations enabled": {
+			job: testingrayutil.MakeCluster("raycluster", "ns").
+				Queue("queue").
+				PrebuiltWorkloadAnnotation("wl1").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
 	}
 

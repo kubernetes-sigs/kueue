@@ -36,9 +36,28 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var closedChan = func() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
+type alwaysDone struct{}
+
+func (alwaysDone) Name() string {
+	return "mock"
+}
+
+func (alwaysDone) Done() <-chan struct{} {
+	return closedChan
+}
+
 type mockResourceEventHandlerRegistration struct{}
 
 func (m *mockResourceEventHandlerRegistration) HasSynced() bool { return true }
+func (m *mockResourceEventHandlerRegistration) HasSyncedChecker() toolscache.DoneChecker {
+	return alwaysDone{}
+}
 
 type mockInformer struct {
 	mu sync.Mutex
@@ -92,6 +111,8 @@ func (m *mockInformer) RemoveEventHandler(handle toolscache.ResourceEventHandler
 func (m *mockInformer) AddIndexers(_ toolscache.Indexers) error { return nil }
 
 func (m *mockInformer) HasSynced() bool { return true }
+
+func (m *mockInformer) HasSyncedChecker() toolscache.DoneChecker { return alwaysDone{} }
 
 func (m *mockInformer) IsStopped() bool { return false }
 

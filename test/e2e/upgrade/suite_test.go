@@ -44,11 +44,7 @@ func TestUpgrade(t *testing.T) {
 	if upgradeFrom != "" {
 		suiteName = fmt.Sprintf("%s: %s -> current", suiteName, upgradeFrom)
 	}
-	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
-		suiteName = fmt.Sprintf("%s (K8s %s)", suiteName, ver)
-	}
-	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t, suiteName)
+	util.RunE2ESuite(t, suiteName)
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -76,9 +72,4 @@ var _ = ginkgo.BeforeSuite(func() {
 		"version", upgradeFrom,
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })

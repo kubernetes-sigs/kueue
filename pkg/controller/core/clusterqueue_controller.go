@@ -32,7 +32,6 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,9 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
-	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -155,7 +152,7 @@ func (r *ClusterQueueReconciler) logger() logr.Logger {
 }
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/finalizers,verbs=update
@@ -171,15 +168,10 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	log.V(2).Info("Reconcile ClusterQueue")
 
 	if features.Enabled(features.CustomMetricLabels) {
-		r.customLabels.CQStoreAndClear(kueue.ClusterQueueReference(cqObj.Name),
+		r.customLabels.CQStore(
+			kueue.ClusterQueueReference(cqObj.Name),
 			cqObj.GetLabels(), cqObj.GetAnnotations(),
-			func() {
-				cqRef := kueue.ClusterQueueReference(cqObj.Name)
-				metrics.ClearClusterQueueMetrics(cqRef)
-				metrics.ClearClusterQueueMetricsOnLabelChange(cqRef)
-				metrics.ClearCacheMetrics(cqObj.Name)
-				metrics.ClearClusterQueueResourceMetrics(cqObj.Name)
-			})
+		)
 	}
 
 	if cqObj.DeletionTimestamp.IsZero() {
@@ -349,7 +341,7 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 	}
 
 	if r.reportResourceMetrics {
-		recordResourceMetrics(e.Object, r.roleTracker, r.customLabels)
+		r.cache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(e.Object.Name))
 	}
 
 	return true
@@ -385,22 +377,16 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 
 	var labelsUpdated bool
 	if features.Enabled(features.CustomMetricLabels) {
-		labelsUpdated = r.customLabels.CQStoreAndClear(
+		labelsUpdated = r.customLabels.CQStore(
 			kueue.ClusterQueueReference(e.ObjectNew.GetName()),
 			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
-			func() {
-				cqRef := kueue.ClusterQueueReference(e.ObjectNew.Name)
-				metrics.ClearClusterQueueMetrics(cqRef)
-				metrics.ClearClusterQueueMetricsOnLabelChange(cqRef)
-				metrics.ClearCacheMetrics(e.ObjectNew.Name)
-				metrics.ClearClusterQueueResourceMetrics(e.ObjectNew.Name)
-			})
+		)
 	}
 
 	if err := r.cache.UpdateClusterQueue(log, e.ObjectNew); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
-	if err := r.qManager.UpdateClusterQueue(context.Background(), e.ObjectNew, specUpdated, labelsUpdated); err != nil {
+	if err := r.qManager.UpdateClusterQueue(context.Background(), e.ObjectNew, specUpdated); err != nil {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
 	}
 
@@ -410,8 +396,11 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 		r.cache.RecordCohortMetrics(log, e.ObjectOld.Spec.CohortName)
 	}
 
-	if r.reportResourceMetrics {
-		updateResourceMetrics(e.ObjectOld, e.ObjectNew, r.roleTracker, r.customLabels)
+	if r.reportResourceMetrics && !labelsUpdated {
+		r.updateResourceMetrics(log, e.ObjectOld, e.ObjectNew)
+	}
+	if labelsUpdated {
+		r.resyncClusterQueueGaugeMetrics(e.ObjectNew)
 	}
 	return true
 }
@@ -421,118 +410,25 @@ func (r *ClusterQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.Cluste
 	return true
 }
 
-func recordResourceMetrics(cq *kueue.ClusterQueue, tracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels) {
-	cqCustomLabels := customLabels.CQGet(kueue.ClusterQueueReference(cq.Name))
-	for rgi := range cq.Spec.ResourceGroups {
-		rg := &cq.Spec.ResourceGroups[rgi]
-		for fqi := range rg.Flavors {
-			fq := &rg.Flavors[fqi]
-			for ri := range fq.Resources {
-				r := &fq.Resources[ri]
-				nominal := resource.QuantityToFloat(&r.NominalQuota)
-				borrow := resource.QuantityToFloat(r.BorrowingLimit)
-				lend := resource.QuantityToFloat(r.LendingLimit)
-				metrics.ReportClusterQueueQuotas(cq.Spec.CohortName, cq.Name, string(fq.Name), string(r.Name), nominal, borrow, lend, cqCustomLabels, tracker)
-			}
-		}
-	}
-
-	for fri := range cq.Status.FlavorsReservation {
-		fr := &cq.Status.FlavorsReservation[fri]
-		for ri := range fr.Resources {
-			r := &fr.Resources[ri]
-			metrics.ReportClusterQueueResourceReservations(cq.Spec.CohortName, cq.Name, string(fr.Name), string(r.Name), resource.QuantityToFloat(&r.Total), cqCustomLabels, tracker)
-		}
-	}
-
-	for fui := range cq.Status.FlavorsUsage {
-		fu := &cq.Status.FlavorsUsage[fui]
-		for ri := range fu.Resources {
-			r := &fu.Resources[ri]
-			metrics.ReportClusterQueueResourceUsage(cq.Spec.CohortName, cq.Name, string(fu.Name), string(r.Name), resource.QuantityToFloat(&r.Total), cqCustomLabels, tracker)
-		}
-	}
-}
-
-func updateResourceMetrics(oldCq, newCq *kueue.ClusterQueue, tracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels) {
+func (r *ClusterQueueReconciler) updateResourceMetrics(log logr.Logger, oldCq, newCq *kueue.ClusterQueue) {
 	// if the cohort changed, drop all the old metrics
 	if oldCq.Spec.CohortName != newCq.Spec.CohortName {
 		metrics.ClearClusterQueueResourceMetrics(oldCq.Name)
 	} else {
 		// selective remove
-		clearOldResourceQuotas(oldCq, newCq)
+		r.cache.ClearClusterQueueOldResourceMetrics(log, oldCq)
 	}
-	recordResourceMetrics(newCq, tracker, customLabels)
+	r.cache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(newCq.Name))
 }
 
-func clearOldResourceQuotas(oldCq, newCq *kueue.ClusterQueue) {
-	for rgi := range oldCq.Spec.ResourceGroups {
-		oldRG := &oldCq.Spec.ResourceGroups[rgi]
-		newFlavors := map[kueue.ResourceFlavorReference]*kueue.FlavorQuotas{}
-		if rgi < len(newCq.Spec.ResourceGroups) && len(newCq.Spec.ResourceGroups[rgi].Flavors) > 0 {
-			newFlavors = utilslices.ToRefMap(newCq.Spec.ResourceGroups[rgi].Flavors, func(f *kueue.FlavorQuotas) kueue.ResourceFlavorReference { return f.Name })
-		}
-
-		for fi := range oldRG.Flavors {
-			flavor := &oldRG.Flavors[fi]
-			if newFlavor, found := newFlavors[flavor.Name]; !found || len(newFlavor.Resources) == 0 {
-				metrics.ClearClusterQueueResourceQuotas(oldCq.Name, string(flavor.Name), "")
-			} else {
-				// check all resources
-				newResources := utilslices.ToRefMap(newFlavor.Resources, func(r *kueue.ResourceQuota) corev1.ResourceName { return r.Name })
-				for ri := range flavor.Resources {
-					rname := flavor.Resources[ri].Name
-					if _, found := newResources[rname]; !found {
-						metrics.ClearClusterQueueResourceQuotas(oldCq.Name, string(flavor.Name), string(rname))
-					}
-				}
-			}
-		}
-	}
-
-	// reservation metrics
-	if len(oldCq.Status.FlavorsReservation) > 0 {
-		newFlavors := map[kueue.ResourceFlavorReference]*kueue.FlavorUsage{}
-		if len(newCq.Status.FlavorsReservation) > 0 {
-			newFlavors = utilslices.ToRefMap(newCq.Status.FlavorsReservation, func(f *kueue.FlavorUsage) kueue.ResourceFlavorReference { return f.Name })
-		}
-		for fi := range oldCq.Status.FlavorsReservation {
-			flavor := &oldCq.Status.FlavorsReservation[fi]
-			if newFlavor, found := newFlavors[flavor.Name]; !found || len(newFlavor.Resources) == 0 {
-				metrics.ClearClusterQueueResourceReservations(oldCq.Name, string(flavor.Name), "")
-			} else {
-				newResources := utilslices.ToRefMap(newFlavor.Resources, func(r *kueue.ResourceUsage) corev1.ResourceName { return r.Name })
-				for ri := range flavor.Resources {
-					rname := flavor.Resources[ri].Name
-					if _, found := newResources[rname]; !found {
-						metrics.ClearClusterQueueResourceReservations(oldCq.Name, string(flavor.Name), string(rname))
-					}
-				}
-			}
-		}
-	}
-
-	// usage metrics
-	if len(oldCq.Status.FlavorsUsage) > 0 {
-		newFlavors := map[kueue.ResourceFlavorReference]*kueue.FlavorUsage{}
-		if len(newCq.Status.FlavorsUsage) > 0 {
-			newFlavors = utilslices.ToRefMap(newCq.Status.FlavorsUsage, func(f *kueue.FlavorUsage) kueue.ResourceFlavorReference { return f.Name })
-		}
-		for fi := range oldCq.Status.FlavorsUsage {
-			flavor := &oldCq.Status.FlavorsUsage[fi]
-			if newFlavor, found := newFlavors[flavor.Name]; !found || len(newFlavor.Resources) == 0 {
-				metrics.ClearClusterQueueResourceUsage(oldCq.Name, string(flavor.Name), "")
-			} else {
-				newResources := utilslices.ToRefMap(newFlavor.Resources, func(r *kueue.ResourceUsage) corev1.ResourceName { return r.Name })
-				for ri := range flavor.Resources {
-					rname := flavor.Resources[ri].Name
-					if _, found := newResources[rname]; !found {
-						metrics.ClearClusterQueueResourceUsage(oldCq.Name, string(flavor.Name), string(rname))
-					}
-				}
-			}
-		}
-	}
+func (r *ClusterQueueReconciler) resyncClusterQueueGaugeMetrics(cq *kueue.ClusterQueue) {
+	cqRef := kueue.ClusterQueueReference(cq.Name)
+	metrics.ClearClusterQueueMetrics(cqRef)
+	metrics.ClearClusterQueueMetricsOnLabelChange(cqRef)
+	metrics.ClearCacheMetrics(cq.Name)
+	metrics.ClearClusterQueueResourceMetrics(cq.Name)
+	r.qManager.ResyncClusterQueueGaugeMetrics(cqRef)
+	r.cache.ResyncClusterQueueGaugeMetrics(cqRef)
 }
 
 // cqNamespaceHandler handles namespace update events.
@@ -597,7 +493,7 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 			r,
 		)).
 		WithOptions(controller.Options{
-			NeedLeaderElection:      ptr.To(false),
+			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ClusterQueue").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "clusterqueue-reconciler"),
 		}).

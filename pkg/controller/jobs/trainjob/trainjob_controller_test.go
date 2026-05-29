@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -72,7 +71,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 
 	// Create and refererence a fake ClusterTrainingRuntime
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
-		APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
+		APIGroup: new(kftrainerapi.GroupVersion.Group),
 		Name:     "test",
 		Kind:     ptr.To(kftrainerapi.ClusterTrainingRuntimeKind),
 	})
@@ -194,7 +193,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			wantErr: false,
 		},
 		"should not modify the TrainJob if the wrong number of PodSet infos is provided": {
-			trainJob: testTrainJob.Clone().Obj(),
+			trainJob: testTrainJob.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "node",
@@ -209,11 +208,11 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
 				},
 			},
-			wantTrainJob: testTrainJob.Clone().Obj(),
+			wantTrainJob: testTrainJob.DeepCopy(),
 			wantErr:      true,
 		},
 		"should return an error if the trainjob references an unknown training runtime": {
-			trainJob: testTrainJob.Clone().Obj(),
+			trainJob: testTrainJob.DeepCopy(),
 			wantErr:  true,
 		},
 		"should replace existing Kueue overrides (idempotency)": {
@@ -282,7 +281,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme).WithObjects()
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			kClient := clientBuilder.WithObjects(tc.trainJob, testCtr).Build()
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			_, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithManageJobsWithoutQueueName(true))
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)
@@ -290,7 +289,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 
 			kTrainJob := (*TrainJob)(tc.trainJob)
 			originalTrainJob := tc.trainJob.DeepCopy()
-			err = kTrainJob.RunWithPodSetsInfo(ctx, tc.podsetsInfo)
+			err = kTrainJob.RunWithPodSetsInfo(ctx, kClient, tc.podsetsInfo)
 			if err != nil {
 				if !tc.wantErr {
 					t.Errorf("unexpected RunWithPodSetsInfo() error: %v", err)
@@ -371,7 +370,7 @@ func TestReconciler(t *testing.T) {
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 	// Create and refererence a fake ClusterTrainingRuntime
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
-		APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
+		APIGroup: new(kftrainerapi.GroupVersion.Group),
 		Name:     "test",
 		Kind:     ptr.To(kftrainerapi.ClusterTrainingRuntimeKind),
 	})
@@ -405,18 +404,18 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			trainJob:     testTrainJob.Clone().Obj(),
-			wantTrainJob: testTrainJob.Clone().Obj(),
+			trainJob:     testTrainJob.DeepCopy(),
+			wantTrainJob: testTrainJob.DeepCopy(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
 					PodSets(
 						*utiltestingapi.MakePodSet("node", 1).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobsetapi.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),
 						*utiltestingapi.MakePodSet("foo", 1).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobsetapi.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),
@@ -435,12 +434,12 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
 					PodSets(
 						*utiltestingapi.MakePodSet("node", 2).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobsetapi.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),
 						*utiltestingapi.MakePodSet("foo", 1).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobsetapi.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),
@@ -459,7 +458,7 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)

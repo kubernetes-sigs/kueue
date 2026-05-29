@@ -70,6 +70,12 @@ Kueue assigns the first flavor in the ClusterQueue's `.spec.resourceGroups[*].fl
 list that has enough unused `nominalQuota` quota in the ClusterQueue or the
 ClusterQueue's [cohort](#cohort).
 
+When [Concurrent Admission](/docs/concepts/concurrent_admission) is enabled for
+a ClusterQueue, the order of `.spec.resourceGroups[*].flavors` also defines
+ResourceFlavor preference: the first ResourceFlavor is the most preferred
+ResourceFlavor for migration. Kueue can concurrently pursue admission on
+multiple ResourceFlavors independently.
+
 {{% alert title="Note" color="primary" %}}
 Use the `pods` resource name in the ClusterQueue quotas to limit the number of pods that can be admitted.
 
@@ -446,7 +452,8 @@ The fields above do the following:
     that satisfy the Fair Sharing preemption strategies.
 
 - `borrowWithinCohort` determines whether a pending Workload can preempt
-  Workloads from other ClusterQueues if the workload requires borrowing.
+  Workloads from other ClusterQueues that are using more than their nominal
+  quota, if the workload requires borrowing.
   May only be configured with Classical Preemption, and __not__ with Fair Sharing.
   This field requires to specify `policy` sub-field with possible values:
   - `Never` (default): do not preempt Workloads in the cohort if borrowing is required.

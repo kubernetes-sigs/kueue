@@ -52,8 +52,7 @@ var (
 )
 
 func TestKueuectl(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t, "Kueuectl Suite")
+	util.RunSuite(t, "Kueuectl Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -76,11 +75,6 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-})
-
 func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -98,6 +92,12 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
 	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations, nil)
+	failedCtrl, err := core.SetupControllers(
+		mgr,
+		queues,
+		cCache,
+		controllersCfg,
+		core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+	)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 }

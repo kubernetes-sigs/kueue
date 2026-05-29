@@ -230,7 +230,7 @@ func TestReconcile(t *testing.T) {
 	var backoffBaseSeconds int32 = 60
 	baseConfigWithRetryStrategy := baseConfig.Clone().RetryStrategy(&kueue.ProvisioningRequestRetryStrategy{
 		BackoffLimitCount:  ptr.To[int32](3),
-		BackoffBaseSeconds: ptr.To[int32](backoffBaseSeconds),
+		BackoffBaseSeconds: new(backoffBaseSeconds),
 		BackoffMaxSeconds:  ptr.To[int32](1800),
 	})
 
@@ -571,7 +571,7 @@ func TestReconcile(t *testing.T) {
 						Name:                "check1",
 						State:               kueue.CheckStateRetry,
 						Message:             "Retrying after failure: By test",
-						RequeueAfterSeconds: ptr.To(backoffBaseSeconds),
+						RequeueAfterSeconds: new(backoffBaseSeconds),
 					}, kueue.AdmissionCheckState{
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
@@ -1054,7 +1054,7 @@ func TestReconcile(t *testing.T) {
 						Name:                "check1",
 						State:               kueue.CheckStateRetry,
 						Message:             "Retrying after booking expired: Expired By test",
-						RequeueAfterSeconds: ptr.To(backoffBaseSeconds),
+						RequeueAfterSeconds: new(backoffBaseSeconds),
 					}, kueue.AdmissionCheckState{
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,

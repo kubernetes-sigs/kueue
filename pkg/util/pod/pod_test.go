@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -52,7 +51,7 @@ func TestHasGate(t *testing.T) {
 			want: false,
 		},
 		"no scheduling gates": {
-			pod:  basePod.Clone().Obj(),
+			pod:  basePod.DeepCopy(),
 			want: false,
 		},
 	}
@@ -81,9 +80,8 @@ func TestUngate(t *testing.T) {
 			pod: basePod.Clone().
 				Gate("example.com/gate").
 				Obj(),
-			wantPod: basePod.Clone().
-				Obj(),
-			want: true,
+			wantPod: basePod.DeepCopy(),
+			want:    true,
 		},
 		"ungate when scheduling gate missing": {
 			gateName: "example.com/gate",
@@ -166,8 +164,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 		wantErr error
 	}{
 		"label not found": {
-			obj: basePod.Clone().
-				Obj(),
+			obj:     basePod.DeepCopy(),
 			label:   "label",
 			max:     math.MaxInt,
 			wantErr: ErrLabelNotFound,
@@ -178,7 +175,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 				Obj(),
 			label:   "label",
 			max:     math.MaxInt,
-			wantVal: ptr.To(1000),
+			wantVal: new(1000),
 		},
 		"invalid label value": {
 			obj: basePod.Clone().

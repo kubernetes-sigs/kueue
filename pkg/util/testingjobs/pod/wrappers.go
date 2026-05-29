@@ -26,13 +26,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // PodWrapper wraps a Pod.
@@ -53,7 +53,7 @@ func MakePod(name, ns string) *PodWrapper {
 			Containers: []corev1.Container{
 				{
 					Name:      "c",
-					Image:     "pause",
+					Image:     utiltestingjobs.TestDefaultContainerImage,
 					Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}},
 				},
 			},
@@ -67,11 +67,17 @@ func (p *PodWrapper) Obj() *corev1.Pod {
 	return &p.Pod
 }
 
+// ResourceVersion sets the ResourceVersion of the Pod.
+func (p *PodWrapper) ResourceVersion(version string) *PodWrapper {
+	p.ObjectMeta.ResourceVersion = version
+	return p
+}
+
 // MakeGroup returns multiple pods that form a pod group, based on the original wrapper.
 func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
 	var pods []*corev1.Pod
 	for i := range count {
-		pod := p.Clone().Group(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
+		pod := p.Clone().GroupNameLabel(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
 		pod.Pod.Name += fmt.Sprintf("-%d", i)
 		pods = append(pods, pod.Obj())
 	}
@@ -81,7 +87,17 @@ func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
 func (p *PodWrapper) MakePodGroupWrappers(count int) []*PodWrapper {
 	var pods []*PodWrapper
 	for i := range count {
-		pod := p.Clone().Group(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
+		pod := p.Clone().GroupNameLabel(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
+		pod.Pod.Name += fmt.Sprintf("-%d", i)
+		pods = append(pods, pod)
+	}
+	return pods
+}
+
+func (p *PodWrapper) MakePodGroupWrappersWithWorkloadAnnotations(count int) []*PodWrapper {
+	var pods []*PodWrapper
+	for i := range count {
+		pod := p.Clone().GroupNameAnnotation(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
 		pod.Pod.Name += fmt.Sprintf("-%d", i)
 		pods = append(pods, pod)
 	}
@@ -93,7 +109,7 @@ func (p *PodWrapper) MakeIndexedGroup(count int) []*corev1.Pod {
 	var pods []*corev1.Pod
 	for i := range count {
 		pod := p.Clone().
-			Group(p.Pod.Name).
+			GroupNameLabel(p.Pod.Name).
 			GroupTotalCount(strconv.Itoa(count)).
 			GroupIndex(strconv.Itoa(i))
 		pod.Pod.Name += fmt.Sprintf("-%d", i)
@@ -116,14 +132,23 @@ func (p *PodWrapper) SuspendedByParent(controller string) *PodWrapper {
 	return p.Annotation(podconstants.SuspendedByParentAnnotation, controller)
 }
 
-func (p *PodWrapper) PrebuiltWorkload(name string) *PodWrapper {
+func (p *PodWrapper) PrebuiltWorkloadLabel(name string) *PodWrapper {
 	return p.Label(controllerconsts.PrebuiltWorkloadLabel, name)
+}
+
+func (p *PodWrapper) PrebuiltWorkloadAnnotation(name string) *PodWrapper {
+	return p.Annotation(controllerconsts.PrebuiltWorkloadAnnotation, name)
 }
 
 // PriorityClass updates the priority class name of the Pod
 func (p *PodWrapper) PriorityClass(pc string) *PodWrapper {
 	p.Spec.PriorityClassName = pc
 	return p
+}
+
+// WorkloadPriorityClass updates the Kueue workload priority class label of the Pod.
+func (p *PodWrapper) WorkloadPriorityClass(wpc string) *PodWrapper {
+	return p.Label(controllerconsts.WorkloadPriorityClassLabel, wpc)
 }
 
 // Name updated the name of the pod
@@ -138,9 +163,14 @@ func (p *PodWrapper) Namespace(n string) *PodWrapper {
 	return p
 }
 
-// Group updates the pod.GroupNameLabel of the Pod
-func (p *PodWrapper) Group(g string) *PodWrapper {
+// GroupNameLabel updates GroupNameLabel of the Pod
+func (p *PodWrapper) GroupNameLabel(g string) *PodWrapper {
 	return p.Label(podconstants.GroupNameLabel, g)
+}
+
+// GroupNameAnnotation updates GroupNameAnnotation of the Pod
+func (p *PodWrapper) GroupNameAnnotation(g string) *PodWrapper {
+	return p.Annotation(podconstants.GroupNameAnnotation, g)
 }
 
 // GroupTotalCount updates the pod.GroupTotalCountAnnotation of the Pod
@@ -163,6 +193,9 @@ func (p *PodWrapper) Label(k, v string) *PodWrapper {
 }
 
 func (p *PodWrapper) Annotation(key, content string) *PodWrapper {
+	if p.Annotations == nil {
+		p.Annotations = make(map[string]string, 1)
+	}
 	p.Annotations[key] = content
 	return p
 }
@@ -224,6 +257,68 @@ func (p *PodWrapper) NodeSelector(k, v string) *PodWrapper {
 	return p
 }
 
+func (p *PodWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelectorTerms []corev1.NodeSelectorTerm) *PodWrapper {
+	if p.Spec.Affinity == nil {
+		p.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Spec.Affinity.NodeAffinity == nil {
+		p.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	if p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{}
+	}
+	p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = append(
+		p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms,
+		nodeSelectorTerms...,
+	)
+	return p
+}
+
+func (p *PodWrapper) PreferredDuringSchedulingIgnoredDuringExecution(preferredSchedulingTerms []corev1.PreferredSchedulingTerm) *PodWrapper {
+	if p.Spec.Affinity == nil {
+		p.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Spec.Affinity.NodeAffinity == nil {
+		p.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	p.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = append(
+		p.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution,
+		preferredSchedulingTerms...,
+	)
+	return p
+}
+
+func (p *PodWrapper) RequiredNodeSelectorRequirement(key string, op corev1.NodeSelectorOperator, values ...string) *PodWrapper {
+	return p.RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+		{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      key,
+					Operator: op,
+					Values:   values,
+				},
+			},
+		},
+	})
+}
+
+func (p *PodWrapper) PreferredNodeSelectorRequirement(weight int32, key string, op corev1.NodeSelectorOperator, values ...string) *PodWrapper {
+	return p.PreferredDuringSchedulingIgnoredDuringExecution([]corev1.PreferredSchedulingTerm{
+		{
+			Weight: weight,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      key,
+						Operator: op,
+						Values:   values,
+					},
+				},
+			},
+		},
+	})
+}
+
 // NodeName sets a node name to the Pod.
 func (p *PodWrapper) NodeName(name string) *PodWrapper {
 	p.Spec.NodeName = name
@@ -260,7 +355,7 @@ func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *PodWrapper {
-	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return p
 }
 

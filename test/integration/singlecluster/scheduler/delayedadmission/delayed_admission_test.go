@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -149,7 +148,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 						// proceeding with its assertions. In the worst case, Kueue may reset the RequeueAt field just before
 						// we check if it’s set, causing the test to fail.
 						// To avoid flaky tests—especially in our CI environment—we've chosen to use a slightly longer delay.
-						RequeueAfterSeconds: ptr.To(int32(5)),
+						RequeueAfterSeconds: new(int32(5)),
 					}, realClock)
 					g.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

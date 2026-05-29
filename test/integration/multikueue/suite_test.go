@@ -54,7 +54,8 @@ import (
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
-	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
+	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
+	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -72,10 +73,18 @@ type cluster struct {
 	client client.Client
 	ctx    context.Context
 	fwk    *framework.Framework
+
+	miniJobConroller util.MiniJobController
 }
 
 func (c *cluster) kubeConfigBytes() ([]byte, error) {
 	return utiltesting.RestConfigToKubeConfig(c.cfg)
+}
+
+func (c *cluster) StopAndTeardown() {
+	c.fwk.StopManager(c.ctx)
+	c.miniJobConroller.Stop()
+	c.fwk.Teardown()
 }
 
 var (
@@ -92,11 +101,7 @@ var (
 )
 
 func TestMultiKueue(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"MultiKueue Suite",
-	)
+	util.RunSuite(t, "MultiKueue Suite")
 }
 
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
@@ -118,6 +123,8 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 	mu.Lock()
 	c.cfg = c.fwk.Init()
 	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
+	c.miniJobConroller = util.NewMiniJobController(c.ctx, c.client)
+	c.miniJobConroller.Start()
 	mu.Unlock()
 
 	// skip the manager setup if setup func is not provided
@@ -140,7 +147,13 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpecations, nil)
+	failedCtrl, err := core.SetupControllers(
+		mgr,
+		queues,
+		cCache,
+		configuration,
+		core.SetupControllersOpts{PreemptionExpectations: preemptionExpecations},
+	)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	failedWebhook, err := webhooks.Setup(mgr, nil)
@@ -153,7 +166,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = jobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -168,7 +181,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = jobsetReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -183,7 +196,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = tfjobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -198,7 +211,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = paddleJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -213,12 +226,16 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = pyTorchJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadpytorchjob.SetupPyTorchJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	err = workloadpytorchjob.SetupPyTorchJobWebhook(
+		mgr,
+		jobframework.WithCache(cCache),
+		jobframework.WithQueues(queues),
+	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadxgboostjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -228,12 +245,16 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = xgboostJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadxgboostjob.SetupXGBoostJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	err = workloadxgboostjob.SetupXGBoostJobWebhook(
+		mgr,
+		jobframework.WithCache(cCache),
+		jobframework.WithQueues(queues),
+	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadmpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -243,7 +264,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = mpiJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -258,7 +279,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = podReconciller.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -275,7 +296,12 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadpod.SetupWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues), jobframework.WithManagedJobsNamespaceSelector(mjnsSelector))
+	err = workloadpod.SetupWebhook(
+		mgr,
+		jobframework.WithCache(cCache),
+		jobframework.WithQueues(queues),
+		jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
+	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -285,7 +311,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = rayJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -300,12 +326,16 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = rayClusterReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadraycluster.SetupRayClusterWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	err = workloadraycluster.SetupRayClusterWebhook(
+		mgr,
+		jobframework.WithCache(cCache),
+		jobframework.WithQueues(queues),
+	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadaw.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -315,7 +345,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = appwrapperReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -330,7 +360,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = trainjobreconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -343,7 +373,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	provReconciler, err := provisioning.NewController(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
+		mgr.GetEventRecorder("kueue-provisioning-request-controller"), nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = provReconciler.SetupWithManager(mgr)
@@ -368,7 +398,7 @@ func managerAndMultiKueueSetup(
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 		multikueue.WithGCInterval(gcInterval),
 		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
-		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
+		multikueue.WithEventsBatchPeriod(250*time.Millisecond),
 		multikueue.WithAdapters(adapters),
 		multikueue.WithDispatcherName(dispatcherName),
 	)
@@ -380,30 +410,27 @@ func managerAndMultiKueueSetup(
 		},
 	}
 	mgr.GetScheme().Default(configuration)
-	_, err = dispatcher.SetupControllers(mgr, configuration, nil)
+	_, err = workloaddispatcher.SetupControllers(mgr, configuration, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	var managerFeatureGates []string
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, true)
+
 	ginkgo.By("creating the clusters", func() {
-		mu = sync.Mutex{}
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
 			// pass nil setup since the manager for the manage cluster is different in some specs.
-			c := createCluster(nil, managerFeatureGates...)
-			managerTestCluster = c
+			managerTestCluster = createCluster(nil)
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
-			c := createCluster(managerSetup)
-			worker1TestCluster = c
+			worker1TestCluster = createCluster(managerSetup)
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
-			c := createCluster(managerSetup)
-			worker2TestCluster = c
+			worker2TestCluster = createCluster(managerSetup)
 		})
 		wg.Wait()
 	})
@@ -418,12 +445,7 @@ var _ = ginkgo.BeforeSuite(func() {
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	managerTestCluster.fwk.Teardown()
-	worker1TestCluster.fwk.Teardown()
-	worker2TestCluster.fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	managerTestCluster.StopAndTeardown()
+	worker1TestCluster.StopAndTeardown()
+	worker2TestCluster.StopAndTeardown()
 })

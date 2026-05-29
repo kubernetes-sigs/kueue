@@ -53,11 +53,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"MPIJob Controller Suite",
-	)
+	util.RunSuite(t, "MPIJob Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -72,11 +68,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
@@ -98,14 +89,24 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+		sched := scheduler.New(
+			queues,
+			cCache,
+			mgr.GetClient(),
+			mgr.GetEventRecorder(constants.AdmissionName),
+			scheduler.WithPreemptionExpectations(preemptionExpectations),
+		)
 		err := sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
 
 func controllersSetup(
-	ctx context.Context, mgr manager.Manager, setupJobManager bool, preemptionExpectations *expectations.Store, opts ...jobframework.Option,
+	ctx context.Context,
+	mgr manager.Manager,
+	setupJobManager bool,
+	preemptionExpectations *expectations.Store,
+	opts ...jobframework.Option,
 ) (*schdcache.Cache, *qcache.Manager, *config.Configuration) {
 	cCache := schdcache.New(mgr.GetClient())
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
@@ -117,7 +118,7 @@ func controllersSetup(
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName),
+		mgr.GetEventRecorder(constants.JobControllerName),
 		opts...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -131,7 +132,13 @@ func controllersSetup(
 	jobframework.EnableIntegration(mpijob.FrameworkName)
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
+	failedCtrl, err := core.SetupControllers(
+		mgr,
+		queues,
+		cCache,
+		configuration,
+		core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+	)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
@@ -141,7 +148,7 @@ func controllersSetup(
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
+			mgr.GetEventRecorder(constants.JobControllerName),
 			opts...)
 		err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

@@ -32,6 +32,7 @@ Please also consider setting the area:
 /area dashboard
 /area localization
 /area testing
+/area website
 -->
 
 #### What this PR does / why we need it:

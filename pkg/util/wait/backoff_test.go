@@ -24,7 +24,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -42,7 +41,7 @@ func (s SpyTimer) Reset(d time.Duration) bool {
 func makeSpyTimer() SpyTimer {
 	timer := clock.RealClock{}.NewTimer(0)
 	<-timer.C()
-	return SpyTimer{history: ptr.To([]time.Duration{}), Timer: timer}
+	return SpyTimer{history: new([]time.Duration{}), Timer: timer}
 }
 
 func ms(m int) time.Duration {

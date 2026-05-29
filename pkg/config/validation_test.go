@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -60,8 +61,9 @@ func TestValidate(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		cfg     *configapi.Configuration
-		wantErr field.ErrorList
+		cfg          *configapi.Configuration
+		featureGates map[featuregate.Feature]bool
+		wantErr      field.ErrorList
 	}{
 		"empty": {
 			cfg: &configapi.Configuration{},
@@ -306,7 +308,7 @@ func TestValidate(t *testing.T) {
 					RecoveryTimeout: &metav1.Duration{
 						Duration: 3,
 					},
-					BlockAdmission: ptr.To(false),
+					BlockAdmission: new(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
 						BackoffLimitCount:  ptr.To[int32](10),
@@ -403,7 +405,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					Origin: ptr.To("=]"),
+					Origin: new("=]"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -420,7 +422,7 @@ func TestValidate(t *testing.T) {
 					GCInterval: &metav1.Duration{
 						Duration: time.Second,
 					},
-					Origin: ptr.To("valid"),
+					Origin: new("valid"),
 					WorkerLostTimeout: &metav1.Duration{
 						Duration: 2 * time.Second,
 					},
@@ -699,8 +701,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:            ptr.To(true),
-					WebhookSecretName: ptr.To(":)"),
+					Enable:            new(true),
+					WebhookSecretName: new(":)"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -714,8 +716,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
-					WebhookServiceName: ptr.To("0-invalid"),
+					Enable:             new(true),
+					WebhookServiceName: new("0-invalid"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -729,8 +731,8 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(false),
-					WebhookServiceName: ptr.To("0-invalid"),
+					Enable:             new(false),
+					WebhookServiceName: new("0-invalid"),
 				},
 			},
 		},
@@ -738,9 +740,9 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             ptr.To(true),
-					WebhookServiceName: ptr.To("webhook-svc"),
-					WebhookSecretName:  ptr.To("webhook-sec"),
+					Enable:             new(true),
+					WebhookServiceName: new("webhook-svc"),
+					WebhookSecretName:  new("webhook-sec"),
 				},
 			},
 		},
@@ -814,7 +816,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: -1}),
+						AfterFinished: new(metav1.Duration{Duration: -1}),
 					},
 				},
 			},
@@ -830,7 +832,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: 0}),
+						AfterFinished: new(metav1.Duration{Duration: 0}),
 					},
 				},
 			},
@@ -840,7 +842,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterFinished: ptr.To(metav1.Duration{Duration: 1}),
+						AfterFinished: new(metav1.Duration{Duration: 1}),
 					},
 				},
 			},
@@ -850,7 +852,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: -1}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: -1}),
 					},
 				},
 			},
@@ -866,7 +868,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 0}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: 0}),
 					},
 				},
 			},
@@ -876,7 +878,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
-						AfterDeactivatedByKueue: ptr.To(metav1.Duration{Duration: 1}),
+						AfterDeactivatedByKueue: new(metav1.Duration{Duration: 1}),
 					},
 				},
 			},
@@ -965,7 +967,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
-					BindAddress: ptr.To("invalid"),
+					BindAddress: new("invalid"),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -979,7 +981,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
-					BindAddress: ptr.To("127.0.0.1"),
+					BindAddress: new("127.0.0.1"),
 				},
 			},
 		},
@@ -1005,33 +1007,281 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"quotaCheckStrategy with value ignoreUndeclared not allowed with excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+					ExcludeResourcePrefixes: []string{"foo.com/device"},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.quotaCheckStrategy",
+					Detail: "excludeResourcePrefixes is not allowed when quotaCheckStrategy is IgnoreUndeclared",
+				},
+			},
+		},
+		"quotaCheckStrategy with value ignoreundeclared allowed without excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+		},
+		"quotaCheckStrategy with value blockundeclared allowed with excludeResourcePrefixes": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckBlockUndeclared),
+					ExcludeResourcePrefixes: []string{"foo.com/device"},
+				},
+			},
+		},
+		"quotaCheckStrategy with unsupported value": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "resources.quotaCheckStrategy",
+				},
+			},
+		},
+		"quotaCheckStrategy validation skipped when feature gate disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+				},
+			},
+		},
+		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRAIntegration:                 false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationPartitionableDevices: true,
+				features.KueueDRAIntegration:                     false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"valid counter source on deviceClassMapping": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"sources: missing driver": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.driver",
+				},
+			},
+		},
+		"sources: missing name": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.name",
+				},
+			},
+		},
+		"sources: missing deviceSelector": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.deviceSelector.cel.expression",
+				},
+			},
+		},
+		"sources: too many entries in alpha": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "multiprocessors",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeTooMany,
+					Field: "resources.deviceClassMappings[0].sources",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(tc.wantErr, validate(tc.cfg, testScheme), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestValidateFeatureGates(t *testing.T) {
+func TestLoadAndValidateFeatureGates(t *testing.T) {
 	cases := map[string]struct {
 		featureGatesCLI string
 		featureGateMap  map[string]bool
-		featureGates    map[featuregate.Feature]bool
+		gatesToRestore  map[featuregate.Feature]bool
 		wantErr         field.ErrorList
 	}{
 		"no feature gates is null": {
 			featureGatesCLI: "",
 		},
 		"feature gate cli": {
-			featureGatesCLI: "test:true",
+			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration: false,
+			},
 		},
 		"cannot specify both feature gates": {
-			featureGatesCLI: "test:true",
-			featureGateMap:  map[string]bool{"test": true},
+			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegration): false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration: false,
+			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
@@ -1041,9 +1291,22 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"cannot set TAS profile with TAS disabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TASProfileMixed:         true,
-				features.TopologyAwareScheduling: false,
+			featureGateMap: map[string]bool{
+				string(features.TASProfileMixed):                  true,
+				string(features.TopologyAwareScheduling):          false,
+				string(features.TASHandleOverlappingFlavors):      false,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASReplaceNodeOnNodeTaints):       false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASProfileMixed:                  false,
+				features.TopologyAwareScheduling:          true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASReplaceNodeOnNodeTaints:       true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1054,11 +1317,17 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
-				features.TopologyAwareScheduling:             true,
-				features.ElasticJobsViaWorkloadSlices:        false,
-				features.TASProfileMixed:                     false,
+			featureGateMap: map[string]bool{
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.TopologyAwareScheduling):             true,
+				string(features.ElasticJobsViaWorkloadSlices):        false,
+				string(features.TASProfileMixed):                     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.TopologyAwareScheduling:             false,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.TASProfileMixed:                     true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1069,11 +1338,26 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
-				features.ElasticJobsViaWorkloadSlices:        true,
-				features.TopologyAwareScheduling:             false,
-				features.TASProfileMixed:                     false,
+			featureGateMap: map[string]bool{
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.ElasticJobsViaWorkloadSlices):        true,
+				string(features.TopologyAwareScheduling):             false,
+				string(features.TASHandleOverlappingFlavors):         false,
+				string(features.TASProfileMixed):                     false,
+				string(features.TASFailedNodeReplacement):            false,
+				string(features.TASFailedNodeReplacementFailFast):    false,
+				string(features.TASReplaceNodeOnPodTermination):      false,
+				string(features.TASReplaceNodeOnNodeTaints):          false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.ElasticJobsViaWorkloadSlices:        false,
+				features.TopologyAwareScheduling:             true,
+				features.TASProfileMixed:                     true,
+				features.TASFailedNodeReplacement:            true,
+				features.TASFailedNodeReplacementFailFast:    true,
+				features.TASReplaceNodeOnPodTermination:      true,
+				features.TASReplaceNodeOnNodeTaints:          true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1084,25 +1368,52 @@ func TestValidateFeatureGates(t *testing.T) {
 			},
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS valid when all dependencies enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
-				features.ElasticJobsViaWorkloadSlices:        true,
-				features.TopologyAwareScheduling:             true,
-				features.TASProfileMixed:                     false,
+			featureGateMap: map[string]bool{
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.ElasticJobsViaWorkloadSlices):        true,
+				string(features.TopologyAwareScheduling):             true,
+				string(features.TASProfileMixed):                     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.ElasticJobsViaWorkloadSlices:        false,
+				features.TopologyAwareScheduling:             false,
+				features.TASProfileMixed:                     true,
 			},
 		},
 		"multiple FG validation errors at once": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TASProfileMixed:                     true,
-				features.TopologyAwareScheduling:             false,
-				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
-				features.ElasticJobsViaWorkloadSlices:        false,
+			featureGateMap: map[string]bool{
+				string(features.TASProfileMixed):                     true,
+				string(features.TopologyAwareScheduling):             false,
+				string(features.TASHandleOverlappingFlavors):         true,
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.ElasticJobsViaWorkloadSlices):        false,
+				string(features.TASFailedNodeReplacement):            false,
+				string(features.TASFailedNodeReplacementFailFast):    false,
+				string(features.TASReplaceNodeOnPodTermination):      false,
+				string(features.TASReplaceNodeOnNodeTaints):          false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASProfileMixed:                     false,
+				features.TopologyAwareScheduling:             true,
+				features.TASHandleOverlappingFlavors:         true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.TASFailedNodeReplacement:            true,
+				features.TASFailedNodeReplacementFailFast:    true,
+				features.TASReplaceNodeOnPodTermination:      true,
+				features.TASReplaceNodeOnNodeTaints:          true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "cannot use a TAS profile with TAS disabled",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASHandleOverlappingFlavors requires TopologyAwareScheduling to be enabled",
 				},
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
@@ -1116,27 +1427,340 @@ func TestValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
-		"DRAExtendedResources requires DynamicResourceAllocation": {
-			featureGates: map[featuregate.Feature]bool{
-				features.DRAExtendedResources:      true,
-				features.DynamicResourceAllocation: false,
+		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationExtendedResource): true,
+				string(features.KueueDRAIntegration):                 false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: false,
+				features.KueueDRAIntegration:                 true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "DRAExtendedResources requires DynamicResourceAllocation to be enabled",
+					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
 				},
+			},
+		},
+		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          false,
+				string(features.TASProfileMixed):                  false,
+				string(features.TASHandleOverlappingFlavors):      true,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASReplaceNodeOnNodeTaints):       false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors:      true,
+				features.TopologyAwareScheduling:          true,
+				features.TASProfileMixed:                  true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASReplaceNodeOnNodeTaints:       true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASHandleOverlappingFlavors requires TopologyAwareScheduling to be enabled",
+				},
+			},
+		},
+		"TASHandleOverlappingFlavors valid when all dependencies enabled": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):     true,
+				string(features.TASHandleOverlappingFlavors): true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TASHandleOverlappingFlavors: true,
+				features.TopologyAwareScheduling:     true,
+				features.TASProfileMixed:             true,
+			},
+		},
+		"TASFailedNodeReplacement requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          false,
+				string(features.TASProfileMixed):                  false,
+				string(features.TASHandleOverlappingFlavors):      false,
+				string(features.TASFailedNodeReplacement):         true,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASReplaceNodeOnNodeTaints):       false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.TASProfileMixed:                  true,
+				features.TASHandleOverlappingFlavors:      true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASReplaceNodeOnNodeTaints:       true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASFailedNodeReplacement requires TopologyAwareScheduling to be enabled",
+				},
+			},
+		},
+		"TASBalancedPlacement requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          false,
+				string(features.TASProfileMixed):                  false,
+				string(features.TASHandleOverlappingFlavors):      false,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASReplaceNodeOnNodeTaints):       false,
+				string(features.TASBalancedPlacement):             true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.TASProfileMixed:                  true,
+				features.TASHandleOverlappingFlavors:      true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASBalancedPlacement:             false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASBalancedPlacement requires TopologyAwareScheduling to be enabled",
+				},
+			},
+		},
+		"TASReplaceNodeOnNodeTaints requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          false,
+				string(features.TASProfileMixed):                  false,
+				string(features.TASHandleOverlappingFlavors):      false,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASReplaceNodeOnNodeTaints):       true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.TASProfileMixed:                  true,
+				features.TASHandleOverlappingFlavors:      true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASReplaceNodeOnNodeTaints:       true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASReplaceNodeOnNodeTaints requires TopologyAwareScheduling to be enabled",
+				},
+			},
+		},
+		"TASMultiLayerTopology requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          false,
+				string(features.TASProfileMixed):                  false,
+				string(features.TASHandleOverlappingFlavors):      false,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASReplaceNodeOnNodeTaints):       false,
+				string(features.TASMultiLayerTopology):            true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.TASProfileMixed:                  true,
+				features.TASHandleOverlappingFlavors:      true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASMultiLayerTopology:            false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASMultiLayerTopology requires TopologyAwareScheduling to be enabled",
+				},
+			},
+		},
+		"TASRespectNodeAffinityPreferred requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          false,
+				string(features.TASProfileMixed):                  false,
+				string(features.TASHandleOverlappingFlavors):      false,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASReplaceNodeOnNodeTaints):       false,
+				string(features.TASRespectNodeAffinityPreferred):  true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.TASProfileMixed:                  true,
+				features.TASHandleOverlappingFlavors:      true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASRespectNodeAffinityPreferred:  false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASRespectNodeAffinityPreferred requires TopologyAwareScheduling to be enabled",
+				},
+			},
+		},
+		"TASFailedNodeReplacementFailFast requires TASFailedNodeReplacement": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          true,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): true,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASFailedNodeReplacementFailFast requires TASFailedNodeReplacement to be enabled",
+				},
+			},
+		},
+		"TASReplaceNodeOnPodTermination requires TASFailedNodeReplacement": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          true,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASReplaceNodeOnPodTermination requires TASFailedNodeReplacement to be enabled",
+				},
+			},
+		},
+		"TASFailedNodeReplacementFailFast requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          false,
+				string(features.TASProfileMixed):                  false,
+				string(features.TASHandleOverlappingFlavors):      false,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): true,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASReplaceNodeOnNodeTaints):       false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.TASProfileMixed:                  true,
+				features.TASHandleOverlappingFlavors:      true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASReplaceNodeOnNodeTaints:       true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASFailedNodeReplacementFailFast requires TopologyAwareScheduling to be enabled",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASFailedNodeReplacementFailFast requires TASFailedNodeReplacement to be enabled",
+				},
+			},
+		},
+		"TASReplaceNodeOnPodTermination requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          false,
+				string(features.TASProfileMixed):                  false,
+				string(features.TASHandleOverlappingFlavors):      false,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   true,
+				string(features.TASReplaceNodeOnNodeTaints):       false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.TASProfileMixed:                  true,
+				features.TASHandleOverlappingFlavors:      true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASReplaceNodeOnNodeTaints:       true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASReplaceNodeOnPodTermination requires TopologyAwareScheduling to be enabled",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASReplaceNodeOnPodTermination requires TASFailedNodeReplacement to be enabled",
+				},
+			},
+		},
+		"all TAS sub-features valid when TopologyAwareScheduling and TASFailedNodeReplacement enabled": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          true,
+				string(features.TASFailedNodeReplacement):         true,
+				string(features.TASFailedNodeReplacementFailFast): true,
+				string(features.TASReplaceNodeOnPodTermination):   true,
+				string(features.TASBalancedPlacement):             true,
+				string(features.TASReplaceNodeOnNodeTaints):       true,
+				string(features.TASMultiLayerTopology):            true,
+				string(features.TASRespectNodeAffinityPreferred):  true,
+				string(features.TASHandleOverlappingFlavors):      true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.TASFailedNodeReplacement:         true,
+				features.TASFailedNodeReplacementFailFast: true,
+				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASBalancedPlacement:             false,
+				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASMultiLayerTopology:            false,
+				features.TASRespectNodeAffinityPreferred:  false,
+				features.TASHandleOverlappingFlavors:      true,
 			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			// Set up feature gates for this test
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			got := ValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
+			// Ensure clean up is registered for the feature gates to their default values
+			features.SetFeatureGatesDuringTest(t, tc.gatesToRestore)
+			got := LoadAndValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
 			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
-				t.Errorf("Unexpected result from ValidateFeatureGates (-want,+got):\n%s", diff)
+				t.Errorf("Unexpected result from LoadAndValidateFeatureGates (-want,+got):\n%s", diff)
 			}
 		})
 	}

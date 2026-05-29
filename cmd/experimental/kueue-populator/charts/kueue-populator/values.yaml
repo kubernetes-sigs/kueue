@@ -4,7 +4,7 @@ kueuePopulator:
     # -- Populator's image repository
     repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator
     # -- Populator's image tag
-    tag: release-0.17
+    tag: main
     # -- Populator's image pullPolicy.
     # This should be set to 'IfNotPresent' for released version
     pullPolicy: Always
@@ -14,8 +14,12 @@ kueuePopulator:
   config:
     # -- Configuration for the default LocalQueue
     localQueue:
-      # -- Name of the default LocalQueue to create in namespaces
+      # -- Name of the default LocalQueue to create in namespaces.
+      # Only used when nameMode is "Static" (default).
       name: "default"
+      # -- How to derive LocalQueue names. "Static" uses the name above;
+      # "AsClusterQueue" uses each ClusterQueue's name.
+      # nameMode: "Static"
     # -- Configuration for the default ClusterQueue
     # If not set, the ClusterQueue will not be created.
     clusterQueue:
@@ -44,12 +48,9 @@ kueuePopulator:
       # nodeLabels:
       #   cloud.google.com/gke-nodepool: "default-pool"
       nodeLabels: {}
-    # -- Label selector to filter namespaces where the default LocalQueue will be created.
-    managedJobsNamespaceSelector:
-      matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values: ["kube-system", "kueue-system"]
+      # -- Optional selector to override Kueue's managedJobsNamespaceSelector for the populator.
+      # If unset, the chart copies Kueue's managedJobsNamespaceSelector from the Kueue manager configuration.
+      # managedJobsNamespaceSelector: {}
 # Default values for the dependency 'kueue'
 kueue:
   # -- Enable the Kueue subchart

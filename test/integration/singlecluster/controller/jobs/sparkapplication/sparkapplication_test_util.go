@@ -91,7 +91,7 @@ func shouldReconcileSparkApplication(ctx context.Context, k8sClient client.Clien
 			*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 		).Obj()
-	admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+	admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
 		PodSets(
 			kueue.PodSetAssignment{
 				Name: kueue.NewPodSetReference("driver"),
@@ -166,14 +166,14 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: "default",
 			},
-			Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
+			Count: new(createdWorkload.Spec.PodSets[0].Count),
 		},
 		kueue.PodSetAssignment{
 			Name: kueue.NewPodSetReference("executor"),
 			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: "default",
 			},
-			Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
+			Count: new(createdWorkload.Spec.PodSets[1].Count),
 		},
 	).Obj()
 	util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
@@ -188,6 +188,7 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 	if podsReadyTestSpec.BeforeAppState != nil {
 		ginkgo.By("Update the SparkApplication status to simulate initial progress")
 		createdSparkApplication.Status.AppState.State = *podsReadyTestSpec.BeforeAppState
+		createdSparkApplication.Status.ExecutorState = executorStatesForAppState(createdSparkApplication, *podsReadyTestSpec.BeforeAppState)
 		gomega.ExpectWithOffset(1, k8sClient.Status().Update(ctx, createdSparkApplication)).Should(gomega.Succeed())
 		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
 	}
@@ -207,6 +208,7 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 
 	ginkgo.By("Update the SparkApplication status to simulate progress")
 	createdSparkApplication.Status.AppState.State = podsReadyTestSpec.AppState
+	createdSparkApplication.Status.ExecutorState = executorStatesForAppState(createdSparkApplication, podsReadyTestSpec.AppState)
 	gomega.ExpectWithOffset(1, k8sClient.Status().Update(ctx, createdSparkApplication)).Should(gomega.Succeed())
 	gomega.ExpectWithOffset(1, k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
 
@@ -226,4 +228,24 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 			),
 		)
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
+
+// executorStatesForAppState mirrors what Spark Operator would publish in
+// Status.ExecutorState given the SparkApplication's AppState. PodsReady
+// requires len(running/completed executors) >= Spec.Executor.Instances, so
+// tests that simulate AppState=Running must also simulate matching executor
+// states; any other AppState clears the map.
+func executorStatesForAppState(sparkApp *sparkv1beta2.SparkApplication, state sparkv1beta2.ApplicationStateType) map[string]sparkv1beta2.ExecutorState {
+	if state != sparkv1beta2.ApplicationStateRunning {
+		return nil
+	}
+	instances := ptr.Deref(sparkApp.Spec.Executor.Instances, 0)
+	if instances <= 0 {
+		return nil
+	}
+	states := make(map[string]sparkv1beta2.ExecutorState, instances)
+	for i := int32(1); i <= instances; i++ {
+		states[fmt.Sprintf("%s-exec-%d", sparkApp.Name, i)] = sparkv1beta2.ExecutorStateRunning
+	}
+	return states
 }

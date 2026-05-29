@@ -21,8 +21,8 @@ set -o pipefail
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/../.."
 
-# E2E_TARGET_FOLDER allows running different test suites (multikueue, multikueue-dra)
-E2E_TARGET_FOLDER=${E2E_TARGET_FOLDER:-multikueue}
+# E2E_TARGET_FOLDER allows running different test suites (multikueue/baseline, multikueue/dra, multikueue/sequential)
+E2E_TARGET_FOLDER=${E2E_TARGET_FOLDER:-multikueue/baseline}
 
 export MANAGER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-manager
 export WORKER1_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker1
@@ -90,7 +90,8 @@ function kueue_deploy {
 }
 
 trap cleanup EXIT
-startup 
+build_kind_node_image
+startup
 prepare_docker_images
 for job in $(jobs -p); do 
     wait "$job" || { echo "Cluster creation failed!"; exit 1; } 
@@ -118,5 +119,5 @@ if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
   exit 0
 fi
 
-run_e2e_ginkgo --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
+run_e2e_ginkgo --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
 "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"

@@ -31,12 +31,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,8 +52,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	podsetinfo "sigs.k8s.io/kueue/pkg/podset"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -124,7 +125,7 @@ type nodeReconciler struct {
 	cache       *schdcache.Cache
 	clock       clock.Clock
 	logName     string
-	recorder    record.EventRecorder
+	recorder    events.EventRecorder
 	roleTracker *roletracker.RoleTracker
 	watchers    []NodeUpdateWatcher
 }
@@ -155,11 +156,7 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 	}
 
-	nodeSelectorPodsByWorkload, err := r.listPodsAssignedByNodeSelector(ctx, req.Name)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	affectedWorkloads, err := r.getWorkloadsOnNode(ctx, req.Name, nodeSelectorPodsByWorkload)
+	affectedWorkloads, err := r.getWorkloadsOnNodeFromTASAssignment(ctx, req.Name)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -185,6 +182,17 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		// Only reconcile workloads that were not evicted.
 		affectedWorkloads = affectedWorkloads.Difference(evictedWorkloads)
 	}
+
+	nodeSelectorPodsByWorkload, err := r.listPodsAssignedByNodeSelector(ctx, req.Name)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	latePodWorkloads, err := r.getWorkloadsFromPodsOnNode(ctx, req.Name, affectedWorkloads, nodeSelectorPodsByWorkload)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	affectedWorkloads = affectedWorkloads.Union(latePodWorkloads)
 
 	return r.reconcileWorkloadsOnNode(ctx, req.Name, &node, affectedWorkloads, nodeSelectorPodsByWorkload)
 }
@@ -230,11 +238,12 @@ func (r *nodeReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) bool {
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods/status,verbs=patch
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;patch
 
 func newNodeReconciler(
 	client client.Client,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 	cache *schdcache.Cache,
 	roleTracker *roletracker.RoleTracker,
 	opts ...NodeReconcilerOption,
@@ -276,7 +285,7 @@ func (r *nodeReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configur
 		)).
 		Watches(&corev1.Pod{}, podHandler).
 		WithOptions(controller.Options{
-			NeedLeaderElection:      ptr.To(false),
+			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[corev1.SchemeGroupVersion.WithKind("Node").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "tas-node-reconciler"),
 		}).
@@ -305,9 +314,34 @@ func groupPodsByWorkload(pods []corev1.Pod) map[types.NamespacedName][]*corev1.P
 	return result
 }
 
-// getWorkloadsOnNode gets all workloads that have the given node assigned in TAS topology assignment
-// or have "late" pods assigned to this node via nodeSelector.
-func (r *nodeReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string, nodeSelectorPodsByWorkload map[types.NamespacedName][]*corev1.Pod) (sets.Set[types.NamespacedName], error) {
+// getWorkloadsFromPodsOnNode returns the set of workloads that pods on the node belong to.
+// It ignores the workloads that are already in the existingWorkloads set.
+func (r *nodeReconciler) getWorkloadsFromPodsOnNode(
+	ctx context.Context,
+	nodeName string,
+	existingWorkloads sets.Set[types.NamespacedName],
+	nodeSelectorPodsByWorkload map[types.NamespacedName][]*corev1.Pod,
+) (sets.Set[types.NamespacedName], error) {
+	latePodWorkloads := sets.New[types.NamespacedName]()
+	logger := r.logger().V(4).WithValues("node", nodeName)
+	for wlKey := range nodeSelectorPodsByWorkload {
+		if existingWorkloads.Has(wlKey) {
+			continue
+		}
+		var wl kueue.Workload
+		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
+			logger.V(4).Info("Failed to get workload", "workload", wlKey, "error", err)
+			continue
+		}
+		if !workload.IsFinished(&wl) && !workload.IsEvicted(&wl) {
+			latePodWorkloads.Insert(wlKey)
+		}
+	}
+	return latePodWorkloads, nil
+}
+
+// getWorkloadsOnNodeFromTASAssignment gets all workloads that have the given node assigned in TAS topology assignment
+func (r *nodeReconciler) getWorkloadsOnNodeFromTASAssignment(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
 	var workloadsOnNode kueue.WorkloadList
 	if err := r.client.List(ctx, &workloadsOnNode, client.MatchingFields{indexer.AdmittedWorkloadNodesKey: nodeName}); err != nil {
 		return nil, fmt.Errorf("failed to list workloads: %w", err)
@@ -318,28 +352,17 @@ func (r *nodeReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string
 		tasWorkloadsOnNode.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
 	}
 
-	logger := r.logger().V(4).WithValues("node", nodeName)
-	// Also find workloads from any pods that are assigned to this node by TopologyAssignment
-	// but not yet bound. These might be stale "late" pods for a workload that has already
-	// been reassigned to another node.
-	for wlKey := range nodeSelectorPodsByWorkload {
-		if tasWorkloadsOnNode.Has(wlKey) {
-			continue
-		}
-		var wl kueue.Workload
-		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
-			logger.V(4).Info("Failed to get workload", "workload", wlKey, "error", err)
-			continue
-		}
-		if !workload.IsFinished(&wl) && !workload.IsEvicted(&wl) {
-			tasWorkloadsOnNode.Insert(wlKey)
-		}
-	}
-
 	return tasWorkloadsOnNode, nil
 }
 
-func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string, node *corev1.Node, wlKey types.NamespacedName, wl *kueue.Workload, nodeSelectorAssignedPods []*corev1.Pod) (workloadHealthCheck, error) {
+func (r *nodeReconciler) getWorkloadStatus(
+	ctx context.Context,
+	nodeName string,
+	node *corev1.Node,
+	wlKey types.NamespacedName,
+	wl *kueue.Workload,
+	nodeSelectorAssignedPods []*corev1.Pod,
+) (workloadHealthCheck, error) {
 	if err := r.client.Get(ctx, wlKey, wl); err != nil {
 		if apierrors.IsNotFound(err) {
 			return workloadHealthCheck{status: workloadHealthy}, nil
@@ -348,7 +371,7 @@ func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string,
 	}
 
 	ready := utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)
-	hasTASAssignment := utiltas.HasTASAssignmentOnNode(wl.Status.Admission.PodSetAssignments, nodeName)
+	hasTASAssignment := utiltas.HasTASAssignmentOnNode(wl.Status.Admission, nodeName)
 
 	switch {
 	case !hasTASAssignment:
@@ -363,8 +386,14 @@ func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string,
 		return r.checkPodsOnNode(ctx, nodeName, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
 	case !features.Enabled(features.TASReplaceNodeOnNodeTaints):
 		return workloadHealthCheck{status: workloadHealthy}, nil
+	case !hasSchedulingTaints(node.Spec.Taints):
+		return workloadHealthCheck{status: workloadHealthy}, nil
 	default:
-		untolerated, temporarilyTolerated := classifyTaints(ctx, node.Spec.Taints, workload.PodSetsOnNode(wl, nodeName))
+		podSets, err := r.podSetsWithEffectiveTolerationsOnNode(ctx, wl, nodeName)
+		if err != nil {
+			return workloadHealthCheck{status: workloadHealthUnknown}, err
+		}
+		untolerated, temporarilyTolerated := classifyTaints(ctx, node.Spec.Taints, podSets)
 
 		if len(untolerated) > 0 {
 			if !features.Enabled(features.TASReplaceNodeOnPodTermination) {
@@ -379,7 +408,61 @@ func (r *nodeReconciler) getWorkloadStatus(ctx context.Context, nodeName string,
 	}
 }
 
-func (r *nodeReconciler) checkPodsOnNode(ctx context.Context, nodeName string, wl *kueue.Workload, hasUntoleratedTaints bool, hasTASAssignment bool, nodeSelectorAssignedPods []*corev1.Pod) (workloadHealthCheck, error) {
+func hasSchedulingTaints(taints []corev1.Taint) bool {
+	return slices.ContainsFunc(taints, func(taint corev1.Taint) bool {
+		return taint.Effect == corev1.TaintEffectNoExecute || taint.Effect == corev1.TaintEffectNoSchedule
+	})
+}
+
+func (r *nodeReconciler) podSetsWithEffectiveTolerationsOnNode(ctx context.Context, wl *kueue.Workload, nodeName string) ([]kueue.PodSet, error) {
+	if wl.Status.Admission == nil {
+		return nil, nil
+	}
+
+	var result []kueue.PodSet
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		if !utiltas.HasNodeInPodSetAssignment(psa, nodeName) {
+			continue
+		}
+
+		ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psa.Name)
+		if ps == nil {
+			continue
+		}
+
+		effective := ps.DeepCopy()
+		info, err := podsetinfo.FromAssignment(ctx, r.client, psa, ps)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, admissionCheck := range wl.Status.AdmissionChecks {
+			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
+				if podSetUpdate.Name == psa.Name {
+					if err := info.Merge(podsetinfo.FromUpdate(&podSetUpdate)); err != nil {
+						return nil, fmt.Errorf("in admission check %q: %w", admissionCheck.Name, err)
+					}
+					break
+				}
+			}
+		}
+		if err := podsetinfo.Merge(&effective.Template.ObjectMeta, &effective.Template.Spec, info); err != nil {
+			return nil, err
+		}
+		result = append(result, *effective)
+	}
+	return result, nil
+}
+
+func (r *nodeReconciler) checkPodsOnNode(
+	ctx context.Context,
+	nodeName string,
+	wl *kueue.Workload,
+	hasUntoleratedTaints bool,
+	hasTASAssignment bool,
+	nodeSelectorAssignedPods []*corev1.Pod,
+) (workloadHealthCheck, error) {
 	podsToTerminate, hasProgressingPods, err := r.getPodsToTerminate(ctx, wl, nodeName, nodeSelectorAssignedPods)
 	if err != nil {
 		return workloadHealthCheck{status: workloadHealthUnknown}, fmt.Errorf("failed to get pods to terminate for node %s: %w", nodeName, err)
@@ -460,7 +543,13 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 	return evictedWorkloads, nil
 }
 
-func (r *nodeReconciler) reconcileWorkloadsOnNode(ctx context.Context, nodeName string, node *corev1.Node, allTASWorkloads sets.Set[types.NamespacedName], nodeSelectorPodsByWorkload map[types.NamespacedName][]*corev1.Pod) (ctrl.Result, error) {
+func (r *nodeReconciler) reconcileWorkloadsOnNode(
+	ctx context.Context,
+	nodeName string,
+	node *corev1.Node,
+	allTASWorkloads sets.Set[types.NamespacedName],
+	nodeSelectorPodsByWorkload map[types.NamespacedName][]*corev1.Pod,
+) (ctrl.Result, error) {
 	if allTASWorkloads.Len() == 0 {
 		return ctrl.Result{}, nil
 	}
@@ -533,7 +622,7 @@ func (r *nodeReconciler) markPodsFailed(ctx context.Context, pods []*corev1.Pod)
 				return err
 			}
 		} else {
-			r.recorder.Eventf(p, corev1.EventTypeNormal, podTerminatedByKueueEventReason, podTerminatedByKueueConditionMessage)
+			r.recorder.Eventf(p, nil, corev1.EventTypeNormal, podTerminatedByKueueEventReason, "PodTerminated", podTerminatedByKueueConditionMessage)
 		}
 	}
 	return nil

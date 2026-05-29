@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"slices"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -25,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -123,7 +123,7 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 			r,
 		)).
 		WithOptions(controller.Options{
-			NeedLeaderElection:      ptr.To(false),
+			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Cohort").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "cohort-reconciler"),
 		}).
@@ -143,12 +143,11 @@ func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool 
 
 	var customLabelsChanged bool
 	if features.Enabled(features.CustomMetricLabels) {
-		customLabelsChanged = r.customLabels.CohortStoreAndClear(
-			kueue.CohortReference(e.ObjectNew.GetName()),
-			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
-			func() {
-				metrics.ClearCohortMetrics(kueue.CohortReference(e.ObjectNew.GetName()))
-			})
+		// Store in Reconcile so labelsUpdated remains true for clear-and-resync.
+		customLabelsChanged = !slices.Equal(
+			r.customLabels.CohortGet(kueue.CohortReference(e.ObjectNew.GetName())),
+			r.customLabels.ExtractValues(e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations()),
+		)
 	}
 
 	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) && !customLabelsChanged {
@@ -185,7 +184,6 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			r.cache.DeleteCohort(kueue.CohortReference(req.Name))
 			r.qManager.DeleteCohort(kueue.CohortReference(req.Name))
 			metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
-			metrics.ClearCohortAdmittedWorkloadsMetrics(kueue.CohortReference(req.Name))
 			if features.Enabled(features.CustomMetricLabels) {
 				r.customLabels.CohortDelete(kueue.CohortReference(req.Name))
 			}
@@ -193,18 +191,27 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	var labelsUpdated bool
 	if features.Enabled(features.CustomMetricLabels) {
-		r.customLabels.CohortStoreAndClear(kueue.CohortReference(cohort.Name),
+		labelsUpdated = r.customLabels.CohortStore(
+			kueue.CohortReference(cohort.Name),
 			cohort.GetLabels(), cohort.GetAnnotations(),
-			func() { metrics.ClearCohortMetrics(kueue.CohortReference(cohort.Name)) })
+		)
 	}
 
 	log.V(2).Info("Cohort is being created or updated", "resources", cohort.Spec.ResourceGroups)
 	if err := r.cache.AddOrUpdateCohort(&cohort); err != nil {
 		log.V(2).Error(err, "Error adding or updating cohort in the cache")
+		// Fail fast to avoid queue/status updates from a stale cache state.
+		return ctrl.Result{}, err
 	}
-	r.cache.RecordCohortMetrics(log, kueue.CohortReference(req.Name))
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
+	if labelsUpdated {
+		metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
+		r.cache.ResyncCohortGaugeMetrics(log, kueue.CohortReference(req.Name))
+	} else {
+		r.cache.RecordCohortMetrics(log, kueue.CohortReference(req.Name))
+	}
 
 	err := r.updateCohortStatusIfChanged(ctx, &cohort)
 	return ctrl.Result{}, client.IgnoreNotFound(err)

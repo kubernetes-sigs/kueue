@@ -187,7 +187,7 @@ func TestPodSets(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: ptr.To(true),
+						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -258,7 +258,7 @@ func TestPodSets(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: ptr.To(false), // Autoscaling disabled
+						EnableInTreeAutoscaling: new(false), // Autoscaling disabled
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -321,7 +321,7 @@ func TestPodSets(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: ptr.To(true),
+						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -371,7 +371,7 @@ func TestPodSets(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: ptr.To(true),
+						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -429,7 +429,7 @@ func TestPodSets(t *testing.T) {
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.rayService.PodSets(ctx)
+			gotPodSets, err := tc.rayService.PodSets(ctx, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -450,7 +450,7 @@ func TestIsSuspended(t *testing.T) {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: ptr.To(false),
+						Suspend: new(false),
 					},
 				},
 			}),
@@ -460,7 +460,7 @@ func TestIsSuspended(t *testing.T) {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: ptr.To(true),
+						Suspend: new(true),
 					},
 				},
 			}),
@@ -577,7 +577,7 @@ func TestPodsReady(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := tc.rayService.PodsReady(ctx)
+			got := tc.rayService.PodsReady(ctx, nil)
 			if got != tc.want {
 				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
 			}

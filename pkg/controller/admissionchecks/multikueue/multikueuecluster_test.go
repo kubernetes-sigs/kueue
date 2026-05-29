@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,10 +38,13 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"k8s.io/utils/ptr"
+	"k8s.io/utils/clock"
+	testingclock "k8s.io/utils/clock/testing"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -59,8 +63,8 @@ var (
 	errCannotWatch   = errors.New("client cannot watch")
 )
 
-func fakeClientBuilder(ctx context.Context) func(*clientConfig, client.Options) (client.WithWatch, error) {
-	return func(config *clientConfig, _ client.Options) (client.WithWatch, error) {
+func fakeClientBuilder(ctx context.Context) func(context.Context, *clientConfig, client.Options) (SelectivelyCachingClient, error) {
+	return func(builderCtx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error) {
 		kubeconfig := config.Kubeconfig
 		if strings.Contains(string(kubeconfig), "invalid") {
 			return nil, errInvalidConfig
@@ -74,7 +78,7 @@ func fakeClientBuilder(ctx context.Context) func(*clientConfig, client.Options) 
 				return client.Watch(ctx, obj, opts...)
 			},
 		})
-		return b.Build(), nil
+		return NewNeverCachingClient(b.Build()), nil
 	}
 }
 
@@ -85,6 +89,7 @@ func newTestClient(ctx context.Context, kubeconfig []byte, restConfig *rest.Conf
 		config:      &clientConfig{Kubeconfig: kubeconfig, RestConfig: restConfig},
 		localClient: localClient,
 		watchCancel: watchCancel,
+		clock:       clock.RealClock{},
 
 		builderOverride: fakeClientBuilder(ctx),
 	}
@@ -283,7 +288,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, cancelCalled),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil), 1),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -292,6 +297,7 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRequeueAfter: 5 * time.Second,
 			wantCancelCalled: 1,
 		},
 		"update client with invalid path config": {
@@ -311,6 +317,9 @@ func TestUpdateConfig(t *testing.T) {
 					Active(metav1.ConditionFalse, "BadKubeConfig", "load client config failed: open : no such file or directory", 1).
 					Generation(1).
 					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, nil),
 			},
 			wantCancelCalled: 1,
 			wantErr:          fmt.Errorf("failed to load client config, reason: BadKubeConfig, error: %w", errors.New("open : no such file or directory")),
@@ -440,7 +449,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": setReconnectState(newTestClient(ctx, []byte("nowatch"), nil, cancelCalled), 5),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil), 1),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -449,6 +458,7 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRequeueAfter: 5 * time.Second,
 			wantCancelCalled: 1,
 		},
 		"failed due to insecure kubeconfig": {
@@ -460,7 +470,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{
-				makeTestSecret("worker1", testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+				makeTestSecret("worker1", testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -480,7 +490,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{
-				makeTestSecret("worker1", testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+				makeTestSecret("worker1", testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
 			},
 			remoteClients: map[string]*remoteClient{
 				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, cancelCalled),
@@ -492,9 +502,11 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
-			wantRemoteClients: map[string]*remoteClient{},
-			wantCancelCalled:  1,
-			wantErr:           fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, nil),
+			},
+			wantCancelCalled: 1,
+			wantErr:          fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
 		},
 		"skip insecure kubeconfig validation": {
 			reconcileFor: "worker1",
@@ -505,7 +517,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{
-				makeTestSecret("worker1", testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+				makeTestSecret("worker1", testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -517,7 +529,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": {
 					config: &clientConfig{
-						Kubeconfig: []byte(testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+						Kubeconfig: []byte(testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
 					},
 				},
 			},
@@ -681,7 +693,8 @@ func TestUpdateConfig(t *testing.T) {
 			}
 
 			// Create test kubeconfig file for path location type
-			if tc.clusters != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType && tc.clusters[0].Spec.ClusterSource.KubeConfig.Location != "" {
+			if tc.clusters != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType &&
+				tc.clusters[0].Spec.ClusterSource.KubeConfig.Location != "" {
 				kubeconfigBytes := testKubeconfig("worker1")
 				if err := os.WriteFile(tc.clusters[0].Spec.ClusterSource.KubeConfig.Location, []byte(kubeconfigBytes), 0666); err != nil {
 					t.Errorf("Failed to create test file (%s): %v", tc.clusters[0].Spec.ClusterSource.KubeConfig.Location, err)
@@ -741,6 +754,164 @@ func TestUpdateConfig(t *testing.T) {
 	}
 }
 
+func TestReconnectBackoff(t *testing.T) {
+	now := time.Now()
+
+	type step struct {
+		advance            time.Duration
+		wantBuildCalls     int
+		wantFailedAttempts uint
+		wantRequeueAfter   time.Duration
+	}
+
+	cases := map[string]struct {
+		kubeconfig string
+		steps      []step
+	}{
+		"double reconcile within backoff window does not advance attempts": {
+			kubeconfig: testKubeconfig("nowatch"),
+			steps: []step{
+				{advance: 0, wantBuildCalls: 1, wantFailedAttempts: 1, wantRequeueAfter: 5 * time.Second},
+				{advance: 0, wantBuildCalls: 0, wantFailedAttempts: 1, wantRequeueAfter: 5 * time.Second},
+				{advance: 2 * time.Second, wantBuildCalls: 0, wantFailedAttempts: 1, wantRequeueAfter: 3 * time.Second},
+			},
+		},
+		"backoff progresses once window elapses": {
+			kubeconfig: testKubeconfig("nowatch"),
+			steps: []step{
+				{advance: 0, wantBuildCalls: 1, wantFailedAttempts: 1, wantRequeueAfter: 5 * time.Second},
+				{advance: 5 * time.Second, wantBuildCalls: 1, wantFailedAttempts: 2, wantRequeueAfter: 10 * time.Second},
+				{advance: 10 * time.Second, wantBuildCalls: 1, wantFailedAttempts: 3, wantRequeueAfter: 20 * time.Second},
+			},
+		},
+		"deferred reconciles between failures do not consume backoff slots": {
+			kubeconfig: testKubeconfig("nowatch"),
+			steps: []step{
+				{advance: 0, wantBuildCalls: 1, wantFailedAttempts: 1, wantRequeueAfter: 5 * time.Second},
+				{advance: 0, wantBuildCalls: 0, wantFailedAttempts: 1, wantRequeueAfter: 5 * time.Second},
+				{advance: 5 * time.Second, wantBuildCalls: 1, wantFailedAttempts: 2, wantRequeueAfter: 10 * time.Second},
+				{advance: 0, wantBuildCalls: 0, wantFailedAttempts: 2, wantRequeueAfter: 10 * time.Second},
+				{advance: 10 * time.Second, wantBuildCalls: 1, wantFailedAttempts: 3, wantRequeueAfter: 20 * time.Second},
+			},
+		},
+		"backoff saturates at retryMaxSteps": {
+			kubeconfig: testKubeconfig("nowatch"),
+			steps: []step{
+				{advance: 0, wantBuildCalls: 1, wantFailedAttempts: 1, wantRequeueAfter: 5 * time.Second},
+				{advance: 5 * time.Second, wantBuildCalls: 1, wantFailedAttempts: 2, wantRequeueAfter: 10 * time.Second},
+				{advance: 10 * time.Second, wantBuildCalls: 1, wantFailedAttempts: 3, wantRequeueAfter: 20 * time.Second},
+				{advance: 20 * time.Second, wantBuildCalls: 1, wantFailedAttempts: 4, wantRequeueAfter: 40 * time.Second},
+				{advance: 40 * time.Second, wantBuildCalls: 1, wantFailedAttempts: 5, wantRequeueAfter: 80 * time.Second},
+				{advance: 80 * time.Second, wantBuildCalls: 1, wantFailedAttempts: 6, wantRequeueAfter: 160 * time.Second},
+				{advance: 160 * time.Second, wantBuildCalls: 1, wantFailedAttempts: 7, wantRequeueAfter: 320 * time.Second},
+				{advance: 320 * time.Second, wantBuildCalls: 1, wantFailedAttempts: 8, wantRequeueAfter: 320 * time.Second},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			fc := testingclock.NewFakeClock(now)
+
+			cluster := utiltestingapi.MakeMultiKueueCluster("worker1").
+				KubeConfig(kueue.SecretLocationType, "worker1").
+				Generation(1).
+				Obj()
+			secret := makeTestSecret("worker1", tc.kubeconfig)
+
+			builder := getClientBuilder(ctx)
+			builder = builder.WithObjects(cluster, &secret)
+			builder = builder.WithStatusSubresource(&kueue.MultiKueueCluster{})
+			c := builder.Build()
+
+			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileCreds{}, nil)
+			reconciler.rootContext = ctx
+
+			var buildCalls int
+			inner := fakeClientBuilder(ctx)
+			reconciler.builderOverride = func(builderCtx context.Context, cfg *clientConfig, opts client.Options) (SelectivelyCachingClient, error) {
+				buildCalls++
+				return inner(builderCtx, cfg, opts)
+			}
+
+			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
+			rc.clock = fc
+			rc.builderOverride = reconciler.builderOverride
+			reconciler.remoteClients["worker1"] = rc
+
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}
+
+			for i, s := range tc.steps {
+				fc.Step(s.advance)
+				before := buildCalls
+				res, err := reconciler.Reconcile(ctx, req)
+				if err != nil {
+					t.Fatalf("step %d: unexpected reconcile error: %v", i, err)
+				}
+				if got := buildCalls - before; got != s.wantBuildCalls {
+					t.Errorf("step %d: builder invocations: want %d, got %d", i, s.wantBuildCalls, got)
+				}
+				if rc.failedConnAttempts != s.wantFailedAttempts {
+					t.Errorf("step %d: failedConnAttempts: want %d, got %d", i, s.wantFailedAttempts, rc.failedConnAttempts)
+				}
+				if res.RequeueAfter != s.wantRequeueAfter {
+					t.Errorf("step %d: RequeueAfter: want %v, got %v", i, s.wantRequeueAfter, res.RequeueAfter)
+				}
+			}
+		})
+	}
+}
+
+func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	kubeconfig := testKubeconfig("worker1")
+
+	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").
+		KubeConfig(kueue.SecretLocationType, "worker1").
+		Active(metav1.ConditionFalse, "BadKubeConfig", "load client config failed", 1).
+		Generation(1).
+		Obj()
+	secret := makeTestSecret("worker1", kubeconfig)
+
+	builder := getClientBuilder(ctx)
+	builder = builder.WithObjects(cluster, &secret)
+	builder = builder.WithStatusSubresource(&kueue.MultiKueueCluster{})
+	c := builder.Build()
+
+	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileCreds{}, nil)
+	reconciler.rootContext = ctx
+
+	var buildCalls int
+	inner := fakeClientBuilder(ctx)
+	reconciler.builderOverride = func(builderCtx context.Context, cfg *clientConfig, opts client.Options) (SelectivelyCachingClient, error) {
+		buildCalls++
+		return inner(builderCtx, cfg, opts)
+	}
+
+	rc := newTestClient(ctx, []byte(kubeconfig), nil, nil)
+	rc.builderOverride = reconciler.builderOverride
+	rc.disconnected.Store(true)
+	reconciler.remoteClients["worker1"] = rc
+	defer rc.StopWatchers()
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}})
+	if err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if buildCalls != 1 {
+		t.Fatalf("builder invocations: want 1, got %d", buildCalls)
+	}
+	if rc.connecting.Load() {
+		t.Error("connecting should be cleared after successful reconnect")
+	}
+	if rc.disconnected.Load() {
+		t.Error("disconnected should be cleared after successful reconnect")
+	}
+}
+
 func TestRemoteClientGC(t *testing.T) {
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
 	baseWlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid")
@@ -756,8 +927,7 @@ func TestRemoteClientGC(t *testing.T) {
 	}{
 		"existing workers and jobs are not deleted": {
 			managersWorkloads: []kueue.Workload{
-				*baseWlBuilder.Clone().
-					Obj(),
+				*baseWlBuilder.DeepCopy(),
 			},
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
@@ -765,12 +935,10 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 			workersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 			wantWorkersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
@@ -778,8 +946,7 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			wantWorkersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 		},
 		"missing worker workloads are deleted": {
@@ -789,8 +956,7 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 		},
 		"missing worker workloads are deleted (no job adapter)": {
@@ -808,12 +974,10 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 			workersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 		},
 		"unrelated workers and jobs are not deleted": {
@@ -823,8 +987,7 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			workersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 			wantWorkersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
@@ -832,8 +995,7 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			wantWorkersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
+				*baseJobBuilder.DeepCopy(),
 			},
 		},
 	}
@@ -852,10 +1014,10 @@ func TestRemoteClientGC(t *testing.T) {
 
 			worker1Builder := getClientBuilder(ctx)
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}, &batchv1.JobList{Items: tc.workersJobs})
-			worker1Client := worker1Builder.Build()
+			worker1Client := NewNeverCachingClient(worker1Builder.Build())
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connecting.Store(false)
 
@@ -917,8 +1079,7 @@ func TestValidateKubeconfig(t *testing.T) {
 		},
 		"valid config": {
 			cfgFn: func() *clientcmdapi.Config {
-				c := kubeconfigBase.Clone().Obj()
-				return &c
+				return kubeconfigBase.DeepCopy()
 			},
 			wantErr: false,
 		},
@@ -933,5 +1094,320 @@ func TestValidateKubeconfig(t *testing.T) {
 				t.Fatalf("wantErr=%v, got err: %v", tc.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestClustersReconcilerEventFilters(t *testing.T) {
+	baseCluster := utiltestingapi.MakeMultiKueueCluster("worker1").
+		KubeConfig(kueue.SecretLocationType, "secret1").Generation(1).Obj()
+	baseClusterWithPath := utiltestingapi.MakeMultiKueueCluster("worker1").
+		KubeConfig(kueue.PathLocationType, "/tmp/worker1.kubeconfig").Generation(1).Obj()
+
+	deletingCluster := baseCluster.DeepCopy()
+	now := metav1.Now()
+	deletingCluster.DeletionTimestamp = &now
+
+	cases := map[string]struct {
+		invoke        func(p predicate.Predicate) bool
+		wantReconcile bool
+	}{
+		"create cluster with secret location triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Create(event.CreateEvent{Object: baseCluster})
+			},
+			wantReconcile: true,
+		},
+		"create cluster with path location triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Create(event.CreateEvent{Object: baseClusterWithPath})
+			},
+			wantReconcile: true,
+		},
+		"update cluster spec change triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: baseCluster,
+					ObjectNew: utiltestingapi.MakeMultiKueueCluster("worker1").
+						KubeConfig(kueue.SecretLocationType, "secret2").Generation(2).Obj(),
+				})
+			},
+			wantReconcile: true,
+		},
+		"update cluster status only change skips reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: baseCluster,
+					ObjectNew: utiltestingapi.MakeMultiKueueCluster("worker1").
+						KubeConfig(kueue.SecretLocationType, "secret1").Generation(1).
+						Active(metav1.ConditionTrue, "Active", "Connected", 1).
+						Obj(),
+				})
+			},
+			wantReconcile: false,
+		},
+		"update cluster deletion timestamp triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: baseCluster,
+					ObjectNew: deletingCluster,
+				})
+			},
+			wantReconcile: true,
+		},
+		"update cluster no change skips reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: baseCluster,
+					ObjectNew: baseCluster.DeepCopy(),
+				})
+			},
+			wantReconcile: false,
+		},
+		"update cluster path location changed to secret triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				objNew := baseCluster.DeepCopy()
+				objNew.SetGeneration(2)
+				return p.Update(event.UpdateEvent{
+					ObjectOld: baseClusterWithPath,
+					ObjectNew: objNew,
+				})
+			},
+			wantReconcile: true,
+		},
+		"update non-cluster objects triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: &corev1.Secret{},
+					ObjectNew: &corev1.Secret{},
+				})
+			},
+			wantReconcile: true,
+		},
+		"delete cluster with secret location triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Delete(event.DeleteEvent{Object: baseCluster})
+			},
+			wantReconcile: true,
+		},
+		"delete cluster with path location triggers reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Delete(event.DeleteEvent{Object: baseClusterWithPath})
+			},
+			wantReconcile: true,
+		},
+		"generic event does not trigger reconcile": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Generic(event.GenericEvent{Object: baseCluster})
+			},
+			wantReconcile: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			c := getClientBuilder(ctx).Build()
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileCreds{}, nil)
+			reconciler.rootContext = ctx
+
+			if got := tc.invoke(reconciler); got != tc.wantReconcile {
+				t.Errorf("unexpected reconcile decision: want %v, got %v", tc.wantReconcile, got)
+			}
+		})
+	}
+}
+
+func TestEstablishWatch(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	const testTimeout = 100 * time.Millisecond
+	errBoom := errors.New("boom")
+
+	cases := map[string]struct {
+		interceptor interceptor.Funcs
+		wantErr     error
+		maxElapsed  time.Duration
+	}{
+		"hung Watch times out": {
+			interceptor: interceptor.Funcs{
+				Watch: func(ctx context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+					<-ctx.Done()
+					return nil, ctx.Err()
+				},
+			},
+			wantErr:    errWatchEstablishTimeout,
+			maxElapsed: 10 * testTimeout,
+		},
+		"Watch error propagates": {
+			interceptor: interceptor.Funcs{
+				Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+					return nil, errBoom
+				},
+			},
+			wantErr: errBoom,
+		},
+		"success returns without waiting": {
+			maxElapsed: testTimeout,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := getClientBuilder(ctx).WithInterceptorFuncs(tc.interceptor).Build()
+
+			start := time.Now()
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
+			elapsed := time.Since(start)
+
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("want err %v, got: %v", tc.wantErr, err)
+			}
+			if (err == nil) != (w != nil) {
+				t.Fatalf("watcher/err mismatch: err=%v, w=%v", err, w)
+			}
+			if w != nil {
+				w.Stop()
+			}
+			if tc.maxElapsed > 0 && elapsed >= tc.maxElapsed {
+				t.Fatalf("took %v, expected < %v", elapsed, tc.maxElapsed)
+			}
+		})
+	}
+
+	// Watch races with the timeout: returns a non-nil watcher just after
+	// time.After fires. Must Stop() it to avoid leaking the stream.
+	t.Run("racing watcher is stopped on timeout", func(t *testing.T) {
+		fw := watch.NewFake()
+		c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+				time.Sleep(2 * testTimeout)
+				return fw, nil
+			},
+		}).Build()
+
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
+		if !errors.Is(err, errWatchEstablishTimeout) {
+			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
+		}
+		if w != nil {
+			t.Fatalf("want nil watcher, got: %v", w)
+		}
+		if !fw.IsStopped() {
+			t.Fatal("racing watcher was not Stop()ed; would leak")
+		}
+	})
+}
+
+// Pins the schedule produced by establishBackoff: 1m, 2m, 4m, 8m, 10m, 10m, ...
+// The helper itself is tested in pkg/util/wait; this is a guard against
+// accidental changes to the initial/cap/factor wiring.
+func TestEstablishBackoffSchedule(t *testing.T) {
+	cases := map[string]struct {
+		failedAttempts uint
+		want           time.Duration
+	}{
+		"first attempt is initial":  {failedAttempts: 0, want: 1 * time.Minute},
+		"one failure doubles":       {failedAttempts: 1, want: 2 * time.Minute},
+		"two failures":              {failedAttempts: 2, want: 4 * time.Minute},
+		"three failures":            {failedAttempts: 3, want: 8 * time.Minute},
+		"four failures hits cap":    {failedAttempts: 4, want: maxEstablishTimeout},
+		"many failures stay at cap": {failedAttempts: 20, want: maxEstablishTimeout},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := establishBackoff.WaitTime(int(tc.failedAttempts) + 1)
+			if got != tc.want {
+				t.Fatalf("WaitTime(%d) = %v, want %v", tc.failedAttempts+1, got, tc.want)
+			}
+		})
+	}
+}
+
+// Regression for #11297. A remote stuck inside Watch must not stop
+// reconciles of other clusters.
+func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
+	// stuckWatchTimeout is the per-phase budget for the test: how long we
+	// wait for the slow watch to be reached, for the fast reconcile to
+	// finish, and for the slow goroutine to clean up after release. Generous
+	// enough to survive a loaded CI runner.
+	const stuckWatchTimeout = 5 * time.Second
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	slowReached := make(chan struct{})
+	slowRelease := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseSlow := func() { releaseOnce.Do(func() { close(slowRelease) }) }
+	t.Cleanup(releaseSlow)
+
+	gatedBuilder := func(_ context.Context, config *clientConfig, _ client.Options) (SelectivelyCachingClient, error) {
+		kubeconfig := string(config.Kubeconfig)
+		b := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(watchCtx context.Context, c client.WithWatch, obj client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
+				if strings.Contains(kubeconfig, "slow-user") {
+					close(slowReached)
+					select {
+					case <-slowRelease:
+						return nil, errors.New("released")
+					case <-watchCtx.Done():
+						return nil, watchCtx.Err()
+					}
+				}
+				return c.Watch(watchCtx, obj, opts...)
+			},
+		})
+		return NewNeverCachingClient(b.Build()), nil
+	}
+
+	slowCluster := utiltestingapi.MakeMultiKueueCluster("cluster-slow").
+		KubeConfig(kueue.SecretLocationType, "secret-slow").Generation(1).Obj()
+	fastCluster := utiltestingapi.MakeMultiKueueCluster("cluster-fast").
+		KubeConfig(kueue.SecretLocationType, "secret-fast").Generation(1).Obj()
+	slowSecret := makeTestSecret("secret-slow", testKubeconfig("slow-user"))
+	fastSecret := makeTestSecret("secret-fast", testKubeconfig("fast-user"))
+
+	localClient := getClientBuilder(ctx).
+		WithLists(&kueue.MultiKueueClusterList{Items: []kueue.MultiKueueCluster{*slowCluster, *fastCluster}}).
+		WithLists(&corev1.SecretList{Items: []corev1.Secret{slowSecret, fastSecret}}).
+		WithStatusSubresource(slowCluster, fastCluster).
+		Build()
+
+	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileCreds{}, nil)
+	reconciler.rootContext = ctx
+	reconciler.builderOverride = gatedBuilder
+
+	slowDone := make(chan struct{})
+	go func() {
+		defer close(slowDone)
+		_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-slow"}})
+	}()
+
+	select {
+	case <-slowReached:
+	case <-time.After(stuckWatchTimeout):
+		t.Fatal("slow cluster's reconcile did not reach the Watch call in time")
+	}
+
+	fastDone := make(chan error, 1)
+	go func() {
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-fast"}})
+		fastDone <- err
+	}()
+
+	select {
+	case err := <-fastDone:
+		if err != nil {
+			t.Fatalf("cluster-fast reconcile returned err: %v", err)
+		}
+	case <-time.After(stuckWatchTimeout):
+		t.Fatal("cluster-fast reconcile was blocked by cluster-slow (head-of-line)")
+	}
+
+	releaseSlow()
+	select {
+	case <-slowDone:
+	case <-time.After(stuckWatchTimeout):
+		t.Fatal("slow goroutine did not exit after release")
 	}
 }

@@ -18,14 +18,16 @@ package testing
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -80,7 +82,7 @@ type EventRecorder struct {
 	RecordedEvents []EventRecord
 }
 
-var _ record.EventRecorder = (*EventRecorder)(nil)
+var _ events.EventRecorder = (*EventRecorder)(nil)
 
 func SortEvents(ei, ej EventRecord) bool {
 	if ei.Key.String() != ej.Key.String() {
@@ -98,30 +100,18 @@ func SortEvents(ei, ej EventRecord) bool {
 	return false
 }
 
-func (tr *EventRecorder) Event(object runtime.Object, eventType, reason, message string) {
-	tr.generateEvent(object, eventType, reason, message)
-}
-
-func (tr *EventRecorder) Eventf(object runtime.Object, eventType, reason, messageFmt string, args ...any) {
-	tr.AnnotatedEventf(object, nil, eventType, reason, messageFmt, args...)
-}
-
-func (tr *EventRecorder) AnnotatedEventf(targetObject runtime.Object, _ map[string]string, eventType, reason, messageFmt string, args ...any) {
-	tr.generateEvent(targetObject, eventType, reason, fmt.Sprintf(messageFmt, args...))
-}
-
-func (tr *EventRecorder) generateEvent(targetObject runtime.Object, eventType, reason, message string) {
+func (tr *EventRecorder) Eventf(regarding runtime.Object, _ runtime.Object, eventtype, reason, action, note string, args ...any) {
 	tr.lock.Lock()
 	defer tr.lock.Unlock()
 	key := types.NamespacedName{}
-	if cObj, isCObj := targetObject.(client.Object); isCObj {
+	if cObj, isCObj := regarding.(client.Object); isCObj {
 		key = client.ObjectKeyFromObject(cObj)
 	}
 	tr.RecordedEvents = append(tr.RecordedEvents, EventRecord{
 		Key:       key,
-		EventType: eventType,
+		EventType: eventtype,
 		Reason:    reason,
-		Message:   message,
+		Message:   fmt.Sprintf(note, args...),
 	})
 }
 
@@ -152,4 +142,34 @@ func TreatSSAAsStrategicMerge(ctx context.Context, clnt client.Client, subResour
 		}
 	}
 	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(patch), filteredOpts...)
+}
+
+func TreatSSAAsStrategicMergeForApplyConfiguration(ctx context.Context, clnt client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	patch, data, err := ConvertApplyConfigToObject(applyConf)
+	if err != nil {
+		return fmt.Errorf("failed to convert ApplyConfiguration to Object: %w", err)
+	}
+
+	obj := patch.DeepCopyObject().(client.Object)
+	err = clnt.Get(ctx, client.ObjectKeyFromObject(patch), obj)
+	if err != nil {
+		return fmt.Errorf("failed to get object: %w", err)
+	}
+
+	ssaPatch := client.RawPatch(types.ApplyPatchType, data)
+	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(ssaPatch))
+}
+
+func ConvertApplyConfigToObject(applyConf runtime.ApplyConfiguration) (client.Object, []byte, error) {
+	data, err := json.Marshal(applyConf)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	u := &unstructured.Unstructured{}
+	if err := json.Unmarshal(data, u); err != nil {
+		return nil, nil, err
+	}
+
+	return u, data, nil
 }

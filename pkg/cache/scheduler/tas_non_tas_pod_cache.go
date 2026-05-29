@@ -31,8 +31,9 @@ import (
 // nonTasUsageCache caches pod usage, to avoid
 // the hot path documented in kueue#8449.
 type nonTasUsageCache struct {
-	podUsage map[types.NamespacedName]podUsageValue
-	lock     sync.RWMutex
+	podUsage  map[types.NamespacedName]podUsageValue
+	nodeUsage map[string]resources.Requests // pre-aggregated per-node totals
+	lock      sync.RWMutex
 }
 
 type podUsageValue struct {
@@ -46,37 +47,74 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
+	key := client.ObjectKeyFromObject(pod)
+
 	// delete terminated pods as they no longer use any capacity.
 	if utilpod.IsTerminated(pod) {
 		log.V(5).Info("Deleting terminated pod from the cache")
-		delete(n.podUsage, client.ObjectKeyFromObject(pod))
+		if old, found := n.podUsage[key]; found {
+			n.removeNodeUsage(old.node, old.usage, log)
+		}
+		delete(n.podUsage, key)
 		return
+	}
+
+	// Remove old entry if pod already exists (handles node migration, resource resize).
+	if old, found := n.podUsage[key]; found {
+		n.removeNodeUsage(old.node, old.usage, log)
 	}
 
 	log.V(5).Info("Adding non-TAS pod to the cache")
 	requests := resources.NewRequestsFromPodSpec(&pod.Spec)
-	n.podUsage[client.ObjectKeyFromObject(pod)] = podUsageValue{
+	n.podUsage[key] = podUsageValue{
 		node:  pod.Spec.NodeName,
 		usage: requests,
 	}
+	n.addNodeUsage(pod.Spec.NodeName, requests)
 }
 
-func (n *nonTasUsageCache) delete(key client.ObjectKey) {
+func (n *nonTasUsageCache) delete(key client.ObjectKey, log logr.Logger) {
 	n.lock.Lock()
 	defer n.lock.Unlock()
+	if old, found := n.podUsage[key]; found {
+		n.removeNodeUsage(old.node, old.usage, log)
+	}
 	delete(n.podUsage, key)
 }
 
 func (n *nonTasUsageCache) usagePerNode() map[string]resources.Requests {
 	n.lock.RLock()
 	defer n.lock.RUnlock()
-	usage := make(map[string]resources.Requests)
-	for _, podUsage := range n.podUsage {
-		if _, found := usage[podUsage.node]; !found {
-			usage[podUsage.node] = resources.Requests{}
-		}
-		usage[podUsage.node].Add(podUsage.usage)
-		usage[podUsage.node].Add(resources.Requests{corev1.ResourcePods: 1})
+	usage := make(map[string]resources.Requests, len(n.nodeUsage))
+	for node, reqs := range n.nodeUsage {
+		usage[node] = reqs.Clone()
 	}
 	return usage
+}
+
+// addNodeUsage increments the pre-aggregated per-node usage.
+// Must be called under write lock.
+func (n *nonTasUsageCache) addNodeUsage(node string, usage resources.Requests) {
+	if _, found := n.nodeUsage[node]; !found {
+		n.nodeUsage[node] = resources.Requests{}
+	}
+	n.nodeUsage[node].Add(usage)
+	n.nodeUsage[node][corev1.ResourcePods]++
+}
+
+// removeNodeUsage decrements the pre-aggregated per-node usage.
+// Must be called under write lock.
+func (n *nonTasUsageCache) removeNodeUsage(node string, usage resources.Requests, log logr.Logger) {
+	existing, found := n.nodeUsage[node]
+	if !found {
+		return
+	}
+	existing.Sub(usage)
+	existing[corev1.ResourcePods]--
+	if pods := existing[corev1.ResourcePods]; pods <= 0 {
+		if pods < 0 {
+			log.V(0).Info("Unexpected negative pod count in nodeUsage", "node", node, "podCount", pods)
+		}
+		delete(n.nodeUsage, node)
+	}
 }

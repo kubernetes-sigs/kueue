@@ -30,7 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -72,7 +72,7 @@ type wlReconciler struct {
 	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
 	eventsBatchPeriod time.Duration
 	adapters          map[string]jobframework.MultiKueueAdapter
-	recorder          record.EventRecorder
+	recorder          events.EventRecorder
 	clock             clock.Clock
 	dispatcherName    string
 	roleTracker       *roletracker.RoleTracker
@@ -82,6 +82,7 @@ var _ reconcile.Reconciler = (*wlReconciler)(nil)
 
 type wlGroup struct {
 	local         *kueue.Workload
+	localClient   client.Client
 	remotes       map[string]*kueue.Workload
 	remoteClients map[string]*remoteClient
 	acName        kueue.AdmissionCheckReference
@@ -132,7 +133,7 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
-	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.remoteClients[cluster].client, g.controllerKey); err != nil {
+	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.localClient, g.remoteClients[cluster].client, g.controllerKey); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 
@@ -257,15 +258,17 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.Admi
 	clients := make(map[string]*remoteClient, len(cfg.Spec.Clusters))
 	for _, clusterName := range cfg.Spec.Clusters {
 		if client, found := w.clusters.controllerFor(clusterName); found {
-			// Skip the client if its reconnect is ongoing.
-			if !client.connecting.Load() {
+			// Skip the client if its reconnect is ongoing or it is disconnected.
+			if !client.connecting.Load() && !client.disconnected.Load() {
 				clients[clusterName] = client
 			}
 		}
 	}
-	if len(clients) == 0 {
-		return nil, admissioncheck.ErrNoActiveClusters
-	}
+	// Return an empty map (rather than an error) when all configured clusters
+	// are disconnected or reconnecting. This allows readGroup to construct an
+	// empty group, so reconcileGroup can apply the workerLostTimeout delay via
+	// the existing "reserving remote lost" branch instead of failing with
+	// ErrNoActiveClusters and retrying via controller-runtime backoff.
 	return clients, nil
 }
 
@@ -302,6 +305,7 @@ func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acN
 
 	grp := wlGroup{
 		local:         local,
+		localClient:   w.client,
 		remotes:       make(map[string]*kueue.Workload, len(rClients)),
 		remoteClients: rClients,
 		acName:        acName,
@@ -379,7 +383,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		ctx = ctrl.LoggerInto(ctx, log)
 
 		// workload evicted on manager cluster
-		if remoteEvictCond.Reason == workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadEvictedOnManagerCluster) {
+		if workload.IsEvicted(group.local) {
 			if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
 				log.Error(err, "Syncing remote controller object")
 				// We'll retry this in the next reconciling.
@@ -388,7 +392,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			return reconcile.Result{}, nil
 		}
 
-		if features.Enabled(features.MultiKueueRedoAdmissionOnEvictionInWorker) && acs.State == kueue.CheckStateReady {
+		if acs.State == kueue.CheckStateReady {
 			// workload evicted on worker cluster
 			log.V(3).Info("Workload was evicted in the remote cluster", "cluster", evictedRemote)
 			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
@@ -401,7 +405,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				return reconcile.Result{}, err
 			}
 
-			w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
+			w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "MultiKueue", acs.Message)
 			return reconcile.Result{}, nil
 		}
 	}
@@ -456,9 +460,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 6. Get the first reserving/admitted workload.
 	conditionToCheck := kueue.WorkloadAdmitted
-	if !features.Enabled(features.MultiKueueWaitForWorkloadAdmitted) {
-		conditionToCheck = kueue.WorkloadQuotaReserved
-	}
 	if remoteCond, reservingRemote := group.bestMatchByCondition(conditionToCheck); remoteCond != nil {
 		// remove the non-selected worker workloads
 		for rem, remWl := range group.remotes {
@@ -528,6 +529,13 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 		// Ensure there is a reconcile that considers the next preemption gate.
 		requeueAfterSynchronize = requeueIn
+	}
+
+	// 8. Skip nomination while eviction is still in progress or the
+	// admission check is not yet Pending.
+	if workload.ShouldSkipClusterNomination(acs, group.local, group.IsElasticWorkload()) {
+		log.V(3).Info("Skipping cluster nomination phase")
+		return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, nil
 	}
 
 	res, err := w.nominateAndSynchronizeWorkers(ctx, group)
@@ -697,6 +705,14 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 	return reconcile.Result{}, errors.Join(errs...)
 }
 
+// nominatedClusterSetsEqual reports whether stored and current contain the same set of cluster names,
+// independent of order.
+func nominatedClusterSetsEqual(stored, current []string) bool {
+	slices.Sort(stored)
+	slices.Sort(current)
+	return slices.Equal(stored, current)
+}
+
 func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
@@ -704,6 +720,12 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	componentWorkloads, err := w.listComponentWorkloads(ctx, group.local)
 	if err != nil {
 		return reconcile.Result{}, err
+	}
+
+	// check nonMK AdmissionChecks are Ready before nominating clusters, to avoid nominating clusters for workloads that are not fully admitted yet.
+	if ready, ac := allNonMKAdmissionChecksReady(group.local, group.acName); !ready {
+		log.V(3).Info("Waiting for all non-MultiKueue admission checks to be ready before nominating clusters", "admissionCheck", ac)
+		return reconcile.Result{}, nil
 	}
 
 	if _, ok := group.jobAdapter.(jobframework.MultiKueueMultiWorkloadAdapter); ok && componentWorkloads != nil {
@@ -758,7 +780,8 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
-		if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+
+		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
 			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				wl.Status.NominatedClusterNames = nominatedWorkers
 				return true, nil
@@ -772,9 +795,16 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
+	var errs []error
+	for _, nom := range nominatedWorkers {
+		if _, ok := group.remoteClients[nom]; !ok {
+			log.V(3).Info("Nominated cluster not yet connected", "cluster", nom)
+			errs = append(errs, fmt.Errorf("cluster %s: %w", nom, admissioncheck.ErrNoRemoteClientForNominatedCluster))
+		}
+	}
+
 	log.V(4).Info("Synchronize nominated worker clusters", "dispatcherName", w.dispatcherName, "nominatedWorkerClusterNames", nominatedWorkers)
 
-	var errs []error
 	for rem, remoteWl := range group.remotes {
 		if slices.Contains(nominatedWorkers, rem) {
 			if remoteWl == nil {
@@ -815,7 +845,7 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 }
 
 func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
-	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
+	recorder events.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
 	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, roleTracker *roletracker.RoleTracker,
 	options ...Option,
 ) *wlReconciler {
@@ -997,7 +1027,7 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 	}
 
 	if needsACUpdate {
-		w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
+		w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "MultiKueue", acs.Message)
 		w.enqueueComponentWorkloads(ctx, group.local)
 	}
 
@@ -1092,8 +1122,9 @@ func (w *wlReconciler) workloadToOpenPreemptionGate(ctx context.Context, group *
 func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *kueue.Workload {
 	remoteWl := &kueue.Workload{}
 	remoteWl.ObjectMeta = api.CloneObjectMetaForCreation(&orig.ObjectMeta)
+	delete(remoteWl.Labels, constants.JobUIDLabel)
 	if remoteWl.Labels == nil {
-		remoteWl.Labels = make(map[string]string)
+		remoteWl.Labels = make(map[string]string, 1)
 	}
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
@@ -1104,4 +1135,17 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 	}
 
 	return remoteWl
+}
+
+func allNonMKAdmissionChecksReady(wl *kueue.Workload, mkACName kueue.AdmissionCheckReference) (bool, []kueue.AdmissionCheckReference) {
+	var notReady []kueue.AdmissionCheckReference
+	for _, ac := range wl.Status.AdmissionChecks {
+		if ac.Name == mkACName {
+			continue
+		}
+		if ac.State != kueue.CheckStateReady {
+			notReady = append(notReady, ac.Name)
+		}
+	}
+	return len(notReady) == 0, notReady
 }

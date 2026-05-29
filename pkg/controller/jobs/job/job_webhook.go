@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -83,6 +84,9 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		cache:                        options.Cache,
 	}
 	obj := &batchv1.Job{}
+	if options.NoopWebhook {
+		return webhook.SetupNoopWebhook(mgr, obj)
+	}
 	return ctrl.NewWebhookManagedBy(mgr, obj).
 		WithDefaulter(wh).
 		WithValidator(wh).
@@ -101,6 +105,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj *batchv1.Job) error {
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -151,6 +156,9 @@ func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
 		} else if int32(v) >= job.podsCount() || v <= 0 {
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, v, fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
 		}
+		if workloadslicing.Enabled(job.Object()) {
+			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, strVal, "partial admission and elastic job cannot be used together"))
+		}
 	}
 	return allErrs
 }
@@ -167,7 +175,14 @@ func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
 				allErrs = append(allErrs, field.Invalid(syncCompletionAnnotationsPath, job.Annotations[JobCompletionsEqualParallelismAnnotation], "should not be enabled for NonIndexed jobs"))
 			}
 			if ptr.Deref(job.Spec.Parallelism, 1) != ptr.Deref(job.Spec.Completions, 1) {
-				allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "completions"), job.Spec.Completions, fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation)))
+				allErrs = append(
+					allErrs,
+					field.Invalid(
+						field.NewPath("spec", "completions"),
+						job.Spec.Completions,
+						fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation),
+					),
+				)
 			}
 		}
 	}
@@ -238,7 +253,7 @@ func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (fie
 		}
 	}
 
-	podSets, err := jobframework.JobPodSets(ctx, job)
+	podSets, err := jobframework.JobPodSets(ctx, job, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
 // XGBoostJobWrapper wraps a Job.
@@ -40,7 +41,7 @@ func MakeXGBoostJob(name, ns string) *XGBoostJobWrapper {
 		},
 		Spec: kftraining.XGBoostJobSpec{
 			RunPolicy: kftraining.RunPolicy{
-				Suspend: ptr.To(true),
+				Suspend: new(true),
 			},
 			XGBReplicaSpecs: make(map[kftraining.ReplicaType]*kftraining.ReplicaSpec),
 		},
@@ -58,7 +59,7 @@ type XGBReplicaSpecRequirement struct {
 func (j *XGBoostJobWrapper) XGBReplicaSpecs(replicaSpecs ...XGBReplicaSpecRequirement) *XGBoostJobWrapper {
 	j.XGBReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
-		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Replicas = new(rs.ReplicaCount)
 		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
 		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "xgboost"
@@ -80,7 +81,7 @@ func (j *XGBoostJobWrapper) XGBReplicaSpecsDefault() *XGBoostJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:      "c",
-						Image:     "pause",
+						Image:     utiltestingjobs.TestDefaultContainerImage,
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 					},
@@ -98,7 +99,7 @@ func (j *XGBoostJobWrapper) XGBReplicaSpecsDefault() *XGBoostJobWrapper {
 				Containers: []corev1.Container{
 					{
 						Name:      "c",
-						Image:     "pause",
+						Image:     utiltestingjobs.TestDefaultContainerImage,
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 					},
@@ -125,6 +126,15 @@ func (j *XGBoostJobWrapper) Label(key, value string) *XGBoostJobWrapper {
 	return j
 }
 
+// Annotation sets the annotation key and value
+func (j *XGBoostJobWrapper) Annotation(k, v string) *XGBoostJobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string, 1)
+	}
+	j.Annotations[k] = v
+	return j
+}
+
 // PriorityClass updates job priorityclass.
 func (j *XGBoostJobWrapper) PriorityClass(pc string) *XGBoostJobWrapper {
 	if j.Spec.RunPolicy.SchedulingPolicy == nil {
@@ -146,6 +156,16 @@ func (j *XGBoostJobWrapper) Queue(queue string) *XGBoostJobWrapper {
 	}
 	j.Labels[constants.QueueLabel] = queue
 	return j
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
+func (j *XGBoostJobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *XGBoostJobWrapper {
+	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the job
+func (j *XGBoostJobWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *XGBoostJobWrapper {
+	return j.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Request updates a resource request to the default container.
@@ -170,7 +190,7 @@ func (j *XGBoostJobWrapper) Args(args []string) *XGBoostJobWrapper {
 
 // Parallelism updates job parallelism.
 func (j *XGBoostJobWrapper) Parallelism(p int32) *XGBoostJobWrapper {
-	j.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Replicas = ptr.To(p)
+	j.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Replicas = new(p)
 	return j
 }
 

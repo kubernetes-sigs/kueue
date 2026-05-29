@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"fmt"
+	"maps"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -36,6 +37,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // PodSetTestCase defines a test case for a single podset in the consolidated test.
@@ -46,6 +48,7 @@ type PodSetTestCase struct {
 	count              int32
 	tolerations        []corev1.Toleration
 	nodeSelector       map[string]string
+	nodeAffinity       *corev1.NodeAffinity
 	podSetGroupName    *string
 	previousAssignment *kueue.TopologyAssignment
 	wantAssignment     *tas.TopologyAssignment
@@ -381,12 +384,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		featureGates map[featuregate.Feature]bool
-		nodes        []corev1.Node
-		pods         []corev1.Pod
-		levels       []string
-		nodeLabels   map[string]string
-		podSets      []PodSetTestCase
+		featureGates           map[featuregate.Feature]bool
+		nodes                  []corev1.Node
+		pods                   []corev1.Pod
+		levels                 []string
+		nodeLabels             map[string]string
+		aggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests
+		priorFlavorUsage       []workload.TopologyDomainRequests
+		priorOwnUsage          []workload.TopologyDomainRequests
+		podSets                []PodSetTestCase
 	}{
 		"minimize the number of used racks before optimizing the number of nodes; BestFit": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x1,x6,x2,x4]
@@ -585,7 +591,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Unconstrained: ptr.To(true),
+					Unconstrained: new(true),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -608,7 +614,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Unconstrained: ptr.To(true),
+					Unconstrained: new(true),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -632,7 +638,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Unconstrained: ptr.To(true),
+					Unconstrained: new(true),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -1765,6 +1771,51 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "pods": 1`,
 			}},
 		},
+		"multiple PodSets account assumed pod usage against allocatable pods; BestFit": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "one",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count: 1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Values: []string{"x1"},
+								Count:  1,
+							},
+						},
+					},
+				},
+				{
+					podSetName: "two",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count:      1,
+					wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "pods": 1`,
+				},
+			},
+		},
 		"skip node which doesn't match node selector, missing label; BestFit": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x3").
@@ -1927,7 +1978,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -2012,7 +2063,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -2087,7 +2138,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -2196,7 +2247,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -2240,7 +2291,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred:                   ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -2315,7 +2366,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -2395,7 +2446,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred:                   ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
-					PodSetSliceSize:             ptr.To(int32(3)),
+					PodSetSliceSize:             new(int32(3)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -2592,7 +2643,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred:                   ptr.To(tasRackLabel),
-					PodSetSliceSize:             ptr.To(int32(5)),
+					PodSetSliceSize:             new(int32(5)),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 				},
 				requests: resources.Requests{
@@ -2669,7 +2720,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred:       ptr.To(tasRackLabel),
-					PodSetSliceSize: ptr.To(int32(1)),
+					PodSetSliceSize: new(int32(1)),
 				},
 				requests: resources.Requests{
 					"example.com/gpu": 1,
@@ -2745,7 +2796,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred:       ptr.To(tasRackLabel),
-					PodSetSliceSize: ptr.To(int32(1)),
+					PodSetSliceSize: new(int32(1)),
 				},
 				requests: resources.Requests{
 					"example.com/gpu": 1,
@@ -2822,7 +2873,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred:                   ptr.To(tasRackLabel),
-					PodSetSliceSize:             ptr.To(int32(5)),
+					PodSetSliceSize:             new(int32(5)),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 				},
 				requests: resources.Requests{
@@ -2917,7 +2968,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred:                   ptr.To(string(tasSubBlockLabel)),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 				},
 				requests: resources.Requests{
@@ -3015,7 +3066,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred:                   ptr.To(string(tasSubBlockLabel)),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
 				},
 				requests: resources.Requests{
@@ -3103,7 +3154,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred:                   ptr.To(string(tasSubBlockLabel)),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
 				},
 				requests: resources.Requests{
@@ -3191,7 +3242,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred:                   ptr.To(string(corev1.LabelHostname)),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 				},
 				requests: resources.Requests{
@@ -3352,7 +3403,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						"example.com/gpu": 1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -3368,13 +3419,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 					podSetName: "workers",
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred:                   ptr.To(string(tasRackLabel)),
-						PodSetSliceSize:             ptr.To(int32(5)),
+						PodSetSliceSize:             new(int32(5)),
 						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					},
 					requests: resources.Requests{
 						"example.com/gpu": 1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           25,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -3834,7 +3885,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						"example.com/gpu": 1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -3854,7 +3905,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						"example.com/gpu": 1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           10,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -3866,6 +3917,192 @@ func TestFindTopologyAssignments(t *testing.T) {
 							{
 								Count:  5,
 								Values: []string{"x2"},
+							},
+						},
+					},
+				},
+			},
+		},
+		//        b1
+		//         |
+		//        r1
+		//    /    |
+		// x1:7  x2:5
+		// request: 10
+		// leaders: 1
+		// expected outcome: x1:5 + leader, x2:5
+		"balanced placement; leader worker set does not reserve leader space on every node": {
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("7"),
+						corev1.ResourcePods: resource.MustParse("12"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("12"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   ptr.To(string(tasRackLabel)),
+						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 1,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"x1"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred: ptr.To(string(tasRackLabel)),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 1,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           10,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  5,
+								Values: []string{"x1"},
+							},
+							{
+								Count:  5,
+								Values: []string{"x2"},
+							},
+						},
+					},
+				},
+			},
+		},
+		//           b1           b2
+		//      /    |    \       |
+		//   r1     r2    r3     r1
+		//   |      |     |      |
+		//   x1:3  x2:3  x3:8   x4:11
+		// request: 7
+		// leaders: 1 (5 GPUs)
+		// expected outcome: x1:3, x2:1, x3:3 + leader
+		"balanced placement; fallback to BestFit when leader worker set cannot meet threshold": {
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("12"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("12"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("12"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r1-x4").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("11"),
+						corev1.ResourcePods: resource.MustParse("12"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   ptr.To(tasBlockLabel),
+						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 5,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"x3"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred: ptr.To(tasBlockLabel),
+					},
+					requests: resources.Requests{
+						"example.com/gpu": 1,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           7,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  3,
+								Values: []string{"x1"},
+							},
+							{
+								Count:  1,
+								Values: []string{"x2"},
+							},
+							{
+								Count:  3,
+								Values: []string{"x3"},
 							},
 						},
 					},
@@ -3916,7 +4153,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
-					PodSetSliceSize:             ptr.To(int32(3)),
+					PodSetSliceSize:             new(int32(3)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -3979,7 +4216,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
-					PodSetSliceSize:             ptr.To(int32(3)),
+					PodSetSliceSize:             new(int32(3)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -4052,7 +4289,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
-					PodSetSliceSize:             ptr.To(int32(3)),
+					PodSetSliceSize:             new(int32(3)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -4084,7 +4321,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required:                    ptr.To(corev1.LabelHostname),
 					PodSetSliceRequiredTopology: ptr.To(tasBlockLabel),
-					PodSetSliceSize:             ptr.To(int32(1)),
+					PodSetSliceSize:             new(int32(1)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -4114,8 +4351,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required:                    ptr.To(tasBlockLabel),
-					PodSetSliceRequiredTopology: ptr.To("not-existing-topology-level"),
-					PodSetSliceSize:             ptr.To(int32(1)),
+					PodSetSliceRequiredTopology: new("not-existing-topology-level"),
+					PodSetSliceSize:             new(int32(1)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -4167,7 +4404,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -4204,7 +4441,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -4235,7 +4472,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
-					PodSetSliceSize:             ptr.To(int32(2)),
+					PodSetSliceSize:             new(int32(2)),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -4392,7 +4629,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -4415,7 +4652,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           4,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -4471,7 +4708,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -4492,7 +4729,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  2,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           4,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -4501,6 +4738,240 @@ func TestFindTopologyAssignments(t *testing.T) {
 								Count:  4,
 								Values: []string{"b2"},
 							},
+						},
+					},
+				},
+			},
+		},
+		"find topology assignment for grouped podsets skips domain where only workers fit without leader": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("small-used").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-used").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("small-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("large-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "large").
+					Label(corev1.LabelHostname, "large-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("6"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("filler", "test-ns").
+					NodeName("small-used").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "2500m").
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 2500,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"large-free"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 2500,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"large-free"}},
+						},
+					},
+				},
+			},
+		},
+		"find topology assignment for grouped podsets skips domain where mixed-size workers only fit without leader": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("small-used").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-used").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("small-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("large-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "large").
+					Label(corev1.LabelHostname, "large-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("6"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("filler", "test-ns").
+					NodeName("small-used").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "2500m").
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 2500,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"large-free"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 500,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           2,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"large-free"}},
+						},
+					},
+				},
+			},
+		},
+		"find topology assignment for grouped podsets keeps tight domain when leader and workers fit together": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("small-used").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-used").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("small-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "small").
+					Label(corev1.LabelHostname, "small-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2800m"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("large-free").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "large").
+					Label(corev1.LabelHostname, "large-free").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("6"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("filler", "test-ns").
+					NodeName("small-used").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "2500m").
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"small-free"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"small-free"}},
 						},
 					},
 				},
@@ -4537,7 +5008,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment:  nil,
 					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s). Total nodes: 2; excluded: resource "example.com/gpu": 1`,
@@ -4551,7 +5022,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           4,
 					wantAssignment:  nil,
 					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s). Total nodes: 2; excluded: resource "example.com/gpu": 1`,
@@ -4589,7 +5060,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -4612,7 +5083,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           4,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -4697,7 +5168,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -4713,14 +5184,14 @@ func TestFindTopologyAssignments(t *testing.T) {
 					podSetName: "workers",
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred:                   ptr.To(tasBlockLabel),
-						PodSetSliceSize:             ptr.To(int32(2)),
+						PodSetSliceSize:             new(int32(2)),
 						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					},
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           6,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -4769,7 +5240,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 10000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
 				},
@@ -4782,7 +5253,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           4,
 					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
 				},
@@ -4873,7 +5344,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 2000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
@@ -4896,7 +5367,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           2,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
@@ -5026,7 +5497,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
@@ -5049,7 +5520,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: new("sameGroup"),
 					count:           2,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
@@ -5139,7 +5610,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				{
 					podSetName: "podset2",
 					topologyRequest: &kueue.PodSetTopologyRequest{
-						Unconstrained: ptr.To(true),
+						Unconstrained: new(true),
 					},
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
@@ -5236,7 +5707,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultOneLevel,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Unconstrained: ptr.To(true),
+					Unconstrained: new(true),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -5291,7 +5762,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultOneLevel,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Unconstrained: ptr.To(true),
+					Unconstrained: new(true),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -5340,7 +5811,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultOneLevel,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Unconstrained: ptr.To(true),
+					Unconstrained: new(true),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -5387,7 +5858,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultOneLevel,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Unconstrained: ptr.To(true),
+					Unconstrained: new(true),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
@@ -5546,7 +6017,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
-					PodSetSliceSize:             ptr.To(int32(4)),
+					PodSetSliceSize:             new(int32(4)),
 					// Without the feature gate, only two-level fields are used;
 					// PodsetSliceRequiredTopologyConstraints would not be populated by the parser.
 				},
@@ -5682,20 +6153,22 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Obj(),
 			},
 			levels: defaultThreeLevels,
-			podSets: []PodSetTestCase{{
-				topologyRequest: &kueue.PodSetTopologyRequest{
-					Required: ptr.To(tasBlockLabel),
-					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
-						{Topology: tasRackLabel, Size: 6},
-						{Topology: corev1.LabelHostname, Size: 2},
+			podSets: []PodSetTestCase{
+				{
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasBlockLabel),
+						PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+							{Topology: tasRackLabel, Size: 6},
+							{Topology: corev1.LabelHostname, Size: 2},
+						},
 					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count:      6,
+					wantReason: `topology "default" doesn't allow to fit; 0/1 slice(s) fit on level cloud.com/topology-rack; 2/3 slice(s) fit on level kubernetes.io/hostname. Total nodes: 3; excluded: resource "cpu": 1`,
 				},
-				requests: resources.Requests{
-					corev1.ResourceCPU: 1000,
-				},
-				count:      6,
-				wantReason: `topology "default" doesn't allow to fit; 0/1 slice(s) fit on level cloud.com/topology-rack; 2/3 slice(s) fit on level kubernetes.io/hostname. Total nodes: 3; excluded: resource "cpu": 1`,
-			}},
+			},
 		},
 		"multi-layer topology: small host kills rack slices despite enough total capacity": {
 			// block → rack → hostname
@@ -5928,21 +6401,843 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Obj(),
 			},
 			levels: append([]string{tasDataCenterLabel}, defaultThreeLevels...),
-			podSets: []PodSetTestCase{{
-				topologyRequest: &kueue.PodSetTopologyRequest{
-					Required: ptr.To(tasDataCenterLabel),
-					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
-						{Topology: tasBlockLabel, Size: 12},
-						{Topology: tasRackLabel, Size: 6},
-						{Topology: corev1.LabelHostname, Size: 3},
+			podSets: []PodSetTestCase{
+				{
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasDataCenterLabel),
+						PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+							{Topology: tasBlockLabel, Size: 12},
+							{Topology: tasRackLabel, Size: 6},
+							{Topology: corev1.LabelHostname, Size: 3},
+						},
 					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count:      24,
+					wantReason: `topology "default" doesn't allow to fit; 1/2 slice(s) fit on level cloud.com/topology-block; 3/4 slice(s) fit on level cloud.com/topology-rack; 6/8 slice(s) fit on level kubernetes.io/hostname`,
+				},
+			},
+		},
+		"with preferred affinity": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-preferred").
+					Label("cloud.com/topology-rack", "rack-preferred").
+					Label("kubernetes.io/hostname", "node-preferred").
+					Label("region", "us-west").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-other").
+					Label("cloud.com/topology-rack", "rack-other").
+					Label("kubernetes.io/hostname", "node-other").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("cloud.com/topology-rack"),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().
+						Term(10, "region", corev1.NodeSelectorOpIn, "us-west").
+						Obj(),
 				},
 				requests: resources.Requests{
 					corev1.ResourceCPU: 1000,
 				},
-				count:      24,
-				wantReason: `topology "default" doesn't allow to fit; 1/2 slice(s) fit on level cloud.com/topology-block; 3/4 slice(s) fit on level cloud.com/topology-rack; 6/8 slice(s) fit on level kubernetes.io/hostname`,
+				count: 1,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-preferred"}}).
+					TopologyAssignment,
 			}},
+		},
+		"with required and preferred affinity": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-preferred").
+					Label("cloud.com/topology-rack", "rack-preferred").
+					Label("kubernetes.io/hostname", "node-preferred").
+					Label("region", "us-west").
+					Label("zone", "us").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-other").
+					Label("cloud.com/topology-rack", "rack-other").
+					Label("kubernetes.io/hostname", "node-other").
+					Label("region", "us-east").
+					Label("zone", "us").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-excluded").
+					Label("cloud.com/topology-rack", "rack-excluded").
+					Label("kubernetes.io/hostname", "node-excluded").
+					Label("region", "us-west").
+					Label("zone", "eu").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("cloud.com/topology-rack"),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+						NodeSelectorTerms: utiltesting.MakeNodeSelectorTerms().Term("zone", corev1.NodeSelectorOpIn, "us").Obj(),
+					},
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-preferred"}}).
+					TopologyAssignment,
+			}},
+		},
+		"with multiple preferred affinities": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"cloud.com/topology-block", "cloud.com/topology-rack", "kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-a").
+					Label("cloud.com/topology-block", "b1").
+					Label("cloud.com/topology-rack", "r1").
+					Label("kubernetes.io/hostname", "node-a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-b").
+					Label("cloud.com/topology-block", "b1").
+					Label("cloud.com/topology-rack", "r2").
+					Label("kubernetes.io/hostname", "node-b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-c").
+					Label("cloud.com/topology-block", "b2").
+					Label("cloud.com/topology-rack", "r1").
+					Label("kubernetes.io/hostname", "node-c").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("cloud.com/topology-rack"),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().
+						Term(10, "cloud.com/topology-block", corev1.NodeSelectorOpIn, "b1").
+						Term(100, "cloud.com/topology-rack", corev1.NodeSelectorOpIn, "r1").
+						Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-a"}}).
+					TopologyAssignment,
+			}},
+		},
+		"affinity takes precedence over best fit": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-better-fit").
+					Label("kubernetes.io/hostname", "node-better-fit").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-has-affinity").
+					Label("kubernetes.io/hostname", "node-has-affinity").
+					Label("region", "us-west").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("kubernetes.io/hostname"),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-has-affinity"}}).
+					TopologyAssignment,
+			}},
+		},
+		"affinity ordering with required topology level chooses secondary domain if primary is too small": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-preferred-small").
+					Label("cloud.com/topology-rack", "rack-preferred").
+					Label("kubernetes.io/hostname", "node-preferred-small").
+					Label("region", "us-west").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-secondary-large-1").
+					Label("cloud.com/topology-rack", "rack-secondary").
+					Label("kubernetes.io/hostname", "node-secondary-large-1").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-secondary-large-2").
+					Label("cloud.com/topology-rack", "rack-secondary").
+					Label("kubernetes.io/hostname", "node-secondary-large-2").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new("cloud.com/topology-rack"),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 4,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 4, Values: []string{"node-secondary-large-1"}}).
+					TopologyAssignment,
+			}},
+		},
+		"affinity ordering with preferred inner topology level bubbles up to parent level to avoid splitting across parent domains": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"cloud.com/topology-rack", "cloud.com/topology-switch", "kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-preferred-small").
+					Label("cloud.com/topology-rack", "r1").
+					Label("cloud.com/topology-switch", "s1").
+					Label("kubernetes.io/hostname", "node-preferred-small").
+					Label("region", "us-west").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-secondary-large").
+					Label("cloud.com/topology-rack", "r1").
+					Label("cloud.com/topology-switch", "s2").
+					Label("kubernetes.io/hostname", "node-secondary-large").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("cloud.com/topology-switch"),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 4,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-preferred-small"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-secondary-large"}}).
+					TopologyAssignment,
+			}},
+		},
+		"flat topology, preferred mode, size 5 pods x 1": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-1-pref-2").
+					Label("kubernetes.io/hostname", "node-1-pref-2").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-2-pref-1").
+					Label("kubernetes.io/hostname", "node-2-pref-1").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-3-nonpref-2").
+					Label("kubernetes.io/hostname", "node-3-nonpref-2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-4-nonpref-1").
+					Label("kubernetes.io/hostname", "node-4-nonpref-1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new("kubernetes.io/hostname"),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 5,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-2-pref-1"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-3-nonpref-2"}}).
+					TopologyAssignment,
+			}},
+		},
+		"flat topology, unconstrained mode, size 5 pods x 1": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRespectNodeAffinityPreferred: true,
+				features.TASProfileMixed:                 true,
+			},
+			levels: []string{"kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-1-pref-2").
+					Label("kubernetes.io/hostname", "node-1-pref-2").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-2-pref-1").
+					Label("kubernetes.io/hostname", "node-2-pref-1").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-3-nonpref-2").
+					Label("kubernetes.io/hostname", "node-3-nonpref-2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-4-nonpref-1a").
+					Label("kubernetes.io/hostname", "node-4-nonpref-1a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-5-nonpref-1b").
+					Label("kubernetes.io/hostname", "node-5-nonpref-1b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 5,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-2-pref-1"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-4-nonpref-1a"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-5-nonpref-1b"}}).
+					TopologyAssignment,
+			}},
+		},
+		"flat topology, preferred mode, size 2 pods x 2": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{"kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-1-pref-2").
+					Label("kubernetes.io/hostname", "node-1-pref-2").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-2-pref-1").
+					Label("kubernetes.io/hostname", "node-2-pref-1").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-3-nonpref-2a").
+					Label("kubernetes.io/hostname", "node-3-nonpref-2a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-4-nonpref-2b").
+					Label("kubernetes.io/hostname", "node-4-nonpref-2b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-5-nonpref-1").
+					Label("kubernetes.io/hostname", "node-5-nonpref-1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   new("kubernetes.io/hostname"),
+					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+					PodSetSliceSize:             new(int32(2)),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 4,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-3-nonpref-2a"}}).
+					TopologyAssignment,
+			}},
+		},
+		"flat topology, unconstrained mode, size 2 pods x 2": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRespectNodeAffinityPreferred: true,
+				features.TASProfileMixed:                 true,
+			},
+			levels: []string{"kubernetes.io/hostname"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-1-pref-2").
+					Label("kubernetes.io/hostname", "node-1-pref-2").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-2-pref-1").
+					Label("kubernetes.io/hostname", "node-2-pref-1").
+					Label("type", "preferred").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-3-nonpref-2a").
+					Label("kubernetes.io/hostname", "node-3-nonpref-2a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-4-nonpref-2b").
+					Label("kubernetes.io/hostname", "node-4-nonpref-2b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-5-nonpref-1").
+					Label("kubernetes.io/hostname", "node-5-nonpref-1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained:               new(true),
+					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+					PodSetSliceSize:             new(int32(2)),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 4,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-3-nonpref-2a"}}).
+					TopologyAssignment,
+			}},
+		},
+		"LWS with leader and workers; preferred affinity on workers; leader cannot fit on preferred zone": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRespectNodeAffinityPreferred: true,
+			},
+			levels: []string{"cloud.com/topology-zone", corev1.LabelHostname},
+			nodes: []corev1.Node{
+				// us-west nodes (preferred by workers, but cannot fit leader CPU=16, Mem=64Gi)
+				*testingnode.MakeNode("us-west-1").
+					Label("cloud.com/topology-zone", "us-west").
+					Label(corev1.LabelHostname, "us-west-1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("8"),
+						corev1.ResourceMemory: resource.MustParse("32Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"nvidia.com/gpu":      resource.MustParse("8"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("us-west-2").
+					Label("cloud.com/topology-zone", "us-west").
+					Label(corev1.LabelHostname, "us-west-2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("8"),
+						corev1.ResourceMemory: resource.MustParse("32Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"nvidia.com/gpu":      resource.MustParse("8"),
+					}).
+					Ready().
+					Obj(),
+				// us-east node (CPU-only master node, can fit leader but cannot fit GPU workers)
+				*testingnode.MakeNode("us-east-1").
+					Label("cloud.com/topology-zone", "us-east").
+					Label(corev1.LabelHostname, "us-east-1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("32"),
+						corev1.ResourceMemory: resource.MustParse("128Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new("cloud.com/topology-zone"),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+						PodSetSliceSize:             new(int32(1)),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU:    16 * 1000,
+						corev1.ResourceMemory: 64 * 1024 * 1024 * 1024,
+					},
+					podSetGroupName: new("llm-group"),
+					count:           1,
+					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"us-east-1"}}).
+						TopologyAssignment,
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new("cloud.com/topology-zone"),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+						PodSetSliceSize:             new(int32(1)),
+					},
+					nodeAffinity: &corev1.NodeAffinity{
+						PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "cloud.com/topology-zone", corev1.NodeSelectorOpIn, "us-west").Obj(),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU:    4 * 1000,
+						corev1.ResourceMemory: 32 * 1024 * 1024 * 1024,
+						"nvidia.com/gpu":      8,
+					},
+					podSetGroupName: new("llm-group"),
+					count:           2,
+					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"us-west-1"}}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"us-west-2"}}).
+						TopologyAssignment,
+				},
+			},
+		},
+		"optimize the last domain for LWS using BestFit": {
+			levels: []string{"cloud.com/topology-zone", "cloud.com/topology-rack", corev1.LabelHostname},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("dom1-node").
+					Label("cloud.com/topology-zone", "dom1").
+					Label("cloud.com/topology-rack", "rack1").
+					Label(corev1.LabelHostname, "dom1-node").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("10"),
+						corev1.ResourceMemory: resource.MustParse("10Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("dom2-node").
+					Label("cloud.com/topology-zone", "dom2").
+					Label("cloud.com/topology-rack", "rack2").
+					Label(corev1.LabelHostname, "dom2-node").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("6"),
+						corev1.ResourceMemory: resource.MustParse("10Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    new("cloud.com/topology-zone"),
+						PodSetSliceRequiredTopology: new("cloud.com/topology-rack"),
+						PodSetSliceSize:             new(int32(1)),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU:    1000,
+						corev1.ResourceMemory: 1024 * 1024 * 1024,
+					},
+					podSetGroupName: new("lws"),
+					count:           1,
+					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"dom2-node"}}).
+						TopologyAssignment,
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    new("cloud.com/topology-zone"),
+						PodSetSliceRequiredTopology: new("cloud.com/topology-rack"),
+						PodSetSliceSize:             new(int32(1)),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU:    1000,
+						corev1.ResourceMemory: 1024 * 1024 * 1024,
+					},
+					podSetGroupName: new("lws"),
+					count:           5,
+					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(tas.TopologyDomainAssignment{Count: 5, Values: []string{"dom2-node"}}).
+						TopologyAssignment,
+				},
+			},
+		},
+		"sibling-flavor usage on the shared hostname reduces remaining capacity": {
+			levels: []string{tasBlockLabel, corev1.LabelHostname},
+			// Two nodes only, so the discrimination is unambiguous.
+			// The x1's effective capacity is 0, so x2 is the only
+			// candidate that can fit the request.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-x1").
+					Label(tasBlockLabel, "b1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-x2").
+					Label(tasBlockLabel, "b1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			nodeLabels: map[string]string{},
+			priorFlavorUsage: []workload.TopologyDomainRequests{
+				{
+					Values:            []string{"x1"},
+					SinglePodRequests: resources.Requests{corev1.ResourceCPU: 1000},
+					Count:             1,
+				},
+			},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "main",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: new(corev1.LabelHostname),
+					},
+					requests: resources.Requests{corev1.ResourceCPU: 1000},
+					count:    1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
+					},
+				},
+			},
+		},
+		"non-hostname-leaf topology: nil aggregatedDomainUsages preserves per-flavor behavior": {
+			// Topology lowest level is rack (not hostname). In the new model
+			// topologyInformation.Usage is nil for such topologies, so
+			// NewTASFlavorCache gives each flavor a private map. The harness
+			// leaves tc.aggregatedDomainUsages nil. The snapshot() call then takes the
+			// per-flavor branch and iterates c.usage (empty here).
+			levels:     []string{tasBlockLabel, tasRackLabel},
+			nodes:      defaultNodes,
+			nodeLabels: map[string]string{},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "main",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{corev1.ResourceCPU: 1000},
+					count:    1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					},
+				},
+			},
+		},
+		"non-hostname-leaf topology: prior c.usage must be applied even when aggregatedDomainUsages is non-nil empty": {
+			// Reproduces the integration regression: with TASHandleOverlappingFlavors on,
+			// Cache.Snapshot allocates aggregatedDomainUsages as a non-nil empty map and
+			// snapshotTopologyDomainUsages returns early for non-hostname-leaf flavors,
+			// leaving the map empty. snapshot() must still apply c.usage in this case.
+			//
+			//      b1            b2
+			//     /  \          /  \
+			//   r1    r2      r1    r2
+			//   |     |       |     |
+			//  b1-r1 b1-r2   b2-r1 b2-r2   (each 1 CPU)
+			//
+			// b1/r1 and b1/r2 are fully consumed by prior workloads of this flavor.
+			// A 1-CPU, required-rack request must land on b2.
+			levels: []string{tasBlockLabel, tasRackLabel},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r1").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r2").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			nodeLabels: map[string]string{},
+			priorOwnUsage: []workload.TopologyDomainRequests{
+				{Values: []string{"b1", "r1"}, SinglePodRequests: resources.Requests{corev1.ResourceCPU: 1000}, Count: 1},
+				{Values: []string{"b1", "r2"}, SinglePodRequests: resources.Requests{corev1.ResourceCPU: 1000}, Count: 1},
+			},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "main",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: new(tasRackLabel),
+					},
+					requests: resources.Requests{corev1.ResourceCPU: 1000},
+					count:    1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b2", "r1"}}},
+					},
+				},
+			},
 		},
 	}
 	for name, tc := range cases {
@@ -5978,10 +7273,38 @@ func TestFindTopologyAssignments(t *testing.T) {
 				tasCache.Update(&pod, log)
 			}
 			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
-			snapshot := tasFlavorCache.snapshot(log, tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels))
+			if len(tc.priorOwnUsage) > 0 {
+				tasFlavorCache.addUsage("prior-wl", tc.priorOwnUsage)
+			}
+
+			if features.Enabled(features.TASHandleOverlappingFlavors) {
+				tc.aggregatedDomainUsages = aggregatedDomainUsagesForPriorFlavorUsage(
+					topologyInformation,
+					flavorInformation,
+					tc.priorFlavorUsage,
+					&tasCache,
+					tc.aggregatedDomainUsages,
+				)
+			}
+
+			var aggregatedDomainUsage map[tas.TopologyDomainID]resources.Requests
+			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
+				aggregatedDomainUsage = tc.aggregatedDomainUsages
+			}
+			snapshot := tasFlavorCache.snapshot(
+				log,
+				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
+				aggregatedDomainUsage,
+			)
 			flavorTASRequests := make([]TASPodSetRequests, 0, len(tc.podSets))
 			wantResult := make(TASAssignmentsResult)
 			for _, ps := range tc.podSets {
+				var affinity *corev1.Affinity
+				if ps.nodeAffinity != nil {
+					affinity = &corev1.Affinity{
+						NodeAffinity: ps.nodeAffinity,
+					}
+				}
 				tasInput := TASPodSetRequests{
 					PodSet: &kueue.PodSet{
 						Name:            kueue.NewPodSetReference(ps.podSetName),
@@ -5990,6 +7313,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 							Spec: corev1.PodSpec{
 								Tolerations:  ps.tolerations,
 								NodeSelector: ps.nodeSelector,
+								Affinity:     affinity,
 							},
 						},
 					},
@@ -6031,16 +7355,19 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 	podSetName := kueue.PodSetReference("main")
 
 	cases := map[string]struct {
-		levels          []string
-		nodes           []corev1.Node
-		pods            []corev1.Pod
-		existingTA      *kueue.TopologyAssignment
-		admissionCount  int32
-		unhealthyNode   string
-		topologyRequest *kueue.PodSetTopologyRequest
-		count           int32
-		wantAssignment  *tas.TopologyAssignment
-		wantReason      string
+		featureGates           map[featuregate.Feature]bool
+		levels                 []string
+		nodes                  []corev1.Node
+		pods                   []corev1.Pod
+		existingTA             *kueue.TopologyAssignment
+		admissionCount         int32
+		unhealthyNode          string
+		topologyRequest        *kueue.PodSetTopologyRequest
+		count                  int32
+		aggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests
+		priorFlavorUsage       []workload.TopologyDomainRequests
+		wantAssignment         *tas.TopologyAssignment
+		wantReason             string
 	}{
 		"replace unhealthy node in incomplete rack slice": {
 			//       b1
@@ -6304,10 +7631,67 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			// Without fix: sliceSize=1, scatters x4(1)+x5(1) → wrongly succeeds.
 			wantReason: `topology "default" doesn't allow to fit any of 1 slice(s). Total nodes: 4; excluded: topologyDomain: 2`,
 		},
+		"sibling-flavor aggregatedDomainUsages on replacement candidate blocks the replacement": {
+			//       b1
+			//   /        \
+			//  r1        r2
+			//  /  \    /    \
+			// x1  x2  x3    x4
+			//          ^(NotReady)
+			//
+			// x4 has 1 CPU allocatable. priorFlavorUsage drives a sibling
+			// TASFlavorCache's addUsage that consumes 1 CPU on x4 through
+			// the real write path. The harness clones the resulting shared
+			// map into tc.aggregatedDomainUsages. x4 is the only candidate in r2 for
+			// replacing x3, and its effective capacity is 0 CPU, so
+			// replacement must fail with the no-capacity reason.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("b1-r2-x4").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			existingTA: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x2"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x3"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x4"}}).
+				Obj(),
+			admissionCount: 4,
+			unhealthyNode:  "x3",
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required: new(tasBlockLabel),
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{Topology: tasRackLabel, Size: 2},
+				},
+			},
+			count: 4,
+			priorFlavorUsage: []workload.TopologyDomainRequests{
+				{
+					Values:            []string{"x4"},
+					SinglePodRequests: resources.Requests{corev1.ResourceCPU: 1000},
+					Count:             1,
+				},
+			},
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 3; excluded: resource "cpu": 1, topologyDomain: 2`,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASMultiLayerTopology, true)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			wl := utiltestingapi.MakeWorkload("test-wl", "test-ns").
@@ -6353,12 +7737,31 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			if tcLevels == nil {
 				tcLevels = defaultLevels
 			}
-			tasFlavorCache := tasCache.NewTASFlavorCache(
-				topologyInformation{Levels: tcLevels},
-				flavorInformation{TopologyName: "default"},
-			)
 
-			snapshot := tasFlavorCache.snapshot(log, tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels))
+			topologyInfo := topologyInformation{Levels: tcLevels}
+			flvInfo := flavorInformation{TopologyName: "default"}
+
+			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInfo, flvInfo)
+
+			if features.Enabled(features.TASHandleOverlappingFlavors) {
+				tc.aggregatedDomainUsages = aggregatedDomainUsagesForPriorFlavorUsage(
+					topologyInfo,
+					flvInfo,
+					tc.priorFlavorUsage,
+					&tasCache,
+					tc.aggregatedDomainUsages,
+				)
+			}
+
+			var aggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests
+			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
+				aggregatedDomainUsages = tc.aggregatedDomainUsages
+			}
+			snapshot := tasFlavorCache.snapshot(
+				log,
+				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
+				aggregatedDomainUsages,
+			)
 			result := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, WithWorkload(wl))
 
 			psResult, ok := result[podSetName]
@@ -6379,4 +7782,28 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TODO: Once we commonize "TestFindTopologyAssignments" and "TestFindTopologyAssignmentsMultiLayerReplacement" into one,
+// we should remove this helper function.
+func aggregatedDomainUsagesForPriorFlavorUsage(
+	topologyInfo topologyInformation,
+	flvInfo flavorInformation,
+	priorFlavorUsage []workload.TopologyDomainRequests,
+	cache *tasCache,
+	initialAggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests,
+) map[tas.TopologyDomainID]resources.Requests {
+	siblingCache := cache.NewTASFlavorCache(topologyInfo, flvInfo)
+	if len(priorFlavorUsage) > 0 {
+		siblingCache.addUsage("prior-wl", priorFlavorUsage)
+	}
+
+	aggregatedDomainUsages := maps.Clone(initialAggregatedDomainUsages)
+	if aggregatedDomainUsages == nil {
+		aggregatedDomainUsages = make(map[tas.TopologyDomainID]resources.Requests, len(siblingCache.usage))
+	}
+	for domainID, usage := range siblingCache.usage {
+		aggregatedDomainUsages[domainID] = usage.Clone()
+	}
+	return aggregatedDomainUsages
 }

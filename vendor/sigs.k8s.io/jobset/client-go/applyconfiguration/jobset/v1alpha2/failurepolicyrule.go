@@ -1,9 +1,12 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
-    http://www.apache.org/licenses/LICENSE-2.0
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,6 +35,7 @@ type FailurePolicyRuleApplyConfiguration struct {
 	// The name must match the regular expression "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$".
 	Name *string `json:"name,omitempty"`
 	// action to take if the rule is matched.
+	// Valid values are FailJobSet, RestartJobSet, RestartJobSetAndIgnoreMaxRestarts, RestartJob, RestartJobAndIgnoreMaxRestarts.
 	Action *jobsetv1alpha2.FailurePolicyAction `json:"action,omitempty"`
 	// onJobFailureReasons is a list of job failures reasons.
 	// The requirement is satisfied

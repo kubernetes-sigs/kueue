@@ -41,9 +41,9 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -67,6 +67,12 @@ type ManagerOption func(*manager.Options)
 func WithNewClient(c client.NewClientFunc) ManagerOption {
 	return func(o *manager.Options) {
 		o.NewClient = c
+	}
+}
+
+func WithNewCache(c cache.NewCacheFunc) ManagerOption {
+	return func(o *manager.Options) {
+		o.NewCache = c
 	}
 }
 
@@ -199,7 +205,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 					CertDir: webhookInstallOptions.LocalServingCertDir,
 				}),
 			Controller: crconfig.Controller{
-				SkipNameValidation: ptr.To(true),
+				SkipNameValidation: new(true),
 			},
 		}
 		for _, opt := range opts {

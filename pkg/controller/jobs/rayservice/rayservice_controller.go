@@ -27,8 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -65,7 +64,7 @@ func init() {
 	}))
 }
 
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=ray.io,resources=rayservices,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=ray.io,resources=rayservices/status,verbs=get;patch;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
@@ -91,7 +90,13 @@ func setup(b *builder.Builder, c client.Client) *builder.Builder {
 
 var reconciler rayServiceReconciler
 
-func NewReconciler(ctx context.Context, client client.Client, indexer client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewReconciler(
+	ctx context.Context,
+	client client.Client,
+	indexer client.FieldIndexer,
+	eventRecorder events.EventRecorder,
+	opts ...jobframework.Option,
+) (jobframework.JobReconcilerInterface, error) {
 	reconciler = rayServiceReconciler{
 		jr:     jobframework.NewReconciler(client, eventRecorder, opts...),
 		client: client,
@@ -135,7 +140,7 @@ func (j *RayService) IsActive() bool {
 }
 
 func (j *RayService) Suspend() {
-	j.Spec.RayClusterSpec.Suspend = ptr.To(true)
+	j.Spec.RayClusterSpec.Suspend = new(true)
 }
 
 func (j *RayService) GVK() schema.GroupVersionKind {
@@ -149,7 +154,7 @@ func (j *RayService) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayService) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayService spec first
 	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec)
 	if err != nil {
@@ -165,13 +170,13 @@ func (j *RayService) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *RayService) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.RayClusterSpec.Suspend = ptr.To(false)
+	j.Spec.RayClusterSpec.Suspend = new(false)
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
 	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec, podSetsInfo)
@@ -214,7 +219,7 @@ func (j *RayService) SetManagedBy(managedBy *string) {
 	j.Spec.ManagedBy = managedBy
 }
 
-func (j *RayService) PodsReady(ctx context.Context) bool {
+func (j *RayService) PodsReady(ctx context.Context, _ client.Client) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
 }
 

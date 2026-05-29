@@ -7,19 +7,24 @@ endif
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
-# Use go.mod go version as a single source of truth of GO version.
-GO_VERSION := $(shell awk '/^go /{split($$2, v, "."); print v[1] "." v[2]}' go.mod|head -n1)
 
 ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
 BIN_DIR := $(ROOT_DIR)/bin
+
+# Use go.mod go version as a single source of truth of GO version.
+GO_VERSION := $(shell awk '/^go /{split($$2, v, "."); print v[1] "." v[2]}' $(ROOT_DIR)/go.mod|head -n1)
 
 HELM := $(BIN_DIR)/helm
 ENVTEST := $(BIN_DIR)/setup-envtest
 GINKGO := $(BIN_DIR)/ginkgo
 GOTESTSUM := $(BIN_DIR)/gotestsum
 ARTIFACTS ?= $(ROOT_DIR)/artifacts
-ENVTEST_K8S_VERSION ?= 1.35
-KUBEBUILDER_ASSETS = $(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
+ENVTEST_K8S_VERSION ?= 1.36
+ENVTEST_RETRY_ATTEMPTS ?= 4
+ENVTEST_RETRY_DELAY ?= 5
+KUBEBUILDER_ASSETS = $(or \
+	$(shell $(ROOT_DIR)/hack/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
+	$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 INTEGRATION_NPROCS ?= 4
 CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 YAML_PROCESSOR = $(BIN_DIR)/yaml-processor

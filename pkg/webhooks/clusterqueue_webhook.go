@@ -31,13 +31,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
 	limitIsEmptyErrorMsgTemplate string = `must be nil when %s is empty`
 	lendingLimitErrorMsg         string = `must be less than or equal to the nominalQuota`
 )
+
+var admissionChecksPath = field.NewPath("spec", "admissionChecksStrategy", "admissionChecks")
 
 type ClusterQueueWebhook struct{}
 
@@ -76,10 +81,10 @@ func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, cq *kueue.Clus
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, _, newCQ *kueue.ClusterQueue) (admission.Warnings, error) {
+func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldCQ, newCQ *kueue.ClusterQueue) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating update")
-	allErrs := ValidateClusterQueueUpdate(newCQ)
+	allErrs := ValidateClusterQueueUpdate(oldCQ, newCQ)
 	return nil, allErrs.ToAggregate()
 }
 
@@ -89,6 +94,23 @@ func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ *kueue.Cluster
 }
 
 func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
+	allErrs := validateClusterQueueSpec(cq)
+	allErrs = append(allErrs, validateAdmissionCheckOnFlavors(cq)...)
+	return allErrs
+}
+
+func ValidateClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
+	allErrs := validateClusterQueueSpec(newCQ)
+	allErrs = append(allErrs, validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ)...)
+	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(
+		newCQ.Spec.ConcurrentAdmissionPolicy,
+		oldCQ.Spec.ConcurrentAdmissionPolicy,
+		field.NewPath("spec", "concurrentAdmissionPolicy"),
+	)...)
+	return allErrs
+}
+
+func validateClusterQueueSpec(cq *kueue.ClusterQueue) field.ErrorList {
 	path := field.NewPath("spec")
 
 	var allErrs field.ErrorList
@@ -109,11 +131,57 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs = append(allErrs, validateTotalFlavors(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateTotalCoveredResources(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateFlavorResourceCombinations(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
+	allErrs = append(allErrs, validateConcurrentAdmissionPolicy(cq, path)...)
 	return allErrs
 }
 
-func ValidateClusterQueueUpdate(newObj *kueue.ClusterQueue) field.ErrorList {
-	return ValidateClusterQueue(newObj)
+func validateAdmissionCheckOnFlavors(cq *kueue.ClusterQueue) field.ErrorList {
+	return validateAdmissionCheckOnFlavorsWithOld(cq, nil)
+}
+
+func validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
+	oldOnFlavorsByName := map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]{}
+
+	if !features.Enabled(features.RejectUpdatesToCQWithInvalidOnFlavors) {
+		newFlavors := utilqueue.AllFlavors(newCQ.Spec.ResourceGroups)
+		if oldStrategy := oldCQ.Spec.AdmissionChecksStrategy; oldStrategy != nil &&
+			utilqueue.AllFlavors(oldCQ.Spec.ResourceGroups).Equal(newFlavors) {
+			oldOnFlavorsByName = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(oldStrategy.AdmissionChecks))
+			for _, check := range oldStrategy.AdmissionChecks {
+				oldOnFlavorsByName[check.Name] = sets.New(check.OnFlavors...)
+			}
+		}
+	}
+
+	return validateAdmissionCheckOnFlavorsWithOld(newCQ, oldOnFlavorsByName)
+}
+
+func validateAdmissionCheckOnFlavorsWithOld(cq *kueue.ClusterQueue, oldOnFlavorsByName map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]) field.ErrorList {
+	strategy := cq.Spec.AdmissionChecksStrategy
+	if strategy == nil {
+		return nil
+	}
+
+	validFlavors := utilqueue.AllFlavors(cq.Spec.ResourceGroups)
+	allowedFlavors := validFlavors.UnsortedList()
+
+	var allErrs field.ErrorList
+	for i, check := range strategy.AdmissionChecks {
+		// When the RejectUpdatesToCQWithInvalidOnFlavors feature gate is
+		// disabled, allow unrelated updates for legacy ClusterQueues that were
+		// already persisted with invalid onFlavors.
+		if oldOnFlavors, found := oldOnFlavorsByName[check.Name]; found && oldOnFlavors.Equal(sets.New(check.OnFlavors...)) {
+			continue
+		}
+		onFlavorsPath := admissionChecksPath.Index(i).Child("onFlavors")
+		for j, flavor := range check.OnFlavors {
+			if validFlavors.Has(flavor) {
+				continue
+			}
+			allErrs = append(allErrs, field.NotSupported(onFlavorsPath.Index(j), flavor, allowedFlavors))
+		}
+	}
+	return allErrs
 }
 
 func validateTotalFlavors(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
@@ -157,6 +225,53 @@ func validateFlavorResourceCombinations(resourceGroups []kueue.ResourceGroup, pa
 			))
 		}
 	}
+	return allErrs
+}
+
+func validateConcurrentAdmissionPolicy(cq *kueue.ClusterQueue, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if !features.Enabled(features.ConcurrentAdmission) {
+		return allErrs
+	}
+	if cq.Spec.ConcurrentAdmissionPolicy == nil {
+		return allErrs
+	}
+
+	if len(cq.Spec.ResourceGroups) != 1 {
+		allErrs = append(allErrs, field.Invalid(path.Child("resourceGroups"), len(cq.Spec.ResourceGroups),
+			"must have exactly one ResourceGroup when ConcurrentAdmissionPolicy is defined"))
+	}
+
+	if len(cq.Spec.ResourceGroups) == 1 && len(cq.Spec.ResourceGroups[0].Flavors) > 16 {
+		allErrs = append(allErrs, field.Invalid(path.Child("resourceGroups").Index(0).Child("flavors"), len(cq.Spec.ResourceGroups[0].Flavors),
+			"cannot have more than 16 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined"))
+	}
+
+	if cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil {
+		mode := cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode
+		if mode != "" && mode != kueue.ConcurrentAdmissionTryPreferredFlavors {
+			allErrs = append(allErrs, field.Forbidden(
+				path.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints"),
+				fmt.Sprintf("may only be set when migration.mode is %q (got %q)",
+					kueue.ConcurrentAdmissionTryPreferredFlavors, mode)))
+		} else if cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName != nil {
+			lastAcceptableFlavor := *cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
+			validFlavors := utilqueue.AllFlavors(cq.Spec.ResourceGroups)
+			if !validFlavors.Has(lastAcceptableFlavor) {
+				allowedFlavors := utilslices.Map(validFlavors.UnsortedList(), func(f *kueue.ResourceFlavorReference) string { return string(*f) })
+				allErrs = append(allErrs, field.Invalid(
+					path.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("lastAcceptableFlavorName"),
+					lastAcceptableFlavor,
+					fmt.Sprintf("must be one of the flavors defined in the ClusterQueue: %v", allowedFlavors)))
+			}
+		}
+	}
+
+	if cq.Spec.QueueingStrategy == kueue.StrictFIFO {
+		allErrs = append(allErrs, field.Invalid(path.Child("queueingStrategy"), cq.Spec.QueueingStrategy,
+			"StrictFIFO queueing strategy cannot be used when ConcurrentAdmissionPolicy is defined"))
+	}
+
 	return allErrs
 }
 

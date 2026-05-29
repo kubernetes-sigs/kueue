@@ -122,6 +122,15 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
+  - clusterqueues
+  - localqueues
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
   - workloads/status
   verbs:
   - get

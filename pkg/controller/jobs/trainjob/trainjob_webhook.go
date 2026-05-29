@@ -20,7 +20,6 @@ import (
 	"context"
 
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,7 +28,6 @@ import (
 
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
@@ -75,6 +73,7 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	log.V(5).Info("Applying defaults")
 
 	jobframework.ApplyDefaultLocalQueue(trainJob.Object(), w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, trainJob.Object())
 	jobframework.ApplyDefaultForManagedBy(trainJob, w.queues, w.cache, log)
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, trainJob.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
 	if err != nil {
@@ -90,13 +89,6 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	}
 	if suspend {
 		trainJob.Suspend()
-		if trainJobQueueName := jobframework.QueueNameForObject(trainJob.Object()); trainJobQueueName != "" {
-			runtimePatch.TrainingRuntimeSpec.Template.Metadata = &metav1.ObjectMeta{
-				Labels: map[string]string{
-					controllerconstants.QueueLabel: string(trainJobQueueName),
-				},
-			}
-		}
 	}
 	trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, runtimePatch)
 	return nil
@@ -158,7 +150,7 @@ func (w *TrainJobWebhook) validateCreate(ctx context.Context, trainjob *TrainJob
 func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob *TrainJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := podSets(ctx, trainJob)
+	podSets, podSetsErr := podSets(ctx, w.client, trainJob)
 	for _, p := range podSets {
 		jobPath := field.NewPath("job").Key(string(p.Name))
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(jobPath, &p.Template.ObjectMeta)...)

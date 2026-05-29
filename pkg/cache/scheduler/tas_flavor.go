@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -115,18 +116,34 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 	return c.topology.Levels
 }
 
-func (c *TASFlavorCache) snapshot(log logr.Logger, nodes []*nodeInfo) *TASFlavorSnapshot {
+func (c *TASFlavorCache) snapshot(
+	log logr.Logger, nodes []*nodeInfo, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+) *TASFlavorSnapshot {
 	c.RLock()
 	defer c.RUnlock()
-	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.flavor.NodeLabels,
-		"levels", c.topology.Levels, "nodeCount", len(nodes))
+
+	infoKV := []any{
+		"nodeLabels", c.flavor.NodeLabels,
+		"levels", c.topology.Levels,
+		"nodeCount", len(nodes),
+	}
+	if features.Enabled(features.TASHandleOverlappingFlavors) {
+		infoKV = append(infoKV, "crossFlavorAggregation", aggregatedDomainUsages != nil)
+	}
+	log.V(3).Info("Constructing TAS snapshot", infoKV...)
+
 	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)
 	}
 	snapshot.initialize()
-	for domainID, usage := range c.usage {
+
+	tasDomainUsages := c.usage
+	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
+		tasDomainUsages = aggregatedDomainUsages
+	}
+	for domainID, usage := range tasDomainUsages {
 		snapshot.addTASUsage(domainID, usage)
 	}
 	for nodeName, usage := range c.nonTasUsageCache.usagePerNode() {

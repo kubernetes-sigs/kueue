@@ -139,7 +139,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
 			initialConsumedResources: queueafs.ConsumedResourcesEntry{
@@ -152,7 +152,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				FairSharingStatus(
 					&kueue.LocalQueueFairSharingStatus{
@@ -176,7 +176,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
 			initialConsumedResources: queueafs.ConsumedResourcesEntry{
@@ -191,7 +191,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ReservingWorkloads(1).
 				AdmittedWorkloads(1).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				FairSharingStatus(
 					&kueue.LocalQueueFairSharingStatus{
@@ -223,7 +223,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
 			initialConsumedResources: queueafs.ConsumedResourcesEntry{
@@ -239,7 +239,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ReservingWorkloads(3).
 				AdmittedWorkloads(3).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				FairSharingStatus(
 					&kueue.LocalQueueFairSharingStatus{
@@ -284,7 +284,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
 			initialConsumedResources: queueafs.ConsumedResourcesEntry{
@@ -297,7 +297,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				ReservingWorkloads(1).
 				AdmittedWorkloads(1).
@@ -331,7 +331,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
 			initialConsumedResources: queueafs.ConsumedResourcesEntry{
@@ -344,7 +344,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				FairSharingStatus(
 					&kueue.LocalQueueFairSharingStatus{
@@ -368,7 +368,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
 			initialConsumedResources: queueafs.ConsumedResourcesEntry{
@@ -381,7 +381,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				ReservingWorkloads(1).
 				AdmittedWorkloads(1).
@@ -415,7 +415,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
 			initialConsumedResources: queueafs.ConsumedResourcesEntry{
@@ -428,7 +428,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				ReservingWorkloads(1).
 				AdmittedWorkloads(1).
@@ -458,7 +458,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				FairSharingStatus(
 					&kueue.LocalQueueFairSharingStatus{
@@ -479,7 +479,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				FairSharingStatus(
 					&kueue.LocalQueueFairSharingStatus{
@@ -504,14 +504,14 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
 			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				FairSharingStatus(
 					&kueue.LocalQueueFairSharingStatus{
@@ -534,7 +534,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
 			runningWls: []kueue.Workload{
@@ -551,7 +551,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ReservingWorkloads(1).
 				AdmittedWorkloads(1).
 				FairSharing(&kueue.FairSharing{
-					Weight: ptr.To(resource.MustParse("1")),
+					Weight: new(resource.MustParse("1")),
 				}).
 				FairSharingStatus(
 					&kueue.LocalQueueFairSharingStatus{

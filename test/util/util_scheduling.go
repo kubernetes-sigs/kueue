@@ -62,5 +62,5 @@ func FinishEvictionOfWorkloadsInCQ(ctx context.Context, k8sClient client.Client,
 		}
 
 		g.Expect(finished.Len()).Should(gomega.Equal(n), "Not enough workloads evicted")
-	}, Timeout, Interval).Should(gomega.Succeed(), assertMsgObjList("Not enough workloads evicted in ClusterQueue", wList))
+	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsgObjList("Not enough workloads evicted in ClusterQueue", wList))
 }

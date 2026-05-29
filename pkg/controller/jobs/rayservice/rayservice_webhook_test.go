@@ -22,7 +22,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
@@ -93,7 +92,9 @@ func TestValidateCreate(t *testing.T) {
 							{GroupName: "w5"},
 							{GroupName: "w6"},
 							{GroupName: "w7"},
-							{GroupName: "w8"}, // 8th worker group - too many
+							{GroupName: "w8"},
+							{GroupName: "w9"},
+							{GroupName: "w10"}, // 10th worker group - too many
 						},
 					},
 				},
@@ -112,7 +113,7 @@ func TestValidateCreate(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: ptr.To(true),
+						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
@@ -158,7 +159,7 @@ func TestValidateUpdate(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: ptr.To(true),
+						Suspend: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
@@ -179,7 +180,7 @@ func TestValidateUpdate(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: ptr.To(false),
+						Suspend: new(false),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{

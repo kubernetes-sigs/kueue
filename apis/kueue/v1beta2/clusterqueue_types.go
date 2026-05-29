@@ -22,6 +22,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ClusterQueue status condition types.
+const (
+	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
+	// can be borrowed by other ClusterQueues in the same cohort.
+	ClusterQueueActive string = "Active"
+	// MultiKueueManagerQuotaAutomation indicates that this ClusterQueue is a
+	// MultiKueue manager queue and its quota is automatically managed.
+	MultiKueueManagerQuotaAutomation string = "MultiKueueManagerQuotaAutomation"
+)
+
 // ClusterQueue Active condition reasons.
 const (
 	ClusterQueueActiveReasonTerminating                              = "Terminating"
@@ -142,6 +152,14 @@ type ClusterQueueSpec struct {
 	// admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
 	// +optional
 	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
+
+	// concurrentAdmissionPolicy defines the configuration for ConcurrentAdmission feature.
+	// Its main capability is to allow Workloads pursuing multiple flavors at the same time, and starting on the first flavor that led to admission.
+	// Additionally after the admission, Workloads can still try to pursue capacity on the more preferable flavors while running.
+	// It enables them to migrate to more preferable, whenever capacity appears.
+	//
+	// +optional
+	ConcurrentAdmissionPolicy *ConcurrentAdmissionPolicy `json:"concurrentAdmissionPolicy,omitempty"`
 }
 
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
@@ -181,6 +199,56 @@ const (
 	// however older workloads that can't be admitted will not block
 	// admitting newer workloads that fit existing quota.
 	BestEffortFIFO QueueingStrategy = "BestEffortFIFO"
+)
+
+type ConcurrentAdmissionPolicy struct {
+	// migration defines the constraints on Workload's migration.
+	// The mechanism itself creates "Variants" of the same Workload, each pursuing a different flavor.
+	// All Variants belong to the same "Parent" Workload, and are picked up by Kueue scheduler independently.
+	// Once one of the Variants is admitted, the Parent Workload gets also admitted. The Variants that pursue more
+	// favorable flavors keep trying to get admitted and if they succeed, the Workload migrates to the new flavor.
+	// The Variants that pursue less favorable flavors are deactivated.
+	// Flavor preferences are expressed through the order of flavors in the ClusterQueue.
+	//
+	// +required
+	Migration ConcurrentAdmissionMigration `json:"migration,omitzero"`
+}
+
+type ConcurrentAdmissionMigration struct {
+	// mode defines the mode of Workload's migration.
+	// The possible values are:
+	// - `TryPreferredFlavors` (default): a Workload will try to migrate to the preferred flavor after it's admitted and running.
+	// - `RetainFirstAdmission`: a Workload, once admitted to a flavor, will stick to a flavor and will not be migrated.
+	//
+	// +required
+	Mode ConcurrentAdmissionMigrationMode `json:"mode,omitempty"`
+
+	// constraints defines the constraints of Workload's migration.
+	//
+	// +optional
+	Constraints *ConcurrentAdmissionConstraints `json:"constraints,omitempty"`
+}
+
+type ConcurrentAdmissionConstraints struct {
+	// lastAcceptableFlavorName defines the last acceptable flavor a Workload can migrate to.
+	// The order is based on the order of flavors in ClusterQueue.
+	// It can only be used if the Mode is `TryPreferredFlavors`.
+	// If the Mode is `TryPreferredFlavors` and LastAcceptableFlavorName is not specified, then
+	// Workload can migrate to any flavor that is more preferable than the one it was admitted to.
+	//
+	// +optional
+	LastAcceptableFlavorName *ResourceFlavorReference `json:"lastAcceptableFlavorName,omitempty"`
+}
+
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Enum=TryPreferredFlavors;RetainFirstAdmission
+type ConcurrentAdmissionMigrationMode string
+
+const (
+	// TryPreferredFlavors means that a Workload will try to migrate to the preferred flavor after it's admitted and running.
+	ConcurrentAdmissionTryPreferredFlavors ConcurrentAdmissionMigrationMode = "TryPreferredFlavors"
+	// RetainFirstAdmission means that a Workload, once admitted to a flavor, will not try to migrate to another flavor.
+	ConcurrentAdmissionRetainFirstAdmission ConcurrentAdmissionMigrationMode = "RetainFirstAdmission"
 )
 
 // +kubebuilder:validation:XValidation:rule="self.flavors.all(x, size(x.resources) == size(self.coveredResources))", message="flavors must have the same number of resources as the coveredResources"
@@ -358,12 +426,6 @@ type ResourceUsage struct {
 	// +optional
 	Borrowed resource.Quantity `json:"borrowed,omitempty"`
 }
-
-const (
-	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
-	// can be borrowed by other ClusterQueues in the same cohort.
-	ClusterQueueActive string = "Active"
-)
 
 type PreemptionPolicy string
 

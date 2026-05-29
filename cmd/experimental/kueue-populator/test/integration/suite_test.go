@@ -89,7 +89,13 @@ func managerAndControllerSetup(controllersCfg *config.Configuration) framework.M
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations, nil)
+		failedCtrl, err := core.SetupControllers(
+			mgr,
+			queues,
+			cCache,
+			controllersCfg,
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		opts := []controller.KueuePopulatorReconcilerOption{
@@ -103,7 +109,7 @@ func managerAndControllerSetup(controllersCfg *config.Configuration) framework.M
 
 		reconciler := controller.NewKueuePopulatorReconciler(
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor(controller.ControllerName),
+			mgr.GetEventRecorder(controller.ControllerName),
 			opts...,
 		)
 		err = reconciler.SetupWithManager(mgr)

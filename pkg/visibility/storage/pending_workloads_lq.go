@@ -83,7 +83,7 @@ func (m *pendingWorkloadsInLqREST) Get(ctx context.Context, name string, opts ru
 		if len(wls) >= int(limit) {
 			break
 		}
-		if wlInfo.Obj.Spec.QueueName == lqName {
+		if wlInfo.Obj.Namespace == namespace && wlInfo.Obj.Spec.QueueName == lqName {
 			if skippedWls < int(offset) {
 				skippedWls++
 			} else {

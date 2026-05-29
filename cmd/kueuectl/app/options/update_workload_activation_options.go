@@ -25,7 +25,6 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -103,7 +102,7 @@ func (o *UpdateWorkloadActivationOptions) Run(ctx context.Context) error {
 	}
 
 	wlOriginal := wl.DeepCopy()
-	wl.Spec.Active = ptr.To(o.Active)
+	wl.Spec.Active = new(o.Active)
 
 	if o.DryRunStrategy != dryrun.Client {
 		opts := metav1.PatchOptions{}

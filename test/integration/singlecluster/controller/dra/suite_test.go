@@ -24,7 +24,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -50,21 +49,20 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"DRA Controller Suite",
-	)
+	util.RunSuite(t, "DRA Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationPartitionableDevices, true)
 
 	fwk = &framework.Framework{
 		WebhookPath: util.WebhookPath,
 		APIServerFeatureGates: []string{
 			"DynamicResourceAllocation=true",
 			"DRAExtendedResource=true",
+			"DRAPartitionableDevices=true",
 		},
 		APIServerRuntimeConfig: []string{
 			"resource.k8s.io/v1beta2=true",
@@ -81,16 +79,13 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-})
-
 // Manager setup used by tests to start controllers with DRA ConfigMap configuration
 func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		// Indexes
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = core.SetupResourceSliceIndexer(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Webhooks
@@ -114,7 +109,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 
 		// Controllers configuration
 		controllersCfg := &config.Configuration{
-			Namespace: ptr.To("kueue-system"),
+			Namespace: new("kueue-system"),
 			Resources: &config.Resources{
 				DeviceClassMappings: mappings,
 			},
@@ -125,7 +120,8 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			modifyConfig(controllersCfg)
 		}
 
-		err = dra.CreateMapperFromConfiguration(controllersCfg.Resources.DeviceClassMappings)
+		draMapper := dra.NewResourceMapper()
+		err = draMapper.PopulateFromConfiguration(controllersCfg.Resources.DeviceClassMappings)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cCache := schdcache.New(mgr.GetClient())
@@ -134,7 +130,13 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		// Core controllers
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations, nil)
+		failedCtrl, err := core.SetupControllers(
+			mgr,
+			queues,
+			cCache,
+			controllersCfg,
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, DRAMapper: draMapper, DRABackedResources: dra.NewExtendedResourceCache()},
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		// Scheduler - required for workload admission
@@ -142,7 +144,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			queues,
 			cCache,
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor("kueue-admission"),
+			mgr.GetEventRecorder("kueue-admission"),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)
 		err = mgr.Add(sched)

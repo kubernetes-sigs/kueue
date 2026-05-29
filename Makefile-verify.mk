@@ -15,6 +15,8 @@
 ##@ Verify
 
 GO_FMT ?= gofmt
+CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+SKILLSAW_IMAGE ?= ghcr.io/stbenjam/skillsaw:0.9.2
 VERIFY_NPROCS ?= 8
 # Output sync mode for parallel verification. Set to empty to disable.
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
@@ -89,7 +91,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck
+verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -150,6 +152,16 @@ $(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/front
 $(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
 endef
 
+define _kustomize_build_verify_recipe
+$(KUSTOMIZE) build config/alpha-enabled > /dev/null
+endef
+
+# Validates skills against https://agentskills.io/specification
+define _skills_lint_recipe
+mkdir -p $(ARTIFACTS)
+$(CONTAINER_ENGINE) run --rm -v $(PROJECT_DIR):/workspace:Z -v $(ARTIFACTS):/out:Z $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
+endef
+
 
 # ---- verify-* wrappers (generation prereqs + shared recipe) ---------------
 
@@ -180,6 +192,14 @@ verify-helm-unit-test: verify-tree-prereqs helm helm-unittest-plugin ## Helm uni
 .PHONY: verify-npm-depcheck
 verify-npm-depcheck: verify-tree-prereqs prepare-release-branch ## Depcheck after generation
 	$(_npm_depcheck_recipe)
+
+.PHONY: verify-kustomize-build
+verify-kustomize-build: verify-tree-prereqs kustomize ## Verify alpha-enabled manifests render after generation
+	$(_kustomize_build_verify_recipe)
+
+.PHONY: verify-skills-lint
+verify-skills-lint: ## Lint agent skills with skillsaw
+	$(_skills_lint_recipe)
 
 # ---- Standalone targets (lightweight, for local use) ----------------------
 
@@ -226,6 +246,14 @@ helm-unit-test: helm helm-unittest-plugin ## Run Helm unit tests for the kueue c
 .PHONY: npm-depcheck
 npm-depcheck: ## Verify frontend and e2e npm dependencies.
 	$(_npm_depcheck_recipe)
+
+.PHONY: kustomize-build-verify
+kustomize-build-verify: kustomize ## Validate alpha-enabled manifests render.
+	$(_kustomize_build_verify_recipe)
+
+.PHONY: skills-lint
+skills-lint: ## Lint agent skills with skillsaw.
+	$(_skills_lint_recipe)
 
 .PHONY: verify-website-links
 verify-website-links: ## Check for broken internal links on the public website.

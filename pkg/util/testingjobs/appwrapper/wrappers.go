@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -59,9 +58,9 @@ func (aw *AppWrapperWrapper) Obj() *awv1beta2.AppWrapper {
 	return &aw.AppWrapper
 }
 
-// DeepCopy returns a DeepCopy of aw.
-func (aw *AppWrapperWrapper) DeepCopy() *AppWrapperWrapper {
-	return &AppWrapperWrapper{AppWrapper: *aw.AppWrapper.DeepCopy()}
+// Clone returns a deep copy of AppWrapper
+func (aw *AppWrapperWrapper) Clone() *AppWrapperWrapper {
+	return &AppWrapperWrapper{AppWrapper: *aw.DeepCopy()}
 }
 
 // Label sets a label of the AppWrapper
@@ -70,6 +69,15 @@ func (aw *AppWrapperWrapper) Label(k, v string) *AppWrapperWrapper {
 		aw.Labels = make(map[string]string)
 	}
 	aw.Labels[k] = v
+	return aw
+}
+
+// Annotation sets an annotation of the AppWrapper
+func (aw *AppWrapperWrapper) Annotation(k, v string) *AppWrapperWrapper {
+	if aw.ObjectMeta.Annotations == nil {
+		aw.ObjectMeta.Annotations = make(map[string]string, 1)
+	}
+	aw.ObjectMeta.Annotations[k] = v
 	return aw
 }
 
@@ -82,6 +90,16 @@ func (aw *AppWrapperWrapper) Annotations(annotations map[string]string) *AppWrap
 // Queue updates the queue name of the AppWrapper
 func (aw *AppWrapperWrapper) Queue(q string) *AppWrapperWrapper {
 	return aw.Label(constants.QueueLabel, q)
+}
+
+// PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the AppWrapperWrapper
+func (aw *AppWrapperWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *AppWrapperWrapper {
+	return aw.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
+}
+
+// PrebuiltWorkloadAnnotation updates PrebuiltWorkloadAnnotation of the AppWrapperWrapper
+func (aw *AppWrapperWrapper) PrebuiltWorkloadAnnotation(prebuiltWorkload string) *AppWrapperWrapper {
+	return aw.Annotation(constants.PrebuiltWorkloadAnnotation, prebuiltWorkload)
 }
 
 // Name updates the name of the AppWrapper
@@ -98,7 +116,7 @@ func (aw *AppWrapperWrapper) UID(uid string) *AppWrapperWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (aw *AppWrapperWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *AppWrapperWrapper {
-	utiltesting.AppendOwnerReference(&aw.AppWrapper, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&aw.AppWrapper, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return aw
 }
 

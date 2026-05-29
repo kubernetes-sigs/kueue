@@ -44,9 +44,24 @@ func (rg *ResourceGroup) Clone() ResourceGroup {
 }
 
 type ResourceQuota struct {
-	Nominal        int64
-	BorrowingLimit *int64
-	LendingLimit   *int64
+	Nominal        resources.Amount
+	BorrowingLimit *resources.Amount
+	LendingLimit   *resources.Amount
+}
+
+// Equal reports whether two ResourceQuota values are equal, using
+// resources.Amount semantics for the Nominal/BorrowingLimit/LendingLimit
+// fields. This is preferred over k8s equality.Semantic.DeepEqual, which
+// uses a forked reflect that panics on structs with unexported fields
+// from another package (see resources.Amount).
+func (q ResourceQuota) Equal(other ResourceQuota) bool {
+	if !q.Nominal.Equal(other.Nominal) {
+		return false
+	}
+	if !ptr.Equal(q.BorrowingLimit, other.BorrowingLimit) {
+		return false
+	}
+	return ptr.Equal(q.LendingLimit, other.LendingLimit)
 }
 
 func createResourceQuotas(kueueRgs []kueue.ResourceGroup) map[resources.FlavorResource]ResourceQuota {
@@ -59,13 +74,13 @@ func createResourceQuotas(kueueRgs []kueue.ResourceGroup) map[resources.FlavorRe
 		for _, kueueFlavor := range kueueRg.Flavors {
 			for _, kueueQuota := range kueueFlavor.Resources {
 				quota := ResourceQuota{
-					Nominal: resources.ResourceValue(kueueQuota.Name, kueueQuota.NominalQuota),
+					Nominal: resources.AmountFromQuantity(kueueQuota.Name, kueueQuota.NominalQuota),
 				}
 				if kueueQuota.BorrowingLimit != nil {
-					quota.BorrowingLimit = ptr.To(resources.ResourceValue(kueueQuota.Name, *kueueQuota.BorrowingLimit))
+					quota.BorrowingLimit = new(resources.AmountFromQuantity(kueueQuota.Name, *kueueQuota.BorrowingLimit))
 				}
 				if kueueQuota.LendingLimit != nil {
-					quota.LendingLimit = ptr.To(resources.ResourceValue(kueueQuota.Name, *kueueQuota.LendingLimit))
+					quota.LendingLimit = new(resources.AmountFromQuantity(kueueQuota.Name, *kueueQuota.LendingLimit))
 				}
 				quotas[resources.FlavorResource{Flavor: kueueFlavor.Name, Resource: kueueQuota.Name}] = quota
 			}

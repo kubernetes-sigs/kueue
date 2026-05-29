@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -54,9 +55,9 @@ func TestCohortLendable(t *testing.T) {
 		t.Fatal("Failed to add CQ to cache", err)
 	}
 
-	wantLendable := map[corev1.ResourceName]int64{
-		corev1.ResourceCPU: 10_000,
-		"example.com/gpu":  3,
+	wantLendable := map[corev1.ResourceName]resources.Amount{
+		corev1.ResourceCPU: resources.NewAmount(10_000),
+		"example.com/gpu":  resources.NewAmount(3),
 	}
 
 	lendable := calculateLendable(cache.hm.Cohort("test-cohort"))

@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -66,12 +65,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
 
-	// add the prebuilt workload
-	if remoteJob.Labels == nil {
-		remoteJob.Labels = make(map[string]string, 2)
-	}
-	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remoteJob, workloadName, origin)
 
 	// clear the managedBy enables the controller to take over
 	remoteJob.Spec.RunPolicy.ManagedBy = nil
@@ -79,7 +74,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	job := kfmpi.MPIJob{}
 	job.SetName(key.Name)
 	job.SetNamespace(key.Namespace)
@@ -115,10 +110,10 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		return nil, errors.New("not a mpijob")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := job.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
+	if prebuiltWorkload == "" {
 		return nil, fmt.Errorf("no prebuilt workload found for mpijob: %s", klog.KObj(job))
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWl, Namespace: job.Namespace}}, nil
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.Namespace}}, nil
 }

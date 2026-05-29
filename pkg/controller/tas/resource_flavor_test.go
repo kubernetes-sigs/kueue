@@ -95,7 +95,7 @@ func TestNodeHandler_Update(t *testing.T) {
 		},
 		"RuntimeHandler order changed": {
 			oldNode: func() *corev1.Node {
-				n := baseNode.Clone().Obj()
+				n := baseNode.DeepCopy()
 				n.Status.RuntimeHandlers = []corev1.NodeRuntimeHandler{
 					{Name: "test-handler"},
 					{Name: "runc"},
@@ -103,7 +103,7 @@ func TestNodeHandler_Update(t *testing.T) {
 				return n
 			}(),
 			newNode: func() *corev1.Node {
-				n := baseNode.Clone().Obj()
+				n := baseNode.DeepCopy()
 				n.Status.RuntimeHandlers = []corev1.NodeRuntimeHandler{
 					{Name: "runc"},
 					{Name: "test-handler"},
@@ -114,14 +114,14 @@ func TestNodeHandler_Update(t *testing.T) {
 		},
 		"Images changed": {
 			oldNode: func() *corev1.Node {
-				n := baseNode.Clone().Obj()
+				n := baseNode.DeepCopy()
 				n.Status.Images = []corev1.ContainerImage{
 					{Names: []string{"nginx:1.20"}, SizeBytes: 100},
 				}
 				return n
 			}(),
 			newNode: func() *corev1.Node {
-				n := baseNode.Clone().Obj()
+				n := baseNode.DeepCopy()
 				n.Status.Images = []corev1.ContainerImage{
 					{Names: []string{"nginx:1.20"}, SizeBytes: 100},
 					{Names: []string{"postgres:13"}, SizeBytes: 200},
@@ -131,12 +131,12 @@ func TestNodeHandler_Update(t *testing.T) {
 			wantChanged: nodeUnchanged,
 		},
 		"Annotation changed": {
-			oldNode:     baseNode.Clone().Obj(),
+			oldNode:     baseNode.DeepCopy(),
 			newNode:     baseNode.Clone().Annotation("new-annotation", "new-value").Obj(),
 			wantChanged: nodeAnnotationsChanged,
 		},
 		"Label changed": {
-			oldNode:     baseNode.Clone().Obj(),
+			oldNode:     baseNode.DeepCopy(),
 			newNode:     baseNode.Clone().Label("new-label", "new-value").Obj(),
 			wantChanged: nodeLabelsChanged,
 		},
@@ -162,7 +162,7 @@ func TestNodeHandler_Update(t *testing.T) {
 			wantChanged: nodeConditionsChanged,
 		},
 		"Allocatable resources changed": {
-			oldNode: baseNode.Clone().Obj(),
+			oldNode: baseNode.DeepCopy(),
 			newNode: baseNode.Clone().StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("16"),
 				corev1.ResourceMemory: resource.MustParse("32Gi"),
@@ -170,7 +170,7 @@ func TestNodeHandler_Update(t *testing.T) {
 			wantChanged: nodeAllocatableChanged,
 		},
 		"Taints changed": {
-			oldNode: baseNode.Clone().Obj(),
+			oldNode: baseNode.DeepCopy(),
 			newNode: baseNode.Clone().Taints(corev1.Taint{
 				Key:    "new-taint",
 				Value:  "new-value",
@@ -209,7 +209,7 @@ func TestNodeHandler_Update(t *testing.T) {
 			wantChanged: nodeTaintsChanged,
 		},
 		"Unschedulable changed": {
-			oldNode:     baseNode.Clone().Obj(),
+			oldNode:     baseNode.DeepCopy(),
 			newNode:     baseNode.Clone().Unschedulable().Obj(),
 			wantChanged: nodeSpecUnschedulableChanged,
 		},
@@ -256,7 +256,7 @@ func TestNodeHandler_Update(t *testing.T) {
 			wantChanged: nodeConditionsChanged | nodeAnnotationsChanged,
 		},
 		"New condition type added": {
-			oldNode: baseNode.Clone().Obj(),
+			oldNode: baseNode.DeepCopy(),
 			newNode: baseNode.Clone().StatusConditions(corev1.NodeCondition{
 				Type:               corev1.NodeDiskPressure,
 				Status:             corev1.ConditionTrue,

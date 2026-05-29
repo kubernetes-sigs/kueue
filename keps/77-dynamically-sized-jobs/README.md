@@ -546,39 +546,47 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 
 #### Beta
 
-* [ ] Feature is enabled by default in Kueue, still guarded by the feature gate for opt-out.
-* [ ] Complete support for garbage collection of preempted and inactive `WorkloadSlice`s, with tunable retention (e.g., `revisionHistoryLimit`-like mechanism).
-* [ ] Metrics and events emitted for slice lifecycle transitions (e.g., created, admitted, failed admission).
-* [ ] Documentation includes examples for users and integrators to adopt the WorkloadSlice model.
-* [ ] Formal conformance tests validate end-to-end behavior for:
-    * Horizontal scale-up and scale-down
-    * Slice replacements
-    * Sticky flavor enforcement
-    * Multi-cluster propagation
-* [ ] At least one additional framework beyond `batch/v1.Job` (e.g., RayCluster) integrates and validates the WorkloadSlice flow.
-* [ ] Slice lifecycle events (e.g., admitted, preempted, finished) are observable via `kubectl describe workload` or equivalent API tools.
-* [ ] Slice preemption is consistently handled and visible in workload status conditions.
-* [ ] All Kueue core controllers (scheduler, preemptor, queue manager) are validated under slice-enabled workloads.
-* [ ] Dynamic resizing is enabled for all Kueue-managed workloads that support the elastic-job feature (including JobSet, RayJob, Kubeflow jobs, etc.)
-* [ ] Re-evaluate the WorkloadSlice implementation to ensure compatibility with elastic workloads, considering all current and emerging alternatives within Kueue.
-* [ ] Re-evaluate currently disallowed per-job-instance combination of enabled PartialAdmission and ElasticJobs.
-* [ ] Re-evaluate the approach for removing PodSchedulingReadiness gate for admitted workload slices to use a dedicated controller rather than calling from Job reconciler (see 3. in [comment](https://github.com/kubernetes-sigs/kueue/pull/5510#issuecomment-3060737465)).
-* [ ] Re-evaluate integration frameworks leveraging `ElasticJobsViaWorkloadSlices`.
-* [ ] Re-evaluate `ElasticJobsViaWorkloadSlices` by leveraging the MultiKueue JobAdapter’s `Sync` routine for ElasticJobs-specific functionality, particularly in detecting `JobUpdate` events as described in [issue #7065](https://github.com/kubernetes-sigs/kueue/issues/7065).
-* [ ] TAS-integration: Validated in production-like environments with scale-up/scale-down cycles.
-* [ ] TAS-integration: Full integration with Topology-Aware Scheduling (support for required/preferred topology modes), or clear validation/rejection of unsupported options.
-* [ ] TAS-integration: Re-evaluate the approach to handling scale-ups and scale-downs during node repairing.
+* [x] Feature is enabled by default in Kueue, still guarded by the feature gate for opt-out.
+* [x] Webhook validation to reject elastic annotation on unsupported frameworks.
+* [x] Webhook validation to reject PartialAdmission and Elastic on the same job.
+* [x] Dedicated controller for removing scheduling gates on admitted workload slices.
+* [x] At least one additional framework beyond `batch/v1.Job` integrates the WorkloadSlice flow.
+* [x] Metrics for slice lifecycle transitions (`replaced_workload_slices_total`).
+* [ ] Documentation with examples for users and integrators.
+* [x] E2e tests for scale-up, scale-down, slice replacement, sticky flavor.
+* [x] Old workload slice finished only after replacement slice is admitted.
 
 #### GA (Stable)
 
-* [ ] Proven stability under production-scale workloads, verified through internal deployments or community reports.
-* [ ] Full backwards compatibility: workloads that do not opt into `WorkloadSlice` continue to function identically.
-* [ ] API guarantees around slice naming, preemption markers, and flavor enforcement are documented and stable.
-* [ ] No known correctness issues across single- and multi-cluster environments.
-* [ ] User-configurable policies (optional) for flavor migration or slice aggregation behavior are validated.
 * [ ] Feature is permanently enabled and no longer gated.
-* [ ] Associated documentation, examples, and operational best practices are published as part of the GA release.
+* [ ] Proven stability under production-scale workloads.
+* [ ] API guarantees around slice naming, replacement markers, and flavor enforcement documented and stable.
+* [ ] No known correctness issues across single- and multi-cluster environments.
+* [ ] Dynamic resizing enabled for all Kueue-managed workloads (JobSet, Kubeflow jobs, etc.).
+* [ ] Garbage collection of finished workload slices.
+* [ ] Multi-cluster e2e coverage and support.
+* [ ] Re-evaluate the WorkloadSlice implementation considering alternatives ([#5897](https://github.com/kubernetes-sigs/kueue/issues/5897)).
+* [ ] Re-evaluate PartialAdmission and Elastic combination.
+* [ ] Re-evaluate integration frameworks leveraging `ElasticJobsViaWorkloadSlices`.
+* [ ] Re-evaluate MultiKueue JobAdapter Sync routine for elastic-specific functionality ([#7065](https://github.com/kubernetes-sigs/kueue/issues/7065)).
+* [ ] Re-evaluate cache-level quota accounting during slice replacement to avoid temporary double-counting.
 
+### `ElasticJobsViaWorkloadSlicesWithTAS` Graduation Criteria
+
+TAS integration is gated separately via `ElasticJobsViaWorkloadSlicesWithTAS`
+(requires both `ElasticJobsViaWorkloadSlices` and `TopologyAwareScheduling`).
+
+#### Alpha
+
+* [x] Unconstrained topology mode supported for scale-up.
+* [x] Webhook validation to reject elastic jobs with required/preferred topology annotations.
+* [x] Integration tests for elastic workloads with unconstrained topology.
+
+#### Beta
+
+* [ ] Re-evaluate in production-like environments with scale-up/scale-down cycles.
+* [ ] Re-evaluate full integration with required/preferred topology modes.
+* [ ] Re-evaluate handling scale-ups and scale-downs during node repair.
 
 ## Implementation History
 

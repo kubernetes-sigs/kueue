@@ -50,11 +50,7 @@ var (
 )
 
 func TestProvisioning(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"Provisioning admission check suite",
-	)
+	util.RunSuite(t, "Provisioning admission check suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -70,11 +66,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 type managerSetupOpts struct {
@@ -123,7 +114,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 				ctx,
 				mgr.GetClient(),
 				mgr.GetFieldIndexer(),
-				mgr.GetEventRecorderFor(constants.JobControllerName))
+				mgr.GetEventRecorder(constants.JobControllerName))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -134,7 +125,13 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 			jobframework.EnableIntegration(job.FrameworkName)
 		}
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations, nil)
+		failedCtrl, err := core.SetupControllers(
+			mgr,
+			queues,
+			cCache,
+			controllersCfg,
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
@@ -142,14 +139,20 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 
 		reconciler, err := provisioning.NewController(
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor("kueue-provisioning-request-controller"), nil)
+			mgr.GetEventRecorder("kueue-provisioning-request-controller"), nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if opts.runScheduler {
-			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+			sched := scheduler.New(
+				queues,
+				cCache,
+				mgr.GetClient(),
+				mgr.GetEventRecorder(constants.AdmissionName),
+				scheduler.WithPreemptionExpectations(preemptionExpectations),
+			)
 			err = sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

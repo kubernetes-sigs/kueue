@@ -291,8 +291,53 @@ func (p *PodTemplateWrapper) RequiredDuringSchedulingIgnoredDuringExecution(node
 	return p
 }
 
+func (p *PodTemplateWrapper) PreferredDuringSchedulingIgnoredDuringExecution(preferredSchedulingTerms []corev1.PreferredSchedulingTerm) *PodTemplateWrapper {
+	if p.Template.Spec.Affinity == nil {
+		p.Template.Spec.Affinity = &corev1.Affinity{}
+	}
+	if p.Template.Spec.Affinity.NodeAffinity == nil {
+		p.Template.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+	}
+	p.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = append(
+		p.Template.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution,
+		preferredSchedulingTerms...,
+	)
+	return p
+}
+
+func (p *PodTemplateWrapper) RequiredNodeSelectorRequirement(key string, op corev1.NodeSelectorOperator, values ...string) *PodTemplateWrapper {
+	return p.RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
+		{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      key,
+					Operator: op,
+					Values:   values,
+				},
+			},
+		},
+	})
+}
+
+func (p *PodTemplateWrapper) PreferredNodeSelectorRequirement(weight int32, key string, op corev1.NodeSelectorOperator, values ...string) *PodTemplateWrapper {
+	return p.PreferredDuringSchedulingIgnoredDuringExecution([]corev1.PreferredSchedulingTerm{
+		{
+			Weight: weight,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      key,
+						Operator: op,
+						Values:   values,
+					},
+				},
+			},
+		},
+	})
+}
+
 func (p *PodTemplateWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *PodTemplateWrapper {
-	AppendOwnerReference(&p.PodTemplate, gvk, name, uid, ptr.To(true), ptr.To(true))
+	AppendOwnerReference(&p.PodTemplate, gvk, name, uid, new(true), new(true))
 	return p
 }
 
@@ -427,7 +472,7 @@ func (b *ResourceClaimSpecBuilder) WithAdminAccess(enabled bool) *ResourceClaimS
 	if len(b.spec.Devices.Requests) > 0 {
 		lastIdx := len(b.spec.Devices.Requests) - 1
 		if b.spec.Devices.Requests[lastIdx].Exactly != nil {
-			b.spec.Devices.Requests[lastIdx].Exactly.AdminAccess = ptr.To(enabled)
+			b.spec.Devices.Requests[lastIdx].Exactly.AdminAccess = new(enabled)
 		}
 	}
 	return b
@@ -437,7 +482,7 @@ func (b *ResourceClaimSpecBuilder) WithAdminAccess(enabled bool) *ResourceClaimS
 func (b *ResourceClaimSpecBuilder) WithDeviceConstraints(requestNames []string, matchAttribute string) *ResourceClaimSpecBuilder {
 	constraint := resourcev1.DeviceConstraint{
 		Requests:       requestNames,
-		MatchAttribute: ptr.To(resourcev1.FullyQualifiedName(matchAttribute)),
+		MatchAttribute: new(resourcev1.FullyQualifiedName(matchAttribute)),
 	}
 	b.spec.Devices.Constraints = append(b.spec.Devices.Constraints, constraint)
 	return b
@@ -731,4 +776,118 @@ func (rb *RoleBindingWrapper) Subject(kind, name, namespace string) *RoleBinding
 		Namespace: namespace,
 	})
 	return rb
+}
+
+type PreferredSchedulingTermsWrapper struct {
+	terms []corev1.PreferredSchedulingTerm
+}
+
+func MakePreferredSchedulingTerms() *PreferredSchedulingTermsWrapper {
+	return &PreferredSchedulingTermsWrapper{}
+}
+
+func (w *PreferredSchedulingTermsWrapper) Term(weight int32, key string, op corev1.NodeSelectorOperator, values ...string) *PreferredSchedulingTermsWrapper {
+	w.terms = append(w.terms, corev1.PreferredSchedulingTerm{
+		Weight: weight,
+		Preference: corev1.NodeSelectorTerm{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      key,
+					Operator: op,
+					Values:   values,
+				},
+			},
+		},
+	})
+	return w
+}
+
+func (w *PreferredSchedulingTermsWrapper) Obj() []corev1.PreferredSchedulingTerm {
+	return w.terms
+}
+
+type NodeSelectorTermsWrapper struct {
+	terms []corev1.NodeSelectorTerm
+}
+
+func MakeNodeSelectorTerms() *NodeSelectorTermsWrapper {
+	return &NodeSelectorTermsWrapper{}
+}
+
+func (w *NodeSelectorTermsWrapper) Term(key string, op corev1.NodeSelectorOperator, values ...string) *NodeSelectorTermsWrapper {
+	w.terms = append(w.terms, corev1.NodeSelectorTerm{
+		MatchExpressions: []corev1.NodeSelectorRequirement{
+			{
+				Key:      key,
+				Operator: op,
+				Values:   values,
+			},
+		},
+	})
+	return w
+}
+
+func (w *NodeSelectorTermsWrapper) Obj() []corev1.NodeSelectorTerm {
+	return w.terms
+}
+
+type ResourceSliceWrapper struct{ resourcev1.ResourceSlice }
+
+func MakeResourceSlice(name, driver string) *ResourceSliceWrapper {
+	return &ResourceSliceWrapper{
+		resourcev1.ResourceSlice{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+			Spec: resourcev1.ResourceSliceSpec{
+				Driver: driver,
+				Pool: resourcev1.ResourcePool{
+					Name:               "default-pool",
+					Generation:         1,
+					ResourceSliceCount: 1,
+				},
+				NodeName: new("fake-node"),
+			},
+		},
+	}
+}
+
+func (w *ResourceSliceWrapper) Pool(name string, generation int64, sliceCount int64) *ResourceSliceWrapper {
+	w.Spec.Pool = resourcev1.ResourcePool{
+		Name:               name,
+		Generation:         generation,
+		ResourceSliceCount: sliceCount,
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) Device(name string) *ResourceSliceWrapper {
+	w.Spec.Devices = append(w.Spec.Devices, resourcev1.Device{
+		Name:       name,
+		Attributes: make(map[resourcev1.QualifiedName]resourcev1.DeviceAttribute),
+	})
+	return w
+}
+
+func (w *ResourceSliceWrapper) Attribute(name, value string) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.Attributes[resourcev1.QualifiedName(name)] = resourcev1.DeviceAttribute{StringValue: new(value)}
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) CounterConsumption(counterSet, counterName, value string) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.ConsumesCounters = append(last.ConsumesCounters, resourcev1.DeviceCounterConsumption{
+			CounterSet: counterSet,
+			Counters:   map[string]resourcev1.Counter{counterName: {Value: resource.MustParse(value)}},
+		})
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) Obj() *resourcev1.ResourceSlice {
+	return &w.ResourceSlice
 }

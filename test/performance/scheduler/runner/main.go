@@ -37,7 +37,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
@@ -128,8 +127,8 @@ func main() {
 		// resulting in "http2: client connection lost" errors when pending requests queue up
 		// and connections time out.
 		testEnv.ControlPlane.GetAPIServer().Configure().
-			Append("max-requests-inflight", "800").
-			Append("max-mutating-requests-inflight", "400")
+			Append("max-requests-inflight", "5000").
+			Append("max-mutating-requests-inflight", "2500")
 
 		var err error
 		cfg, err = testEnv.Start()
@@ -164,7 +163,7 @@ func main() {
 			if err != nil {
 				log.Error(err, "getting a free port, metrics scraping disabled")
 			}
-			metricsScrapeURL = ptr.To(fmt.Sprintf("http://localhost:%d/metrics", metricsPort))
+			metricsScrapeURL = new(fmt.Sprintf("http://localhost:%d/metrics", metricsPort))
 		}
 
 		// start the minimal kueue manager process
@@ -263,7 +262,16 @@ func main() {
 	}
 }
 
-func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCPUProf, withMemProfile, withLogs, logToFile bool, logLevel int, enableTAS bool, errCh chan<- error, wg *sync.WaitGroup, metricsPort int) error {
+func runCommand(
+	ctx context.Context,
+	workDir, cmdPath, kubeconfig string,
+	withCPUProf, withMemProfile, withLogs, logToFile bool,
+	logLevel int,
+	enableTAS bool,
+	errCh chan<- error,
+	wg *sync.WaitGroup,
+	metricsPort int,
+) error {
 	log := ctrl.LoggerFrom(ctx).WithName("Run command")
 
 	cmd := exec.CommandContext(ctx, cmdPath, "--kubeconfig", filepath.Join(workDir, kubeconfig))
@@ -411,7 +419,7 @@ func runManager(ctx context.Context, cfg *rest.Config, errCh chan<- error, wg *s
 	options := ctrl.Options{
 		Scheme: scheme,
 		Controller: crconfig.Controller{
-			SkipNameValidation: ptr.To(true),
+			SkipNameValidation: new(true),
 			GroupKindConcurrency: map[string]int{
 				kueue.GroupVersion.WithKind("Workload").GroupKind().String(): 5,
 			},

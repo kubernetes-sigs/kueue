@@ -49,11 +49,7 @@ var (
 )
 
 func TestScheduler(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-
-	ginkgo.RunSpecs(t,
-		"Importer Suite",
-	)
+	util.RunSuite(t, "Importer Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -64,11 +60,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
-})
-
-var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
-	err := util.ConfigureSuiteReporting(report)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
@@ -83,7 +74,13 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
+	failedCtrl, err := core.SetupControllers(
+		mgr,
+		queues,
+		cCache,
+		configuration,
+		core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+	)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	failedWebhook, err := webhooks.Setup(mgr, nil)
@@ -99,12 +96,18 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorderFor(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = podReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+	sched := scheduler.New(
+		queues,
+		cCache,
+		mgr.GetClient(),
+		mgr.GetEventRecorder(constants.AdmissionName),
+		scheduler.WithPreemptionExpectations(preemptionExpectations),
+	)
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -56,7 +55,7 @@ func TestValidateCreate(t *testing.T) {
 				Completions: 1,
 			}).Obj().Spec)
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
-		APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
+		APIGroup: new(kftrainerapi.GroupVersion.Group),
 		Name:     "testCtr",
 		Kind:     ptr.To(kftrainerapi.ClusterTrainingRuntimeKind),
 	}).Suspend(false)
@@ -78,7 +77,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"with prebuilt workload": {
 			clusterTrainingRuntime: testCtr,
-			trainJob:               testTrainJob.Clone().Queue("local-queue").Label(controllerconstants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			trainJob:               testTrainJob.Clone().Queue("local-queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr:                nil,
 		},
 		"valid topology request in RuntimePatch": {
@@ -103,7 +102,7 @@ func TestValidateCreate(t *testing.T) {
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					}).Obj().Spec),
-			trainJob:                testTrainJob.Clone().Obj(),
+			trainJob:                testTrainJob.DeepCopy(),
 			topologyAwareScheduling: true,
 		},
 		"invalid topology request in TrainJob": {
@@ -135,7 +134,7 @@ func TestValidateCreate(t *testing.T) {
 							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 						},
 					}).Obj().Spec),
-			trainJob: testTrainJob.Clone().Obj(),
+			trainJob: testTrainJob.DeepCopy(),
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("job[node].annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`+
@@ -168,14 +167,14 @@ func TestValidateCreate(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			webhook := &TrainJobWebhook{}
 			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme)
 			kClient := clientBuilder.WithObjects(tc.trainJob, tc.clusterTrainingRuntime).Build()
+			webhook := &TrainJobWebhook{client: kClient}
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			_, _ = NewReconciler(ctx, kClient, indexer, recorder)
 			_, gotErr := webhook.ValidateCreate(ctx, tc.trainJob)
 
@@ -208,39 +207,36 @@ func TestDefault(t *testing.T) {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
 			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				Obj(),
 		},
 		"should not suspend a TrainJob without a queue label if manageJobsWithoutQueueName is not enabled": {
-			trainJob:     testTrainJob.Clone().Obj(),
-			wantTrainJob: testExpectedTrainJob.Clone().Obj(),
+			trainJob:     testTrainJob.DeepCopy(),
+			wantTrainJob: testExpectedTrainJob.DeepCopy(),
 		},
 		"should suspend a TrainJob without a queue label if manageJobsWithoutQueueName is enabled": {
-			trainJob: testTrainJob.Clone().Obj(),
+			trainJob: testTrainJob.DeepCopy(),
 			wantTrainJob: testExpectedTrainJob.Clone().
 				Suspend(true).
 				Obj(),
 			manageJobsWithoutQueueName: true,
 		},
 		"should set the default local queue if enabled and the user didn't specify any": {
-			trainJob: testTrainJob.Clone().Obj(),
+			trainJob: testTrainJob.DeepCopy(),
 			wantTrainJob: testExpectedTrainJob.Clone().
 				Suspend(true).
 				Queue(string(controllerconstants.DefaultLocalQueueName)).
-				JobSetLabel(controllerconstants.QueueLabel, string(controllerconstants.DefaultLocalQueueName)).
 				Obj(),
 			withDefaultLocalQueue: true,
 		},
 		"should not set the default local queue if doesn't exists": {
-			trainJob:              testTrainJob.Clone().Obj(),
-			wantTrainJob:          testExpectedTrainJob.Clone().Obj(),
+			trainJob:              testTrainJob.DeepCopy(),
+			wantTrainJob:          testExpectedTrainJob.DeepCopy(),
 			withDefaultLocalQueue: false,
 		},
 		"should set managedBy to multiKueue if the user didn't specify any": {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
-			wantTrainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).
+			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
 			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
@@ -250,7 +246,6 @@ func TestDefault(t *testing.T) {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).ManagedBy("user").Obj(),
 			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				ManagedBy("user").
 				Obj(),
 			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
@@ -260,7 +255,6 @@ func TestDefault(t *testing.T) {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
 			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
-				JobSetLabel(controllerconstants.QueueLabel, testLocalQueue.Name).
 				Obj(),
 			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			withMultiKueueAdmissionCheck: false,

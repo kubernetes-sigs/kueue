@@ -16,7 +16,7 @@ limitations under the License.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box, ToggleButton, ToggleButtonGroup, List, ListItem, ListItemButton, ListItemText, Collapse, IconButton, Chip } from '@mui/material';
+import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box, ToggleButton, ToggleButtonGroup, List, ListItem, ListItemButton, ListItemText, Collapse, IconButton, Chip, CircularProgress } from '@mui/material';
 import { ExpandMore, ChevronRight, ViewList, AccountTree } from '@mui/icons-material';
 import useWebSocket from './useWebSocket';
 import './App.css';
@@ -90,16 +90,14 @@ const CohortTreeNode = ({ cohort, depth = 0 }) => {
 
 const Cohorts = () => {
   const { data: cohorts, error } = useWebSocket('/ws/cohorts');
-  const [cohortList, setCohortList] = useState([]);
-  const [viewMode, setViewMode] = useState('list');
-
-  useEffect(() => {
-    if (cohorts && Array.isArray(cohorts)) {
-      setCohortList([...cohorts].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-    }
+  const cohortList = React.useMemo(() => {
+    if (!cohorts || !Array.isArray(cohorts)) return [];
+    return [...cohorts].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [cohorts]);
 
-  const cohortTree = useMemo(() => buildCohortTree(cohortList), [cohortList]);
+  const [viewMode, setViewMode] = useState('list');
+
+  const cohortTree = React.useMemo(() => buildCohortTree(cohortList), [cohortList]);
 
   if (error) return <ErrorMessage error={error} />;
 
@@ -112,14 +110,18 @@ const Cohorts = () => {
           exclusive
           onChange={(e, v) => v && setViewMode(v)}
           size="small"
-          sx={{ position: 'absolute', right: 0 }}
+          sx={{ width: '100%', justifyContent: 'flex-end' }}
         >
           <ToggleButton value="list"><ViewList fontSize="small" sx={{ mr: 0.5 }} />List</ToggleButton>
           <ToggleButton value="tree"><AccountTree fontSize="small" sx={{ mr: 0.5 }} />Tree</ToggleButton>
         </ToggleButtonGroup>
       </Box>
 
-      {cohortList.length === 0 ? (
+      {cohorts === null ? (
+        <Box display="flex" justifyContent="center" my={4}>
+          <CircularProgress />
+        </Box>
+      ) : cohortList.length === 0 ? (
         <Typography>No Cohorts found.</Typography>
       ) : viewMode === 'tree' ? (
         <TableContainer component={Paper} className="tableContainerWithBorder">

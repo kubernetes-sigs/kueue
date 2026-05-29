@@ -28,7 +28,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -73,8 +72,8 @@ var _ = ginkgo.Describe("Cohorts", func() {
 	}
 
 	var createWorkload = func(wl *kueue.Workload) *kueue.Workload {
-		wls[wl.Name] = wl
 		util.MustCreate(ctx, k8sClient, wl)
+		wls[wl.Name] = wl
 		return wl
 	}
 
@@ -125,7 +124,6 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}
 			for _, cohort := range cohorts {
-				metrics.ClearCohortMetrics(kueue.CohortReference(cohort.Name))
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 			}
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
@@ -150,6 +148,8 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				// no metrics for the ch1 cohort
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("ch1", defaultFlavor.Name, corev1.ResourceCPU.String())
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("ch1", defaultFlavor.Name, corev1.ResourceMemory.String())
+
+				util.ExpectClusterQueueInfoMetric("cqa", "", "", 1)
 			})
 
 			ginkgo.By("Setting cqa cohort to ch1", func() {
@@ -160,8 +160,10 @@ var _ = ginkgo.Describe("Cohorts", func() {
 					g.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 10_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 10)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("10Gi"))
+
+				util.ExpectClusterQueueInfoMetric("cqa", "ch1", "ch1", 1)
 			})
 
 			ginkgo.By("Creating ClusterQueue cqb and cohort ch1", func() {
@@ -183,8 +185,12 @@ var _ = ginkgo.Describe("Cohorts", func() {
 					).Obj())
 
 				// combined values of resources of cqa(10 cpu, 10Gi) and cqb(5 cpu, 5Gi) and ch1 cohort(15 cpu, 15Gi)
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 30_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 30)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("30Gi"))
+
+				util.ExpectCohortInfoMetric("ch1", "", "ch1", 1)
+				util.ExpectClusterQueueInfoMetric("cqa", "ch1", "ch1", 1)
+				util.ExpectClusterQueueInfoMetric("cqb", "ch1", "ch1", 1)
 			})
 
 			ginkgo.By("Creating ClusterQueues cqd and cqe and its parent cohort ch2", func() {
@@ -215,7 +221,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 					).Obj())
 
 				// combined values of resources of cqd(5 cpu, 5Gi) and cqe(5 cpu, 5Gi) and ch2 cohort(10 cpu, 10Gi)
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 20_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 20)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("20Gi"))
 			})
 
@@ -240,13 +246,21 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 				// combined values of resources of ch1(30 cpu, 30Gi) and ch2(20 cpu, 20Gi) and root cohort flavor1 (20 cpu, 5 gpu)
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("50Gi"))
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 20_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 20)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 5)
 
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("root", flavor2.Name, corev1.ResourceCPU.String())
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("root", flavor2.Name, corev1.ResourceMemory.String())
+
+				util.ExpectCohortInfoMetric("root", "", "root", 1)
+				util.ExpectCohortInfoMetric("ch1", "root", "root", 1)
+				util.ExpectCohortInfoMetric("ch2", "root", "root", 1)
+				util.ExpectClusterQueueInfoMetric("cqa", "ch1", "root", 1)
+				util.ExpectClusterQueueInfoMetric("cqb", "ch1", "root", 1)
+				util.ExpectClusterQueueInfoMetric("cqd", "ch2", "root", 1)
+				util.ExpectClusterQueueInfoMetric("cqe", "ch2", "root", 1)
 			})
 
 			ginkgo.By("Creating cohort ch3 with 5 CPUs and 1 GPU, and make it child of root, but without any ClusterQueue", func() {
@@ -259,13 +273,15 @@ var _ = ginkgo.Describe("Cohorts", func() {
 							Obj(),
 					).Obj())
 
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor1.Name, corev1.ResourceCPU.String(), 5)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor1.Name, "nvidia.com/gpu", 1)
 
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("50Gi"))
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 6)
+
+				util.ExpectCohortInfoMetric("ch3", "root", "root", 1)
 			})
 
 			ginkgo.By("Creating ClusterQueue cqg as child of cohort ch3, with 1 CPU and 1Gi", func() {
@@ -279,32 +295,34 @@ var _ = ginkgo.Describe("Cohorts", func() {
 					).Obj())
 
 				// combined values of resources of cqg(1 cpu, 1Gi) and ch3 cohort(5 cpu, 1 gpu)
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor1.Name, corev1.ResourceCPU.String(), 5)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor1.Name, "nvidia.com/gpu", 1)
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor2.Name, corev1.ResourceCPU.String(), 1_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor2.Name, corev1.ResourceCPU.String(), 1)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor2.Name, corev1.ResourceMemory.String(), 1.073741824e+09)
 
 				// updated combined values of resources of ch1(30 cpu, 30Gi) and ch2(20 cpu, 20Gi) and ch3 flavor2 (6 cpu, 1 gpu) and root cohort flavor1 (20 cpu, 5 gpu)
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("50Gi"))
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 6)
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor2.Name, corev1.ResourceCPU.String(), 1_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor2.Name, corev1.ResourceCPU.String(), 1)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor2.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("1Gi"))
+
+				util.ExpectClusterQueueInfoMetric("cqg", "ch3", "root", 1)
 			})
 
 			ginkgo.By("Deleting ClusterQueue cqg", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cqs["cqg"], true)
 
 				// updated values for ch3 with cqg removed, and root with ch3 updated
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor1.Name, corev1.ResourceCPU.String(), 5)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", flavor1.Name, "nvidia.com/gpu", 1)
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("ch3", flavor2.Name, corev1.ResourceCPU.String())
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("ch3", flavor2.Name, corev1.ResourceMemory.String())
 
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("50Gi"))
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 6)
 
 				// root metrics for flavor2 with cqg removed
@@ -324,31 +342,38 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 				// updated values for ch3 with cqd and cqe added, and root with ch3 updated
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", defaultFlavor.Name, corev1.ResourceCPU.String(), 10_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", defaultFlavor.Name, corev1.ResourceCPU.String(), 10)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("10Gi"))
 
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 50)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("50Gi"))
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 6)
+
+				util.ExpectClusterQueueInfoMetric("cqd", "ch3", "root", 1)
+				util.ExpectClusterQueueInfoMetric("cqe", "ch3", "root", 1)
+				util.ExpectClusterQueueInfoMetric("cqd", "ch2", "root", 0)
+				util.ExpectClusterQueueInfoMetric("cqe", "ch2", "root", 0)
 			})
 
 			ginkgo.By("Deleting cohort ch2", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cohorts["ch2"], true)
 
 				// updated values for ch3 with cqd and cqe added, and root with ch3 updated
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", defaultFlavor.Name, corev1.ResourceCPU.String(), 10_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", defaultFlavor.Name, corev1.ResourceCPU.String(), 10)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch3", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("10Gi"))
 
 				// root metrics with ch2 removed, so only ch1 and ch3 values
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 40_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 40)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("40Gi"))
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 6)
 
 				// ch2 metrics removed
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("ch2", defaultFlavor.Name, corev1.ResourceCPU.String())
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("ch2", defaultFlavor.Name, corev1.ResourceMemory.String())
+
+				util.ExpectCohortInfoMetric("ch2", "root", "root", 0)
 			})
 
 			ginkgo.By("Changing ch1 quota to 15 CPUs", func() {
@@ -374,13 +399,13 @@ var _ = ginkgo.Describe("Cohorts", func() {
 					g.Expect(k8sClient.Update(ctx, &ch1)).To(gomega.Succeed())
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 35_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 35)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("30Gi"))
 
 				// root metrics updated with new quotas of ch1
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 45_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 45)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceMemory.String(), util.ResourceQtyToFloat64("40Gi"))
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, corev1.ResourceCPU.String(), 25)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("root", flavor1.Name, "nvidia.com/gpu", 6)
 			})
 		})
@@ -402,11 +427,14 @@ var _ = ginkgo.Describe("Cohorts", func() {
 							Obj(),
 					).Obj())
 
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 5)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, "nvidia.com/gpu", 1)
 
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", flavor1.Name, corev1.ResourceCPU.String(), 3_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", flavor1.Name, corev1.ResourceCPU.String(), 3)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", flavor1.Name, "nvidia.com/gpu", 1)
+
+				util.ExpectCohortInfoMetric("ch1", "", "ch1", 1)
+				util.ExpectCohortInfoMetric("ch2", "", "ch2", 1)
 			})
 
 			ginkgo.By("Create cluster queue cq1 under implicit cohort ch0 with 1 CPU and 1 GPU", func() {
@@ -419,8 +447,10 @@ var _ = ginkgo.Describe("Cohorts", func() {
 							Obj(),
 					).Obj())
 
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch0", flavor1.Name, corev1.ResourceCPU.String(), 1_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch0", flavor1.Name, corev1.ResourceCPU.String(), 1)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch0", flavor1.Name, "nvidia.com/gpu", 1)
+
+				util.ExpectClusterQueueInfoMetric("cq1", "ch0", "ch0", 1)
 			})
 
 			ginkgo.By("Re-assign cq1 from ch0 to ch1", func() {
@@ -432,12 +462,16 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 				// updated values for ch1 with cq1 added
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 6_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 6)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, "nvidia.com/gpu", 2)
 
 				// cleared up values for ch0 with cq1 removed
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("ch0", flavor1.Name, corev1.ResourceCPU.String())
 				util.ExpectCohortSubtreeQuotaGaugeMetricCleaned("ch0", flavor1.Name, "nvidia.com/gpu")
+
+				util.ExpectCohortInfoMetric("ch0", "", "ch0", 0)
+				util.ExpectClusterQueueInfoMetric("cq1", "ch1", "ch1", 1)
+				util.ExpectClusterQueueInfoMetric("cq1", "ch0", "ch0", 0)
 			})
 
 			ginkgo.By("Re-assign cq1 from ch1 to ch2", func() {
@@ -449,16 +483,99 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 				// updated values for ch2 with cq1 added
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", flavor1.Name, corev1.ResourceCPU.String(), 4_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", flavor1.Name, corev1.ResourceCPU.String(), 4)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", flavor1.Name, "nvidia.com/gpu", 2)
 
 				// updated values for ch1 with cq1 removed
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 5_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, corev1.ResourceCPU.String(), 5)
 				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", flavor1.Name, "nvidia.com/gpu", 1)
+
+				util.ExpectCohortInfoMetric("ch1", "", "ch1", 1)
+				util.ExpectCohortInfoMetric("ch2", "", "ch2", 1)
+				util.ExpectClusterQueueInfoMetric("cq1", "ch2", "ch2", 1)
+				util.ExpectClusterQueueInfoMetric("cq1", "ch1", "ch1", 0)
 			})
 		})
 
-		ginkgo.XIt("correctly handles cohort metrics when workload admitted with admission check", func() {
+		ginkgo.It("updates deep descendants info metrics when reparenting an ancestor cohort", func() {
+			ginkgo.By("Creating a -> b -> c cohort chain and queue qdeep under c", func() {
+				createCohort(utiltestingapi.MakeCohort("a").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "1").
+							Obj(),
+					).Obj())
+				createCohort(utiltestingapi.MakeCohort("b").Parent("a").Obj())
+				createCohort(utiltestingapi.MakeCohort("c").Parent("b").Obj())
+				createQueue(utiltestingapi.MakeClusterQueue("qdeep").
+					Cohort("c").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "1").
+							Obj(),
+					).Obj())
+
+				util.ExpectCohortInfoMetric("b", "a", "a", 1)
+				util.ExpectCohortInfoMetric("c", "b", "a", 1)
+				util.ExpectClusterQueueInfoMetric("qdeep", "c", "a", 1)
+			})
+
+			ginkgo.By("Creating root2", func() {
+				createCohort(utiltestingapi.MakeCohort("root2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "1").
+							Obj(),
+					).Obj())
+				util.ExpectCohortInfoMetric("root2", "", "root2", 1)
+			})
+
+			ginkgo.By("reparenting cohort a under root2", func() {
+				var a kueue.Cohort
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "a"}, &a)).To(gomega.Succeed())
+					a.Spec.ParentName = "root2"
+					g.Expect(k8sClient.Update(ctx, &a)).To(gomega.Succeed())
+				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
+
+				util.ExpectCohortInfoMetric("a", "root2", "root2", 1)
+				util.ExpectCohortInfoMetric("b", "a", "root2", 1)
+				util.ExpectCohortInfoMetric("c", "b", "root2", 1)
+				util.ExpectClusterQueueInfoMetric("qdeep", "c", "root2", 1)
+				util.ExpectClusterQueueInfoMetric("qdeep", "c", "a", 0)
+			})
+		})
+
+		ginkgo.It("reports metrics for newly created implicit parent, remove implicit parent metrics when it has been removed", func() {
+			ginkgo.By("Creating a cohort with implicit parent", func() {
+				createCohort(utiltestingapi.MakeCohort("child").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+							Resource(corev1.ResourceCPU, "1").
+							Obj(),
+					).Parent("implicit-parent").Obj())
+			})
+
+			// Verify metrics were reported for child and implicit parent
+			util.ExpectCohortInfoMetric("implicit-parent", "", "implicit-parent", 1)
+			util.ExpectCohortInfoMetric("child", "implicit-parent", "implicit-parent", 1)
+
+			ginkgo.By("Updating cohort to have a new implicit parent", func() {
+				var ch kueue.Cohort
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "child"}, &ch)).To(gomega.Succeed())
+					ch.Spec.ParentName = "new-implicit-parent"
+					g.Expect(k8sClient.Update(ctx, &ch)).To(gomega.Succeed())
+				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			// Verify metrics were reported for child with new parent and new implicit parent, and metrics for old implicit parent were removed
+			util.ExpectCohortInfoMetric("implicit-parent", "", "implicit-parent", 0)
+			util.ExpectCohortInfoMetric("new-implicit-parent", "", "new-implicit-parent", 1)
+			util.ExpectCohortInfoMetric("child", "new-implicit-parent", "new-implicit-parent", 1)
+		})
+
+		ginkgo.It("correctly handles cohort metrics when workload admitted with admission check", func() {
 			const (
 				numWorkloadsForCQ1 = 5
 				numWorkloadsForCQ2 = 2
@@ -649,6 +766,351 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			})
 		})
 
+		ginkgo.It("should clear metrics for the implicit root Cohort after deleting Cohort then ClusterQueues", func() {
+			ginkgo.By("Creating Cohorts", func() {
+				createCohort(utiltestingapi.MakeCohort("ch1").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			var cq1 *kueue.ClusterQueue
+
+			ginkgo.By("Create ClusterQueues", func() {
+				cq1 = createQueue(utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("ch1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Creating Workloads", func() {
+				for range 5 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq1").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					)
+				}
+			})
+
+			ginkgo.By("Checking that Workloads are admitted", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 5)
+			})
+
+			ginkgo.By("Deleting Cohorts", func() {
+				for _, cohort := range cohorts {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 0)
+			})
+
+			ginkgo.By("Deleting Workloads", func() {
+				for _, wl := range wls {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+				}
+			})
+
+			ginkgo.By("Deleting LocalQueues", func() {
+				for _, lq := range lqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+				}
+			})
+
+			ginkgo.By("Deleting ClusterQueues", func() {
+				for _, cq := range cqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 0)
+			})
+		})
+
+		ginkgo.It("should clear metrics for the implicit root Cohort after deleting ClusterQueues then Cohort", func() {
+			ginkgo.By("Creating Cohorts", func() {
+				createCohort(utiltestingapi.MakeCohort("ch1").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			var cq1 *kueue.ClusterQueue
+
+			ginkgo.By("Create ClusterQueues", func() {
+				cq1 = createQueue(utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("ch1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Creating Workloads", func() {
+				for range 5 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq1").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					)
+				}
+			})
+
+			ginkgo.By("Checking that Workloads are admitted", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 5)
+			})
+
+			ginkgo.By("Deleting Workloads", func() {
+				for _, wl := range wls {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+				}
+			})
+
+			ginkgo.By("Deleting LocalQueues", func() {
+				for _, lq := range lqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 0)
+			})
+
+			ginkgo.By("Deleting ClusterQueues", func() {
+				for _, cq := range cqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 0)
+			})
+
+			ginkgo.By("Deleting Cohorts", func() {
+				for _, cohort := range cohorts {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 0)
+			})
+		})
+
+		ginkgo.It("should clear metrics for the implicit root Cohort after deleting ClusterQueues", func() {
+			var cq1 *kueue.ClusterQueue
+
+			ginkgo.By("Create ClusterQueues", func() {
+				cq1 = createQueue(utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Creating Workloads", func() {
+				for range 5 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq1").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					)
+				}
+			})
+
+			ginkgo.By("Checking that Workloads are admitted", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 5)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 5)
+			})
+
+			ginkgo.By("Deleting Workloads", func() {
+				for _, wl := range wls {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+				}
+			})
+
+			ginkgo.By("Deleting LocalQueues", func() {
+				for _, lq := range lqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 5)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+			})
+
+			ginkgo.By("Deleting ClusterQueues", func() {
+				for _, cq := range cqs {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				}
+			})
+
+			ginkgo.By("Checking that metrics cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
+			})
+		})
+
+		// cq1 -> ch1 -> root1 (implicit)	=> cq1 -> ch1 -> root2 (explicit)
+		// cq2 -> root2 (explicit)			=> cq2 -> root2 (explicit)
+		ginkgo.It("should clear metrics for the implicit root Cohort after switching to another root Cohort", func() {
+			var (
+				cq1 *kueue.ClusterQueue
+				cq2 *kueue.ClusterQueue
+				ch1 *kueue.Cohort
+			)
+
+			ginkgo.By("Creating Cohorts", func() {
+				ch1 = createCohort(utiltestingapi.MakeCohort("ch1").
+					Parent("root1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+
+				createCohort(utiltestingapi.MakeCohort("root2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Create ClusterQueues", func() {
+				cq1 = createQueue(utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("ch1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+
+				cq2 = createQueue(utiltestingapi.MakeClusterQueue("cq2").
+					Cohort("root2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj())
+			})
+
+			ginkgo.By("Creating Workloads", func() {
+				for range 3 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq1").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					)
+				}
+
+				for range 2 {
+					createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+							Queue("cq2").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					)
+				}
+			})
+
+			ginkgo.By("Checking that Workloads are admitted", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 3)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 3)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq2", 2)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 3)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 3)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root1", "", 3)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root1", 3)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root2", "", 2)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root2", 2)
+			})
+
+			ginkgo.By("Switch ch1->root1 to ch1->root2", func() {
+				createdCh1 := &kueue.Cohort{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ch1), createdCh1)).Should(gomega.Succeed())
+					createdCh1.Spec.ParentName = "root2"
+					g.Expect(k8sClient.Update(ctx, createdCh1)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that root1 metrics are cleaned cleared", func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 3)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 3)
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq2", 2)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 3)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 3)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root1", "", 0)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root1", 0)
+				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root2", "", 2)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root2", 2)
+			})
+		})
+
 		ginkgo.It("reports CohortSubtreeResourceReservations across child-parent topology", func() {
 			var (
 				wlCh1a *kueue.Workload
@@ -695,9 +1157,9 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				util.ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned("ch2", defaultFlavor.Name, corev1.ResourceCPU.String())
 				util.ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned("root", defaultFlavor.Name, corev1.ResourceCPU.String())
 
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 16_000)
-				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 12_000)
-				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 35_000)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 16)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 12)
+				util.ExpectCohortSubtreeQuotaGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 35)
 			})
 
 			ginkgo.By("Admit workload in ch1: reservations rises in ch1 , which is reflected in root", func() {
@@ -707,8 +1169,8 @@ var _ = ginkgo.Describe("Cohorts", func() {
 					Obj())
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCh1a)
 
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 6_000)
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 6_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 6)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 6)
 			})
 
 			ginkgo.By("Add more load in ch1", func() {
@@ -724,8 +1186,8 @@ var _ = ginkgo.Describe("Cohorts", func() {
 					Obj())
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCh1c)
 
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 16_000)
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 16_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 16)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 16)
 			})
 
 			ginkgo.By("Admit workload in ch2 and verify reservations in root", func() {
@@ -735,23 +1197,23 @@ var _ = ginkgo.Describe("Cohorts", func() {
 					Obj())
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCh2)
 
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 7_000)
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 23_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 7)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 23)
 			})
 
 			ginkgo.By("Finish one workload and verify reservations", func() {
 				util.FinishWorkloads(ctx, k8sClient, wlCh1c)
 
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 14_000)
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 21_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 14)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 21)
 			})
 
 			ginkgo.By("Release high-overflow workload in ch1 and verify reservations", func() {
 				util.FinishWorkloads(ctx, k8sClient, wlCh1b)
 
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 6_000)
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 7_000)
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 13_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 6)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 7)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 13)
 			})
 
 			ginkgo.By("Move cqb from ch2 to ch1 and verify recomputed hierarchical attribution", func() {
@@ -763,8 +1225,8 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
 				// ch1 gains recomputed reservations after the move, ch2 goes to zero
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 13_000)
-				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 13_000)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 13)
+				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 13)
 				util.ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned("ch2", defaultFlavor.Name, corev1.ResourceCPU.String())
 			})
 		})

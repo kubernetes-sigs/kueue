@@ -34,7 +34,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/tools/record"
+	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
@@ -63,7 +64,7 @@ import (
 const (
 	FrameworkName                  = "pod"
 	ConditionTypeTerminationTarget = "TerminationTarget"
-	errMsgIncorrectGroupRoleCount  = "pod group can't include more than 8 roles"
+	errMsgIncorrectGroupRoleCount  = "pod group can't include more than 10 roles"
 )
 
 // Event reasons used by the pod controller
@@ -101,7 +102,7 @@ func init() {
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods/status,verbs=get;patch
 // +kubebuilder:rbac:groups="",resources=pods/finalizers,verbs=get;update
@@ -139,7 +140,7 @@ func NewJob() jobframework.GenericJob {
 	return NewPod()
 }
 
-func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, record record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, record events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	return &Reconciler{
 		JobReconciler:     jobframework.NewReconciler(c, record, opts...),
 		expectationsStore: expectations.NewStore("finalizedPods"),
@@ -166,6 +167,7 @@ var (
 	_ jobframework.ComposableJob                   = (*Pod)(nil)
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
 	_ jobframework.TopLevelJob                     = (*Pod)(nil)
+	_ jobframework.JobWithCustomQueueNameChange    = (*Pod)(nil)
 )
 
 // PodOption is a function type that modifies a Pod. It allows customization of a Pod's
@@ -228,11 +230,11 @@ func (p *Pod) isUnretriableGroup() bool {
 	}
 
 	if slices.ContainsFunc(p.list.Items, isUnretriablePod) {
-		p.unretriableGroup = ptr.To(true)
+		p.unretriableGroup = new(true)
 		return true
 	}
 
-	p.unretriableGroup = ptr.To(false)
+	p.unretriableGroup = new(false)
 	return false
 }
 
@@ -257,7 +259,7 @@ func (p *Pod) Suspend() {
 }
 
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder record.EventRecorder, msg string) error {
+func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if !p.isGroup {
@@ -276,7 +278,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 
 		if recorder != nil {
-			recorder.Event(&p.pod, corev1.EventTypeNormal, jobframework.ReasonStarted, msg)
+			recorder.Eventf(&p.pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
 		return nil
@@ -315,7 +317,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 
 		if recorder != nil {
-			recorder.Event(pod, corev1.EventTypeNormal, jobframework.ReasonStarted, msg)
+			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 		return nil
 	})
@@ -325,8 +327,16 @@ func (p *Pod) IsTopLevel() bool {
 	return true
 }
 
+func (p *Pod) CustomQueueNameChange(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	// Skipping queueName updates for serving workload
+	if p.isServing() {
+		return nil
+	}
+	return jobframework.QueueNameChange(ctx, c, p, wl)
+}
+
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) RunWithPodSetsInfo(_ context.Context, _ []podset.PodSetInfo) error {
+func (p *Pod) RunWithPodSetsInfo(_ context.Context, _ client.Client, _ []podset.PodSetInfo) error {
 	// Not implemented because this is not called when JobWithCustomRun is implemented.
 	return errors.New("RunWithPodSetsInfo is not implemented for the Pod object")
 }
@@ -385,7 +395,7 @@ func (p *Pod) Finished(ctx context.Context) (message string, success, finished b
 }
 
 // PodSets will build workload podSets corresponding to the job.
-func (p *Pod) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	if !p.isGroup {
 		return constructPodSets(&p.pod)
 	} else {
@@ -449,9 +459,18 @@ func hasPodReadyTrue(conds []corev1.PodCondition) bool {
 }
 
 // PodsReady instructs whether job derived pods are all ready now.
-func (p *Pod) PodsReady(ctx context.Context) bool {
+func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	if !p.isGroup {
 		return hasPodReadyTrue(p.pod.Status.Conditions)
+	}
+
+	tc, err := p.groupTotalCount()
+	if err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to get group total count for PodsReady check")
+		return false
+	}
+	if len(p.list.Items) < tc {
+		return false
 	}
 
 	for i := range p.list.Items {
@@ -489,34 +508,29 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 		podInGroup := FromObject(&podsInGroup[i])
 
 		// The podset info is not relevant here, since this should mark the pod's end of life
-		pCopy := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				UID:       podInGroup.pod.UID,
-				Name:      podInGroup.pod.Name,
-				Namespace: podInGroup.pod.Namespace,
-			},
-			TypeMeta: podInGroup.pod.TypeMeta,
-			Status: corev1.PodStatus{
-				Conditions: []corev1.PodCondition{
-					{
-						Type:   ConditionTypeTerminationTarget,
-						Status: corev1.ConditionTrue,
-						LastTransitionTime: metav1.Time{
-							Time: p.clock.Now(),
-						},
-						Reason:  string(stopReason),
-						Message: eventMsg,
-					},
-				},
-			},
-		}
-		//nolint:staticcheck //SA1019: client.Apply is deprecated
-		if err := c.Status().Patch(ctx, pCopy, client.Apply, client.FieldOwner(constants.KueueName)); err != nil && !apierrors.IsNotFound(err) {
+		podApplyConfig := corev1ac.Pod(podInGroup.pod.Name, podInGroup.pod.Namespace).
+			WithUID(podInGroup.pod.UID).
+			WithStatus(corev1ac.PodStatus().
+				WithConditions(corev1ac.PodCondition().
+					WithType(corev1.PodConditionType(ConditionTypeTerminationTarget)).
+					WithStatus(corev1.ConditionTrue).
+					WithLastTransitionTime(metav1.NewTime(p.clock.Now())).
+					WithReason(string(stopReason)).
+					WithMessage(eventMsg),
+				),
+			)
+		err := c.Status().Apply(ctx, podApplyConfig, client.FieldOwner(constants.KueueName), client.ForceOwnership)
+		if client.IgnoreNotFound(err) != nil {
 			return stoppedNow, err
 		}
-		if err := c.Delete(ctx, podInGroup.Object()); err != nil && !apierrors.IsNotFound(err) {
-			return stoppedNow, err
+
+		// Delete the pod if it is not already deleted.
+		if err == nil {
+			if err := c.Delete(ctx, podInGroup.Object()); client.IgnoreNotFound(err) != nil {
+				return stoppedNow, err
+			}
 		}
+
 		stoppedNow = append(stoppedNow, podInGroup.Object())
 	}
 
@@ -554,7 +568,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 }
 
 func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
-	groupName := podGroupName(p.pod)
+	groupName := GetPodGroupName(&p.pod)
 
 	var podsInGroup corev1.PodList
 	if groupName == "" {
@@ -588,16 +602,42 @@ func (p *Pod) Skip(ctx context.Context) bool {
 	return false
 }
 
-// podGroupName returns a value of GroupNameLabel for the pod object.
-// Returns an empty string if there's no such label.
-func podGroupName(p corev1.Pod) string {
-	return p.GetLabels()[podconstants.GroupNameLabel]
+// GetPodGroupName returns the pod group name for the given pod. It reads the
+// GroupNameLabel, or when the WorkloadIdentifierAnnotations feature gate is
+// enabled it first reads the GroupNameAnnotation and then falls back to the label.
+func GetPodGroupName(p *corev1.Pod) string {
+	if features.Enabled(features.WorkloadIdentifierAnnotations) {
+		if name := p.Annotations[podconstants.GroupNameAnnotation]; name != "" {
+			return name
+		}
+	}
+	return p.Labels[podconstants.GroupNameLabel]
+}
+
+// SetPodGroupName stores the pod group name on the given pod.
+// When the WorkloadIdentifierAnnotations feature gate is enabled the name is
+// written to the GroupNameAnnotation. Otherwise, it is written to the GroupNameLabel.
+func SetPodGroupName(p *corev1.Pod, groupName string) {
+	if features.Enabled(features.WorkloadIdentifierAnnotations) {
+		if p.Annotations == nil {
+			p.Annotations = make(map[string]string, 1)
+		}
+		p.Annotations[podconstants.GroupNameAnnotation] = groupName
+	} else {
+		if p.Labels == nil {
+			p.Labels = make(map[string]string, 1)
+		}
+		p.Labels[podconstants.GroupNameLabel] = groupName
+	}
 }
 
 // groupTotalCount returns the value of GroupTotalCountAnnotation for the pod being reconciled at the moment.
 // It doesn't check if the whole group has the same total group count annotation value.
 func (p *Pod) groupTotalCount() (int, error) {
-	if podGroupName(p.pod) == "" {
+	if groupName := GetPodGroupName(&p.pod); groupName == "" {
+		if features.Enabled(features.WorkloadIdentifierAnnotations) {
+			return 0, fmt.Errorf("pod doesn't have a '%s' annotation/label", podconstants.GroupNameAnnotation)
+		}
 		return 0, fmt.Errorf("pod doesn't have a '%s' label", podconstants.GroupNameLabel)
 	}
 
@@ -635,13 +675,16 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 
 	if len(nsKey) == 1 {
 		if err := c.Get(ctx, *key, &p.pod); err != nil {
-			return apierrors.IsNotFound(err), err
+			if client.IgnoreNotFound(err) != nil {
+				return false, err
+			}
+			return true, nil
 		}
 		p.isFound = true
 
 		// If the key.Namespace doesn't contain a "group/" prefix, even though
 		// the pod has a group name, there's something wrong with the event handler.
-		if podGroupName(p.pod) != "" {
+		if groupName := GetPodGroupName(&p.pod); groupName != "" {
 			return false, errIncorrectReconcileRequest
 		}
 
@@ -777,7 +820,7 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 }
 
 // validatePodGroupMetadata validates metadata of all members of the pod group
-func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []corev1.Pod) error {
+func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []corev1.Pod) error {
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
 		return err
@@ -792,8 +835,8 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 	_, useFastAdmission := p.pod.GetAnnotations()[podconstants.GroupFastAdmissionAnnotationKey]
 
 	if !useFastAdmission && len(activePods) < groupTotalCount {
-		errMsg := fmt.Sprintf("'%s' group has fewer runnable pods than expected", podGroupName(p.pod))
-		r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, errMsg)
+		errMsg := fmt.Sprintf("'%s' group has fewer runnable pods than expected", GetPodGroupName(&p.pod))
+		r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", errMsg)
 		return jobframework.UnretryableError(errMsg)
 	}
 
@@ -939,7 +982,7 @@ func removePodFinalizers(ctx context.Context, c client.Client, pod *corev1.Pod) 
 	return removed, err
 }
 
-func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.EventRecorder, extraPods []corev1.Pod) error {
+func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.EventRecorder, extraPods []corev1.Pod) error {
 	if len(extraPods) == 0 {
 		return nil
 	}
@@ -971,7 +1014,7 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
-			r.Event(pod, corev1.EventTypeNormal, ReasonExcessPodDeleted, "Excess pod deleted")
+			r.Eventf(pod, nil, corev1.EventTypeNormal, ReasonExcessPodDeleted, "ExcessPodDeleted", "Excess pod deleted")
 		}
 		return nil
 	})
@@ -1010,7 +1053,7 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 	return nil
 }
 
-func (p *Pod) EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r record.EventRecorder, workload *kueue.Workload) error {
+func (p *Pod) EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r events.EventRecorder, workload *kueue.Workload) error {
 	if !p.isGroup {
 		return jobframework.EnsurePrebuiltWorkloadOwnership(ctx, c, workload, &p.pod)
 	}
@@ -1027,7 +1070,7 @@ func (p *Pod) EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Clie
 		log.V(4).Info("Adding owner references for workload", "count", addedOwnersCnt)
 		err := c.Update(ctx, workload)
 		if err == nil {
-			r.Eventf(workload, corev1.EventTypeNormal, ReasonOwnerReferencesAdded, fmt.Sprintf("Added %d owner reference(s)", addedOwnersCnt))
+			r.Eventf(workload, nil, corev1.EventTypeNormal, ReasonOwnerReferencesAdded, "OwnerReferencesAdded", "Added %d owner reference(s)", addedOwnersCnt)
 		}
 		return err
 	}
@@ -1057,7 +1100,7 @@ func (p *Pod) getWorkloadLabels(labelKeysToCopy []string) (map[string]string, er
 	return workloadLabels, nil
 }
 
-func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error) {
+func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r events.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error) {
 	if !p.isGroup {
 		return jobframework.ConstructWorkload(ctx, c, p, labelKeysToCopy)
 	}
@@ -1088,14 +1131,14 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		p.list.Items = activePods[:len(activePods)-excessPodsCount]
 	}
 
-	podSets, err := jobframework.JobPodSets(ctx, p)
+	podSets, err := jobframework.JobPodSets(ctx, p, nil)
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
-			r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, err.Error())
+			r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", err.Error())
 		}
 		return nil, err
 	}
-	if len(podSets) > 8 {
+	if len(podSets) > jobframework.MaxPodSets {
 		return nil, jobframework.UnretryableError(errMsgIncorrectGroupRoleCount)
 	}
 
@@ -1115,7 +1158,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 }
 
 func (p *Pod) workloadName() string {
-	if prebuiltWorkloadName, usePrebuiltWorkload := jobframework.PrebuiltWorkloadFor(p); usePrebuiltWorkload {
+	if prebuiltWorkloadName := jobframework.PrebuiltWorkloadNameFor(p.Object()); prebuiltWorkloadName != "" {
 		return prebuiltWorkloadName
 	}
 
@@ -1123,7 +1166,7 @@ func (p *Pod) workloadName() string {
 		return GetWorkloadNameForPod(p.pod.GetName(), p.pod.GetUID())
 	}
 
-	return podGroupName(p.pod)
+	return GetPodGroupName(&p.pod)
 }
 
 func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types.NamespacedName) (*kueue.WorkloadList, error) {
@@ -1156,10 +1199,10 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 	return workloads, nil
 }
 
-func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {
+func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r events.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	groupName := podGroupName(p.pod)
+	groupName := GetPodGroupName(&p.pod)
 	if groupName == "" {
 		return jobframework.FindMatchingWorkloads(ctx, c, p)
 	}
@@ -1297,7 +1340,7 @@ func (p *Pod) isReclaimable() bool {
 	return p.isGroup && !p.isServing()
 }
 
-func (p *Pod) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
+func (p *Pod) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.ReclaimablePod, error) {
 	if !p.isReclaimable() {
 		return []kueue.ReclaimablePod{}, nil
 	}
