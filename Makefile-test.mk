@@ -185,6 +185,7 @@ test-multikueue-e2e-helm: test-multikueue-e2e
 ##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
 .PHONY: test-e2e-extended
 test-e2e-extended: E2E_NPROCS := 4
+test-e2e-extended: GINKGO_ARGS += --label-filter=feature:leaderworkerset --focus=LeaderWorkerSet.integration.when.LeaderWorkerSet.created.should.allow.to.update.the.PodTemplate.in.LeaderWorkerSet --repeat=300
 test-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
