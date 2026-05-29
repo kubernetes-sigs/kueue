@@ -50,6 +50,7 @@ type ReplicatedJobRequirements struct {
 	Replicas       int32
 	Parallelism    int32
 	Completions    int32
+	BackoffLimit   *int32
 	Labels         map[string]string
 	Annotations    map[string]string
 	PodAnnotations map[string]string
@@ -83,8 +84,12 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 		jt.Spec.Parallelism = ptr.To(req.Parallelism)
 		jt.Spec.Completions = ptr.To(req.Completions)
 		jt.Spec.Template.Annotations = req.PodAnnotations
-		if len(req.Image) > 0 {
+		if req.BackoffLimit != nil {
+			jt.Spec.BackoffLimit = req.BackoffLimit
+		} else if len(req.Image) > 0 {
 			jt.Spec.BackoffLimit = ptr.To[int32](0)
+		}
+		if len(req.Image) > 0 {
 			spec := &jt.Spec.Template.Spec
 			spec.RestartPolicy = corev1.RestartPolicyNever
 			spec.TerminationGracePeriodSeconds = ptr.To[int64](0)
@@ -227,6 +232,14 @@ func (j *JobSetWrapper) ManagedBy(c string) *JobSetWrapper {
 func (j *JobSetWrapper) TerminationGracePeriod(seconds int64) *JobSetWrapper {
 	for i := range j.Spec.ReplicatedJobs {
 		j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
+	}
+	return j
+}
+
+// BackoffLimit sets the backoffLimit for all replicated jobs.
+func (j *JobSetWrapper) BackoffLimit(limit int32) *JobSetWrapper {
+	for i := range j.Spec.ReplicatedJobs {
+		j.Spec.ReplicatedJobs[i].Template.Spec.BackoffLimit = ptr.To[int32](limit)
 	}
 	return j
 }
