@@ -19,6 +19,7 @@ package pod
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -63,36 +64,66 @@ type keyUIDs struct {
 }
 
 func TestPodsReady(t *testing.T) {
+	readyCond := corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}
+	readyPod := func(name string) corev1.Pod {
+		return *testingpod.MakePod(name, "test-ns").StatusConditions(readyCond).Obj()
+	}
+	pendingPod := func(name string) corev1.Pod {
+		return *testingpod.MakePod(name, "test-ns").Obj()
+	}
+	makePodGroup := func(totalCount string, pods ...corev1.Pod) *Pod {
+		driver := testingpod.MakePod("driver", "test-ns").
+			GroupNameLabel("test-group").
+			GroupTotalCount(totalCount)
+		return &Pod{
+			pod:     *driver.Obj(),
+			isGroup: true,
+			list:    corev1.PodList{Items: pods},
+		}
+	}
+
 	testCases := map[string]struct {
-		pod  *corev1.Pod
+		pod  *Pod
 		want bool
 	}{
-		"pod is ready": {
-			pod: testingpod.MakePod("test-pod", "test-ns").
-				Queue("test-queue").
-				StatusConditions(
-					corev1.PodCondition{
-						Type:   corev1.PodReady,
-						Status: corev1.ConditionTrue,
-					},
-				).
-				Obj(),
+		"single pod is ready": {
+			pod:  FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").StatusConditions(readyCond).Obj()),
 			want: true,
 		},
-		"pod is not ready": {
-			pod: testingpod.MakePod("test-pod", "test-ns").
-				Queue("test-queue").
-				StatusConditions().
-				Obj(),
+		"single pod is not ready": {
+			pod:  FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").Obj()),
+			want: false,
+		},
+		"pod group with all pods ready": {
+			pod:  makePodGroup("3", readyPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			want: true,
+		},
+		"pod group with fewer pods than expected": {
+			pod:  makePodGroup("3", readyPod("driver")),
+			want: false,
+		},
+		"pod group with all pods present but not all ready": {
+			pod:  makePodGroup("3", readyPod("driver"), pendingPod("worker-1"), pendingPod("worker-2")),
+			want: false,
+		},
+		"pod group without total count annotation": {
+			pod: &Pod{
+				pod:     *testingpod.MakePod("driver", "test-ns").GroupNameLabel("test-group").Obj(),
+				isGroup: true,
+				list:    corev1.PodList{Items: []corev1.Pod{readyPod("driver"), readyPod("worker-1")}},
+			},
+			want: false,
+		},
+		"pod group with malformed total count annotation": {
+			pod:  makePodGroup("invalid", readyPod("driver"), readyPod("worker-1")),
 			want: false,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			pod := FromObject(tc.pod)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := pod.PodsReady(ctx, nil)
+			got := tc.pod.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -129,6 +160,65 @@ func TestRun(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("error mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
+	makePodGroup := func(roleCount int) *Pod {
+		pods := make([]corev1.Pod, roleCount)
+		for i := range pods {
+			pods[i] = *testingpod.MakePod(fmt.Sprintf("pod-%d", i), "ns").
+				UID(fmt.Sprintf("test-uid-%d", i)).
+				Queue("user-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount(strconv.Itoa(roleCount)).
+				Annotation(podconstants.RoleHashAnnotation, fmt.Sprintf("role-%02d", i)).
+				Image("", nil).
+				Obj()
+		}
+		return &Pod{
+			pod:     pods[0],
+			isFound: true,
+			isGroup: true,
+			list:    corev1.PodList{Items: pods},
+		}
+	}
+
+	testCases := map[string]struct {
+		roleCount int
+		wantErr   string
+	}{
+		"allows maximum pod group roles": {
+			roleCount: 10,
+		},
+		"rejects more than maximum pod group roles": {
+			roleCount: 11,
+			wantErr:   "pod group can't include more than 10 roles",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			kClient := utiltesting.NewClientBuilder().Build()
+
+			wl, gotErr := makePodGroup(tc.roleCount).ConstructComposableWorkload(ctx, kClient, nil, nil)
+
+			if tc.wantErr == "" && gotErr != nil {
+				t.Fatalf("unexpected error: %v", gotErr)
+			}
+			if tc.wantErr != "" {
+				if gotErr == nil {
+					t.Fatalf("got nil error, want %q", tc.wantErr)
+				}
+				if gotErr.Error() != tc.wantErr {
+					t.Fatalf("error = %q, want %q", gotErr.Error(), tc.wantErr)
+				}
+			}
+			if tc.wantErr == "" && len(wl.Spec.PodSets) != tc.roleCount {
+				t.Fatalf("podSets count = %d, want %d", len(wl.Spec.PodSets), tc.roleCount)
 			}
 		})
 	}

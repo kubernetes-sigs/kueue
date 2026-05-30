@@ -6,7 +6,7 @@ description: >
   Workload types that support dynamic scaling.
 ---
 
-{{< feature-state state="alpha" for_version="v0.13" >}}
+{{< feature-state state="beta" for_version="v0.18" >}}
 
 ## Elastic Workloads (Workload Slices)
 

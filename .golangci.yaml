@@ -91,6 +91,12 @@ linters:
           - staticcheck
         text: 'SA1019: features.* is deprecated: planned to be removed in .*'
       - linters:
+          - staticcheck
+        text: 'SA1019: mgr.GetEventRecorderFor is deprecated: this uses the old events API and will be removed in a future release. Please use GetEventRecorder instead.'
+      - linters:
+          - staticcheck
+        text: 'SA1019: scheme.Builder is deprecated: This helper is only useful in api packages'
+      - linters:
           - fatcontext
         path: ^test/*
 issues:

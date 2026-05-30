@@ -830,3 +830,64 @@ func (w *NodeSelectorTermsWrapper) Term(key string, op corev1.NodeSelectorOperat
 func (w *NodeSelectorTermsWrapper) Obj() []corev1.NodeSelectorTerm {
 	return w.terms
 }
+
+type ResourceSliceWrapper struct{ resourcev1.ResourceSlice }
+
+func MakeResourceSlice(name, driver string) *ResourceSliceWrapper {
+	return &ResourceSliceWrapper{
+		resourcev1.ResourceSlice{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+			Spec: resourcev1.ResourceSliceSpec{
+				Driver: driver,
+				Pool: resourcev1.ResourcePool{
+					Name:               "default-pool",
+					Generation:         1,
+					ResourceSliceCount: 1,
+				},
+				NodeName: new("fake-node"),
+			},
+		},
+	}
+}
+
+func (w *ResourceSliceWrapper) Pool(name string, generation int64, sliceCount int64) *ResourceSliceWrapper {
+	w.Spec.Pool = resourcev1.ResourcePool{
+		Name:               name,
+		Generation:         generation,
+		ResourceSliceCount: sliceCount,
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) Device(name string) *ResourceSliceWrapper {
+	w.Spec.Devices = append(w.Spec.Devices, resourcev1.Device{
+		Name:       name,
+		Attributes: make(map[resourcev1.QualifiedName]resourcev1.DeviceAttribute),
+	})
+	return w
+}
+
+func (w *ResourceSliceWrapper) Attribute(name, value string) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.Attributes[resourcev1.QualifiedName(name)] = resourcev1.DeviceAttribute{StringValue: new(value)}
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) CounterConsumption(counterSet, counterName, value string) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.ConsumesCounters = append(last.ConsumesCounters, resourcev1.DeviceCounterConsumption{
+			CounterSet: counterSet,
+			Counters:   map[string]resourcev1.Counter{counterName: {Value: resource.MustParse(value)}},
+		})
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) Obj() *resourcev1.ResourceSlice {
+	return &w.ResourceSlice
+}

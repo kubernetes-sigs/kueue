@@ -20,7 +20,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 - [ResourceFlavor](#kueue-x-k8s-io-v1beta1-ResourceFlavor)
 - [Workload](#kueue-x-k8s-io-v1beta1-Workload)
 - [WorkloadPriorityClass](#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass)
-  
+
 
 ## `AdmissionCheck`     {#kueue-x-k8s-io-v1beta1-AdmissionCheck}
     
@@ -3005,7 +3005,7 @@ This may be an empty string.</p>
 <td>
    <p>podSets is a list of sets of homogeneous pods, each described by a Pod spec
 and a count.
-There must be at least one element and at most 8.
+There must be at least one element and at most 10.
 podSets cannot be changed.</p>
 </td>
 </tr>
@@ -3165,4 +3165,3 @@ in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycle
 </tr>
 </tbody>
 </table>
-  

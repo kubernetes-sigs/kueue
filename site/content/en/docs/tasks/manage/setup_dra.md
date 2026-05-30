@@ -153,13 +153,6 @@ spec:
       expression: device.driver == "gpu.example.com"
 ```
 
-{{% alert title="Important" color="warning" %}}
-The `DeviceClass` must exist **before** users submit workloads. There is no
-DeviceClass watcher in alpha. If a `DeviceClass` is created after a workload
-was marked inadmissible, the workload will not be re-evaluated until the next
-cluster event that triggers inadmissible workload requeuing (e.g., another
-workload completes or quota changes).
-{{% /alert %}}
 
 No `deviceClassMappings` configuration is needed for this path. Kueue
 auto-discovers the mapping by indexing `DeviceClass` objects.

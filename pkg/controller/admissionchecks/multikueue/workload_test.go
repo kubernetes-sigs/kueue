@@ -1742,11 +1742,12 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			wantCreated:    nil,
 		},
 		{
-			name:             "AllClusters: stale cache ClusterName set, nominations not confirmed — no remote workloads created",
-			dispatcherMode:   config.MultiKueueDispatcherModeAllAtOnce,
-			remotes:          map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
-			localClusterName: new(remoteNames[0]),
-			wantCreated:      nil,
+			name:                      "AllClusters: nominate all workers when called directly with ClusterName set",
+			dispatcherMode:            config.MultiKueueDispatcherModeAllAtOnce,
+			remotes:                   map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
+			localClusterName:          new(remoteNames[0]),
+			wantCreated:               []string{remoteNames[0], remoteNames[1]},
+			wantNominatedClusterNames: []string{remoteNames[0], remoteNames[1]},
 		},
 		{
 			name:                      "AllClusters: same set in reversed order does not trigger unnecessary patch",
@@ -1776,6 +1777,15 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			remotes:          remotes,
 			nominatedWorkers: remoteNames,
 			wantCreated:      remoteNames,
+		},
+		{
+			name:                      "External controller: nominated worker cluster not yet connected",
+			dispatcherMode:            externalMultiKueueDispatcherController,
+			remotes:                   map[string]*kueue.Workload{remoteNames[0]: nil},
+			nominatedWorkers:          []string{remoteNames[0], remoteNames[1]},
+			wantCreated:               []string{remoteNames[0]},
+			wantErr:                   true,
+			wantNominatedClusterNames: []string{remoteNames[0], remoteNames[1]},
 		},
 	}
 

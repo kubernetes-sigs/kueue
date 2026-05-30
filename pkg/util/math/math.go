@@ -34,6 +34,18 @@ func SaturatingAdd(a, b int64) int64 {
 	return a + b
 }
 
+// SaturatingSub subtracts b from a, returning math.MaxInt64 or math.MinInt64 if
+// the result would overflow or underflow.
+func SaturatingSub(a, b int64) int64 {
+	if b < 0 && a > stdmath.MaxInt64+b {
+		return stdmath.MaxInt64
+	}
+	if b > 0 && a < stdmath.MinInt64+b {
+		return stdmath.MinInt64
+	}
+	return a - b
+}
+
 var (
 	maxMilliValue = *resource.NewMilliQuantity(stdmath.MaxInt64, resource.DecimalSI)
 	minMilliValue = *resource.NewMilliQuantity(stdmath.MinInt64, resource.DecimalSI)

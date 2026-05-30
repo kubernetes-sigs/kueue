@@ -64,7 +64,7 @@ import (
 const (
 	FrameworkName                  = "pod"
 	ConditionTypeTerminationTarget = "TerminationTarget"
-	errMsgIncorrectGroupRoleCount  = "pod group can't include more than 8 roles"
+	errMsgIncorrectGroupRoleCount  = "pod group can't include more than 10 roles"
 )
 
 // Event reasons used by the pod controller
@@ -462,6 +462,15 @@ func hasPodReadyTrue(conds []corev1.PodCondition) bool {
 func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	if !p.isGroup {
 		return hasPodReadyTrue(p.pod.Status.Conditions)
+	}
+
+	tc, err := p.groupTotalCount()
+	if err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to get group total count for PodsReady check")
+		return false
+	}
+	if len(p.list.Items) < tc {
+		return false
 	}
 
 	for i := range p.list.Items {
@@ -1129,7 +1138,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		}
 		return nil, err
 	}
-	if len(podSets) > 8 {
+	if len(podSets) > jobframework.MaxPodSets {
 		return nil, jobframework.UnretryableError(errMsgIncorrectGroupRoleCount)
 	}
 

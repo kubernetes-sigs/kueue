@@ -18,59 +18,69 @@ package dra
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
-var (
-	globalMapper *ResourceMapper
-)
+// deviceClassCounterConfig holds counter configuration for a specific DeviceClass.
+type deviceClassCounterConfig struct {
+	driver         string
+	counterName    string
+	deviceSelector resourcev1.DeviceSelector
+}
 
 // ResourceMapper provides device class to logical resource name mapping
 // based on Configuration API DRA settings. Initialized once at startup, immutable during runtime.
-// No locks needed due to startup-only initialization pattern.
 type ResourceMapper struct {
 	deviceClassToResource map[corev1.ResourceName]corev1.ResourceName
+	deviceClassCounters   map[corev1.ResourceName]*deviceClassCounterConfig
 }
 
-// newDRAResourceMapper creates a new empty ResourceMapper instance.
-func newDRAResourceMapper() *ResourceMapper {
+// NewResourceMapper creates a new empty ResourceMapper instance.
+func NewResourceMapper() *ResourceMapper {
 	return &ResourceMapper{
 		deviceClassToResource: make(map[corev1.ResourceName]corev1.ResourceName),
+		deviceClassCounters:   make(map[corev1.ResourceName]*deviceClassCounterConfig),
 	}
 }
 
-// lookup returns (logicalResourceName, true) on success or ("", false) when the device class is not mapped.
-func (m *ResourceMapper) lookup(deviceClass corev1.ResourceName) (corev1.ResourceName, bool) {
+// Lookup returns the logical resource name for a device class.
+func (m *ResourceMapper) Lookup(deviceClass corev1.ResourceName) (corev1.ResourceName, bool) {
+	if m == nil {
+		return "", false
+	}
 	logicalResource, found := m.deviceClassToResource[deviceClass]
 	return logicalResource, found
 }
 
-func (m *ResourceMapper) populateFromConfiguration(mappings []configapi.DeviceClassMapping) error {
+// getCounterConfig returns the counter configuration for a DeviceClass, or nil if
+// the DeviceClass does not use counter-based quota.
+func (m *ResourceMapper) getCounterConfig(deviceClass corev1.ResourceName) *deviceClassCounterConfig {
+	return m.deviceClassCounters[deviceClass]
+}
+
+// PopulateFromConfiguration populates the mapper from Configuration API device class mappings.
+func (m *ResourceMapper) PopulateFromConfiguration(mappings []configapi.DeviceClassMapping) error {
 	if mappings == nil {
 		return nil
 	}
-	newMapping := make(map[corev1.ResourceName]corev1.ResourceName)
+	dcToResource := make(map[corev1.ResourceName]corev1.ResourceName)
+	dcCounters := make(map[corev1.ResourceName]*deviceClassCounterConfig)
 	for _, mapping := range mappings {
 		for _, deviceClassName := range mapping.DeviceClassNames {
-			newMapping[deviceClassName] = mapping.Name
+			dcToResource[deviceClassName] = mapping.Name
+			if len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil {
+				c := mapping.Sources[0].Counter
+				dcCounters[deviceClassName] = &deviceClassCounterConfig{
+					driver:         c.Driver,
+					counterName:    c.Name,
+					deviceSelector: c.DeviceSelector,
+				}
+			}
 		}
 	}
-
-	m.deviceClassToResource = newMapping
+	m.deviceClassToResource = dcToResource
+	m.deviceClassCounters = dcCounters
 	return nil
-}
-
-// Mapper returns the singleton DRA mapper instance.
-func Mapper() *ResourceMapper {
-	if globalMapper == nil {
-		globalMapper = newDRAResourceMapper()
-	}
-	return globalMapper
-}
-
-// CreateMapperFromConfiguration creates and populates the global DRA mapper from Configuration API.
-// This is called ONCE during Kueue startup when configuration is loaded.
-func CreateMapperFromConfiguration(mappings []configapi.DeviceClassMapping) error {
-	return Mapper().populateFromConfiguration(mappings)
 }

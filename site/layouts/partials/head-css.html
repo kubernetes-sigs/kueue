@@ -1,0 +1,30 @@
+{{ $scssMain := "scss/main.scss" -}}
+{{ $css := resources.Get $scssMain
+      | toCSS (dict "enableSourceMap" (not hugo.IsProduction)) -}}
+
+{{/* NOTE: we only apply `postCSS` in production or for RTL languages. This
+makes it snappier to develop in Chrome, but it may look sub-optimal in other
+browsers. */ -}}
+
+{{ if eq .Site.Language.Direction "rtl" -}}
+  {{ $css = $css
+      | postCSS (dict "use" "autoprefixer rtlcss" "noMap" true)
+      | resources.Copy (replace $scssMain "." ".rtl.") -}}
+{{ else if hugo.IsProduction -}}
+  {{ $css = $css | postCSS -}}
+{{ end -}}
+
+{{ if hugo.IsProduction -}}
+  {{ $css = $css | minify | fingerprint -}}
+  <link rel="preload" href="{{ $css.RelPermalink }}" as="style" integrity="{{ $css.Data.Integrity }}" crossorigin="anonymous">
+{{ end -}}
+
+{{ with $css -}}
+  <link href="{{ .RelPermalink }}" rel="stylesheet"
+  {{- with .Data.Integrity }} integrity="{{ . }}" crossorigin="anonymous"{{ end -}}
+  >
+{{ else -}}
+  {{ errorf "Resource not found or error building CSS: %s" $scssMain -}}
+{{ end -}}
+
+{{- /**/ -}}

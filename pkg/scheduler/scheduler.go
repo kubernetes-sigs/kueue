@@ -656,10 +656,10 @@ func quotaResourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) resou
 			if cqQuota.BorrowingLimit == nil {
 				reservedUsage[fr] = usage
 			} else {
-				reservedUsage[fr] = min(usage, cqQuota.Nominal+*cqQuota.BorrowingLimit-cq.ResourceNode.Usage[fr])
+				reservedUsage[fr] = resources.MinAmount(usage, cqQuota.Nominal.Add(*cqQuota.BorrowingLimit).Sub(cq.ResourceNode.Usage[fr]))
 			}
 		} else {
-			reservedUsage[fr] = max(0, min(usage, cqQuota.Nominal-cq.ResourceNode.Usage[fr]))
+			reservedUsage[fr] = resources.MaxAmount(resources.NewAmount(0), resources.MinAmount(usage, cqQuota.Nominal.Sub(cq.ResourceNode.Usage[fr])))
 		}
 	}
 	return reservedUsage
@@ -810,6 +810,10 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			return true, nil
 		}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch())
 		if err == nil {
+			// Make sure the preemption expectation for an assumed workload is satisfied.
+			// See: https://github.com/kubernetes-sigs/kueue/issues/11480
+			s.preemptor.SatisfyPreemptionExpectation(log, newWorkload)
+
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(log, newWorkload, e.Obj, admission, consideredStr)
 

@@ -28,12 +28,12 @@ import (
 type WorkloadSpec struct {
 	// podSets is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
-	// There must be at least one element and at most 8.
+	// There must be at least one element and at most 10.
 	// podSets cannot be changed.
 	//
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	PodSets []PodSet `json:"podSets"`
@@ -272,7 +272,7 @@ type Admission struct {
 	// podSetAssignments hold the admission results for each of the .spec.podSets entries.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	// +optional
 	PodSetAssignments []PodSetAssignment `json:"podSetAssignments"`
 }
@@ -495,7 +495,7 @@ type TopologyAssignmentSlice struct {
 	PodCounts TopologyAssignmentSlicePodCounts `json:"podCounts,omitempty"`
 }
 
-// +kubebuilder:validation:ExactlyOneOf=universal;individual
+// +kubebuilder:validation:XValidation:rule="has(self.universal) != has(self.individual)", message="exactly one of the fields in [universal individual] must be set"
 type TopologyAssignmentSliceLevelValues struct {
 	// universal - if set - specifies a single topology placement value (at a particular topology level)
 	// that applies to all pods in the current TopologyAssignmentSlice.
@@ -649,7 +649,7 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	ReclaimablePods []ReclaimablePod `json:"reclaimablePods,omitempty"`
 
 	// admissionChecks list all the admission checks required by the workload and the current status
@@ -669,7 +669,7 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	ResourceRequests []PodSetRequest `json:"resourceRequests,omitempty"`
 
 	// accumulatedPastExecutionTimeSeconds holds the total time, in seconds, the workload spent
@@ -834,7 +834,7 @@ type AdmissionCheckState struct {
 	// podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.
 	// +optional
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=10
 	PodSetUpdates []PodSetUpdate `json:"podSetUpdates,omitempty"`
 }
 
@@ -1113,6 +1113,7 @@ const (
 // +kubebuilder:printcolumn:name="Finished",JSONPath=".status.conditions[?(@.type=='Finished')].status",type="string",description="Workload finished"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
 // +kubebuilder:resource:shortName={kwl,kueueworkload,kueueworkloads}
+// +kubebuilder:selectablefield:JSONPath=.status.admission.clusterQueue
 
 // Workload is the Schema for the workloads API
 // +kubebuilder:validation:XValidation:rule="has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(self.status.admission) ? size(self.spec.podSets) == size(self.status.admission.podSetAssignments) : true", message="podSetAssignments must have the same number of podSets as the spec"

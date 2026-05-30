@@ -57,7 +57,8 @@ function build_kind_node_image {
     fi
 
     echo "Building kind node image: $E2E_KIND_VERSION (K8s v$KIND_VERSION)"
-    $KIND build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
+    "${ROOT_DIR}/hack/retry.sh" --attempts 3 --delay 5 -- \
+        "$KIND" build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
 }
 
 function e2e_is_truthy {
@@ -101,6 +102,31 @@ function e2e_docker_pull_if_needed {
 
     echo "ERROR: Failed to pull '$image' after $max_retries attempts."
     return 1
+}
+
+function e2e_kubectl_apply_url {
+    local url="$1"
+    shift
+    local extra_args=("$@")
+    local manifest
+
+    manifest=$("${ROOT_DIR}/hack/retry.sh" --attempts 7 --delay 2 --exponential -- curl -fsSL "${url}") || return 1
+    echo "${manifest}" | kubectl apply --server-side -f - "${extra_args[@]}"
+}
+
+function e2e_wait_for_operator_in_install {
+  local kubeconfig=$1
+  local ns=$2
+  local deployment_name=$3
+
+  if ! e2e_is_truthy "${E2E_WAIT_FOR_OPERATORS_IN_INSTALL:-false}"; then
+    echo "Skipping install-time wait for deployment/${deployment_name} in ${ns};" \
+         "BeforeSuite will verify readiness."
+    return 0
+  fi
+
+  kubectl --kubeconfig="${kubeconfig}" wait deploy/"${deployment_name}" \
+    -n "${ns}" --for=condition=available --timeout=5m
 }
 
 function e2e_deployment_exists {
@@ -159,12 +185,15 @@ fi
 
 if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBEFLOW_MANIFEST_ORIG=${ROOT_DIR}/dep-crds/training-operator/manifests/overlays/standalone/kustomization.yaml
-    export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue/baseline
-    # Extract the Kubeflow Training Operator image version tag (newTag) from the manifest.
-    # This is necessary because the image version tag does not follow the usual package versioning convention.
+    export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue/kubeflow-manifest-patch
+    # Extract the Kubeflow Training Operator image name and version tag from the manifest.
+    # The image version tag does not follow the usual package versioning convention,
+    # and the image name must match the kustomize output so the pre-loaded image is
+    # used instead of pulling from the registry at deploy time.
+    KUBEFLOW_IMAGE_NAME=$($YQ '.images[] | select(.name | contains("training-operator")) | (.newName // .name)' "${KUBEFLOW_MANIFEST_ORIG}")
     KUBEFLOW_IMAGE_VERSION=$($YQ '.images[] | select(.name | contains("training-operator")) | .newTag' "${KUBEFLOW_MANIFEST_ORIG}")
     export KUBEFLOW_IMAGE_VERSION
-    export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
+    export KUBEFLOW_IMAGE=${KUBEFLOW_IMAGE_NAME}:${KUBEFLOW_IMAGE_VERSION}
 fi
 
 if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -206,6 +235,8 @@ fi
 
 if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
     export PROMETHEUS_OPERATOR_BUNDLE="https://github.com/prometheus-operator/prometheus-operator/releases/download/${PROMETHEUS_OPERATOR_VERSION}/bundle.yaml"
+    export PROMETHEUS_OPERATOR_IMAGE="quay.io/prometheus-operator/prometheus-operator:${PROMETHEUS_OPERATOR_VERSION}"
+    export PROMETHEUS_CONFIG_RELOADER_IMAGE="quay.io/prometheus-operator/prometheus-config-reloader:${PROMETHEUS_OPERATOR_VERSION}"
 fi
 
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
@@ -388,7 +419,7 @@ controllerManager:
 apiServer:
   extraArgs:
     enable-aggregator-routing: \"true\"
-    runtime-config: \"scheduling.k8s.io/v1alpha2=true\"
+    runtime-config: \"scheduling.k8s.io/v1alpha3=true\"
     v: \"3\"
 "' "$patched_config"
 
@@ -421,11 +452,21 @@ function cluster_create {
         cat "$kind_config"
     fi
 
-    if ! $KIND create cluster --name "$cluster" --image "$E2E_KIND_VERSION" \
-            --config "$kind_config" --kubeconfig="$kubeconfig" --wait 5m -v 5 \
-            > "$ARTIFACTS/$cluster-create.log" 2>&1; then
-        echo "ERROR: Unable to create kind cluster '$cluster'." >&2
-        cat "$ARTIFACTS/$cluster-create.log" >&2
+    local log_file="$ARTIFACTS/$cluster-create.log"
+    local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1"
+    local continue_if="grep -q 'port is already allocated' \"$log_file\""
+    local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
+
+    echo "Creating kind cluster '$cluster'..."
+    if ! "${ROOT_DIR}/hack/retry.sh" \
+        --attempts 3 \
+        --delay 3 \
+        --continue-if "$continue_if" \
+        --cleanup "$cleanup_cmd" \
+        -- bash -c "$create_cmd"; then
+
+        echo "ERROR: Unable to start the $cluster cluster after retries." >&2
+        cat "$log_file" >&2
         return 1
     fi
 
@@ -486,6 +527,10 @@ function prepare_docker_images {
     fi
     if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${SPARKOPERATOR_IMAGE}"
+    fi
+    if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+        e2e_docker_pull_if_needed "${PROMETHEUS_OPERATOR_IMAGE}"
+        e2e_docker_pull_if_needed "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
     fi
 }
 
@@ -551,7 +596,7 @@ function kind_load {
         install_cert_manager "${e2e_kubeconfig}"
     fi
     if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_prometheus_operator "${e2e_kubeconfig}"
+        install_prometheus_operator "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         install_multicluster "${e2e_kubeconfig}"
@@ -692,13 +737,11 @@ function cluster_kueue_deploy {
             deploy_with_certmanager "$1"
         fi
     elif [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
-        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra"
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/baseline"
     elif [ "$E2E_USE_HELM" == 'true' ]; then
         helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
-    elif [[ ${E2E_TARGET_FOLDER:-} == "multikueue/sequential" ]]; then
-        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/multikueue/sequential"
     else
-        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/default"
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
     fi
 }
 
@@ -765,7 +808,7 @@ function install_appwrapper {
 
     cluster_kind_load_image "${name}" "${APPWRAPPER_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${APPWRAPPER_MANIFEST}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -805,8 +848,8 @@ function install_jobset {
     fi
 
     cluster_kind_load_image "${name}" "${JOBSET_IMAGE}"
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${JOBSET_MANIFEST}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    e2e_kubectl_apply_url "${JOBSET_MANIFEST}" --kubeconfig="${kubeconfig}"
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -841,7 +884,7 @@ function install_kubeflow {
 
     cluster_kind_load_image "${name}" "${KUBEFLOW_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -930,7 +973,8 @@ function install_mpi {
     cluster_kind_load_image "${name}" "${KUBEFLOW_MPI_IMAGE/#v}"
     curl -sSL "${KUBEFLOW_MPI_MANIFEST}" \
         | kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
+
 }
 
 # $1 cluster name
@@ -980,7 +1024,7 @@ function install_kuberay {
         kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} delete -k "${KUBERAY_MANIFEST}" --ignore-not-found=true
     fi
     kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create -k "${KUBERAY_MANIFEST}"
-    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} wait deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -1020,8 +1064,8 @@ function install_lws {
     fi
 
     cluster_kind_load_image "${name}" "${LEADERWORKERSET_IMAGE/#v}"
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${LEADERWORKERSET_MANIFEST}"
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m || true
+    e2e_kubectl_apply_url "${LEADERWORKERSET_MANIFEST}" --kubeconfig="${kubeconfig}"
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -1100,15 +1144,17 @@ function install_cert_manager {
         fi
     fi
 
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${CERTMANAGER_MANIFEST}"
+    e2e_kubectl_apply_url "${CERTMANAGER_MANIFEST}" --kubeconfig="${kubeconfig}"
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager -n "${ns}" --for=condition=available --timeout=5m
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-webhook -n "${ns}" --for=condition=available --timeout=5m || true
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-cainjector -n "${ns}" --for=condition=available --timeout=5m || true
 }
 
-# $1 kubeconfig option
+# $1 cluster name
+# $2 kubeconfig option
 function install_prometheus_operator {
-    local kubeconfig=${1:-}
+    local name=$1
+    local kubeconfig=${2:-}
     local ns="default"
     local deployment_name="prometheus-operator"
     local expected_version="${PROMETHEUS_OPERATOR_VERSION:-}"
@@ -1134,7 +1180,9 @@ function install_prometheus_operator {
         fi
     fi
 
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${PROMETHEUS_OPERATOR_BUNDLE}"
+    cluster_kind_load_image "${name}" "${PROMETHEUS_OPERATOR_IMAGE}"
+    cluster_kind_load_image "${name}" "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
+    e2e_kubectl_apply_url "${PROMETHEUS_OPERATOR_BUNDLE}" --kubeconfig="${kubeconfig}"
     kubectl wait deploy/"${deployment_name}" -n "${ns}" \
         --for=condition=available --timeout=5m --kubeconfig="${kubeconfig}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side \

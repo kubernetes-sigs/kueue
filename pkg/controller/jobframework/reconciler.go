@@ -682,33 +682,13 @@ func (r *JobReconciler) getWorkloads(ctx context.Context, key types.NamespacedNa
 
 // finalizeWorkloads removes finalizers from workloads associated with the specified job.
 func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob) error {
-	log := ctrl.LoggerFrom(ctx)
 	workloads, err := r.getWorkloads(ctx, key, job)
 	if err != nil {
 		return err
 	}
 	for i := range workloads {
 		wl := &workloads[i]
-
-		// Finish the orphaned workload. This can happen when the workload is readmitted
-		// after eviction (e.g., waitForPodsReady) due to the workload waiting retention policy.
-		// We need to finish the workload to prevent such a situation.
-		// For example, a Deployment-owned pod deleted after PodsReady timeout eviction.
-		if features.Enabled(features.FinishOrphanedWorkloads) && controllerutil.HasControllerReference(wl) {
-			log.V(2).Info("Workload is orphaned; finishing to release quota")
-			err := workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOwnerNotFound,
-				"The workload's owner no longer exists", r.clock)
-			if err != nil {
-				if client.IgnoreNotFound(err) != nil {
-					log.Error(err, "Finishing orphaned workload")
-					return err
-				}
-				return nil
-			}
-		}
-
-		if err := workload.RemoveFinalizer(ctx, r.client, wl); client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Removing finalizer")
+		if err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl)); err != nil {
 			return err
 		}
 	}
@@ -1589,10 +1569,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		if features.Enabled(features.TopologyAwareScheduling) {
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}
-		// Set workload slice name annotation on pods for elastic workloads.
-		// This enables pod lookup by annotation instead of owner reference,
-		// supporting JobSet and other workloads where pods are not immediate children.
-		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if workloadslicing.IsElasticWorkload(w) {
 			info.Annotations[kueue.WorkloadSliceNameAnnotation] = workloadslicing.SliceName(w)
 		}
 
