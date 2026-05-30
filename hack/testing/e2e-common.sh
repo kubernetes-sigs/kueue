@@ -960,30 +960,8 @@ function install_mpi {
     fi
 
     cluster_kind_load_image "${name}" "${KUBEFLOW_MPI_IMAGE/#v}"
-    curl -sSL "${KUBEFLOW_MPI_MANIFEST}" \
-        | kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
 
-    kubectl patch --kubeconfig="${kubeconfig}" deployment/"${deployment_name}" \
-        -n "${ns}" \
-        --type=strategic \
-        -p='{
-          "spec": {
-            "template": {
-              "spec": {
-                "containers": [{
-                  "name": "mpi-operator",
-                  "args": [
-                    "--leader-elect-lease-duration=60s",
-                    "--leader-elect-renew-deadline=40s",
-                    "--leader-elect-retry-period=10s",
-                    "--kube-api-qps=50",
-                    "--kube-api-burst=100"
-                  ]
-                }]
-              }
-            }
-          }
-        }'
+    kubectl kustomize test/e2e/config/mpi-operator | kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
 
     e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
