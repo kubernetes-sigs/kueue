@@ -94,7 +94,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.ClientConnection = cmp.Or(cfg.ClientConnection, &ClientConnection{})
 	cfg.ClientConnection.QPS = cmp.Or(cfg.ClientConnection.QPS, new(DefaultClientConnectionQPS))
 	cfg.ClientConnection.Burst = cmp.Or(cfg.ClientConnection.Burst, new(DefaultClientConnectionBurst))
-	
+
 	cfg.WaitForPodsReady = cmp.Or(
 		cfg.WaitForPodsReady,
 		&WaitForPodsReady{},
@@ -105,8 +105,6 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			Duration: DefaultWaitForPodsReadyTimeout,
 		}
 	}
-
-
 
 	if cfg.WaitForPodsReady != nil {
 		cfg.WaitForPodsReady.BlockAdmission = cmp.Or(cfg.WaitForPodsReady.BlockAdmission, new(false))

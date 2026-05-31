@@ -57,19 +57,20 @@ import (
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
+
 var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
-    Timeout: metav1.Duration{
-        Duration: time.Hour,
-    },
-    BlockAdmission: ptr.To(false),
-    RecoveryTimeout: &metav1.Duration{
-        Duration: time.Hour,
-    },
-    RequeuingStrategy: &configapi.RequeuingStrategy{
-        Timestamp:          ptr.To(configapi.EvictionTimestamp),
-        BackoffBaseSeconds: ptr.To[int32](configapi.DefaultRequeuingBackoffBaseSeconds),
-        BackoffMaxSeconds:  ptr.To[int32](configapi.DefaultRequeuingBackoffMaxSeconds),
-    },
+	Timeout: metav1.Duration{
+		Duration: time.Hour,
+	},
+	BlockAdmission: new(false),
+	RecoveryTimeout: &metav1.Duration{
+		Duration: time.Hour,
+	},
+	RequeuingStrategy: &configapi.RequeuingStrategy{
+		Timestamp:          ptr.To(configapi.EvictionTimestamp),
+		BackoffBaseSeconds: ptr.To[int32](configapi.DefaultRequeuingBackoffBaseSeconds),
+		BackoffMaxSeconds:  ptr.To[int32](configapi.DefaultRequeuingBackoffMaxSeconds),
+	},
 }
 
 func defaultControlCacheOptions(namespace string) ctrlcache.Options {
@@ -436,7 +437,6 @@ objectRetentionPolicies:
 		BindPort: ptr.To[int32](configapi.DefaultVisibilityBindPort),
 	}
 
-
 	testcases := []struct {
 		name                 string
 		configFile           string
@@ -536,7 +536,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -574,7 +573,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -1287,15 +1285,15 @@ func TestEncode(t *testing.T) {
 					"bindPort": int64(8082),
 				},
 				"waitForPodsReady": map[string]any{
-                "blockAdmission": false,
-                "recoveryTimeout": "1h0m0s",
-				"requeuingStrategy": map[string]any{
-					"backoffBaseSeconds": int64(60),
-					"backoffMaxSeconds":  int64(3600),
-					"timestamp":          "Eviction",
+					"blockAdmission":  false,
+					"recoveryTimeout": "1h0m0s",
+					"requeuingStrategy": map[string]any{
+						"backoffBaseSeconds": int64(60),
+						"backoffMaxSeconds":  int64(3600),
+						"timestamp":          "Eviction",
+					},
+					"timeout": "1h0m0s",
 				},
-				"timeout": "1h0m0s",
-                },
 			},
 		},
 	}
