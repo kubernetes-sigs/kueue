@@ -75,6 +75,16 @@ syntax, just like CPU or memory. No `ResourceClaimTemplate` is needed:
 
 {{< include "examples/dra/sample-dra-extended-resource-job.yaml" "yaml" >}}
 
+### Using partitionable devices
+
+If your administrator has configured
+[counter-based quota](/docs/tasks/manage/setup_dra/#set-up-counter-based-quota-partitionable-devices),
+your workload is charged by the device's counter value (such as GPU memory)
+rather than device count. You submit workloads the same way as the
+ResourceClaimTemplate path above.
+
+{{< include "examples/dra/sample-dra-counter-job.yaml" "yaml" >}}
+
 If you are not sure which approach to use, ask your administrator.
 
 ## 2. Run the workload
