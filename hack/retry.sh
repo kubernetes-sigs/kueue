@@ -18,19 +18,21 @@
 # where the captured stdout becomes the variable value.
 #
 # Advanced features:
+#   --exponential:       Double the delay after each failed attempt.
 #   --continue-if "CMD": Evaluates CMD upon failure. If it fails, retries are aborted immediately (fail-fast).
 #   --cleanup "CMD": Evaluates CMD before starting the next retry attempt.
 #
 # Usage:
-#   retry.sh [--attempts N] [--delay SECONDS] [--continue-if "CMD"] [--cleanup "CMD"] -- <command> [args...]
+#   retry.sh [--attempts N] [--delay SECONDS] [--exponential] [--continue-if "CMD"] [--cleanup "CMD"] -- <command> [args...]
 #
-# Defaults: --attempts 4, --delay 5
+# Defaults: --attempts 4, --delay 5 (no exponential backoff)
 # Exit:     0 on first success, 1 if all attempts fail, 2 on usage error.
 
 set -u
 
 attempts=4
 delay=5
+exponential=false
 continue_if=""
 cleanup=""
 
@@ -38,6 +40,7 @@ while [ $# -gt 0 ]; do
     case $1 in
         --attempts)        attempts=$2; shift 2 ;;
         --delay)           delay=$2;    shift 2 ;;
+        --exponential)     exponential=true; shift ;;
         --continue-if)     continue_if=$2; shift 2 ;;
         --cleanup)         cleanup=$2; shift 2 ;;
         --)                shift; break ;;
@@ -57,7 +60,11 @@ for i in $(seq 1 "$attempts"); do
         printf '%s' "$out"
         exit 0
     fi
-    echo "retry [$i/$attempts] failed" 1>&2
+    if [ "$i" -lt "$attempts" ]; then
+        echo "retry [$i/$attempts] failed, retrying in ${delay}s..." 1>&2
+    else
+        echo "retry [$i/$attempts] failed" 1>&2
+    fi
 
     if [ "$i" -lt "$attempts" ]; then
         if [ -n "$continue_if" ]; then
@@ -78,6 +85,9 @@ for i in $(seq 1 "$attempts"); do
         fi
 
         sleep "$delay"
+        if [ "$exponential" = "true" ]; then
+            delay=$((delay * 2))
+        fi
     fi
 done
 exit 1
