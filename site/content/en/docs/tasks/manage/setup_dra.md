@@ -47,18 +47,12 @@ that matches how your users submit workloads:
 
 ## Set up the ResourceClaimTemplate path
 
-{{< feature-state state="alpha" for_version="v0.14" >}}
+{{< feature-state state="beta" for_version="v0.18" >}}
 
 Use this path when your users submit workloads that explicitly reference
 `ResourceClaimTemplate` objects.
 
-### 1. Enable the feature gate
-
-Install or reconfigure Kueue with the `KueueDRAIntegration` feature gate
-enabled. Follow the
-[custom configuration installation instructions](/docs/installation#install-a-custom-configured-released-version).
-
-### 2. Configure deviceClassMappings
+### 1. Configure deviceClassMappings
 
 Add a `deviceClassMappings` entry to the Kueue Configuration that maps each
 `DeviceClass` to a logical resource name for quota:
@@ -66,8 +60,6 @@ Add a `deviceClassMappings` entry to the Kueue Configuration that maps each
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
-featureGates:
-  KueueDRAIntegration: true
 resources:
   deviceClassMappings:
   - name: example.com/gpu           # Logical resource name for quota
@@ -91,7 +83,7 @@ resources:
     - gpu-h100.example.com
 ```
 
-### 3. Add the DRA resource to your ClusterQueue
+### 2. Add the DRA resource to your ClusterQueue
 
 Include the logical resource name from `deviceClassMappings` in the
 `coveredResources` of your `ClusterQueue`:
@@ -108,7 +100,7 @@ field in `deviceClassMappings`. Each device request referencing a mapped
 
 ## Set up the extended resource path
 
-{{< feature-state state="alpha" for_version="v0.17" >}}
+{{< feature-state state="alpha" for_version="v0.18" >}}
 
 Use this path when your users submit workloads using the standard
 `resources.requests` syntax (e.g., `nvidia.com/gpu: 1`) and a `DeviceClass`
@@ -127,8 +119,7 @@ featureGates:
 ```
 
 The Kubernetes cluster also needs the `DRAExtendedResource` feature gate
-enabled on kube-apiserver and kube-scheduler. This is alpha (disabled by
-default) in Kubernetes 1.34.
+enabled on kube-apiserver and kube-scheduler (beta in Kubernetes 1.36).
 
 ### 2. Verify the DeviceClass
 
@@ -174,6 +165,103 @@ Without the `KueueDRAIntegrationExtendedResource` feature gate, Kueue charges qu
 the `resources.requests` entry and the auto-created `ResourceClaim`, double
 counting the same device. With the feature gate enabled, Kueue detects the
 matching `DeviceClass` and charges quota only for the extended resource.
+
+## Set up counter-based quota (partitionable devices)
+
+{{< feature-state state="alpha" for_version="v0.18" >}}
+
+Use this when your cluster has partitionable devices and you want quota to
+reflect actual device capacity rather than device count. This requires
+Kubernetes 1.35+ with the `DRAPartitionableDevices` feature gate enabled
+and a DRA driver that publishes `consumesCounters` in `ResourceSlice` objects.
+
+### 1. Enable the feature gate and configure counter sources
+
+Install or reconfigure Kueue with the `KueueDRAIntegrationPartitionableDevices`
+feature gate enabled and a `sources` entry in `deviceClassMappings`. Follow the
+[custom configuration installation instructions](/docs/installation/#install-a-custom-configured-released-version).
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  KueueDRAIntegrationPartitionableDevices: true
+resources:
+  deviceClassMappings:
+  - name: gpu.memory
+    deviceClassNames:
+    - gpu.example.com
+    sources:
+    - counter:
+        name: memory
+        driver: gpu.example.com
+        deviceSelector:
+          cel:
+            expression: "device.driver == 'gpu.example.com'"
+```
+
+The `sources[].counter.name` must match a counter key published by your DRA
+driver in `ResourceSlice` devices. You can inspect these with:
+
+```shell
+kubectl get resourceslices -o jsonpath='{range .items[*]}{.spec.driver}{"\t"}{range .spec.devices[*]}{.name}: {.consumesCounters}{"\n"}{end}{end}'
+```
+
+The output is similar to the following:
+
+```
+gpu.example.com  gpu-0: [{"counterSet":"shared","counters":{"memory":{"value":"10Gi"}}}]
+```
+
+### 2. Add the counter resource to your ClusterQueue
+
+Set the quota in counter units instead of device count:
+
+{{< include "examples/dra/sample-dra-counter-queues.yaml" "yaml" >}}
+
+```shell
+kubectl apply -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-counter-queues.yaml
+```
+
+### 3. Verify counter-based quota is working
+
+Submit a test workload:
+
+{{< include "examples/dra/sample-dra-counter-job.yaml" "yaml" >}}
+
+```shell
+kubectl create -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-counter-job.yaml
+```
+
+Check the workload's `resourceUsage` to confirm quota was charged by
+counter value:
+
+```shell
+kubectl -n default get workloads.kueue.x-k8s.io -o jsonpath='{range .items[*]}{.metadata.name}: {.status.admission.podSetAssignments[0].resourceUsage}{"\n"}{end}'
+```
+
+The output is similar to the following:
+
+```
+job-sample-dra-counter-job-xxxxx: {"gpu.memory":"85899345920"}
+```
+
+### Troubleshooting counter-based quota
+
+**Workload rejected with "insufficient matching devices"**: Kueue could not
+find enough devices matching the `deviceSelector` CEL expression. This can
+happen if `ResourceSlice` objects are not yet populated (e.g., during driver
+startup or node registration). Verify that ResourceSlices exist and contain
+devices matching your selector.
+
+**Workload rejected with "no consumesCounters entry for counter"**: The
+devices in `ResourceSlice` objects do not have a `consumesCounters` entry
+matching the `name` configured in `sources[].counter.name`. Verify the
+counter name matches what your DRA driver publishes (see step 1).
+
+**Kueue fails to start with "CEL compilation failed"**: The `deviceSelector`
+CEL expression has a syntax or type error. Check the expression against the
+[DRA CEL environment](https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/#device-selector).
 
 ## Path separation
 
