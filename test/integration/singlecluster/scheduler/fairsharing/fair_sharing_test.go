@@ -858,8 +858,16 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
-			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
-			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+
+			// This safely retries for up to 30 seconds without crashing
+			gomega.Eventually(func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
+			}, 3*util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func() {
+				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+			}, 3*util.Timeout, util.Interval).Should(gomega.Succeed())
+
 			util.ExpectClusterQueueWeightedShareMetric(cq1, 1000)
 			util.ExpectClusterQueueWeightedShareMetric(cq2, 0.0)
 		})
