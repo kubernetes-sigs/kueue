@@ -18,6 +18,7 @@ package jobframework
 
 import (
 	"context"
+	"errors"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -27,10 +28,22 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
+// ErrSyncDeferred is returned by MultiKueueAdapter.SyncJob when the adapter
+// intentionally skipped propagating the remote Job's status to the local Job
+// (typically because the local Job is still suspended and a status patch
+// would violate K8s suspend-validation rules). The caller should treat this
+// as a transient condition and requeue the workload on a short timer so the
+// sync can be retried once the local Job is unsuspended; without that
+// requeue the next reconcile may be up to `workerLostTimeout` (15 min) away
+// and the local Job's status.Active will not catch up — see #11115.
+var ErrSyncDeferred = errors.New("multikueue sync deferred until local job is unsuspended")
+
 // MultiKueueAdapter interface needed for MultiKueue job delegation.
 type MultiKueueAdapter interface {
 	// SyncJob creates the Job object in the worker cluster using remote client, if not already created.
 	// Copy the status from the remote job if already exists.
+	// Returns ErrSyncDeferred if the sync was intentionally skipped and the
+	// caller should requeue on a short timer.
 	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
 	// DeleteRemoteObject deletes the Job in the worker cluster.
 	DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error

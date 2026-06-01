@@ -63,6 +63,15 @@ var (
 	singleClusterPreemptionTimeout = 5 * time.Minute
 )
 
+// syncDeferredRequeueAfter is the delay used to re-reconcile a workload after
+// the Job adapter returned jobframework.ErrSyncDeferred (because the local Job
+// was still suspended at the moment SyncJob was called). It must be short
+// enough that the local Job's eventual unsuspend is observed within a typical
+// e2e/operator window, but long enough to not hot-loop on the few hundred ms
+// the unsuspend PATCH normally takes. 2 s sits comfortably between the two.
+// See https://github.com/kubernetes-sigs/kueue/issues/11115.
+const syncDeferredRequeueAfter = 2 * time.Second
+
 type wlReconciler struct {
 	client            client.Client
 	helper            *admissioncheck.MultiKueueStoreHelper
@@ -493,16 +502,32 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			return reconcile.Result{}, err
 		}
 
+		syncDeferred := false
 		if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
-			log.Error(err, "Syncing remote controller object")
-			// We'll retry this in the next reconciling.
-			return reconcile.Result{}, err
+			if errors.Is(err, jobframework.ErrSyncDeferred) {
+				// The adapter intentionally skipped status propagation because the
+				// local Job is still suspended. The local Job is about to be
+				// unsuspended by the jobframework reconciler, but that does not
+				// trigger this reconciler (we don't watch local Jobs). Schedule a
+				// short re-reconcile so the next SyncJob can propagate the remote
+				// status. See https://github.com/kubernetes-sigs/kueue/issues/11115.
+				log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
+				syncDeferred = true
+			} else {
+				log.Error(err, "Syncing remote controller object")
+				// We'll retry this in the next reconciling.
+				return reconcile.Result{}, err
+			}
 		}
 
 		if err := w.syncReservingRemoteState(ctx, group, reservingRemote, acs); err != nil {
 			return reconcile.Result{}, err
 		}
-		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, nil
+		requeueAfter := w.workerLostTimeout
+		if syncDeferred {
+			requeueAfter = syncDeferredRequeueAfter
+		}
+		return reconcile.Result{RequeueAfter: requeueAfter}, nil
 	} else if acs.State == kueue.CheckStateReady {
 		// If there is no reserving and the AC is ready, the connection with the reserving remote might
 		// be lost, keep the workload admitted for keepReadyTimeout and put it back in the queue after that.
