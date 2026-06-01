@@ -174,7 +174,7 @@ fi
 
 if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBEFLOW_MANIFEST_ORIG=${ROOT_DIR}/dep-crds/training-operator/manifests/overlays/standalone/kustomization.yaml
-    export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue/baseline
+    export KUBEFLOW_MANIFEST_PATCHED=${ROOT_DIR}/test/e2e/config/multikueue/kubeflow-manifest-patch
     # Extract the Kubeflow Training Operator image name and version tag from the manifest.
     # The image version tag does not follow the usual package versioning convention,
     # and the image name must match the kustomize output so the pre-loaded image is
