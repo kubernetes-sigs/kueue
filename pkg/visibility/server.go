@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	mutatingadmissionpolicy "k8s.io/apiserver/pkg/admission/plugin/policy/mutating"
 	validatingadmissionpolicy "k8s.io/apiserver/pkg/admission/plugin/policy/validating"
 	"k8s.io/apiserver/pkg/admission/plugin/resourcequota"
 	mutatingwebhook "k8s.io/apiserver/pkg/admission/plugin/webhook/mutating"
@@ -57,6 +58,7 @@ var (
 	// Admission plugins that are enabled by default in the kubeapi server
 	// but are not required for the visibility server.
 	disabledPlugins = []string{
+		mutatingadmissionpolicy.PluginName,
 		validatingadmissionpolicy.PluginName,
 		resourcequota.PluginName,
 		validatingwebhook.PluginName,
