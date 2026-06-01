@@ -14,11 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Note: AfterSuite is intentionally omitted. With parallel ginkgo processes
-// (-procs=2), each process runs AfterSuite independently. If one process
-// finishes early and deletes secrets, the other process's tests fail with
-// "Secret not found".
-package multikueuedra
+package sequential
 
 import (
 	"cmp"
@@ -38,32 +34,37 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
+const (
+	shard0 = "shard-0"
+	shard1 = "shard-1"
+)
+
 var (
+	managerK8SVersion  *versionutil.Version
 	managerClusterName string
 	worker1ClusterName string
 	worker2ClusterName string
+	kueueNS            = util.GetKueueNamespace()
 
-	k8sManagerClient client.WithWatch
-	k8sWorker1Client client.WithWatch
-	k8sWorker2Client client.WithWatch
+	k8sManagerClient client.Client
+	k8sWorker1Client client.Client
+	k8sWorker2Client client.Client
+	ctx              context.Context
 
 	managerCfg *rest.Config
 	worker1Cfg *rest.Config
 	worker2Cfg *rest.Config
 
+	worker1KConfig []byte
+	worker2KConfig []byte
+
 	managerRestClient *rest.RESTClient
 	worker1RestClient *rest.RESTClient
 	worker2RestClient *rest.RESTClient
-
-	managerK8SVersion *versionutil.Version
-
-	ctx context.Context
 )
 
-var kueueNS = util.GetKueueNamespace()
-
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End MultiKueue DRA Suite")
+	util.RunE2ESuite(t, "End To End MultiKueue Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -87,32 +88,31 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	ctx = ginkgo.GinkgoT().Context()
 
-	// Use MinimalMultiKueueRules for DRA tests - only Jobs, Workloads, Pods
-	worker1KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
+	worker1KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).To(gomega.Succeed())
+	ginkgo.DeferCleanup(func() {
+		gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
+		gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).To(gomega.Succeed())
+	})
 
-	worker2KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
+	worker2KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).To(gomega.Succeed())
+	ginkgo.DeferCleanup(func() {
+		gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
+		gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).To(gomega.Succeed())
+	})
 
 	waitForAvailableStart := time.Now()
-
-	// Wait for Kueue availability on all clusters
 	util.WaitForKueueAvailability(ctx, k8sManagerClient)
 	util.WaitForKueueAvailability(ctx, k8sWorker1Client)
 	util.WaitForKueueAvailability(ctx, k8sWorker2Client)
 
-	// Wait for DRA example driver availability on all clusters
-	util.WaitForDRAExampleDriverAvailability(ctx, k8sManagerClient, managerClusterName)
-	util.WaitForDRAExampleDriverAvailability(ctx, k8sWorker1Client, worker1ClusterName)
-	util.WaitForDRAExampleDriverAvailability(ctx, k8sWorker2Client, worker2ClusterName)
-
 	ginkgo.GinkgoLogr.Info(
-		"Kueue and DRA example driver are available in all clusters",
+		"Kueue and all required operators are available in all the clusters",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
-
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)
