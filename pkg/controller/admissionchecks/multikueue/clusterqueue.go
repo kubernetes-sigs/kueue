@@ -218,7 +218,7 @@ func (r *cqReconciler) removeQuotaAutomationCondition(ctx context.Context, cq *k
 }
 
 func (r *cqReconciler) syncEffectiveQuotaToSpec(ctx context.Context, cq *kueue.ClusterQueue, reason, message string) error {
-	needsUpdate := queue.SyncEffectiveResourceGroupToSpec(cq)
+	needsUpdate := queue.SyncEffectiveResourceGroupsToSpec(cq)
 
 	oldCondition := apimeta.FindStatusCondition(cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
 	newCondition := metav1.Condition{

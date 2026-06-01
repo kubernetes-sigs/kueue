@@ -211,7 +211,7 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
 
 			for _, cq := range tc.clusterQueues {
-				_ = utilqueue.SyncEffectiveResourceGroupToSpec(cq)
+				_ = utilqueue.SyncEffectiveResourceGroupsToSpec(cq)
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 					t.Fatalf("AddClusterQueue(%q): %v", cq.Name, err)
 				}

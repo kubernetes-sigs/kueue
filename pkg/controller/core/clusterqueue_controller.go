@@ -210,7 +210,7 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	} else if isMK {
 		log.V(2).Info("Skipping EffectiveResourceGroup sync: MultiKueue Manager ClusterQueue quota is managed by a dedicated MultiKueue controller.")
-	} else if queue.SyncEffectiveResourceGroupToSpec(&cqObj) {
+	} else if queue.SyncEffectiveResourceGroupsToSpec(&cqObj) {
 		log.V(2).Info("Syncing EffectiveResourceGroups to spec.")
 		if err := r.client.Status().Update(ctx, &cqObj); err != nil {
 			return ctrl.Result{}, err

@@ -37,7 +37,7 @@ func AllFlavors(rgs []kueue.ResourceGroup) sets.Set[kueue.ResourceFlavorReferenc
 }
 
 func GetEffectiveResourceGroup(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
-	if features.Enabled(features.UseEffectiveResourceGroupsAsSourceOfTruth) {
+	if features.Enabled(features.EffectiveResourceQuotas) {
 		return cq.Status.EffectiveResourceGroups
 	}
 	return cq.Spec.ResourceGroups
@@ -51,7 +51,7 @@ func SetEffectiveResourceGroup(cq *kueue.ClusterQueue, rgs *[]kueue.ResourceGrou
 // Should be accessed only in:
 //   * MK ClusterQueue controller,
 //   * Core ClusterQueue controller.
-func SyncEffectiveResourceGroupToSpec(cq *kueue.ClusterQueue) (needsUpdate bool) {
+func SyncEffectiveResourceGroupsToSpec(cq *kueue.ClusterQueue) (needsUpdate bool) {
 	if needsUpdate = !equality.Semantic.DeepEqual(cq.Status.EffectiveResourceGroups, cq.Spec.ResourceGroups); needsUpdate {
 		cq.Status.EffectiveResourceGroups = cq.Spec.ResourceGroups
 	}

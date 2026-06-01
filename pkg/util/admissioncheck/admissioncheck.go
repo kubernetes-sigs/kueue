@@ -63,7 +63,7 @@ func NewMultiKueueStoreHelper(c client.Client) (*MultiKueueStoreHelper, error) {
 func QuotaManagedByMultiKueue(ctx context.Context, c client.Client, cq *kueue.ClusterQueue) (isMK bool, err error) {
 	isMK = false
 	err = nil
-	if features.Enabled(features.MultiKueue) && features.Enabled(features.MultiKueueManagerQuotaAutomation) && features.Enabled(features.UseEffectiveResourceGroupsAsSourceOfTruth) {
+	if features.Enabled(features.MultiKueue) && features.Enabled(features.MultiKueueManagerQuotaAutomation) && features.Enabled(features.EffectiveResourceQuotas) {
 		_, isMK, err = GetMultiKueueAdmissionCheck(ctx, c, cq)
 	}
 	return

@@ -47,7 +47,7 @@ type workerState struct {
 
 func TestCQReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.MultiKueueManagerQuotaAutomation, true)
-	features.SetFeatureGateDuringTest(t, features.UseEffectiveResourceGroupsAsSourceOfTruth, true)
+	features.SetFeatureGateDuringTest(t, features.EffectiveResourceQuotas, true)
 
 	cases := map[string]struct {
 		cq      *kueue.ClusterQueue

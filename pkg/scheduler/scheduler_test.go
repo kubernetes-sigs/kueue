@@ -5932,7 +5932,7 @@ func TestSchedule(t *testing.T) {
 					cqCache.AddOrUpdateResourceFlavor(log, resourceFlavors[i])
 				}
 				for _, cq := range allClusterQueues {
-					_ = utilqueue.SyncEffectiveResourceGroupToSpec(&cq)
+					_ = utilqueue.SyncEffectiveResourceGroupsToSpec(&cq)
 					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
 						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
 					}
@@ -7091,7 +7091,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					cqCache.AddOrUpdateResourceFlavor(log, resourceFlavors[i])
 				}
 				for _, cq := range tc.cqs {
-					_ = utilqueue.SyncEffectiveResourceGroupToSpec(&cq)
+					_ = utilqueue.SyncEffectiveResourceGroupsToSpec(&cq)
 					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
 						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
 					}

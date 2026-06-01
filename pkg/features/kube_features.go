@@ -410,8 +410,8 @@ const (
 	// owner: @dpastuszka
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/11823-effective-resource-groups
 	//
-	// Enables using the UseEffectiveResourceGroupsAsSourceOfTruth status field for de-facto quota tracking in Kueue.
-	UseEffectiveResourceGroupsAsSourceOfTruth featuregate.Feature = "UseEffectiveResourceGroupsAsSourceOfTruth"
+	// Enables using the EffectiveResourceQuotas status field for de-facto quota tracking in Kueue.
+	EffectiveResourceQuotas featuregate.Feature = "EffectiveResourceQuotas"
 
 	// owner: @ivnovakov
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/10032
@@ -673,7 +673,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MetricsForCohorts: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
-	UseEffectiveResourceGroupsAsSourceOfTruth: {
+	EffectiveResourceQuotas: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

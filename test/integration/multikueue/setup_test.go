@@ -1342,7 +1342,7 @@ var _ = ginkgo.Describe("Manager quota automation feature gate", ginkgo.Label("a
 	ginkgo.When("Feature gate enabled", func() {
 		ginkgo.It("Should watch manager-side ClusterQueues", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UseEffectiveResourceGroupsAsSourceOfTruth, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.EffectiveResourceQuotas, true)
 
 			ic, newCacheFunc := newInterceptedCache()
 			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {

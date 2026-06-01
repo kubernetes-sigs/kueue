@@ -1830,7 +1830,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					cqCache.AddOrUpdateResourceFlavor(log, flv)
 				}
 				for _, cq := range tc.clusterQueues {
-					_ = utilqueue.SyncEffectiveResourceGroupToSpec(cq)
+					_ = utilqueue.SyncEffectiveResourceGroupsToSpec(cq)
 					if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 						t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 					}
