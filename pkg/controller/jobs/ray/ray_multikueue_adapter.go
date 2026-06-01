@@ -114,6 +114,9 @@ func (a *adapter[PtrT, T]) SyncJob(
 
 	// if the remote exists, just copy the status
 	if err == nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(remoteJob, origin); err != nil {
+			return err
+		}
 		return clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
 			a.copyStatus(localJob, remoteJob)
 			return true, nil
@@ -132,11 +135,8 @@ func (a *adapter[PtrT, T]) SyncJob(
 	return remoteClient.Create(ctx, remoteJob)
 }
 
-func (a *adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
-	job := PtrT(new(T))
-	job.SetName(key.Name)
-	job.SetNamespace(key.Namespace)
-	return client.IgnoreNotFound(remoteClient.Delete(ctx, job))
+func (a *adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName, origin string) error {
+	return jobframework.DeleteRemoteObjectIfOwnedByMultiKueue(ctx, remoteClient, key, origin, PtrT(new(T)))
 }
 
 func (a *adapter[PtrT, T]) GetEmptyList() client.ObjectList {

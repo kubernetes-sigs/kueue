@@ -18,7 +18,10 @@ package jobframework
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,13 +30,47 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
+var ErrRemoteObjectNotOwnedByMultiKueue = errors.New("remote object is not owned by MultiKueue")
+
+// ValidateRemoteObjectOwnership validates that the object is managed by this MultiKueue controller.
+// A MultiKueue-managed object must have the MultiKueueOriginLabel set to the controller origin.
+func ValidateRemoteObjectOwnership(obj client.Object, origin string) error {
+	if origin == "" {
+		return nil
+	}
+
+	if objOrigin, owned := obj.GetLabels()[kueue.MultiKueueOriginLabel]; owned && objOrigin == origin {
+		return nil
+	}
+
+	return fmt.Errorf("%w: expected %q=%q on %T %q", ErrRemoteObjectNotOwnedByMultiKueue, kueue.MultiKueueOriginLabel, origin, obj, client.ObjectKeyFromObject(obj))
+}
+
+// DeleteRemoteObjectIfOwnedByMultiKueue fetches obj from remoteClient, skips deletion if it
+// is not found, lacks the MultiKueueOriginLabel, or has a different origin value, and
+// otherwise deletes it. The Delete is guarded by a UID precondition pinned to the object
+// observed by Get, so a concurrent delete-and-recreate between Get and Delete cannot
+// cause us to remove an unrelated replacement. deleteOpts are forwarded to the Delete call.
+func DeleteRemoteObjectIfOwnedByMultiKueue(ctx context.Context, remoteClient client.Client, key types.NamespacedName, origin string, obj client.Object, deleteOpts ...client.DeleteOption) error {
+	if err := remoteClient.Get(ctx, key, obj); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	objOrigin, owned := obj.GetLabels()[kueue.MultiKueueOriginLabel]
+	if !owned || objOrigin != origin {
+		return nil
+	}
+	uid := obj.GetUID()
+	opts := append(deleteOpts, client.Preconditions(metav1.Preconditions{UID: &uid}))
+	return client.IgnoreNotFound(remoteClient.Delete(ctx, obj, opts...))
+}
+
 // MultiKueueAdapter interface needed for MultiKueue job delegation.
 type MultiKueueAdapter interface {
 	// SyncJob creates the Job object in the worker cluster using remote client, if not already created.
 	// Copy the status from the remote job if already exists.
 	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
 	// DeleteRemoteObject deletes the Job in the worker cluster.
-	DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error
+	DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, origin string) error
 	// IsJobManagedByKueue returns:
 	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
 	// - a reason indicating why the job is not managed by Kueue

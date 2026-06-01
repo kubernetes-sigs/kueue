@@ -30,6 +30,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -56,11 +57,15 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return syncPodGroup(ctx, localClient, remoteClient, key, workloadName, origin, groupName)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, origin string) error {
 	pod := corev1.Pod{}
 	err := remoteClient.Get(ctx, key, &pod)
 	if err != nil {
 		return client.IgnoreNotFound(err)
+	}
+	podOrigin, hasOriginLabel := pod.Labels[kueue.MultiKueueOriginLabel]
+	if !hasOriginLabel || podOrigin != origin {
+		return nil
 	}
 
 	groupName := GetPodGroupName(&pod)
@@ -154,6 +159,10 @@ func syncLocalPodWithRemote(
 
 	// If the remote pod exists
 	if err == nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(&remotePod, origin); err != nil {
+			return err
+		}
+
 		// Skip syncing if the local pod is terminating
 		if !localPod.DeletionTimestamp.IsZero() {
 			log.V(2).Info("Skipping sync since the local pod is terminating", "podName", localPod.Name)

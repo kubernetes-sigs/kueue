@@ -690,6 +690,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -729,6 +730,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -758,6 +760,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -881,6 +884,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
@@ -919,6 +923,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -953,6 +958,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
@@ -985,6 +991,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -1037,6 +1044,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -1066,6 +1074,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
@@ -1102,6 +1111,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			useSecondWorker: true,

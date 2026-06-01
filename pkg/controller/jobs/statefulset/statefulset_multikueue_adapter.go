@@ -54,6 +54,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// StatefulSet doesn't support managedBy, so the local StatefulSet controller
 	// would immediately overwrite any status we sync from the worker cluster.
 	if err == nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(&remoteStatefulSet, origin); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -73,11 +76,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteStatefulSet)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
-	ss := appsv1.StatefulSet{}
-	ss.SetName(key.Name)
-	ss.SetNamespace(key.Namespace)
-	return client.IgnoreNotFound(remoteClient.Delete(ctx, &ss))
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName, origin string) error {
+	return jobframework.DeleteRemoteObjectIfOwnedByMultiKueue(ctx, remoteClient, key, origin, &appsv1.StatefulSet{})
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {

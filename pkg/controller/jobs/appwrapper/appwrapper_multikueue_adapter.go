@@ -54,6 +54,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// if the remote exists, just copy the status
 	if err == nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(&remoteAppWrapper, origin); err != nil {
+			return err
+		}
 		return clientutil.PatchStatus(ctx, localClient, &localAppWrapper, func() (bool, error) {
 			localAppWrapper.Status = remoteAppWrapper.Status
 			return true, nil
@@ -75,11 +78,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteAppWrapper)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
-	aw := &awv1beta2.AppWrapper{}
-	aw.SetName(key.Name)
-	aw.SetNamespace(key.Namespace)
-	return client.IgnoreNotFound(remoteClient.Delete(ctx, aw))
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName, origin string) error {
+	return jobframework.DeleteRemoteObjectIfOwnedByMultiKueue(ctx, remoteClient, key, origin, &awv1beta2.AppWrapper{})
 }
 
 func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
