@@ -7578,7 +7578,6 @@ func TestResourcesToReserve(t *testing.T) {
 				Resource("gpu", "10", "5").Obj(),
 		).
 		QueueingStrategy(kueue.StrictFIFO).
-		SyncEffectiveResourceGroups().
 		Obj()
 
 	cases := []struct {
@@ -7769,7 +7768,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 			*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "1").
 				Obj(),
-		).SyncEffectiveResourceGroups().Obj()
+		).Obj()
 	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
 
 	testCases := map[string]struct {

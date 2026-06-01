@@ -34,7 +34,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/csv"
-	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -1054,16 +1053,16 @@ func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *Clus
 	return c
 }
 
-func (c *ClusterQueueWrapper) SyncEffectiveResourceGroups() *ClusterQueueWrapper {
-	_ = utilqueue.SyncEffectiveResourceGroupToSpec(&c.ClusterQueue)
-	return c
-}
+// func (c *ClusterQueueWrapper) SyncEffectiveResourceGroups() *ClusterQueueWrapper {
+// 	_ = utilqueue.SyncEffectiveResourceGroupToSpec(&c.ClusterQueue)
+// 	return c
+// }
 
 // EffectiveResourceGroup adds a ResourceGroup with flavors.
-func (c *ClusterQueueWrapper) EffectiveResourceGroup(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
-	c.Status.EffectiveResourceGroups = append(c.Status.EffectiveResourceGroups, ResourceGroup(flavors...))
-	return c
-}
+// func (c *ClusterQueueWrapper) EffectiveResourceGroup(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
+// 	c.Status.EffectiveResourceGroups = append(c.Status.EffectiveResourceGroups, ResourceGroup(flavors...))
+// 	return c
+// }
 
 // AdmissionChecks replaces the queue additional checks.
 // This is a convenience wrapper that converts to the AdmissionChecksStrategy format.

@@ -407,6 +407,12 @@ const (
 	// Enables MultiKueue manager quota automation support.
 	MultiKueueManagerQuotaAutomation featuregate.Feature = "MultiKueueManagerQuotaAutomation"
 
+	// owner: @dpastuszka
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/11823-effective-resource-groups
+	//
+	// Enables using the UseEffectiveResourceGroupsAsSourceOfTruth status field for de-facto quota tracking in Kueue.
+	UseEffectiveResourceGroupsAsSourceOfTruth featuregate.Feature = "UseEffectiveResourceGroupsAsSourceOfTruth"
+
 	// owner: @ivnovakov
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/10032
 	//
@@ -664,9 +670,11 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	WorkloadPriorityClassDefaulting: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
-
 	MetricsForCohorts: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	UseEffectiveResourceGroupsAsSourceOfTruth: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

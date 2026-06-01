@@ -118,7 +118,7 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, err
 	}
 
-	if !equality.Semantic.DeepEqual(cq.Status.EffectiveResourceGroups, *aggregatedRGs) {
+	if !equality.Semantic.DeepEqual(queue.GetEffectiveResourceGroup(cq), *aggregatedRGs) {
 		queue.SetEffectiveResourceGroup(cq, aggregatedRGs)
 		if err := r.client.Update(ctx, cq); err != nil {
 			return reconcile.Result{}, fmt.Errorf("updating ClusterQueue nominal quotas: %w", err)
@@ -175,7 +175,7 @@ func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 			if !remoteCQKeys.Has(key) {
 				continue
 			}
-			for _, rg := range queue.GetResourceGroupSpec(&rcq) {
+			for _, rg := range queue.GetEffectiveResourceGroup(&rcq) {
 				for _, flavor := range rg.Flavors {
 					for _, res := range flavor.Resources {
 						curr := aggrQuota[res.Name]

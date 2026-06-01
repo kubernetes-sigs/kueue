@@ -119,7 +119,7 @@ func validateClusterQueueSpec(cq *kueue.ClusterQueue) field.ErrorList {
 		hasParent:                        cq.Spec.CohortName != "",
 		enforceNominalGreaterThanLending: true,
 	}
-	rgs := queue.GetResourceGroupSpec(cq)
+	rgs := queue.GetEffectiveResourceGroup(cq)
 	allErrs = append(allErrs, validateResourceGroups(rgs, config, path.Child("resourceGroups"), false)...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
@@ -145,9 +145,9 @@ func validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ *kueue.ClusterQueue) fie
 	oldOnFlavorsByName := map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]{}
 
 	if !features.Enabled(features.RejectUpdatesToCQWithInvalidOnFlavors) {
-		newFlavors := utilqueue.AllFlavors(queue.GetResourceGroupSpec(newCQ))
+		newFlavors := utilqueue.AllFlavors(queue.GetEffectiveResourceGroup(newCQ))
 		if oldStrategy := oldCQ.Spec.AdmissionChecksStrategy; oldStrategy != nil &&
-			utilqueue.AllFlavors(queue.GetResourceGroupSpec(oldCQ)).Equal(newFlavors) {
+			utilqueue.AllFlavors(queue.GetEffectiveResourceGroup(oldCQ)).Equal(newFlavors) {
 			oldOnFlavorsByName = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(oldStrategy.AdmissionChecks))
 			for _, check := range oldStrategy.AdmissionChecks {
 				oldOnFlavorsByName[check.Name] = sets.New(check.OnFlavors...)
@@ -164,7 +164,7 @@ func validateAdmissionCheckOnFlavorsWithOld(cq *kueue.ClusterQueue, oldOnFlavors
 		return nil
 	}
 
-	validFlavors := utilqueue.AllFlavors(queue.GetResourceGroupSpec(cq))
+	validFlavors := utilqueue.AllFlavors(queue.GetEffectiveResourceGroup(cq))
 	allowedFlavors := validFlavors.UnsortedList()
 
 	var allErrs field.ErrorList
@@ -238,7 +238,7 @@ func validateConcurrentAdmissionPolicy(cq *kueue.ClusterQueue, path *field.Path)
 	if cq.Spec.ConcurrentAdmissionPolicy == nil {
 		return allErrs
 	}
-	rgs := queue.GetResourceGroupSpec(cq)
+	rgs := queue.GetEffectiveResourceGroup(cq)
 	if len(rgs) != 1 {
 		allErrs = append(allErrs, field.Invalid(path.Child("resourceGroups"), len(rgs),
 			"must have exactly one ResourceGroup when ConcurrentAdmissionPolicy is defined"))
@@ -258,7 +258,7 @@ func validateConcurrentAdmissionPolicy(cq *kueue.ClusterQueue, path *field.Path)
 					kueue.ConcurrentAdmissionTryPreferredFlavors, mode)))
 		} else if cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName != nil {
 			lastAcceptableFlavor := *cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
-			validFlavors := utilqueue.AllFlavors(queue.GetResourceGroupSpec(cq))
+			validFlavors := utilqueue.AllFlavors(queue.GetEffectiveResourceGroup(cq))
 			if !validFlavors.Has(lastAcceptableFlavor) {
 				allowedFlavors := utilslices.Map(validFlavors.UnsortedList(), func(f *kueue.ResourceFlavorReference) string { return string(*f) })
 				allErrs = append(allErrs, field.Invalid(

@@ -411,6 +411,7 @@ func managerAndMultiKueueSetup(
 
 var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UseEffectiveResourceGroupsAsSourceOfTruth, true)
 
 	ginkgo.By("creating the clusters", func() {
 		wg := sync.WaitGroup{}

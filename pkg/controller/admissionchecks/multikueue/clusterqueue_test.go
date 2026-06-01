@@ -47,6 +47,7 @@ type workerState struct {
 
 func TestCQReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.MultiKueueManagerQuotaAutomation, true)
+	features.SetFeatureGateDuringTest(t, features.UseEffectiveResourceGroupsAsSourceOfTruth, true)
 
 	cases := map[string]struct {
 		cq      *kueue.ClusterQueue
@@ -397,7 +398,7 @@ func TestCQReconcile(t *testing.T) {
 					t.Errorf("unexpected effectiveResourceGroups for quota automation (-want/+got):\n%s", diff)
 				}
 			} else {
-				if diff := cmp.Diff(queue.GetResourceGroupSpec(tc.cq), rgs); diff != "" {
+				if diff := cmp.Diff(queue.GetEffectiveResourceGroup(tc.cq), rgs); diff != "" {
 					t.Errorf("unexpected effectiveResourceGroups for quota automation disabled (-want/+got):\n%s", diff)
 				}
 			}

@@ -1141,8 +1141,7 @@ func TestFilterChecksForAdmission(t *testing.T) {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj()).
-				SyncEffectiveResourceGroups().
-				Obj(),
+								Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
 		},
 		"AdmissionCheckStrategy with an unmatched flavor": {
@@ -1156,8 +1155,7 @@ func TestFilterChecksForAdmission(t *testing.T) {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "unmatched-flavor").Obj()).
-				SyncEffectiveResourceGroups().
-				Obj(),
+								Obj(),
 			wantAdmissionChecks: nil,
 		},
 		"AdmissionCheckStrategy without a flavor": {
@@ -1171,8 +1169,7 @@ func TestFilterChecksForAdmission(t *testing.T) {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1").Obj()).
-				SyncEffectiveResourceGroups().
-				Obj(),
+								Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
 		},
 		"Two AdmissionCheckStrategies, one with flavor, one without flavor": {
@@ -1188,8 +1185,7 @@ func TestFilterChecksForAdmission(t *testing.T) {
 				AdmissionCheckStrategy(
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj()).
-				SyncEffectiveResourceGroups().
-				Obj(),
+								Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
 		},
 		"AdmissionCheckStrategy with only a non-existent flavor": {
@@ -1204,8 +1200,7 @@ func TestFilterChecksForAdmission(t *testing.T) {
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
 				AdmissionCheckStrategy(
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor-nonexistent").Obj()).
-				SyncEffectiveResourceGroups().
-				Obj(),
+								Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference](),
 		},
 		"AdmissionCheckStrategy with an additional non-existent flavor": {
@@ -1220,8 +1215,7 @@ func TestFilterChecksForAdmission(t *testing.T) {
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
 				AdmissionCheckStrategy(
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1", "flavor-nonexistent").Obj()).
-				SyncEffectiveResourceGroups().
-				Obj(),
+								Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
 		},
 		"Two AdmissionCheckStrategies, one covering one flavor, one covering another": {
@@ -1239,8 +1233,7 @@ func TestFilterChecksForAdmission(t *testing.T) {
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2", "flavor2").Obj(),
 				).
-				SyncEffectiveResourceGroups().
-				Obj(),
+								Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
 		},
 	}
@@ -1290,7 +1283,7 @@ func TestAdmissionChecksForWorkload(t *testing.T) {
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac4", "flavor1", "flavor2", "non-existent-flavor").Obj(),
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac5", "non-existent-flavor").Obj(),
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac6").Obj(),
-				).SyncEffectiveResourceGroups().Obj()
+				).Obj()
 			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, cq)
 
 			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {

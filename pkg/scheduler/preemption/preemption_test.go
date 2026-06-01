@@ -4190,7 +4190,6 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 		Preemption(kueue.ClusterQueuePreemption{
 			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 		}).
-		SyncEffectiveResourceGroups().
 		Obj()
 
 	cases := map[string]struct {
@@ -4405,7 +4404,6 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 		Preemption(kueue.ClusterQueuePreemption{
 			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 		}).
-		SyncEffectiveResourceGroups().
 		Obj()
 	targetWl := utiltestingapi.MakeWorkload("low", "").
 		UID("low-uid").
@@ -4506,7 +4504,6 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 		Preemption(kueue.ClusterQueuePreemption{
 			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 		}).
-		SyncEffectiveResourceGroups().
 		Obj()
 
 	cases := map[string]struct {

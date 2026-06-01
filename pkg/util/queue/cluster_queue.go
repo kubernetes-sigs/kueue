@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -36,8 +37,10 @@ func AllFlavors(rgs []kueue.ResourceGroup) sets.Set[kueue.ResourceFlavorReferenc
 }
 
 func GetEffectiveResourceGroup(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
-	// TODO: consider gating behind a feature flag.
-	return cq.Status.EffectiveResourceGroups
+	if features.Enabled(features.UseEffectiveResourceGroupsAsSourceOfTruth) {
+		return cq.Status.EffectiveResourceGroups
+	}
+	return cq.Spec.ResourceGroups
 }
 
 // Should be accessed only in MK Cluster Reconciler.
@@ -53,14 +56,6 @@ func SyncEffectiveResourceGroupToSpec(cq *kueue.ClusterQueue) (needsUpdate bool)
 		cq.Status.EffectiveResourceGroups = cq.Spec.ResourceGroups
 	}
 	return
-}
-
-// Should be accessed only in:
-//   * MK ClusterQueue controller,
-//   * ClusterQueue Webhook,
-//	 * Tests.
-func GetResourceGroupSpec(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
-	return cq.Spec.ResourceGroups
 }
 
 // Should be accessed only in MK ClusterQueue controller.
