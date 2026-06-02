@@ -39,7 +39,7 @@ const (
 	customVisibilityPort      = 9444
 )
 
-var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", shard0), ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", util.Shard0), ginkgo.Ordered, func() {
 	var originalDeployment appsv1.Deployment
 	var originalService corev1.Service
 	var cq *kueue.ClusterQueue
