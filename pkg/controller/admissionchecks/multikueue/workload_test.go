@@ -2057,7 +2057,7 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
 		AdmittedAt(true, now).
 		AdmissionCheck(kueue.AdmissionCheckState{
-			Name:               kueue.AdmissionCheckReference(acName),
+			Name:               acName,
 			State:              kueue.CheckStateReady,
 			LastTransitionTime: metav1.NewTime(now),
 		}).
