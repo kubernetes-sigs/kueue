@@ -716,7 +716,7 @@ The label 'reason' can have the following values:
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "flavor_admitted_active_workloads",
-			Help:      "The number of admitted Workloads that are active (unsuspended and not finished), per 'cluster_queue' and 'flavor'",
+			Help:      "The number of admitted Workloads that are active, per 'cluster_queue' and 'flavor' (a single Workload is accounted for every flavor it uses)",
 		}, append([]string{"cluster_queue", "replica_role", "flavor"}, extraLabels...),
 	)
 	trackGaugeVec(FlavorAdmittedActiveWorkloads, gaugeCleanupScopeClusterQueueCache)
@@ -1412,7 +1412,7 @@ func Register() {
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
 	}
-	if features.Enabled(features.KueueAdmittedWorkloadsCountByFlavor) {
+	if features.Enabled(features.AdmittedWorkloadsCountByFlavor) {
 		metrics.Registry.MustRegister(FlavorAdmittedActiveWorkloads)
 	}
 }

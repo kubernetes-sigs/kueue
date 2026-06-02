@@ -447,7 +447,7 @@ const (
 	//
 	// When enabled, metrics for Kueue active admitted workloads count by flavor
 	// are populated by clusterqueue.
-	KueueAdmittedWorkloadsCountByFlavor featuregate.Feature = "KueueAdmittedWorkloadsCountByFlavor"
+	AdmittedWorkloadsCountByFlavor featuregate.Feature = "AdmittedWorkloadsCountByFlavor"
 )
 
 func init() {
@@ -694,7 +694,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASHandleOverlappingFlavors: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
-	KueueAdmittedWorkloadsCountByFlavor: {
+	AdmittedWorkloadsCountByFlavor: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Beta},
 	},
 }

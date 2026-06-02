@@ -117,7 +117,7 @@
     lockToDefault: true
     preRelease: GA
     version: "0.17"
-- name: KueueAdmittedWorkloadsCountByFlavor
+- name: AdmittedWorkloadsCountByFlavor
   versionedSpecs:
   - default: false
     lockToDefault: false

@@ -531,9 +531,9 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	}
 	metrics.ReportAdmittedActiveWorkloads(c.Name, c.admittedWorkloadsCount, c.customMetricLabelValues, c.roleTracker)
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), c.customMetricLabelValues, c.roleTracker)
-	if features.Enabled(features.KueueAdmittedWorkloadsCountByFlavor) {
-		for fr, q := range c.admittedWorkloadsCountByFlavor {
-			metrics.ReportFlavorAdmittedActiveWorkloads(c.Name, fr, q, c.customMetricLabelValues, c.roleTracker)
+	if features.Enabled(features.AdmittedWorkloadsCountByFlavor) {
+		for fl, q := range c.admittedWorkloadsCountByFlavor {
+			metrics.ReportFlavorAdmittedActiveWorkloads(c.Name, fl, q, c.customMetricLabelValues, c.roleTracker)
 		}
 	}
 }
@@ -590,12 +590,9 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
 		c.Parent().updateAdmittedWorkloadsCount(op.asSignedOne())
 		c.admittedWorkloadsCount += op.asSignedOne()
-
-		flavors := sets.New[kueue.ResourceFlavorReference]()
-		for fr := range frUsage {
-			flavors.Insert(fr.Flavor)
+		if features.Enabled(features.AdmittedWorkloadsCountByFlavor) {
+			updateAdmittedWorkloadsCountByFlavor(frUsage, c.admittedWorkloadsCountByFlavor, op)
 		}
-		updateAdmittedWorkloadsCountByFlavor(flavors, c.admittedWorkloadsCountByFlavor, op)
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
@@ -642,8 +639,12 @@ func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage res
 	}
 }
 
-func updateAdmittedWorkloadsCountByFlavor(flavors sets.Set[kueue.ResourceFlavorReference], admittedWorkloadsCountByFlavor map[kueue.ResourceFlavorReference]int, op usageOp) {
+func updateAdmittedWorkloadsCountByFlavor(frUsage resources.FlavorResourceQuantities, admittedWorkloadsCountByFlavor map[kueue.ResourceFlavorReference]int, op usageOp) {
 	sign := op.asSignedOne()
+	flavors := sets.New[kueue.ResourceFlavorReference]()
+	for fr := range frUsage {
+		flavors.Insert(fr.Flavor)
+	}
 	for flavor := range flavors {
 		admittedWorkloadsCountByFlavor[flavor] += sign
 	}

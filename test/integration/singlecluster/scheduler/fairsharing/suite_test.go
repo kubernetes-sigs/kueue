@@ -58,7 +58,7 @@ func TestScheduler(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
-	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueAdmittedWorkloadsCountByFlavor, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmittedWorkloadsCountByFlavor, true)
 
 	fwk = &framework.Framework{
 		WebhookPath: util.WebhookPath,
