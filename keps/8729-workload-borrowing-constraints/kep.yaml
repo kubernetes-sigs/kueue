@@ -1,0 +1,41 @@
+title: Workload Borrowing Constraints
+kep-number: 8729
+authors:
+  - "hentt30"
+status: provisional
+creation-date: 2026-06-02
+reviewers:
+  - "@ichekrygin"
+  - "@mimowo"
+  - "@tenzen-y"
+approvers:
+  - "@mimowo"
+  - "@tenzen-y"
+
+see-also:
+  - "/keps/8303-multikueue-orchestrated-preemption"
+  - "/keps/8691-concurrent-admission"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.X"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.X"
+  beta: "v0.Y"
+  stable: "v0.Z"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: WorkloadPlacementPolicy
+disable-supported: true
+
+# The following PRR answers are required at beta release
+# metrics:
+#   - my_feature_metric
