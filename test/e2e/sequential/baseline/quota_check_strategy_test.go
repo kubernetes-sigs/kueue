@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckstrategy", shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckstrategy", util.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
