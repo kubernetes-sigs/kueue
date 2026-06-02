@@ -20,6 +20,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
@@ -586,6 +587,53 @@ type DeviceClassMapping struct {
 	// DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
 	// The total length of each name must not exceed 253 characters.
 	DeviceClassNames []corev1.ResourceName `json:"deviceClassNames"`
+
+	// Sources configures resource accounting sources for this mapping.
+	// Each source defines how quota is tracked for this DeviceClass.
+	// Currently only counter sources are supported (for partitionable devices).
+	// Extended resource requests that resolve to a DeviceClass with sources
+	// configured are marked inadmissible.
+	// Requires the KueueDRAIntegrationPartitionableDevices feature gate.
+	// +optional
+	Sources []DeviceClassSourceConfig `json:"sources,omitempty"`
+}
+
+// DeviceClassSourceConfig defines a resource accounting source for a DeviceClassMapping.
+// Exactly one of the source types must be set.
+type DeviceClassSourceConfig struct {
+	// Counter configures counter-based quota for partitionable devices.
+	// Maps a DRA driver counter to the parent DeviceClassMapping's Kueue quota resource.
+	// +optional
+	Counter *DeviceClassCounterSource `json:"counter,omitempty"`
+}
+
+// DeviceClassCounterSource identifies where to read counter data from and which counter to track.
+type DeviceClassCounterSource struct {
+	// Name is the counter name within the device's consumesCounters
+	// entries to track for quota. Must match a counter name published by
+	// the driver in ResourceSlice devices' consumesCounters field.
+	// Counter set names are per-device identifiers (e.g., gpu-0-counter-set,
+	// gpu-1-counter-set), so name matches across all counter sets
+	// for a given driver without requiring one mapping per device.
+	// The total length must not exceed 63 characters.
+	// +required
+	Name string `json:"name"`
+
+	// Driver is the DRA driver name used to filter relevant ResourceSlices.
+	// Must match the spec.driver field on ResourceSlice objects.
+	// The total length must not exceed 253 characters.
+	// +required
+	Driver string `json:"driver"`
+
+	// DeviceSelector scopes which devices are eligible for counter-based
+	// quota accounting. Typically matches a GPU model (e.g., productName)
+	// so all partition profiles on that model share one quota pool.
+	// Per-workload charging is determined by the workload's own
+	// ResourceClaimTemplate selector, which narrows to the requested profile.
+	// The selector is compiled at config load time using the upstream dracel
+	// compiler.
+	// +required
+	DeviceSelector resourcev1.DeviceSelector `json:"deviceSelector"`
 }
 
 type PreemptionStrategy string

@@ -270,25 +270,96 @@ func TestDRAResourceMapper_PopulateFromConfiguration(t *testing.T) {
 	}
 }
 
-func TestPopulateFromConfiguration(t *testing.T) {
-	config := []configapi.DeviceClassMapping{
+func TestCreateMapperFromConfiguration(t *testing.T) {
+	tests := []struct {
+		name                string
+		deviceClassMappings []configapi.DeviceClassMapping
+		wantDeviceLookup    map[corev1.ResourceName]corev1.ResourceName
+		wantCounterConfigs  map[corev1.ResourceName]string
+	}{
 		{
-			Name:             corev1.ResourceName("foo"),
-			DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
+			name:             "nil mappings",
+			wantDeviceLookup: map[corev1.ResourceName]corev1.ResourceName{},
+		},
+		{
+			name: "deviceClassMappings without counters",
+			deviceClassMappings: []configapi.DeviceClassMapping{
+				{Name: "foo", DeviceClassNames: []corev1.ResourceName{"foo.example.com"}},
+			},
+			wantDeviceLookup: map[corev1.ResourceName]corev1.ResourceName{
+				"foo.example.com": "foo",
+			},
+		},
+		{
+			name: "deviceClassMappings with counter source",
+			deviceClassMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "gpu.memory",
+					DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+					Sources: []configapi.DeviceClassSourceConfig{
+						{Counter: &configapi.DeviceClassCounterSource{Name: "memory", Driver: "gpu.nvidia.com"}},
+					},
+				},
+			},
+			wantDeviceLookup: map[corev1.ResourceName]corev1.ResourceName{
+				"mig.nvidia.com": "gpu.memory",
+			},
+			wantCounterConfigs: map[corev1.ResourceName]string{
+				"mig.nvidia.com": "gpu.nvidia.com",
+			},
+		},
+		{
+			name: "unified whole-GPU and MIG",
+			deviceClassMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "gpu.memory",
+					DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com", "mig.nvidia.com"},
+					Sources: []configapi.DeviceClassSourceConfig{
+						{Counter: &configapi.DeviceClassCounterSource{Name: "memory", Driver: "gpu.nvidia.com"}},
+					},
+				},
+			},
+			wantDeviceLookup: map[corev1.ResourceName]corev1.ResourceName{
+				"gpu.nvidia.com": "gpu.memory",
+				"mig.nvidia.com": "gpu.memory",
+			},
+			wantCounterConfigs: map[corev1.ResourceName]string{
+				"gpu.nvidia.com": "gpu.nvidia.com",
+				"mig.nvidia.com": "gpu.nvidia.com",
+			},
 		},
 	}
 
-	mapper := NewResourceMapper()
-	err := mapper.PopulateFromConfiguration(config)
-	if err != nil {
-		t.Fatalf("PopulateFromConfiguration failed: %v", err)
-	}
-
-	resource, found := mapper.Lookup("foo.example.com")
-	if !found {
-		t.Error("Expected to find device class in mapper")
-	}
-	if resource != "foo" {
-		t.Errorf("Expected resource 'foo', got '%s'", resource)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mapper := NewResourceMapper()
+			err := mapper.PopulateFromConfiguration(tt.deviceClassMappings)
+			if err != nil {
+				t.Fatalf("PopulateFromConfiguration failed: %v", err)
+			}
+			for dc, wantResource := range tt.wantDeviceLookup {
+				got, found := mapper.Lookup(dc)
+				if !found {
+					t.Errorf("Expected to find device class %s in mapper", dc)
+				} else if got != wantResource {
+					t.Errorf("Device class %s: want %s, got %s", dc, wantResource, got)
+				}
+			}
+			for dc, wantDriver := range tt.wantCounterConfigs {
+				cc := mapper.getCounterConfig(dc)
+				if cc == nil {
+					t.Errorf("Expected counter config for %s, got nil", dc)
+				} else if cc.driver != wantDriver {
+					t.Errorf("Counter config for %s: want driver %s, got %s", dc, wantDriver, cc.driver)
+				}
+			}
+			if tt.wantCounterConfigs == nil {
+				for dc := range tt.wantDeviceLookup {
+					if cc := mapper.getCounterConfig(dc); cc != nil {
+						t.Errorf("Expected no counter config for %s, got %+v", dc, cc)
+					}
+				}
+			}
+		})
 	}
 }

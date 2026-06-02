@@ -120,17 +120,31 @@ func resolveContainerExtendedResources(
 		for _, dc := range dcList.Items {
 			if logicalName, found := mapper.Lookup(corev1.ResourceName(dc.Name)); found {
 				quotaKey = logicalName
+				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && mapper.getCounterConfig(corev1.ResourceName(dc.Name)) != nil {
+					errs = append(errs, field.Invalid(
+						containerPath,
+						resourceName,
+						fmt.Sprintf(
+							"extended resource %s resolves to DeviceClass %s with counters configured;"+
+								" use ResourceClaimTemplates with CEL selectors for counter-based quota",
+							resourceName, dc.Name,
+						),
+					))
+					continue
+				}
 				break
 			}
 		}
 
+		chargeQuantity := *resource.NewQuantity(qty, resource.DecimalSI)
+
 		log.V(4).Info("Resolved extended resource to DRA quota key",
-			"resource", resourceName, "quotaKey", quotaKey, "quantity", qty,
+			"resource", resourceName, "quotaKey", quotaKey, "quantity", chargeQuantity.String(),
 			"deviceClass", dcList.Items[0].Name)
 
 		replaced.Insert(resourceName)
 		result = utilresource.MergeResourceListKeepSum(result, corev1.ResourceList{
-			quotaKey: *resource.NewQuantity(qty, resource.DecimalSI),
+			quotaKey: chargeQuantity,
 		})
 	}
 	return result, replaced, errs

@@ -203,6 +203,13 @@ const (
 	// Reject workloads that use DRA resources when the DynamicResourceAllocation feature gate is disabled.
 	KueueDRARejectWorkloadsWhenDRADisabled featuregate.Feature = "KueueDRARejectWorkloadsWhenDRADisabled"
 
+	// owner: @PannagaRao
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	//
+	// Enable counter-based quota for partitionable DRA devices (e.g., MIG). Tracks
+	// counter consumption from ResourceSlice devices via consumesCounters configuration.
+	KueueDRAIntegrationPartitionableDevices featuregate.Feature = "KueueDRAIntegrationPartitionableDevices"
+
 	// owner: @khrm
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2349-multikueue-external-custom-job-support
 	//
@@ -434,6 +441,11 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/7539
 	// Enable reporting of Cohort related metrics (also including ClusterQueueInfo metric).
 	MetricsForCohorts featuregate.Feature = "MetricsForCohorts"
+	// owner: @tenzen-y
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10659
+	// Enable accurately topology aware scheduling when multiple flavors cover the same Node.
+	TASHandleOverlappingFlavors featuregate.Feature = "TASHandleOverlappingFlavors"
 )
 
 func init() {
@@ -556,6 +568,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 
+	KueueDRAIntegrationPartitionableDevices: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	MultiKueueAdaptersForCustomJobs: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
@@ -673,9 +689,11 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MetricsForCohorts: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
+	TASHandleOverlappingFlavors: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
 	EffectiveResourceQuotas: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
-	},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

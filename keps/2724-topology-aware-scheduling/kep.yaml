@@ -48,6 +48,7 @@ feature-gates:
   - name: TASReplaceNodeOnNodeTaints
   - name: TASMultiLayerTopology
   - name: TASRespectNodeAffinityPreferred
+  - name: TASHandleOverlappingFlavors
 disable-supported: true
 
 # The following PRR answers are required at beta release

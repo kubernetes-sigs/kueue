@@ -43,7 +43,7 @@ ResourceClaimTemplate path.
 
 ## How the ResourceClaimTemplate path works
 
-{{< feature-state state="alpha" for_version="v0.14" >}}
+{{< feature-state state="beta" for_version="v0.18" >}}
 
 When a Pod references a `ResourceClaimTemplate`, Kueue reads the
 `deviceClassName` from the template's `exactly` field and looks it up in
@@ -52,14 +52,14 @@ to charge quota against. The number of units charged is determined by the
 `count` field in the device request (default 1).
 
 Only the `ExactCount` allocation mode is supported. The
-`All` allocation mode are not supported in alpha.
+`All` allocation mode is not supported.
 
 For setup instructions, see
 [Set Up Dynamic Resource Allocation](/docs/tasks/manage/setup_dra).
 
 ## How the extended resource path works
 
-{{< feature-state state="alpha" for_version="v0.17" >}}
+{{< feature-state state="alpha" for_version="v0.18" >}}
 
 When a Pod requests an extended resource backed by DRA (e.g.,
 `nvidia.com/gpu: 1`), the kube-scheduler auto-creates a `ResourceClaim`.
@@ -75,8 +75,8 @@ mapping is discovered from the `DeviceClass` automatically.
 {{% alert title="Note" color="info" %}}
 The extended resource path additionally requires the Kubernetes
 `DRAExtendedResource` feature gate on kube-apiserver and kube-scheduler
-(alpha in Kubernetes 1.34), in addition to Kueue's `KueueDRAIntegration`
-and `KueueDRAIntegrationExtendedResource` feature gates.
+(beta in Kubernetes 1.36), in addition to Kueue's
+`KueueDRAIntegrationExtendedResource` feature gate.
 {{% /alert %}}
 
 ## Path separation
@@ -119,9 +119,56 @@ MultiKueue syncs the workload and its owning job to worker clusters, but
 synced. These must be created on each worker cluster separately by the
 cluster administrator.
 
+## Counter-based quota for partitionable devices
+
+{{< feature-state state="alpha" for_version="v0.18" >}}
+
+By default, Kueue tracks DRA quota by device count: each device request
+charges `count` units regardless of the device's capacity. This means a
+small GPU partition and a full GPU both count as "1 device", which does not
+reflect the actual resource consumption.
+
+With the `KueueDRAIntegrationPartitionableDevices` feature gate enabled,
+Kueue can track quota using **counter values** published by DRA drivers
+in `ResourceSlice` objects. This allows quota to reflect actual device
+capacity (e.g., GPU memory) rather than device count.
+
+A `DeviceClass` uses either device-count quota (no `sources` configured) or
+counter-based quota (with `sources`), not both. Kueue rejects configurations
+that map the same `DeviceClass` to multiple resource names.
+
+### How it works
+
+1. The administrator configures a `sources` entry in `deviceClassMappings`
+   that specifies which counter to track, which DRA driver to query, and
+   a CEL expression to scope eligible devices.
+
+2. When a workload is submitted, Kueue reads the `consumesCounters` field
+   from the matching devices in `ResourceSlice` objects to determine the
+   actual counter charge.
+
+3. Kueue uses **conservative charging**: it takes the maximum
+   `consumesCounters` value across all matched devices and multiplies by
+   the request `count`. This ensures quota is not undercharged when
+   different devices consume different amounts.
+
+4. The `ClusterQueue` quota is set in counter units (e.g., `800Gi` for
+   GPU memory) instead of device count.
+
+### Prerequisites
+
+- Kubernetes 1.35 or later with the `DRAPartitionableDevices` feature gate
+  enabled (beta in Kubernetes 1.36).
+- A DRA driver that publishes `consumesCounters` on devices in
+  `ResourceSlice` objects.
+- The `KueueDRAIntegrationPartitionableDevices` Kueue feature gate enabled.
+
+For setup instructions, see
+[Set Up Dynamic Resource Allocation](/docs/tasks/manage/setup_dra/#set-up-counter-based-quota-partitionable-devices).
+
 ## Limitations
 
-The following limitations apply to the alpha release:
+The following limitations apply:
 
 - **ResourceClaimTemplates only**: Only `ResourceClaimTemplate` references
   are supported. Direct `ResourceClaim` references in the Pod spec are not
@@ -133,17 +180,14 @@ The following limitations apply to the alpha release:
   and per-request `config` are not supported.
 - **No AdminAccess**: Device requests with `adminAccess: true` are not
   supported.
-- **No support for partitionable devices (MIG)**: Quota is tracked by device
-  count, not by device capacity. A 1g.10gb MIG partition and a full A100 GPU
-  both count as "1 device". Counter-based quota for partitionable devices
-  will be addressed in a future release.
 - **No DRA + Topology Aware Scheduling (TAS)**: DRA resources are not
   accounted for in TAS capacity calculations. Using both features together
   may result in incorrect topology assignments for DRA devices.
 - **No support for DRADeviceTaints or DRAPrioritizedLists**: These Kubernetes
   DRA features are not factored into Kueue's quota decisions.
 - **No GPU time-slicing or MPS**: Software-based GPU sharing mechanisms
-  are out of scope for alpha. These require upstream Kubernetes support
-  ([KEP-5075](https://github.com/kubernetes/enhancements/issues/5075),
-  [KEP-5691](https://github.com/kubernetes/enhancements/issues/5691))
-  that is not yet available.
+  are not yet supported in Kueue. These require
+  [KEP-5075 (Consumable Capacity)](https://github.com/kubernetes/enhancements/issues/5075)
+  (beta in Kubernetes 1.36) and
+  [KEP-5691 (Restricted Sharing)](https://github.com/kubernetes/enhancements/issues/5691)
+  integration, which is planned for a future Kueue release.

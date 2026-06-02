@@ -1,4 +1,4 @@
-{{- $rows := .Page.Site.Data.featuregates.removed_feature_list -}}
+{{- $rows := hugo.Data.featuregates.removed_feature_list -}}
 <table class="feature-gates-table">
   <thead>
     <tr>
@@ -21,4 +21,3 @@
     {{- end }}
   </tbody>
 </table>
-

@@ -224,7 +224,14 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if isOrphanedWorkload(&wl) {
 		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, &wl, true)
-		return ctrl.Result{}, err
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		// If it was deleted, there is nothing to do.
+		// Otherwise, we still need to handle finished workload logic.
+		if !features.Enabled(features.FinishOrphanedWorkloads) || !wl.DeletionTimestamp.IsZero() {
+			return ctrl.Result{}, err
+		}
 	}
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
@@ -382,6 +389,36 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 					draResources = make(map[kueue.PodSetReference]corev1.ResourceList)
 				}
 				draResources[podSetName] = resources
+			}
+		}
+
+		// Process counter-based resources for partitionable devices
+		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+			counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, r.draMapper, &wl)
+			if len(counterFieldErrs) > 0 {
+				err := counterFieldErrs.ToAggregate()
+				log.Error(err, "Failed to process DRA counter resources for workload")
+				updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+					updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now())
+					if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, err.Error(), false) {
+						updated = true
+					}
+					return updated, nil
+				})
+				if updateErr != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA counter resources error: %w", updateErr)
+				}
+				return ctrl.Result{}, err
+			}
+			for podSetName, resources := range counterResources {
+				if existing, ok := draResources[podSetName]; ok {
+					draResources[podSetName] = resource.MergeResourceListKeepSum(existing, resources)
+				} else {
+					if draResources == nil {
+						draResources = make(map[kueue.PodSetReference]corev1.ResourceList)
+					}
+					draResources[podSetName] = resources
+				}
 			}
 		}
 

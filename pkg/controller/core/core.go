@@ -118,6 +118,14 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	if err := workloadRec.SetupWithManager(mgr, cfg); err != nil {
 		return "Workload", err
 	}
+
+	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+		rsRec := NewResourceSliceReconciler(qManager, cfg, opts.RoleTracker)
+		if err := rsRec.SetupWithManager(mgr, cfg); err != nil {
+			return "ResourceSlice", err
+		}
+	}
+
 	qManager.AddTopologyUpdateWatcher(cqRec)
 	qManager.AddWorkloadUpdateWatcher(qRec)
 	qManager.AddWorkloadUpdateWatcher(cqRec)

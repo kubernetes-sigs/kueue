@@ -55,12 +55,14 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationPartitionableDevices, true)
 
 	fwk = &framework.Framework{
 		WebhookPath: util.WebhookPath,
 		APIServerFeatureGates: []string{
 			"DynamicResourceAllocation=true",
 			"DRAExtendedResource=true",
+			"DRAPartitionableDevices=true",
 		},
 		APIServerRuntimeConfig: []string{
 			"resource.k8s.io/v1beta2=true",
@@ -82,6 +84,8 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 	return func(ctx context.Context, mgr manager.Manager) {
 		// Indexes
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = core.SetupResourceSliceIndexer(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Webhooks

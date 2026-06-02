@@ -25,12 +25,9 @@ import UsageBar, { aggregateResourceForQueue, computeEffectiveQuota, discoverRes
 
 const ClusterQueues = () => {
   const { data: clusterQueues, error } = useWebSocket('/ws/cluster-queues');
-  const [queues, setQueues] = useState([]);
-
-  useEffect(() => {
-    if (clusterQueues && Array.isArray(clusterQueues)) {
-      setQueues([...clusterQueues].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-    }
+  const queues = React.useMemo(() => {
+    if (!clusterQueues || !Array.isArray(clusterQueues)) return [];
+    return [...clusterQueues].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [clusterQueues]);
 
   const resourceNames = discoverResourceNames(queues);
@@ -40,7 +37,11 @@ const ClusterQueues = () => {
   return (
     <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Cluster Queues</Typography>
-      {queues.length === 0 ? (
+      {clusterQueues === null ? (
+        <Box display="flex" justifyContent="center" my={4}>
+          <CircularProgress />
+        </Box>
+      ) : queues.length === 0 ? (
         <Typography>No Cluster Queues found.</Typography>
       ) : (
         <TableContainer component={Paper} className="tableContainerWithBorder">

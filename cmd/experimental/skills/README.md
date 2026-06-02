@@ -6,7 +6,7 @@
 | [kueue-lineage](kueue-lineage/SKILL.md) | "what pods are running for my workload", "trace workload to pods", "show me the jobs for this workload", lineage/ownership questions |
 | [kueue-flake-debugger](kueue-flake-debugger/SKILL.md) | "debug a flake", "investigate test failure", "test timed out", "CI flake" |
 | [kueue-release-notes](kueue-release-notes/SKILL.md) | Review or propose a concise PR release note focused on the user-observable change. |
-| [reviewer/](reviewer/README.md) | "review this PR", "review this code", any code review of kueue changes |
+| [reviewer/](reviewer/README.md) | "review this PR", "review this code", "evaluate this diff", "score these commits", "review the changes between", "code quality evaluation", any code review of kueue changes |
 
 ---
 

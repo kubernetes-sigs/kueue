@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	bactchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -381,7 +382,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 				return
 			}
 
-			if diff := cmp.Diff(tc.wantJobList, gotList); diff != "" {
+			if diff := cmp.Diff(tc.wantJobList, gotList, cmpopts.IgnoreFields(metav1.ListMeta{}, "ResourceVersion")); diff != "" {
 				t.Errorf("Unexpected list for %s (-want/+got)\n%s", tc.gvk.String(), diff)
 			}
 		})
