@@ -228,6 +228,122 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 			})
 		})
 	})
+
+	ginkgo.When("Variants must preempt to be admitted", func() {
+		var (
+			onDemandRF     *kueue.ResourceFlavor
+			spotRF         *kueue.ResourceFlavor
+			cq             *kueue.ClusterQueue
+			lq             *kueue.LocalQueue
+			highWPC        *kueue.WorkloadPriorityClass
+			onDemandFlavor string
+			spotFlavor     string
+		)
+
+		ginkgo.BeforeEach(func() {
+			onDemandFlavor = "on-demand-" + ns.Name
+			spotFlavor = "spot-" + ns.Name
+
+			onDemandRF = utiltestingapi.MakeResourceFlavor(onDemandFlavor).
+				NodeLabel("instance-type", "on-demand").Obj()
+			util.MustCreate(ctx, k8sClient, onDemandRF)
+
+			spotRF = utiltestingapi.MakeResourceFlavor(spotFlavor).
+				NodeLabel("instance-type", "spot").Obj()
+			util.MustCreate(ctx, k8sClient, spotRF)
+
+			// on-demand is listed first, so it is the most preferred flavor. Each
+			// flavor holds quota for a single 1-CPU workload, so a higher-priority
+			// Variant can only be admitted by preempting the flavor's occupant.
+			cq = utiltestingapi.MakeClusterQueue("cq-gate-"+ns.Name).
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(onDemandFlavor).Resource(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(spotFlavor).Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			highWPC = utiltestingapi.MakeWorkloadPriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, highWPC)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, highWPC, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotRF, true)
+		})
+
+		ginkgo.It("Should open the preemption gate for only the most-preferred Variant, preempting a single occupant", func() {
+			lowOnDemand := testingjob.MakeJob("low-on-demand", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				NodeSelector("instance-type", "on-demand").
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
+				Obj()
+			lowSpot := testingjob.MakeJob("low-spot", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				NodeSelector("instance-type", "spot").
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
+				Obj()
+
+			var lowOnDemandWlKey, lowSpotWlKey types.NamespacedName
+
+			ginkgo.By("Occupying both flavors with low-priority Jobs", func() {
+				util.MustCreate(ctx, k8sClient, lowOnDemand)
+				util.MustCreate(ctx, k8sClient, lowSpot)
+				lowOnDemandWlKey = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowOnDemand.Name, lowOnDemand.UID), Namespace: ns.Name}
+				lowSpotWlKey = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowSpot.Name, lowSpot.UID), Namespace: ns.Name}
+				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, lowOnDemandWlKey, lowSpotWlKey)
+			})
+
+			highJob := testingjob.MakeJob("high", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				WorkloadPriorityClass(highWPC.Name).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
+				Obj()
+
+			ginkgo.By("Submitting the high-priority parent Job", func() {
+				util.MustCreate(ctx, k8sClient, highJob)
+			})
+
+			ginkgo.By("Verifying the parent is admitted on the most-preferred flavor (on-demand)", func() {
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(highJob), map[string]string{
+					"instance-type": "on-demand",
+				})
+			})
+
+			ginkgo.By("Verifying the on-demand occupant lost its admission", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					lowOnDemandWl := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, lowOnDemandWlKey, lowOnDemandWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(lowOnDemandWl)).To(gomega.BeFalse(), "on-demand occupant should be preempted to make room for the high-priority parent")
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying the spot occupant keeps its admission", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					lowSpotWl := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, lowSpotWlKey, lowSpotWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(lowSpotWl)).To(gomega.BeTrue(), "spot occupant must keep its admission")
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
 })
 
 func findVariantsForParent(workloads []kueue.Workload, parent *kueue.Workload) []kueue.Workload {

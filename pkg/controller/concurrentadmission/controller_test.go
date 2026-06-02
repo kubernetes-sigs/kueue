@@ -128,11 +128,13 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
 					Queue("lq").
 					AllowedFlavors("spot").
+					PreemptionGates(kueue.PreemptionGate{Name: constants.ConcurrentAdmissionPreemptionGate}).
 					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", ""). // UID is ignored in cmp
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
 					Queue("lq").
 					AllowedFlavors("on-demand").
+					PreemptionGates(kueue.PreemptionGate{Name: constants.ConcurrentAdmissionPreemptionGate}).
 					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
@@ -176,6 +178,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
 					Queue("lq").
 					AllowedFlavors("on-demand").
+					PreemptionGates(kueue.PreemptionGate{Name: constants.ConcurrentAdmissionPreemptionGate}).
 					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
