@@ -36,7 +36,7 @@ INTEGRATION_FILTERS="--label-filter=controller:workload" make test-integration
 INTEGRATION_FILTERS="--label-filter=area:jobs" make test-integration
 
 # 按标签过滤 e2e 测试
-GINKGO_ARGS="--label-filter=feature:jobset" make test-e2e-extended
+GINKGO_ARGS="--label-filter=feature:jobset" make test-e2e-extended-shard-0
 
 # 只运行特定集成测试目录
 INTEGRATION_TARGET='test/integration/singlecluster/scheduler' make test-integration
@@ -105,7 +105,8 @@ PLATFORM=linux/arm64 make kind-image-build
 然后运行所需的测试目标：
 ```shell
 make test-e2e-baseline
-make test-e2e-extended
+make test-e2e-extended-shard-0
+make test-e2e-extended-shard-1
 make test-e2e-sequential-baseline
 make test-e2e-sequential-extended
 make test-e2e-certmanager
@@ -244,13 +245,13 @@ INTEGRATION_FILTERS="--label-filter=feature:fairsharing" make test-integration
 **示例：**
 ```shell
 # 只运行 appwrapper 测试
-GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
+GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended-shard-1
 
 # 使用 helm 只运行 deployment 测试
 GINKGO_ARGS="--label-filter=feature:deployment" make test-e2e-baseline-helm
 
 # 使用 helm 只运行 jobset 和 trainjob 测试
-GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e-extended
+GINKGO_ARGS="--label-filter=feature:jobset,feature:leaderworkerset" make test-e2e-extended-shard-0
 ```
 
 ### 使用标签过滤 e2e 顺序测试 {#use-label-filters-for-e2e-sequential-tests}
