@@ -22,7 +22,7 @@ package v1beta2
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -1141,8 +1141,8 @@ func (in *MultiKueueConfigSpec) DeepCopyInto(out *MultiKueueConfigSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.QuotaManagement != nil {
-		in, out := &in.QuotaManagement, &out.QuotaManagement
+	if in.QuotaManagementMode != nil {
+		in, out := &in.QuotaManagementMode, &out.QuotaManagementMode
 		*out = new(MultiKueueConfigQuotaManagementMode)
 		**out = **in
 	}

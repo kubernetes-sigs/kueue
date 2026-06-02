@@ -815,7 +815,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				mkc := &kueue.MultiKueueConfig{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(managerMultiKueueConfig), mkc)).To(gomega.Succeed())
-				mkc.Spec.QuotaManagement = ptr.To(kueue.QuotaManagementAutomated)
+				mkc.Spec.QuotaManagementMode = ptr.To(kueue.QuotaManagementAutomated)
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, mkc)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

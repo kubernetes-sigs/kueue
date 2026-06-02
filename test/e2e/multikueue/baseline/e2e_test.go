@@ -1941,7 +1941,7 @@ app = HelloWorld.bind()`,
 				gomega.Eventually(func(g gomega.Gomega) {
 					cfg := &kueue.MultiKueueConfig{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(multiKueueConfig), cfg)).To(gomega.Succeed())
-					cfg.Spec.QuotaManagement = ptr.To(kueue.QuotaManagementAutomated)
+					cfg.Spec.QuotaManagementMode = ptr.To(kueue.QuotaManagementAutomated)
 					g.Expect(k8sManagerClient.Update(ctx, cfg)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

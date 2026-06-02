@@ -1062,7 +1062,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				t.Errorf("Unexpected error during test operation: %s", err)
 			}
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.hm.ClusterQueues(),
-				cmpopts.IgnoreFields(clusterQueue{}, "ResourceGroups"),
+				cmpopts.IgnoreFields(clusterQueue{}, "EffectiveResourceGroups"),
 				cmpopts.IgnoreFields(workload.Info{}, "Obj", "LastAssignment", "SchedulingHash"),
 				cmpopts.IgnoreUnexported(clusterQueue{}, hierarchy.ClusterQueue[*cohort]{}),
 				cmpopts.EquateEmpty()); diff != "" {

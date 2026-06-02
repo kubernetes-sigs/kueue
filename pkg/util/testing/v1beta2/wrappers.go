@@ -1053,16 +1053,10 @@ func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *Clus
 	return c
 }
 
-// func (c *ClusterQueueWrapper) SyncEffectiveResourceGroups() *ClusterQueueWrapper {
-// 	_ = utilqueue.SyncEffectiveResourceGroupToSpec(&c.ClusterQueue)
-// 	return c
-// }
-
-// EffectiveResourceGroup adds a ResourceGroup with flavors.
-// func (c *ClusterQueueWrapper) EffectiveResourceGroup(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
-// 	c.Status.EffectiveResourceGroups = append(c.Status.EffectiveResourceGroups, ResourceGroup(flavors...))
-// 	return c
-// }
+func (c *ClusterQueueWrapper) SyncEffectiveResourceGroups() *ClusterQueueWrapper {
+	c.Status.EffectiveResourceGroups = c.Spec.ResourceGroups
+	return c
+}
 
 // AdmissionChecks replaces the queue additional checks.
 // This is a convenience wrapper that converts to the AdmissionChecksStrategy format.
@@ -1601,7 +1595,14 @@ func (mkc *MultiKueueConfigWrapper) Clusters(clusters ...string) *MultiKueueConf
 }
 
 func (mkc *MultiKueueConfigWrapper) QuotaManagement(mode kueue.MultiKueueConfigQuotaManagementMode) *MultiKueueConfigWrapper {
-	mkc.Spec.QuotaManagement = &mode
+	mkc.Spec.QuotaManagementMode = &mode
+	if mode == kueue.QuotaManagementAutomated {
+		mkc.Spec.AutomatedQuotaManagementConfig = &kueue.AutomatedQuotaManagementConfig{
+			AggregateResourceFlavorSpec: kueue.ResourceFlavorSpec{
+				NodeLabels: make(map[string]string),
+			},
+		}
+	}
 	return mkc
 }
 

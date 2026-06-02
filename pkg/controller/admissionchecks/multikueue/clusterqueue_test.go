@@ -82,6 +82,7 @@ func TestCQReconcile(t *testing.T) {
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Resource("memory", "20Gi").Obj()).
+							SyncEffectiveResourceGroups().
 							Obj(),
 					},
 				},
@@ -90,6 +91,7 @@ func TestCQReconcile(t *testing.T) {
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w2-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "5").Resource("memory", "10Gi").Obj()).
+							SyncEffectiveResourceGroups().
 							Obj(),
 					},
 				},
@@ -130,9 +132,11 @@ func TestCQReconcile(t *testing.T) {
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Obj()).
+							SyncEffectiveResourceGroups().
 							Obj(),
 						utiltestingapi.MakeClusterQueue("w1-cq-unrelated").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "100").Obj()).
+							SyncEffectiveResourceGroups().
 							Obj(),
 					},
 				},
@@ -141,6 +145,7 @@ func TestCQReconcile(t *testing.T) {
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w2-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "500").Obj()).
+							SyncEffectiveResourceGroups().
 							Obj(),
 					},
 					inactive: true,
@@ -185,6 +190,7 @@ func TestCQReconcile(t *testing.T) {
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Obj()).
+							SyncEffectiveResourceGroups().
 							Obj(),
 					},
 				},
@@ -196,9 +202,11 @@ func TestCQReconcile(t *testing.T) {
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w2-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "5").Obj()).
+							SyncEffectiveResourceGroups().
 							Obj(),
 						utiltestingapi.MakeClusterQueue("w2-cq2").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "8").Obj()).
+							SyncEffectiveResourceGroups().
 							Obj(),
 					},
 				},
@@ -239,6 +247,7 @@ func TestCQReconcile(t *testing.T) {
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Resource("memory", "20Gi").Obj()).
+							SyncEffectiveResourceGroups().
 							Obj(),
 					},
 				},
@@ -250,6 +259,9 @@ func TestCQReconcile(t *testing.T) {
 				Reason:  kueue.QuotaAutoimationNotRequested,
 				Message: "MultiKueue manager quota automation has not been requested.",
 			},
+			wantRGs: []kueue.ResourceGroup{utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "100").Obj(),
+			)},
 		},
 		"quota automation unsupported for manually set flavor": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -272,6 +284,9 @@ func TestCQReconcile(t *testing.T) {
 				Reason:  kueue.UnsupportedQuotaAutomationConfiguration,
 				Message: "ResourceGroups set manually in ClusterQueue spec.",
 			},
+			wantRGs: []kueue.ResourceGroup{utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Obj(),
+			)},
 		},
 		"quota automation unsupported for manually set flavors": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -294,6 +309,10 @@ func TestCQReconcile(t *testing.T) {
 				Reason:  kueue.UnsupportedQuotaAutomationConfiguration,
 				Message: "ResourceGroups set manually in ClusterQueue spec.",
 			},
+			wantRGs: []kueue.ResourceGroup{utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "5").Obj(), 
+				*utiltestingapi.MakeFlavorQuotas("enhanced").Resource("cpu", "20").Obj(),
+			)},
 		},
 		"quota automation unsupported for manually set resource groups": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -317,8 +336,12 @@ func TestCQReconcile(t *testing.T) {
 				Reason:  kueue.UnsupportedQuotaAutomationConfiguration,
 				Message: "ResourceGroups set manually in ClusterQueue spec.",
 			},
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Obj()),
+				utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("gpu").Resource("gpu", "0").Obj()),
+			},
 		},
-		"not a MultiKueue manager ClusterQueue": {
+		"ignore whgen not a MultiKueue manager ClusterQueue": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "100").Obj()).
 				Condition(kueue.MultiKueueManagerQuotaAutomation, metav1.ConditionTrue, "QuotaAutomated", "ClusterQueue quota is automatically managed based on MultiKueue workers.").
@@ -327,8 +350,9 @@ func TestCQReconcile(t *testing.T) {
 				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
 			},
 			wantQuotaAutomated: false,
+			wantRGs: nil,
 		},
-		"referenced MultiKueueConfig not found": {
+		"error when referenced MultiKueueConfig not found": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "100").Obj()).
 				AdmissionChecks("ac1").
@@ -346,6 +370,7 @@ func TestCQReconcile(t *testing.T) {
 				Reason:  kueue.UnsupportedQuotaAutomationConfiguration,
 				Message: "The referenced MultiKueueConfig was not found.",
 			},
+			wantRGs: nil,
 		},
 	}
 
@@ -398,11 +423,10 @@ func TestCQReconcile(t *testing.T) {
 					t.Errorf("unexpected effectiveResourceGroups for quota automation (-want/+got):\n%s", diff)
 				}
 			} else {
-				if diff := cmp.Diff(queue.GetEffectiveResourceGroup(tc.cq), rgs); diff != "" {
+				if diff := cmp.Diff(tc.wantRGs, rgs); diff != "" {
 					t.Errorf("unexpected effectiveResourceGroups for quota automation disabled (-want/+got):\n%s", diff)
 				}
 			}
-
 			// Verify condition state
 			gotCond := apimeta.FindStatusCondition(gotCQ.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
 			if diff := cmp.Diff(tc.wantCondition, gotCond, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {

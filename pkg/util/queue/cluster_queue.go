@@ -44,7 +44,7 @@ func GetEffectiveResourceGroup(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
 }
 
 // Should be accessed only in MK Cluster Reconciler.
-func SetEffectiveResourceGroup(cq *kueue.ClusterQueue, rgs *[]kueue.ResourceGroup) {
+func SetEffectiveResourceGroups(cq *kueue.ClusterQueue, rgs *[]kueue.ResourceGroup) {
 	cq.Status.EffectiveResourceGroups = *rgs
 }
 
