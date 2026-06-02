@@ -343,6 +343,12 @@ func ExpectAdmittedActiveWorkloadsGaugeMetric(clusterQueue kueue.ClusterQueueRef
 	expectGaugeMetric(metrics.AdmittedActiveWorkloads, lvs, gomega.Equal(count))
 }
 
+func ExpectFlavorAdmittedActiveWorkloadsGaugeMetric(clusterQueue kueue.ClusterQueueReference, flavor string, count float64) {
+	ginkgo.GinkgoHelper()
+	lvs := []string{string(clusterQueue), roletracker.RoleStandalone, flavor}
+	expectGaugeMetric(metrics.FlavorAdmittedActiveWorkloads, lvs, gomega.Equal(count))
+}
+
 func ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric(cohortName kueue.CohortReference, count float64) {
 	ginkgo.GinkgoHelper()
 	lvs := []string{string(cohortName), roletracker.RoleStandalone}

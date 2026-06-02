@@ -40,6 +40,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 		defaultFlavor *kueue.ResourceFlavor
 		flavor1       *kueue.ResourceFlavor
 		flavor2       *kueue.ResourceFlavor
+		flavor3       *kueue.ResourceFlavor
 		ns            *corev1.Namespace
 
 		cohorts map[string]*kueue.Cohort
@@ -108,6 +109,8 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			util.MustCreate(ctx, k8sClient, flavor1)
 			flavor2 = utiltestingapi.MakeResourceFlavor("flavor2").Obj()
 			util.MustCreate(ctx, k8sClient, flavor2)
+			flavor3 = utiltestingapi.MakeResourceFlavor("flavor3").Obj()
+			util.MustCreate(ctx, k8sClient, flavor3)
 
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 		})
@@ -129,6 +132,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor3, true)
 			for _, ac := range admissionChecks {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 			}
@@ -647,6 +651,8 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			ginkgo.By("Checking that only cq2 Workloads admitted", func() {
 				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 0)
 				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq2", numWorkloadsForCQ2)
+				util.ExpectFlavorAdmittedActiveWorkloadsGaugeMetric("cq1", flavor1.Name, 0)
+				util.ExpectFlavorAdmittedActiveWorkloadsGaugeMetric("cq2", flavor1.Name, numWorkloadsForCQ2)
 
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", numWorkloadsForCQ2)
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 0)
@@ -675,6 +681,8 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			ginkgo.By("Checking that all Workloads admitted", func() {
 				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", numWorkloadsForCQ1)
 				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq2", numWorkloadsForCQ2)
+				util.ExpectFlavorAdmittedActiveWorkloadsGaugeMetric("cq1", flavor1.Name, numWorkloadsForCQ1)
+				util.ExpectFlavorAdmittedActiveWorkloadsGaugeMetric("cq2", flavor1.Name, numWorkloadsForCQ2)
 
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", numWorkloadsForCQ1+numWorkloadsForCQ2)
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", numWorkloadsForCQ1)
@@ -1228,6 +1236,84 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 13)
 				util.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 13)
 				util.ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned("ch2", defaultFlavor.Name, corev1.ResourceCPU.String())
+			})
+		})
+
+		ginkgo.Describe("with multiple resource groups and resource flavors", func() {
+			var (
+				cq *kueue.ClusterQueue
+			)
+
+			ginkgo.BeforeEach(func() {
+				ginkgo.By("Creating a ClusterQueue with two Resource Groups", func() {
+					// RG1: covers CPU and Memory, with flavor1 and flavor2
+					// RG2: covers GPU, with flavor3
+					cq = utiltestingapi.MakeClusterQueue("cq-rg").
+						ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+								Resource(corev1.ResourceCPU, "5").
+								Resource(corev1.ResourceMemory, "5Gi").
+								Obj(),
+							*utiltestingapi.MakeFlavorQuotas(flavor2.Name).
+								Resource(corev1.ResourceCPU, "5").
+								Resource(corev1.ResourceMemory, "5Gi").
+								Obj(),
+						).
+						ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas(flavor3.Name).
+								Resource("nvidia.com/gpu", "2").
+								Obj(),
+						).
+						Obj()
+					createQueue(cq)
+				})
+			})
+
+			ginkgo.It("counts the workload under all assigned flavors", func() {
+				var wl *kueue.Workload
+				ginkgo.By("Creating Workload requesting CPU, Memory, and GPU", func() {
+					wl = createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("wl-", ns.Name).
+							Queue("cq-rg").
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							Request("nvidia.com/gpu", "1").
+							Obj(),
+					)
+				})
+
+				ginkgo.By("Verifying Workload is admitted and counted exactly once per flavor", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+					util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1)
+
+					util.ExpectFlavorAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), flavor1.Name, 1)
+					util.ExpectFlavorAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), flavor2.Name, 0)
+					util.ExpectFlavorAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), flavor3.Name, 1)
+				})
+			})
+
+			ginkgo.It("does not count a workload under flavors for which it doesn't request resources", func() {
+				var wl *kueue.Workload
+				ginkgo.By("Creating Workload requesting CPU and Memory, but NO GPU", func() {
+					wl = createWorkload(
+						utiltestingapi.MakeWorkloadWithGeneratedName("wl-", ns.Name).
+							Queue("cq-rg").
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							Obj(),
+					)
+				})
+
+				ginkgo.By("Verifying Workload is admitted and has zero impact on flavor3 (GPU)", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+					util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1)
+
+					util.ExpectFlavorAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), flavor1.Name, 1)
+					util.ExpectFlavorAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), flavor2.Name, 0)
+					util.ExpectFlavorAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), flavor3.Name, 0)
+				})
 			})
 		})
 	})
