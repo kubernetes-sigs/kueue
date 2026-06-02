@@ -54,22 +54,22 @@ var _ = ginkgo.BeforeSuite(func() {
 	waitForAvailableStart := time.Now()
 	util.WaitForKueueAvailability(ctx, k8sClient)
 	labelFilter := ginkgo.GinkgoLabelFilter()
-	if ginkgo.Label("feature:jobset", "feature:tas", "feature:trainjob").MatchesLabelFilter(labelFilter) {
+	if ginkgo.Label(util.Shard0, "feature:jobset", "feature:trainjob").MatchesLabelFilter(labelFilter) {
 		util.WaitForJobSetAvailability(ctx, k8sClient)
 	}
-	if ginkgo.Label("feature:leaderworkerset").MatchesLabelFilter(labelFilter) {
+	if ginkgo.Label(util.Shard0, "feature:leaderworkerset").MatchesLabelFilter(labelFilter) {
 		util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
 	}
-	if ginkgo.Label("feature:appwrapper").MatchesLabelFilter(labelFilter) {
+	if ginkgo.Label(util.Shard1, "feature:appwrapper").MatchesLabelFilter(labelFilter) {
 		util.WaitForAppWrapperAvailability(ctx, k8sClient)
 	}
-	if ginkgo.Label("feature:jaxjob", "feature:pytorchjob").MatchesLabelFilter(labelFilter) {
+	if ginkgo.Label(util.Shard1, "feature:jaxjob", "feature:pytorchjob").MatchesLabelFilter(labelFilter) {
 		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
 	}
-	if ginkgo.Label("feature:kuberay").MatchesLabelFilter(labelFilter) {
+	if ginkgo.Label(util.Shard0, "feature:kuberay").MatchesLabelFilter(labelFilter) {
 		util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
 	}
-	if ginkgo.Label("feature:tas", "feature:trainjob").MatchesLabelFilter(labelFilter) {
+	if ginkgo.Label(util.Shard1, "feature:trainjob").MatchesLabelFilter(labelFilter) {
 		util.WaitForKubeFlowTrainnerControllerManagerAvailability(ctx, k8sClient)
 	}
 	ginkgo.GinkgoLogr.Info(

@@ -178,14 +178,28 @@ test-multikueue-e2e-sequential-shard-1: test-multikueue-e2e-sequential
 test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
 
+.PHONY: test-e2e-extended
+test-e2e-extended: test-e2e-extended-shard-0 test-e2e-extended-shard-1
+
 ## Label Taxonomy:
-##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,tas,trainjob
+##   Features: jobset,kuberay,leaderworkerset
 ##
 ## Examples:
-##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
-.PHONY: test-e2e-extended
-test-e2e-extended: E2E_NPROCS := 4
-test-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+##   Run only LeaderWorkerSet tests: GINKGO_ARGS="--label-filter=feature:leaderworkerset" make test-e2e-extended-shard-0
+.PHONY: test-e2e-extended-shard-0
+test-e2e-extended-shard-0: E2E_NPROCS := 4
+test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=shard-0
+test-e2e-extended-shard-0: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-shard-0-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+## Label Taxonomy:
+##   Features: appwrapper,jaxjob,pytorchjob,tas,trainjob
+##
+## Examples:
+##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended-shard-1
+.PHONY: test-e2e-extended-shard-1
+test-e2e-extended-shard-1: E2E_NPROCS := 4
+test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-shard-1-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
 ##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,e2e_v1beta1,ha
@@ -273,8 +287,25 @@ run-test-e2e-baseline-%:
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
-run-test-e2e-extended-%: K8S_VERSION = $(@:run-test-e2e-extended-%=%)
-run-test-e2e-extended-%:
+run-test-e2e-extended-shard-0-%: K8S_VERSION = $(@:run-test-e2e-extended-shard-0-%=%)
+run-test-e2e-extended-shard-0-%:
+	@echo Running extended e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		JOBSET_VERSION=$(JOBSET_VERSION) \
+		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/extended" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-test.sh
+
+run-test-e2e-extended-shard-1-%: K8S_VERSION = $(@:run-test-e2e-extended-shard-1-%=%)
+run-test-e2e-extended-shard-1-%:
 	@echo Running extended e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
@@ -282,11 +313,8 @@ run-test-e2e-extended-%:
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-		JOBSET_VERSION=$(JOBSET_VERSION) \
 		KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
 		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
-		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
