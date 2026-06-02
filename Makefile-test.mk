@@ -151,9 +151,6 @@ test-e2e-baseline-helm: test-e2e-baseline
 test-e2e-extended-helm: E2E_USE_HELM=true
 test-e2e-extended-helm: test-e2e-extended
 
-.PHONY: test-multikueue-e2e-main
-test-multikueue-e2e-main: test-multikueue-e2e-baseline test-multikueue-e2e-extended
-
 .PHONY: test-multikueue-e2e-baseline
 test-multikueue-e2e-baseline: E2E_NPROCS := 5
 test-multikueue-e2e-baseline: setup-e2e-env run-test-multikueue-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
