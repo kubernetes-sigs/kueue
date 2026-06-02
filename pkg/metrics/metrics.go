@@ -27,7 +27,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/version"
 )
@@ -1278,8 +1277,8 @@ func ReportReservingActiveWorkloads(cqName kueue.ClusterQueueReference, count in
 	ReservingActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
-func ReportFlavorAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, fr resources.FlavorResource, count int64, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := append([]string{string(cqName), roletracker.GetRole(tracker), fr.String()}, customLabelValues...)
+func ReportFlavorAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, flavor kueue.ResourceFlavorReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), roletracker.GetRole(tracker), string(flavor)}, customLabelValues...)
 	FlavorAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 

@@ -175,7 +175,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		podsReadyTracking:              c.podsReadyTracking,
 		workloadInfoOptions:            c.workloadInfoOptions,
 		AdmittedUsage:                  make(resources.FlavorResourceQuantities),
-		admittedWorkloadsCountByFlavor: make(resources.FlavorResourceQuantities),
+		admittedWorkloadsCountByFlavor: make(map[kueue.ResourceFlavorReference]int),
 		resourceNode:                   NewResourceNode(),
 		tasCache:                       &c.tasCache,
 		AdmissionScope:                 cq.Spec.AdmissionScope,

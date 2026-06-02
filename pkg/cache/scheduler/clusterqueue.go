@@ -81,7 +81,7 @@ type clusterQueue struct {
 	perFlavorMultiKueueAdmissionChecks []kueue.AdmissionCheckReference
 	tasFlavors                         map[kueue.ResourceFlavorReference]kueue.TopologyReference
 	admittedWorkloadsCount             int
-	admittedWorkloadsCountByFlavor     resources.FlavorResourceQuantities
+	admittedWorkloadsCountByFlavor     map[kueue.ResourceFlavorReference]int
 	isStopped                          bool
 	workloadInfoOptions                []workload.InfoOption
 
@@ -533,7 +533,7 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), c.customMetricLabelValues, c.roleTracker)
 	if features.Enabled(features.KueueAdmittedWorkloadsCountByFlavor) {
 		for fr, q := range c.admittedWorkloadsCountByFlavor {
-			metrics.ReportFlavorAdmittedActiveWorkloads(c.Name, fr, q.Int64(), c.customMetricLabelValues, c.roleTracker)
+			metrics.ReportFlavorAdmittedActiveWorkloads(c.Name, fr, q, c.customMetricLabelValues, c.roleTracker)
 		}
 	}
 }
@@ -588,9 +588,14 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 	c.updateWorkloadTASUsage(log, wi, op)
 	if admitted {
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
-		updateAdmittedWorkloadsCountByFlavor(frUsage, c.admittedWorkloadsCountByFlavor, op)
 		c.Parent().updateAdmittedWorkloadsCount(op.asSignedOne())
 		c.admittedWorkloadsCount += op.asSignedOne()
+
+		flavors := sets.New[kueue.ResourceFlavorReference]()
+		for fr := range frUsage {
+			flavors.Insert(fr.Flavor)
+		}
+		updateAdmittedWorkloadsCountByFlavor(flavors, c.admittedWorkloadsCountByFlavor, op)
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
@@ -637,10 +642,10 @@ func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage res
 	}
 }
 
-func updateAdmittedWorkloadsCountByFlavor(frUsage resources.FlavorResourceQuantities, admittedWorkloadsCountByFlavor resources.FlavorResourceQuantities, op usageOp) {
-	sign := int64(op.asSignedOne())
-	for fr := range frUsage {
-		admittedWorkloadsCountByFlavor[fr] = admittedWorkloadsCountByFlavor[fr].AddInt64(sign)
+func updateAdmittedWorkloadsCountByFlavor(flavors sets.Set[kueue.ResourceFlavorReference], admittedWorkloadsCountByFlavor map[kueue.ResourceFlavorReference]int, op usageOp) {
+	sign := op.asSignedOne()
+	for flavor := range flavors {
+		admittedWorkloadsCountByFlavor[flavor] += sign
 	}
 }
 
