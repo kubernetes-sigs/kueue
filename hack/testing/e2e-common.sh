@@ -57,7 +57,7 @@ function build_kind_node_image {
     fi
 
     echo "Building kind node image: $E2E_KIND_VERSION (K8s v$KIND_VERSION)"
-    "${ROOT_DIR}/hack/retry.sh" --attempts 3 --delay 5 -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 3 --delay 5 -- \
         "$KIND" build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
 }
 
@@ -110,7 +110,7 @@ function e2e_kubectl_apply_url {
     local extra_args=("$@")
     local manifest
 
-    manifest=$("${ROOT_DIR}/hack/retry.sh" --attempts 7 --delay 2 --exponential -- curl -fsSL "${url}") || return 1
+    manifest=$("${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential -- curl -fsSL "${url}") || return 1
     echo "${manifest}" | kubectl apply --server-side -f - "${extra_args[@]}"
 }
 
@@ -458,7 +458,7 @@ function cluster_create {
     local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
     echo "Creating kind cluster '$cluster'..."
-    if ! "${ROOT_DIR}/hack/retry.sh" \
+    if ! "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 3 \
         --delay 3 \
         --continue-if "$continue_if" \
