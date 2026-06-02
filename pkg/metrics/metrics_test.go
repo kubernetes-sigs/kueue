@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -75,36 +76,88 @@ func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueQuotas(t *testing.T) {
-	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3, nil, nil)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res2", 5, 10, 3, nil, nil)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1, nil, nil)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res2", 1, 2, 1, nil, nil)
+	const cqName = "queue"
 
-	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 4, "cluster_queue", "queue")
-	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 4, "cluster_queue", "queue")
-	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 4, "cluster_queue", "queue")
+	entries := []struct {
+		flavor    string
+		resource  string
+		nominal   float64
+		borrowing float64
+		lending   float64
+	}{
+		{flavor: "flavor", resource: "res", nominal: 5, borrowing: 10, lending: 3},
+		{flavor: "flavor", resource: "res2", nominal: 5, borrowing: 10, lending: 3},
+		{flavor: "flavor2", resource: "res", nominal: 1, borrowing: 2, lending: 1},
+		{flavor: "flavor2", resource: "res2", nominal: 1, borrowing: 2, lending: 1},
+	}
+
+	for _, entry := range entries {
+		ReportClusterQueueQuotas("cohort", cqName, entry.flavor, entry.resource, entry.nominal, entry.borrowing, entry.lending, nil, nil)
+	}
+
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, len(entries), "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, len(entries), "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, len(entries), "cluster_queue", cqName)
+
+	got := metrics.CollectFilteredGaugeVec(ClusterQueueResourceBorrowingLimit, prometheus.Labels{
+		"cluster_queue": cqName,
+		"flavor":        "flavor",
+		"resource":      "res",
+	})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 borrowing-limit metric, got %d", len(got))
+	}
+	if got[0].Value != 10 {
+		t.Fatalf("unexpected borrowing-limit metric value: got %v, want 10", got[0].Value)
+	}
 
 	// drop flavor2
-	ClearClusterQueueResourceQuotas("queue", "flavor2", "")
+	ClearClusterQueueResourceQuotas(cqName, "flavor2", "")
 
-	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 2, "cluster_queue", "queue")
-	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 2, "cluster_queue", "queue")
-	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 2, "cluster_queue", "queue")
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 2, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 2, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 2, "cluster_queue", cqName)
 
-	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 0, "cluster_queue", "queue", "flavor", "flavor2")
-	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 0, "cluster_queue", "queue", "flavor", "flavor2")
-	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 0, "cluster_queue", "queue", "flavor", "flavor2")
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 0, "cluster_queue", cqName, "flavor", "flavor2")
+	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 0, "cluster_queue", cqName, "flavor", "flavor2")
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 0, "cluster_queue", cqName, "flavor", "flavor2")
 
 	// drop res2
-	ClearClusterQueueResourceQuotas("queue", "flavor", "res2")
+	ClearClusterQueueResourceQuotas(cqName, "flavor", "res2")
 
-	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", "queue")
-	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 1, "cluster_queue", "queue")
-	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 1, "cluster_queue", "queue")
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 1, "cluster_queue", cqName)
 
-	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
-	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
-	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 0, "cluster_queue", cqName, "flavor", "flavor", "resource", "res2")
+	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 0, "cluster_queue", cqName, "flavor", "flavor", "resource", "res2")
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 0, "cluster_queue", cqName, "flavor", "flavor", "resource", "res2")
+
+	ClearClusterQueueResourceMetrics(cqName)
+}
+
+func TestReportClusterQueueQuotasUnlimitedBorrowing(t *testing.T) {
+	const cqName = "queue-unlimited-borrowing"
+
+	ReportClusterQueueQuotas("cohort", cqName, "flavor", "res", 5, math.Inf(1), 3, nil, nil)
+
+	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 1, "cluster_queue", cqName)
+
+	got := metrics.CollectFilteredGaugeVec(ClusterQueueResourceBorrowingLimit, prometheus.Labels{
+		"cluster_queue": cqName,
+		"flavor":        "flavor",
+		"resource":      "res",
+	})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 borrowing-limit metric, got %d", len(got))
+	}
+	if !math.IsInf(got[0].Value, 1) {
+		t.Fatalf("expected borrowing-limit metric to be +Inf for unlimited borrowing, got %v", got[0].Value)
+	}
+
+	ClearClusterQueueResourceMetrics(cqName)
 }
 
 func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
