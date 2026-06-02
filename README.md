@@ -60,8 +60,8 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
     - ✔️ E2E Cert Manager test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-certmanager-main).
     - ✔️ DRA test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-dra-main).
     - ✔️ MultiKueue:
-      - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-baseline).
-      - ✔️ Extended suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-extended).
+      - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-baseline-main).
+      - ✔️ Extended suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-extended-main).
     - ✔️ MultiKueue DRA test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-dra-main).
   - ✔️ Scheduling performance tests:
     - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-scheduling-perf-main).
