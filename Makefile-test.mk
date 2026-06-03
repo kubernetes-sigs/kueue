@@ -224,7 +224,24 @@ test-e2e-baseline: setup-e2e-env kueuectl run-test-e2e-baseline-$(E2E_KIND_VERSI
 test-tas-e2e-baseline: setup-e2e-env run-test-tas-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-extended
-test-tas-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-tas-e2e-extended: test-tas-e2e-extended-shard-0 test-tas-e2e-extended-shard-1
+
+.PHONY: test-tas-e2e-extended-shard-0
+test-tas-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=shard-0
+test-tas-e2e-extended-shard-0: export JOBSET_VERSION := $(JOBSET_VERSION)
+test-tas-e2e-extended-shard-0: export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
+test-tas-e2e-extended-shard-0: export KUBERAY_VERSION := $(KUBERAY_VERSION)
+test-tas-e2e-extended-shard-0: export RAY_VERSION := $(RAY_VERSION)
+test-tas-e2e-extended-shard-0: export RAYMINI_VERSION := $(RAYMINI_VERSION)
+test-tas-e2e-extended-shard-0: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-tas-e2e-extended-shard-1
+test-tas-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-tas-e2e-extended-shard-1: export APPWRAPPER_VERSION := $(APPWRAPPER_VERSION)
+test-tas-e2e-extended-shard-1: export KUBEFLOW_VERSION := $(KUBEFLOW_VERSION)
+test-tas-e2e-extended-shard-1: export KUBEFLOW_MPI_VERSION := $(KUBEFLOW_MPI_VERSION)
+test-tas-e2e-extended-shard-1: export KUBEFLOW_TRAINER_VERSION := $(KUBEFLOW_TRAINER_VERSION)
+test-tas-e2e-extended-shard-1: setup-e2e-env run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-baseline-helm
 test-tas-e2e-baseline-helm: E2E_USE_HELM=true
@@ -368,11 +385,7 @@ run-test-tas-e2e-extended-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
-		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
-		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
+		USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
