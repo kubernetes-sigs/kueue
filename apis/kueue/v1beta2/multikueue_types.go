@@ -147,7 +147,7 @@ type MultiKueueClusterList struct {
 }
 
 // MultiKueueConfigSpec defines the desired state of MultiKueueConfig
-// +kubebuilder:validation:XValidation:rule="has(obj.quotaManagementMode) && obj.quotaManagementMode == 'Automated' ? has(obj.automatedQuotaManagementConfig) : true",message="automatedQuotaManagementConfig is only relevant when quotaManagementMode is set to 'Automated'"
+// +kubebuilder:validation:XValidation:rule="has(self.quotaManagementMode) && self.quotaManagementMode == 'Automated' ? has(self.automatedQuotaManagementConfig) : true",message="automatedQuotaManagementConfig is only relevant when quotaManagementMode is set to 'Automated'"
 type MultiKueueConfigSpec struct {
 	// clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
 	//
