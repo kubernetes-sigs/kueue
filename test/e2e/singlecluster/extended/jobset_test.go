@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("JobSet", ginkgo.Label("area:singlecluster", "feature:jobset"), func() {
+var _ = ginkgo.Describe("JobSet", ginkgo.Label(util.Shard0, "area:singlecluster", "feature:jobset"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
