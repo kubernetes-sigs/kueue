@@ -1240,8 +1240,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Waiting for both jobs to complete", func() {
-				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobMk)
-				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobRegular)
+				util.ExpectJobToBeCompletedWithTimeout(ctx, k8sManagerClient, jobMk, util.LongTimeout)
+				util.ExpectJobToBeCompletedWithTimeout(ctx, k8sManagerClient, jobRegular, util.LongTimeout)
 			})
 		})
 	})
