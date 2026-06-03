@@ -38,7 +38,7 @@ INTEGRATION_FILTERS="--label-filter=controller:workload" make test-integration
 INTEGRATION_FILTERS="--label-filter=area:jobs" make test-integration
 
 # Filter e2e tests by label
-GINKGO_ARGS="--label-filter=feature:jobset" make test-e2e-extended-shard-0
+GINKGO_ARGS="--label-filter=feature:jobset" make test-e2e-extended
 
 # Run only a specific integration test directory
 INTEGRATION_TARGET='test/integration/singlecluster/scheduler' make test-integration
@@ -107,8 +107,7 @@ PLATFORM=linux/arm64 make kind-image-build
 Then run the desired test target:
 ```shell
 make test-e2e-baseline
-make test-e2e-extended-shard-0
-make test-e2e-extended-shard-1
+make test-e2e-extended
 make test-e2e-sequential-baseline
 make test-e2e-sequential-extended
 make test-e2e-certmanager
@@ -246,13 +245,13 @@ SingleCluster tests are labeled by feature and area. You can use `GINKGO_ARGS` w
 **Examples:**
 ```shell
 # Run only appwrapper tests
-GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended-shard-1
+GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
 
 # Run only deployment tests with helm
 GINKGO_ARGS="--label-filter=feature:deployment" make test-e2e-baseline-helm
 
 # Run only jobset and trainjob tests with helm
-GINKGO_ARGS="--label-filter=feature:jobset,feature:leaderworkerset" make test-e2e-extended-shard-0
+GINKGO_ARGS="--label-filter=feature:jobset,feature:trainjob" make test-e2e-extended
 ```
 
 ### Use label filters for e2e sequential tests
