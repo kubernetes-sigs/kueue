@@ -143,7 +143,7 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if len(variants) < len(flavorOrder) {
 		log.V(3).Info("Too few variants, creating new ones", "desired", len(flavorOrder), "actual", len(variants))
-		if err := r.createVariants(ctx, parent, variants, flavorOrder); err != nil {
+		if err := r.createVariants(ctx, parent, variants, cq.Spec.ResourceGroups[0].Flavors); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -230,15 +230,15 @@ func (r *variantReconciler) getClusterQueue(ctx context.Context, wl *kueue.Workl
 	return cq, nil
 }
 
-func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload, resourceFlavors map[kueue.ResourceFlavorReference]int) error {
+func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload, resourceFlavors []kueue.FlavorQuotas) error {
 	log := ctrl.LoggerFrom(ctx)
-	for flavor := range resourceFlavors {
-		if r.hasVariantWithFlavor(ctx, variants, flavor) {
+	for _, flavorQuota := range resourceFlavors {
+		if r.hasVariantWithFlavor(ctx, variants, flavorQuota.Name) {
 			continue
 		}
 
-		variant := generateVariant(parent, flavor)
-		log.V(3).Info("Creating variant for flavor", "flavor", flavor, "variant", variant.Name)
+		variant := generateVariant(parent, flavorQuota.Name)
+		log.V(3).Info("Creating variant for flavor", "flavor", flavorQuota.Name, "variant", variant.Name)
 
 		// Set the owner reference to the parent workload
 		if err := ctrl.SetControllerReference(parent, variant, r.client.Scheme()); err != nil {
@@ -249,7 +249,7 @@ func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Wo
 			log.V(3).Info("Failed to create variant", "variant", klog.KObj(variant), "error", err)
 			return err
 		}
-		log.V(3).Info("Variant created", "variant", klog.KObj(variant), "flavor", flavor)
+		log.V(3).Info("Variant created", "variant", klog.KObj(variant), "flavor", flavorQuota.Name)
 		r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonCreatedVariant, ReasonCreatedVariant, "Variant Workload %q created", klog.KObj(variant))
 	}
 	return nil
