@@ -1,0 +1,1601 @@
+Docker in Docker enabled, initializing...
+================================================================================
+net.ipv6.conf.all.disable_ipv6 = 0
+net.ipv6.conf.all.forwarding = 1
+insmod /lib/modules/6.12.83/kernel/net/ipv6/netfilter/ip6table_nat.ko 
+Starting Docker: docker.
+Waiting for docker to be ready, sleeping for 1 seconds.
+================================================================================
+Done setting up docker in docker.
++ WRAPPED_COMMAND_PID=261
++ wait 261
++ make kind-image-build test-multikueue-e2e-baseline
+go: downloading sigs.k8s.io/kind v0.31.0
+go: downloading al.essio.dev/pkg/shellescape v1.5.1
+go: downloading github.com/spf13/pflag v1.0.5
+go: downloading github.com/pkg/errors v0.9.1
+go: downloading github.com/spf13/cobra v1.8.0
+go: downloading github.com/mattn/go-isatty v0.0.20
+go: downloading github.com/pelletier/go-toml v1.9.5
+go: downloading github.com/BurntSushi/toml v1.4.0
+go: downloading github.com/evanphx/json-patch/v5 v5.6.0
+go: downloading go.yaml.in/yaml/v3 v3.0.4
+go: downloading sigs.k8s.io/yaml v1.4.0
+go: downloading golang.org/x/sys v0.6.0
+docker buildx build \
+	-t us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-26-g94ef375df \
+	-t us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main \
+	--platform=linux/amd64 \
+	--build-arg BASE_IMAGE=gcr.io/distroless/static:nonroot \
+	--build-arg BUILDER_IMAGE=public.ecr.aws/docker/library/golang:1.26 \
+	--build-arg CGO_ENABLED=0 \
+	--build-arg GIT_TAG=v0.19.0-devel-26-g94ef375df \
+	--build-arg GIT_COMMIT=94ef375df846af2c9822a7e4d126d999a5055af4 \
+	--load \
+	 \
+	./
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 841B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/docker/library/golang:1.26
+#2 DONE 0.5s
+
+#3 [internal] load metadata for gcr.io/distroless/static:nonroot
+#3 DONE 1.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 781B done
+#4 DONE 0.0s
+
+#5 [builder 1/6] FROM public.ecr.aws/docker/library/golang:1.26@sha256:68cb6d68bed024785b69195b89af7ac7a444f27791435f98647edff595aa0479
+#5 resolve public.ecr.aws/docker/library/golang:1.26@sha256:68cb6d68bed024785b69195b89af7ac7a444f27791435f98647edff595aa0479 done
+#5 sha256:68cb6d68bed024785b69195b89af7ac7a444f27791435f98647edff595aa0479 9.70kB / 9.70kB done
+#5 sha256:82c8738642b733f7d2f44b057375ec90d17c294ff6689aedc628afa9c2b2ceff 2.32kB / 2.32kB done
+#5 sha256:0f93c8cff8231409ef2b28bdb0ca1687ea82b65bda7a6f7663fa9e481c7f394c 3.04kB / 3.04kB done
+#5 sha256:8a7504cd2818ce40ac76c17886a03dff25ef0aa06ff6125bf0f0c7302cdc6471 0B / 25.63MB 1.2s
+#5 sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96 18.87MB / 49.31MB 1.2s
+#5 sha256:8a7504cd2818ce40ac76c17886a03dff25ef0aa06ff6125bf0f0c7302cdc6471 19.92MB / 25.63MB 1.3s
+#5 sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96 49.31MB / 49.31MB 1.3s
+#5 sha256:8a7504cd2818ce40ac76c17886a03dff25ef0aa06ff6125bf0f0c7302cdc6471 25.63MB / 25.63MB 1.4s done
+#5 sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96 49.31MB / 49.31MB 1.3s done
+#5 sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 22.02MB / 67.78MB 1.5s
+#5 sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 6.29MB / 102.24MB 1.5s
+#5 sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 0B / 67.28MB 1.5s
+#5 sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 42.99MB / 67.78MB 1.6s
+#5 sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 32.51MB / 102.24MB 1.6s
+#5 extracting sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96
+#5 sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 61.87MB / 67.78MB 1.7s
+#5 sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 59.77MB / 102.24MB 1.7s
+#5 sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 7.34MB / 67.28MB 1.7s
+#5 sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 67.78MB / 67.78MB 1.8s done
+#5 sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 89.13MB / 102.24MB 1.8s
+#5 sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 11.53MB / 67.28MB 1.8s
+#5 sha256:856fef5914da4fbead25cf7d522b9155f8fb74e3eff265289511d3b14f2c1e23 0B / 126B 1.8s
+#5 sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 102.24MB / 102.24MB 2.0s
+#5 sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 59.77MB / 67.28MB 2.0s
+#5 sha256:856fef5914da4fbead25cf7d522b9155f8fb74e3eff265289511d3b14f2c1e23 126B / 126B 1.9s done
+#5 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 0B / 32B 2.0s
+#5 sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 67.28MB / 67.28MB 2.1s
+#5 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 32B / 32B 2.1s
+#5 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 32B / 32B 2.2s done
+#5 ...
+
+#6 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240
+#6 resolve gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240 done
+#6 sha256:dfadf31470f770fcabd48903762dce126958e98d1ce320acf1216bbfaa42d79c 2.75kB / 2.75kB done
+#6 sha256:c9c1077449dead9e30ac230b376e761345deceab3fba17e74eeb71fcdb385845 2.93kB / 2.93kB done
+#6 sha256:47de5dd0b812c573630914955e26abda537e09b5286a824c96e22e3854d4dd53 85.84kB / 85.84kB 0.4s done
+#6 sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240 1.79kB / 1.79kB done
+#6 sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0 12.68kB / 12.68kB 0.4s done
+#6 sha256:99515e7b4d35e0652d3b0fde571b6ec269222ecacc506f026e1758d6261e9109 288.54kB / 288.54kB 0.5s done
+#6 extracting sha256:47de5dd0b812c573630914955e26abda537e09b5286a824c96e22e3854d4dd53 0.1s done
+#6 sha256:99ba982a9142213c751a1709dcf088e63d8601f03b3f211bae037be698fef270 254.45kB / 254.45kB 0.7s done
+#6 sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 32.09kB / 32.09kB 0.6s done
+#6 extracting sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0 0.0s done
+#6 extracting sha256:99515e7b4d35e0652d3b0fde571b6ec269222ecacc506f026e1758d6261e9109 0.3s done
+#6 sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 67B / 67B 0.8s done
+#6 sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 188B / 188B 0.8s done
+#6 sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 123B / 123B 0.9s done
+#6 sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 162B / 162B 1.0s done
+#6 sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 80B / 80B 1.1s done
+#6 extracting sha256:99ba982a9142213c751a1709dcf088e63d8601f03b3f211bae037be698fef270 0.5s done
+#6 sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 351B / 351B 1.1s done
+#6 sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795 311B / 311B 1.2s done
+#6 sha256:bdfd7f7e5bf6fc27e70b59101db21c3d8284d283884419dd5fe7020583bb79ca 136.99kB / 136.99kB 1.3s done
+#6 extracting sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 0.0s done
+#6 extracting sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 0.0s done
+#6 extracting sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 0.0s done
+#6 extracting sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 0.0s done
+#6 extracting sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 0.0s done
+#6 extracting sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 0.0s done
+#6 extracting sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 0.0s done
+#6 extracting sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795 done
+#6 extracting sha256:bdfd7f7e5bf6fc27e70b59101db21c3d8284d283884419dd5fe7020583bb79ca 0.0s done
+#6 DONE 2.5s
+
+#5 [builder 1/6] FROM public.ecr.aws/docker/library/golang:1.26@sha256:68cb6d68bed024785b69195b89af7ac7a444f27791435f98647edff595aa0479
+#5 sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 102.24MB / 102.24MB 2.4s done
+#5 ...
+
+#7 [internal] load build context
+#7 transferring context: 109.21MB 4.5s done
+#7 DONE 4.6s
+
+#5 [builder 1/6] FROM public.ecr.aws/docker/library/golang:1.26@sha256:68cb6d68bed024785b69195b89af7ac7a444f27791435f98647edff595aa0479
+#5 extracting sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96 5.0s
+#5 extracting sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96 5.1s done
+#5 extracting sha256:8a7504cd2818ce40ac76c17886a03dff25ef0aa06ff6125bf0f0c7302cdc6471
+#5 extracting sha256:8a7504cd2818ce40ac76c17886a03dff25ef0aa06ff6125bf0f0c7302cdc6471 1.7s done
+#5 extracting sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 0.1s
+#5 extracting sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 5.2s
+#5 extracting sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 6.0s done
+#5 extracting sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53
+#5 extracting sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 5.1s
+#5 extracting sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 6.4s done
+#5 extracting sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b
+#5 extracting sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 5.0s
+#5 extracting sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 10.3s
+#5 extracting sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 11.7s done
+#5 extracting sha256:856fef5914da4fbead25cf7d522b9155f8fb74e3eff265289511d3b14f2c1e23
+#5 extracting sha256:856fef5914da4fbead25cf7d522b9155f8fb74e3eff265289511d3b14f2c1e23 done
+#5 extracting sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 done
+#5 DONE 33.3s
+
+#8 [builder 2/6] WORKDIR /workspace
+#8 DONE 7.2s
+
+#9 [builder 3/6] COPY go.mod go.sum ./
+#9 DONE 0.0s
+
+#10 [builder 4/6] RUN go mod download
+#10 DONE 10.4s
+
+#11 [builder 5/6] COPY . .
+#11 DONE 5.6s
+
+#12 [builder 6/6] RUN make build GIT_TAG="v0.19.0-devel-26-g94ef375df" GIT_COMMIT="94ef375df846af2c9822a7e4d126d999a5055af4" GO_BUILD_ENV="GOARCH=amd64 CGO_ENABLED=0"
+#12 0.457 GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-26-g94ef375df' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=94ef375df846af2c9822a7e4d126d999a5055af4' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-03T12:08:30Z'" -o bin/manager cmd/kueue/main.go
+#12 DONE 137.8s
+
+#13 [stage-1 2/3] COPY --from=builder /workspace/bin/manager /manager
+#13 DONE 0.0s
+
+#14 exporting to image
+#14 exporting layers
+#14 exporting layers 0.3s done
+#14 writing image sha256:fea926165dcfbeb61b80c1050ede0d5a7029e8c27068728400302bf7d1711035 done
+#14 naming to us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-26-g94ef375df done
+#14 naming to us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main done
+#14 DONE 0.3s
+go: downloading sigs.k8s.io/kustomize/kustomize/v5 v5.8.1
+go: downloading sigs.k8s.io/kustomize/cmd/config v0.21.1
+go: downloading github.com/spf13/cobra v1.9.1
+go: downloading sigs.k8s.io/kustomize/api v0.21.1
+go: downloading sigs.k8s.io/kustomize/kyaml v0.21.1
+go: downloading github.com/spf13/pflag v1.0.6
+go: downloading sigs.k8s.io/yaml v1.5.0
+go: downloading golang.org/x/text v0.28.0
+go: downloading github.com/blang/semver/v4 v4.0.0
+go: downloading github.com/go-errors/errors v1.4.2
+go: downloading github.com/sergi/go-diff v1.4.0
+go: downloading gopkg.in/evanphx/json-patch.v4 v4.13.0
+go: downloading github.com/davecgh/go-spew v1.1.1
+go: downloading go.yaml.in/yaml/v2 v2.4.2
+go: downloading github.com/google/gnostic-models v0.6.9
+go: downloading github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00
+go: downloading go.yaml.in/yaml/v3 v3.0.3
+go: downloading google.golang.org/protobuf v1.36.5
+go: downloading github.com/xlab/treeprint v1.2.0
+go: downloading k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7
+go: downloading gopkg.in/inf.v0 v0.9.1
+go: downloading gopkg.in/yaml.v3 v3.0.1
+go: downloading github.com/go-openapi/jsonreference v0.20.2
+go: downloading github.com/go-openapi/swag v0.23.0
+go: downloading github.com/go-openapi/jsonpointer v0.21.0
+go: downloading github.com/mailru/easyjson v0.7.7
+go: downloading github.com/josharian/intern v1.0.0
+go: downloading github.com/mikefarah/yq/v4 v4.53.2
+go: downloading github.com/spf13/cobra v1.10.2
+go: downloading github.com/spf13/pflag v1.0.10
+go: downloading github.com/alecthomas/participle/v2 v2.1.4
+go: downloading github.com/a8m/envsubst v1.4.3
+go: downloading github.com/dimchansky/utfbom v1.1.1
+go: downloading github.com/elliotchance/orderedmap v1.8.0
+go: downloading github.com/fatih/color v1.19.0
+go: downloading github.com/go-ini/ini v1.67.0
+go: downloading github.com/goccy/go-json v0.10.6
+go: downloading github.com/goccy/go-yaml v1.19.2
+go: downloading github.com/hashicorp/hcl/v2 v2.24.0
+go: downloading github.com/jinzhu/copier v0.4.0
+go: downloading github.com/magiconair/properties v1.8.10
+go: downloading github.com/pelletier/go-toml/v2 v2.3.0
+go: downloading github.com/yuin/gopher-lua v1.1.2
+go: downloading github.com/zclconf/go-cty v1.18.0
+go: downloading go.yaml.in/yaml/v4 v4.0.0-rc.4
+go: downloading golang.org/x/net v0.52.0
+go: downloading golang.org/x/text v0.35.0
+go: downloading github.com/mattn/go-colorable v0.1.14
+go: downloading github.com/agext/levenshtein v1.2.1
+go: downloading github.com/apparentlymart/go-textseg/v15 v15.0.0
+go: downloading github.com/mitchellh/go-wordwrap v1.0.1
+go: downloading github.com/google/go-cmp v0.6.0
+go: downloading golang.org/x/sys v0.42.0
+→ Downloading main dependencies...
+go mod download
+→ Copying the CRDs from the mpi-operator to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/mpi-operator/
+cp -f /home/prow/go/pkg/mod/github.com/kubeflow/mpi-operator@v0.8.0/manifests/base/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/mpi-operator/
+→ Copying the CRDs from the training-operator to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator-crds/
+find /home/prow/go/pkg/mod/github.com/kubeflow/training-operator@v1.9.3/manifests/base/crds/* -type f -not -name "kubeflow.org_mpijobs.yaml" -exec cp -pf {} /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator-crds/ \;
+→ Copying the CRDs of the kubeflow trainer to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer-crds/
+cp -rf /home/prow/go/pkg/mod/github.com/kubeflow/trainer/v2@v2.2.1-0.20260515134202-448c432a7073/manifests/base/crds/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer-crds/
+→ Copying the kubeflow trainer runtimes manifests to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer-runtimes/
+cp -rf /home/prow/go/pkg/mod/github.com/kubeflow/trainer/v2@v2.2.1-0.20260515134202-448c432a7073/manifests/base/runtimes/*_distributed.yaml /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer-runtimes/
+→ Copying the CRDs from the ray-operator to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator-crds/
+cp -f /home/prow/go/pkg/mod/github.com/ray-project/kuberay/ray-operator@v1.6.1/config/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator-crds/
+→ Copying the CRDs from the jobset-operator to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/jobset-operator/
+cp -f /home/prow/go/pkg/mod/sigs.k8s.io/jobset@v0.12.0/config/components/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/jobset-operator/
+→ Copying the CRDs from the leaderworkerset-operator to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/leaderworkerset-operator/
+cp -f /home/prow/go/pkg/mod/sigs.k8s.io/lws@v0.8.0/config/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/leaderworkerset-operator/
+→ Copying the CRDs from the cluster-autoscaler to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/cluster-autoscaler/
+cp -f /home/prow/go/pkg/mod/k8s.io/autoscaler/cluster-autoscaler/apis@v0.0.0-20240830133931-adfbe7e45277/config/crd/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/cluster-autoscaler/
+→ Copying the CRDs from the appwrapper to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper-crds/
+cp -f /home/prow/go/pkg/mod/github.com/project-codeflare/appwrapper@v1.2.2/config/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper-crds/
+→ Copy the CRDs from the appwrapper to the dep-crds directory....
+if [ -d "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper" ]; then \
+	chmod -R u+w "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper" && \
+	rm -rf "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper"; \
+fi
+mkdir -p "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper"
+cp -rf "/home/prow/go/pkg/mod/github.com/project-codeflare/appwrapper@v1.2.2/config" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper"
+cd "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper/config/manager" && chmod u+w kustomization.yaml && /home/prow/go/src/sigs.k8s.io/kueue/bin/kustomize edit set image controller=quay.io/ibm/appwrapper:v1.2.2 && chmod u-w kustomization.yaml
+→ Copying whole manifests folder from the training-operator to the dep-crds directory...
+if [ -d "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator" ]; then \
+	chmod -R u+w "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator" && \
+	rm -rf "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator"; \
+fi
+mkdir -p "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator"
+cp -rf "/home/prow/go/pkg/mod/github.com/kubeflow/training-operator@v1.9.3/manifests" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator"
+→ Copying the whole manifests content from the ray-operator to the dep-crds directory...
+if [ -d "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator" ]; then \
+	chmod -R u+w "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator" && \
+	rm -rf "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"; \
+fi
+mkdir -p "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"; \
+cp -rf "/home/prow/go/pkg/mod/github.com/ray-project/kuberay/ray-operator@v1.6.1/config/crd" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"
+cp -rf "/home/prow/go/pkg/mod/github.com/ray-project/kuberay/ray-operator@v1.6.1/config/default" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"
+cp -rf "/home/prow/go/pkg/mod/github.com/ray-project/kuberay/ray-operator@v1.6.1/config/rbac" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"
+cp -rf "/home/prow/go/pkg/mod/github.com/ray-project/kuberay/ray-operator@v1.6.1/config/manager" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"
+→ Copying whole manifests folder of the kubeflow trainer to the dep-crds directory...
+if [ -d "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer" ]; then \
+	chmod -R u+w "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer" && \
+	rm -rf "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer"; \
+fi
+mkdir -p "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer"
+cp -rf "/home/prow/go/pkg/mod/github.com/kubeflow/trainer/v2@v2.2.1-0.20260515134202-448c432a7073/manifests" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer"
+→ Copy the CRDs from the clusterprofile to the dep-crds directory.
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/clusterprofile/
+cp -f /home/prow/go/pkg/mod/sigs.k8s.io/cluster-inventory-api@v0.0.0-20251028164203-2e3fabb46733/config/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/clusterprofile/
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/spark-operator-crds/
+cp -rf /home/prow/go/pkg/mod/github.com/kubeflow/spark-operator/v2@v2.5.0/config/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/spark-operator-crds/
+Copying CRDs from external operators to dep-crds directory
+go: downloading helm.sh/helm/v4 v4.2.0
+go: downloading k8s.io/client-go v0.36.0
+go: downloading github.com/fluxcd/cli-utils v1.2.0
+go: downloading k8s.io/api v0.36.0
+go: downloading k8s.io/apiextensions-apiserver v0.36.0
+go: downloading k8s.io/apimachinery v0.36.0
+go: downloading k8s.io/cli-runtime v0.36.0
+go: downloading k8s.io/kubectl v0.36.0
+go: downloading github.com/Masterminds/semver/v3 v3.5.0
+go: downloading github.com/gofrs/flock v0.13.0
+go: downloading github.com/gosuri/uitable v0.0.4
+go: downloading golang.org/x/term v0.42.0
+go: downloading golang.org/x/text v0.36.0
+go: downloading k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2
+go: downloading sigs.k8s.io/structured-merge-diff/v6 v6.3.2
+go: downloading golang.org/x/sys v0.43.0
+go: downloading github.com/cpuguy83/go-md2man/v2 v2.0.6
+go: downloading github.com/cyphar/filepath-securejoin v0.6.1
+go: downloading github.com/ProtonMail/go-crypto v1.4.1
+go: downloading github.com/extism/go-sdk v1.7.1
+go: downloading github.com/tetratelabs/wazero v1.11.0
+go: downloading github.com/Masterminds/vcs v1.13.3
+go: downloading github.com/Masterminds/sprig/v3 v3.3.0
+go: downloading github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+go: downloading github.com/opencontainers/image-spec v1.1.1
+go: downloading oras.land/oras-go/v2 v2.6.0
+go: downloading github.com/rubenv/sql-migrate v1.8.1
+go: downloading github.com/jmoiron/sqlx v1.4.0
+go: downloading github.com/Masterminds/squirrel v1.5.4
+go: downloading github.com/lib/pq v1.12.3
+go: downloading github.com/google/gnostic-models v0.7.0
+go: downloading github.com/go-openapi/jsonreference v0.21.0
+go: downloading github.com/go-openapi/swag v0.23.1
+go: downloading golang.org/x/time v0.15.0
+go: downloading github.com/mattn/go-runewidth v0.0.9
+go: downloading k8s.io/component-base v0.36.0
+go: downloading dario.cat/mergo v1.0.1
+go: downloading github.com/Masterminds/goutils v1.1.1
+go: downloading github.com/huandu/xstrings v1.5.0
+go: downloading github.com/mitchellh/copystructure v1.2.0
+go: downloading github.com/shopspring/decimal v1.4.0
+go: downloading github.com/spf13/cast v1.7.0
+go: downloading golang.org/x/crypto v0.50.0
+go: downloading github.com/BurntSushi/toml v1.6.0
+go: downloading github.com/gobwas/glob v0.2.3
+go: downloading github.com/lann/builder v0.0.0-20180802200727-47ae307949d0
+go: downloading github.com/go-gorp/gorp/v3 v3.1.0
+go: downloading github.com/dylibso/observe-sdk/go v0.0.0-20240819160327-2d926c5d788a
+go: downloading github.com/go-openapi/jsonpointer v0.21.1
+go: downloading github.com/mailru/easyjson v0.9.0
+go: downloading github.com/chai2010/gettext-go v1.0.2
+go: downloading github.com/mitchellh/reflectwalk v1.0.2
+go: downloading github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2
+go: downloading k8s.io/apiserver v0.36.0
+go: downloading github.com/cloudflare/circl v1.6.3
+go: downloading github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0
+go: downloading github.com/ianlancetaylor/demangle v0.0.0-20240805132620-81f5be970eca
+go: downloading github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834
+go: downloading go.opentelemetry.io/proto/otlp v1.10.0
+cd /home/prow/go/src/sigs.k8s.io/kueue/hack/tools && go mod download && \
+ go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-26-g94ef375df' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=94ef375df846af2c9822a7e4d126d999a5055af4' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-03T12:12:51Z'" -o /home/prow/go/src/sigs.k8s.io/kueue/bin/ginkgo-top ./ginkgo-top
+Setting up environment for e2e tests
+Running baseline multikueue e2e for k8s 1.35.5
+E2E_KIND_VERSION="kindest/node:v1.35.5" KIND_CLUSTER_NAME=kind \
+	ARTIFACTS="/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5" IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-26-g94ef375df GINKGO_ARGS=" -procs=5" \
+	E2E_MODE=ci \
+	E2E_SKIP_REINSTALL=false \
+	E2E_TARGET_FOLDER="multikueue/baseline" \
+	E2E_CONFIG_FOLDER="multikueue/baseline" \
+	TEST_LOG_LEVEL=-3 \
+	E2E_RUN_ONLY_ENV=false \
+	E2E_USE_HELM=false \
+	./hack/testing/e2e-multikueue-test.sh
+Building kind node image: kueue/kind-node:v1.35.5 (K8s v1.35.5)
+retry [1/3]: /home/prow/go/src/sigs.k8s.io/kueue/hack/testing/../../bin/kind build node-image v1.35.5 --image kueue/kind-node:v1.35.5
+Detected build type: "release"
+Building using release "v1.35.5" artifacts
+Starting to build Kubernetes
+Downloading "https://dl.k8s.io/v1.35.5/kubernetes-server-linux-amd64.tar.gz"
+Finished building Kubernetes
+Building node image ...
+Building in container: kind-build-1780488812-94033170
+Image "kueue/kind-node:v1.35.5" build completed.
+registry.k8s.io/kube scheduler amd64:v1.	saved	
+application/vnd.docker.distribution.manifest.v2+json sha256:dfcf521b63af535132108edfc08644f78b0dcaa82e6b04c17b395da7f1912547
+Importing	elapsed: 1.7 s	total:   0.0 B	(0.0 B/s)	
+registry.k8s.io/kube proxy amd64:v1.35.5	saved	
+application/vnd.docker.distribution.manifest.v2+json sha256:44f7677a7ea64ea9b274d58fdc83c683aea1fb79e5b81342cb2df22c32028a02
+Importing	elapsed: 1.8 s	total:   0.0 B	(0.0 B/s)	
+registry.k8s.io/kube controller manager 	saved	
+application/vnd.docker.distribution.manifest.v2+json sha256:778e3fabab133bfea60aad6e624acd17cf847c2c2d2418298c3aedc78ebfef72
+Importing	elapsed: 2.3 s	total:   0.0 B	(0.0 B/s)	
+registry.k8s.io/kube apiserver amd64:v1.	saved	
+application/vnd.docker.distribution.manifest.v2+json sha256:9bd0d9d47f480defd9049223278baba8b7044b9471736fd544eba60f7a0eafc2
+Importing	elapsed: 2.3 s	total:   0.0 B	(0.0 B/s)	Context "kind-kind-manager" created.
+Context "kind-kind-worker1" created.
+Context "kind-kind-worker2" created.
+Creating kind cluster 'kind-manager'...
+Creating kind cluster 'kind-worker2'...
+Creating kind cluster 'kind-worker1'...
+retry [1/3]: bash -c /home/prow/go/src/sigs.k8s.io/kueue/hack/testing/../../bin/kind create cluster --name "kind-manager" --image "kueue/kind-node:v1.35.5" --config "/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5/manager-cluster.kind.yaml" --kubeconfig="/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5/kubeconfig-kind-manager" --wait 5m -v 5 > "/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5/kind-manager-create.log" 2>&1
+retry [1/3]: bash -c /home/prow/go/src/sigs.k8s.io/kueue/hack/testing/../../bin/kind create cluster --name "kind-worker2" --image "kueue/kind-node:v1.35.5" --config "/home/prow/go/src/sigs.k8s.io/kueue/hack/testing/multikueue/worker-cluster.kind.yaml" --kubeconfig="/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5/kubeconfig-kind-worker2" --wait 5m -v 5 > "/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5/kind-worker2-create.log" 2>&1
+retry [1/3]: bash -c /home/prow/go/src/sigs.k8s.io/kueue/hack/testing/../../bin/kind create cluster --name "kind-worker1" --image "kueue/kind-node:v1.35.5" --config "/home/prow/go/src/sigs.k8s.io/kueue/hack/testing/multikueue/worker-cluster.kind.yaml" --kubeconfig="/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5/kubeconfig-kind-worker1" --wait 5m -v 5 > "/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5/kind-worker1-create.log" 2>&1
+registry.k8s.io/e2e-test-images/agnhost@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6: Pulling from e2e-test-images/agnhost
+a88dc8b54e91: Pulling fs layer
+54537fb9301e: Pulling fs layer
+661d3888a6b1: Pulling fs layer
+ac9af3d034fd: Pulling fs layer
+685947dca1b5: Pulling fs layer
+6065fea490c2: Pulling fs layer
+17386c615005: Pulling fs layer
+32ea4a9835fc: Pulling fs layer
+166de47c948c: Pulling fs layer
+f8ccc17a75aa: Pulling fs layer
+6065fea490c2: Waiting
+17386c615005: Waiting
+32ea4a9835fc: Waiting
+166de47c948c: Waiting
+f8ccc17a75aa: Waiting
+ac9af3d034fd: Waiting
+685947dca1b5: Waiting
+a88dc8b54e91: Verifying Checksum
+a88dc8b54e91: Download complete
+54537fb9301e: Verifying Checksum
+54537fb9301e: Download complete
+661d3888a6b1: Verifying Checksum
+661d3888a6b1: Download complete
+685947dca1b5: Verifying Checksum
+685947dca1b5: Download complete
+6065fea490c2: Verifying Checksum
+6065fea490c2: Download complete
+ac9af3d034fd: Verifying Checksum
+ac9af3d034fd: Download complete
+17386c615005: Verifying Checksum
+17386c615005: Download complete
+166de47c948c: Download complete
+f8ccc17a75aa: Download complete
+a88dc8b54e91: Pull complete
+32ea4a9835fc: Download complete
+54537fb9301e: Pull complete
+661d3888a6b1: Pull complete
+ac9af3d034fd: Pull complete
+685947dca1b5: Pull complete
+6065fea490c2: Pull complete
+17386c615005: Pull complete
+32ea4a9835fc: Pull complete
+166de47c948c: Pull complete
+f8ccc17a75aa: Pull complete
+Digest: sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
+Status: Downloaded newer image for registry.k8s.io/e2e-test-images/agnhost@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
+registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
+registry.k8s.io/e2e-test-images/agnhost@sha256:a62f40481e05709988fe44e5035b2e0f553cd52bf0ae4e83614928255b00e8c1: Pulling from e2e-test-images/agnhost
+bc1da058f299: Pulling fs layer
+f7f1e42e843b: Pulling fs layer
+661d3888a6b1: Pulling fs layer
+ac9af3d034fd: Pulling fs layer
+e9ebc3a99c7c: Pulling fs layer
+9f76dc1dabcb: Pulling fs layer
+4821f9ee66af: Pulling fs layer
+a95a871f6dba: Pulling fs layer
+7f22fba3e5e2: Pulling fs layer
+0fff058e98ff: Pulling fs layer
+47c8ef1e7771: Pulling fs layer
+ac9af3d034fd: Waiting
+e9ebc3a99c7c: Waiting
+9f76dc1dabcb: Waiting
+4821f9ee66af: Waiting
+a95a871f6dba: Waiting
+7f22fba3e5e2: Waiting
+47c8ef1e7771: Waiting
+0fff058e98ff: Waiting
+bc1da058f299: Verifying Checksum
+bc1da058f299: Download complete
+f7f1e42e843b: Verifying Checksum
+f7f1e42e843b: Download complete
+661d3888a6b1: Verifying Checksum
+661d3888a6b1: Download complete
+e9ebc3a99c7c: Verifying Checksum
+e9ebc3a99c7c: Download complete
+9f76dc1dabcb: Verifying Checksum
+9f76dc1dabcb: Download complete
+ac9af3d034fd: Verifying Checksum
+ac9af3d034fd: Download complete
+4821f9ee66af: Verifying Checksum
+4821f9ee66af: Download complete
+7f22fba3e5e2: Verifying Checksum
+7f22fba3e5e2: Download complete
+0fff058e98ff: Download complete
+bc1da058f299: Pull complete
+47c8ef1e7771: Download complete
+a95a871f6dba: Verifying Checksum
+a95a871f6dba: Download complete
+f7f1e42e843b: Pull complete
+661d3888a6b1: Pull complete
+ac9af3d034fd: Pull complete
+e9ebc3a99c7c: Pull complete
+9f76dc1dabcb: Pull complete
+4821f9ee66af: Pull complete
+a95a871f6dba: Pull complete
+7f22fba3e5e2: Pull complete
+0fff058e98ff: Pull complete
+47c8ef1e7771: Pull complete
+Digest: sha256:a62f40481e05709988fe44e5035b2e0f553cd52bf0ae4e83614928255b00e8c1
+Status: Downloaded newer image for registry.k8s.io/e2e-test-images/agnhost@sha256:a62f40481e05709988fe44e5035b2e0f553cd52bf0ae4e83614928255b00e8c1
+registry.k8s.io/e2e-test-images/agnhost:2.63.0@sha256:a62f40481e05709988fe44e5035b2e0f553cd52bf0ae4e83614928255b00e8c1
+Switched to context "kind-kind-worker2".
+node/kind-worker2-control-plane condition met
+Switched to context "kind-kind-manager".
+node/kind-manager-control-plane condition met
+node/kind-worker2-worker condition met
+node/kind-manager-worker condition met
+Switched to context "kind-kind-worker1".
+node/kind-worker1-control-plane condition met
+node/kind-worker1-worker condition met
+Saving image 'registry.k8s.io/e2e-test-images/agnhost:2.52'...
+Saving image 'registry.k8s.io/e2e-test-images/agnhost:2.52'...
+Saving image 'registry.k8s.io/e2e-test-images/agnhost:2.52'...
+Loading image 'registry.k8s.io/e2e-test-images/agnhost:2.52' to cluster 'kind-manager' (parallel)
+  Loading image to node: kind-manager-worker
+Loading image 'registry.k8s.io/e2e-test-images/agnhost:2.52' to cluster 'kind-worker2' (parallel)
+  Loading image to node: kind-worker2-worker
+registry.k8s.io/e2e test images/agnhost:	saved	
+application/vnd.oci.image.manifest.v1+json sha256:cdaa572accba0ae682270e00526707913f65c428b22d2cc39f2cacf393155991
+Importing	elapsed: 12.9s	total:   0.0 B	(0.0 B/s)	
+Saving image 'registry.k8s.io/e2e-test-images/agnhost:2.63.0'...
+Loading image 'registry.k8s.io/e2e-test-images/agnhost:2.52' to cluster 'kind-worker1' (parallel)
+  Loading image to node: kind-worker1-worker
+Loading image 'registry.k8s.io/e2e-test-images/agnhost:2.63.0' to cluster 'kind-manager' (parallel)
+  Loading image to node: kind-manager-worker
+registry.k8s.io/e2e test images/agnhost:	saved	
+application/vnd.oci.image.manifest.v1+json sha256:cdaa572accba0ae682270e00526707913f65c428b22d2cc39f2cacf393155991
+Importing	elapsed: 5.6 s	total:   0.0 B	(0.0 B/s)	
+Saving image 'registry.k8s.io/e2e-test-images/agnhost:2.63.0'...
+Loading image 'registry.k8s.io/e2e-test-images/agnhost:2.63.0' to cluster 'kind-worker2' (parallel)
+  Loading image to node: kind-worker2-worker
+registry.k8s.io/e2e test images/agnhost:	saved	
+application/vnd.oci.image.manifest.v1+json sha256:cdaa572accba0ae682270e00526707913f65c428b22d2cc39f2cacf393155991
+Importing	elapsed: 5.2 s	total:   0.0 B	(0.0 B/s)	
+Saving image 'registry.k8s.io/e2e-test-images/agnhost:2.63.0'...
+registry.k8s.io/e2e test images/agnhost:	saved	
+application/vnd.oci.image.manifest.v1+json sha256:9ee1a681fca51e88fe334f5772f2ecafc2e25fc1b8b720ba325b5537335d2828
+Importing	elapsed: 5.4 s	total:   0.0 B	(0.0 B/s)	
+Saving image 'us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-26-g94ef375df'...
+Loading image 'us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-26-g94ef375df' to cluster 'kind-manager' (parallel)
+  Loading image to node: kind-manager-worker
+Loading image 'registry.k8s.io/e2e-test-images/agnhost:2.63.0' to cluster 'kind-worker1' (parallel)
+  Loading image to node: kind-worker1-worker
+registry.k8s.io/e2e test images/agnhost:	saved	
+application/vnd.oci.image.manifest.v1+json sha256:9ee1a681fca51e88fe334f5772f2ecafc2e25fc1b8b720ba325b5537335d2828
+Importing	elapsed: 5.8 s	total:   0.0 B	(0.0 B/s)	
+Saving image 'us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-26-g94ef375df'...
+Loading image 'us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-26-g94ef375df' to cluster 'kind-worker2' (parallel)
+  Loading image to node: kind-worker2-worker
+registry.k8s.io/e2e test images/agnhost:	saved	
+application/vnd.oci.image.manifest.v1+json sha256:9ee1a681fca51e88fe334f5772f2ecafc2e25fc1b8b720ba325b5537335d2828
+Importing	elapsed: 5.2 s	total:   0.0 B	(0.0 B/s)	
+us central1 docker.pkg.dev/k8s staging i	saved	
+application/vnd.oci.image.manifest.v1+json sha256:7c9476da448eab1e8f2645a2168f23564411e5f88f6536bc94246f27904ed233
+Importing	elapsed: 5.6 s	total:   0.0 B	(0.0 B/s)	
+Saving image 'us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-26-g94ef375df'...
+Loading image 'us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-26-g94ef375df' to cluster 'kind-worker1' (parallel)
+  Loading image to node: kind-worker1-worker
+us central1 docker.pkg.dev/k8s staging i	saved	
+application/vnd.oci.image.manifest.v1+json sha256:7c9476da448eab1e8f2645a2168f23564411e5f88f6536bc94246f27904ed233
+Importing	elapsed: 3.4 s	total:   0.0 B	(0.0 B/s)	
+us central1 docker.pkg.dev/k8s staging i	saved	
+application/vnd.oci.image.manifest.v1+json sha256:7c9476da448eab1e8f2645a2168f23564411e5f88f6536bc94246f27904ed233
+Importing	elapsed: 2.9 s	total:   0.0 B	(0.0 B/s)	
+Add contexts to default kubeconfig
+Set kubectl context to "kind-kind-manager"
+Set kubectl context to "kind-kind-worker1"
+Set kubectl context to "kind-kind-worker2"
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+flowschema.flowcontrol.apiserver.k8s.io/kueue-visibility serverside-applied
+prioritylevelconfiguration.flowcontrol.apiserver.k8s.io/kueue-visibility serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+flowschema.flowcontrol.apiserver.k8s.io/kueue-visibility serverside-applied
+prioritylevelconfiguration.flowcontrol.apiserver.k8s.io/kueue-visibility serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+flowschema.flowcontrol.apiserver.k8s.io/kueue-visibility serverside-applied
+prioritylevelconfiguration.flowcontrol.apiserver.k8s.io/kueue-visibility serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+running: /home/prow/go/src/sigs.k8s.io/kueue/hack/testing/../../bin/ginkgo run -procs=5 --json-report=e2e.json --output-dir=/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5 -v ./test/e2e/multikueue/baseline/...
+Running Suite: End To End Baseline MultiKueue Suite: kueue/kind-node:v1.35.5 - /home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline
+===============================================================================================================================================
+Random Seed: [1m1780488951[0m
+
+Will run [1m17[0m of [1m17[0m specs
+Running in parallel across [1m5[0m processes
+[38;5;243m------------------------------[0m
+[38;5;10m[SynchronizedBeforeSuite] PASSED [5.909 seconds][0m
+[38;5;10m[1m[SynchronizedBeforeSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:65[0m
+
+  [38;5;243mTimeline >>[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:43.986[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.03[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="62.316012ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.049[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="31.799326ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:44.081[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.878[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.891[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="17.356407ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.895[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="14.042432ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:45.91[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.692[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.702[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="14.010251ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.706[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="9.520278ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:47.715[0m
+  "level"=0 "msg"="Kueue and all required operators are available in all the clusters" "waitingTime"="5.759993977s"
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[SynchronizedBeforeSuite] PASSED [5.951 seconds][0m
+[38;5;10m[1m[SynchronizedBeforeSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:65[0m
+
+  [38;5;243mTimeline >>[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.018[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.069[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="57.752407ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.076[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="22.096126ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:44.098[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.904[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.926[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="25.32682ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.929[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="13.773358ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:45.943[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.722[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.74[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="22.151108ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.744[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="10.108027ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:47.754[0m
+  "level"=0 "msg"="Kueue and all required operators are available in all the clusters" "waitingTime"="5.770679514s"
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[SynchronizedBeforeSuite] PASSED [5.953 seconds][0m
+[38;5;10m[1m[SynchronizedBeforeSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:65[0m
+
+  [38;5;243mTimeline >>[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.014[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.056[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="55.908847ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.07[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="24.412795ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:44.094[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.901[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.926[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="28.121076ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.929[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="14.619242ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:45.944[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.726[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.744[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="21.703071ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.748[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="9.401915ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:47.757[0m
+  "level"=0 "msg"="Kueue and all required operators are available in all the clusters" "waitingTime"="5.774734101s"
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[SynchronizedBeforeSuite] PASSED [5.961 seconds][0m
+[38;5;10m[1m[SynchronizedBeforeSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:65[0m
+
+  [38;5;243mTimeline >>[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.021[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.079[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="67.489138ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.089[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="18.983964ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:44.108[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.904[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.931[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="31.316589ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.935[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="11.945118ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:45.947[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.727[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.749[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="25.885389ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.753[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="11.129124ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:47.764[0m
+  "level"=0 "msg"="Kueue and all required operators are available in all the clusters" "waitingTime"="5.7764461s"
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[SynchronizedBeforeSuite] PASSED [5.962 seconds][0m
+[38;5;10m[1m[SynchronizedBeforeSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:65[0m
+
+  [38;5;243mTimeline >>[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.032[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.088[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="62.235471ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:44.094[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="16.789068ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:44.111[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.922[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.943[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="25.540912ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:45.947[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="9.809452ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:45.957[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.736[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.754[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="21.765661ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/03/26 12:17:47.757[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="9.533328ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/03/26 12:17:47.767[0m
+  "level"=0 "msg"="Kueue and all required operators are available in all the clusters" "waitingTime"="5.767624014s"
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [11.797 seconds][0m
+[0mMultiKueue [38;5;243mwhen Creating a multikueue integration workload [38;5;10m[1mShould create a pod on worker if admitted[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:251[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-pq4f2"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-pq4f2"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-pq4f2"
+  [1mSTEP:[0m Creating the pod [38;5;243m@ 06/03/26 12:17:52.026[0m
+  [1mSTEP:[0m Waiting to be admitted in worker [38;5;243m@ 06/03/26 12:17:52.062[0m
+  [1mSTEP:[0m Waiting for the pod to get status updates [38;5;243m@ 06/03/26 12:17:52.335[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [16.854 seconds][0m
+[0mMultiKueue with TopologyAwareScheduling [38;5;243mwhen Creating a Job with TAS requirements [38;5;10m[1mShould handle implicit TAS[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:316[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-r4dp6"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-r4dp6"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-r4dp6"
+  [1mSTEP:[0m Creating the job without TAS annotation [38;5;243m@ 06/03/26 12:17:52.011[0m
+  [1mSTEP:[0m checking which worker cluster was assigned [38;5;243m@ 06/03/26 12:17:52.024[0m
+  [1mSTEP:[0m Waiting for DelayedTopologyRequest to be marked Ready on manager [38;5;243m@ 06/03/26 12:17:52.291[0m
+  [1mSTEP:[0m Finishing the job [38;5;243m@ 06/03/26 12:17:52.306[0m
+  "level"=0 "msg"="Terminating pod" "pod"={"name"="implicit-tas-job-gvdzd" "namespace"="multikueue-tas-r4dp6"}
+  "level"=0 "msg"="Terminating pod" "pod"={"name"="implicit-tas-job-nqjrk" "namespace"="multikueue-tas-r4dp6"}
+  [1mSTEP:[0m Waiting for the job to finish [38;5;243m@ 06/03/26 12:17:59.521[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [17.019 seconds][0m
+[0mMultiKueue with TopologyAwareScheduling [38;5;243mwhen Creating a Job with TAS requirements [38;5;10m[1mShould admit a Job and assign topology in the worker cluster[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:217[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-9m6ss"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-9m6ss"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-9m6ss"
+  [1mSTEP:[0m Creating the job [38;5;243m@ 06/03/26 12:17:51.744[0m
+  [1mSTEP:[0m checking which worker cluster was assigned [38;5;243m@ 06/03/26 12:17:51.772[0m
+  [1mSTEP:[0m Waiting for TopologyAssignment to be computed in worker1-65cbv [38;5;243m@ 06/03/26 12:17:52.317[0m
+  [1mSTEP:[0m Waiting for DelayedTopologyRequest to be marked Ready on manager [38;5;243m@ 06/03/26 12:17:52.323[0m
+  [1mSTEP:[0m Waiting for the job to get status updates [38;5;243m@ 06/03/26 12:17:52.33[0m
+  [1mSTEP:[0m Finishing the job's pods [38;5;243m@ 06/03/26 12:17:53.364[0m
+  "level"=0 "msg"="Terminating pod" "pod"={"name"="tas-job-7r4wd" "namespace"="multikueue-tas-9m6ss"}
+  "level"=0 "msg"="Terminating pod" "pod"={"name"="tas-job-bfsxz" "namespace"="multikueue-tas-9m6ss"}
+  [1mSTEP:[0m Waiting for the job to finish [38;5;243m@ 06/03/26 12:17:59.519[0m
+  [1mSTEP:[0m Checking no objects are left in the worker clusters and the job is completed [38;5;243m@ 06/03/26 12:18:02.865[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [17.992 seconds][0m
+[0mMultiKueue [38;5;243mwhen Creating a multikueue integration workload [38;5;10m[1mShould sync a StatefulSet to worker if admitted[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:432[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-m9spz"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-m9spz"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-m9spz"
+  [1mSTEP:[0m Creating the statefulset [38;5;243m@ 06/03/26 12:17:52.527[0m
+  [1mSTEP:[0m Waiting for StatefulSet to be synced to worker cluster [38;5;243m@ 06/03/26 12:17:52.818[0m
+  [1mSTEP:[0m Waiting for all replicas to be ready on worker cluster [38;5;243m@ 06/03/26 12:17:52.821[0m
+  [1mSTEP:[0m Verifying pods on management cluster remain gated [38;5;243m@ 06/03/26 12:18:02.228[0m
+  [1mSTEP:[0m Deleting the statefulset [38;5;243m@ 06/03/26 12:18:02.234[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [18.681 seconds][0m
+[0mMultiKueue [38;5;243mwhen Creating a multikueue integration workload [38;5;10m[1mShould create pods on worker if the deployment is admitted[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:321[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-jqxmw"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-jqxmw"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-jqxmw"
+  [1mSTEP:[0m Creating the deployment [38;5;243m@ 06/03/26 12:17:52.805[0m
+  [1mSTEP:[0m Wait for replicas ready [38;5;243m@ 06/03/26 12:17:52.828[0m
+  [1mSTEP:[0m Ensure Pod Workloads are created and Pods are Running on the worker cluster [38;5;243m@ 06/03/26 12:17:58.172[0m
+  [1mSTEP:[0m Verifying pod status: deployment-767cf9d57f-2mmsl [1/3] [38;5;243m@ 06/03/26 12:17:58.176[0m
+  [1mSTEP:[0m Checking pod is admitted on manager [38;5;243m@ 06/03/26 12:17:58.176[0m
+  [1mSTEP:[0m Verifying pod is running on worker cluster worker2-4mrnw [38;5;243m@ 06/03/26 12:17:58.184[0m
+  [1mSTEP:[0m Verifying pod status: deployment-767cf9d57f-sd2kg [2/3] [38;5;243m@ 06/03/26 12:17:58.187[0m
+  [1mSTEP:[0m Checking pod is admitted on manager [38;5;243m@ 06/03/26 12:17:58.187[0m
+  [1mSTEP:[0m Verifying pod is running on worker cluster worker1-wjwnb [38;5;243m@ 06/03/26 12:17:58.193[0m
+  [1mSTEP:[0m Verifying pod status: deployment-767cf9d57f-vn7np [3/3] [38;5;243m@ 06/03/26 12:17:58.196[0m
+  [1mSTEP:[0m Checking pod is admitted on manager [38;5;243m@ 06/03/26 12:17:58.197[0m
+  [1mSTEP:[0m Verifying pod is running on worker cluster worker1-wjwnb [38;5;243m@ 06/03/26 12:17:58.202[0m
+  [1mSTEP:[0m Waiting for the deployment to get status updates [38;5;243m@ 06/03/26 12:17:58.206[0m
+  [1mSTEP:[0m Increasing the replica count on the deployment [38;5;243m@ 06/03/26 12:17:58.211[0m
+  [1mSTEP:[0m Wait for replicas ready [38;5;243m@ 06/03/26 12:17:58.238[0m
+  [1mSTEP:[0m Ensure Pod Workloads are created and Pods are Running on the worker cluster [38;5;243m@ 06/03/26 12:18:02.061[0m
+  [1mSTEP:[0m Verifying pod status: deployment-767cf9d57f-2mmsl [1/4] [38;5;243m@ 06/03/26 12:18:02.065[0m
+  [1mSTEP:[0m Checking pod is admitted on manager [38;5;243m@ 06/03/26 12:18:02.065[0m
+  [1mSTEP:[0m Verifying pod is running on worker cluster worker2-4mrnw [38;5;243m@ 06/03/26 12:18:02.071[0m
+  [1mSTEP:[0m Verifying pod status: deployment-767cf9d57f-r5748 [2/4] [38;5;243m@ 06/03/26 12:18:02.075[0m
+  [1mSTEP:[0m Checking pod is admitted on manager [38;5;243m@ 06/03/26 12:18:02.075[0m
+  [1mSTEP:[0m Verifying pod is running on worker cluster worker1-wjwnb [38;5;243m@ 06/03/26 12:18:02.08[0m
+  [1mSTEP:[0m Verifying pod status: deployment-767cf9d57f-sd2kg [3/4] [38;5;243m@ 06/03/26 12:18:02.083[0m
+  [1mSTEP:[0m Checking pod is admitted on manager [38;5;243m@ 06/03/26 12:18:02.083[0m
+  [1mSTEP:[0m Verifying pod is running on worker cluster worker1-wjwnb [38;5;243m@ 06/03/26 12:18:02.089[0m
+  [1mSTEP:[0m Verifying pod status: deployment-767cf9d57f-vn7np [4/4] [38;5;243m@ 06/03/26 12:18:02.092[0m
+  [1mSTEP:[0m Checking pod is admitted on manager [38;5;243m@ 06/03/26 12:18:02.092[0m
+  [1mSTEP:[0m Verifying pod is running on worker cluster worker1-wjwnb [38;5;243m@ 06/03/26 12:18:02.097[0m
+  [1mSTEP:[0m Decreasing the replica count on the deployment [38;5;243m@ 06/03/26 12:18:02.1[0m
+  [1mSTEP:[0m Wait for replicas ready [38;5;243m@ 06/03/26 12:18:02.112[0m
+  [1mSTEP:[0m Ensure Pod Workloads are created and Pods are Running on the worker cluster [38;5;243m@ 06/03/26 12:18:02.37[0m
+  [1mSTEP:[0m Verifying pod status: deployment-767cf9d57f-sd2kg [1/2] [38;5;243m@ 06/03/26 12:18:02.376[0m
+  [1mSTEP:[0m Checking pod is admitted on manager [38;5;243m@ 06/03/26 12:18:02.376[0m
+  [1mSTEP:[0m Verifying pod is running on worker cluster worker1-wjwnb [38;5;243m@ 06/03/26 12:18:02.382[0m
+  [1mSTEP:[0m Verifying pod status: deployment-767cf9d57f-vn7np [2/2] [38;5;243m@ 06/03/26 12:18:02.386[0m
+  [1mSTEP:[0m Checking pod is admitted on manager [38;5;243m@ 06/03/26 12:18:02.386[0m
+  [1mSTEP:[0m Verifying pod is running on worker cluster worker1-wjwnb [38;5;243m@ 06/03/26 12:18:02.398[0m
+  [1mSTEP:[0m Deleting the deployment all pods should be deleted [38;5;243m@ 06/03/26 12:18:02.405[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [14.132 seconds][0m
+[0mMultiKueue [38;5;243mwhen Creating a multikueue integration workload [38;5;10m[1mShould create a pod group on worker if admitted[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:487[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-624x6"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-624x6"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-624x6"
+  [1mSTEP:[0m Creating the Pod group [38;5;243m@ 06/03/26 12:18:03.669[0m
+  [1mSTEP:[0m ensure all pods are created [38;5;243m@ 06/03/26 12:18:03.702[0m
+  [1mSTEP:[0m Waiting to be admitted in the worker [38;5;243m@ 06/03/26 12:18:03.972[0m
+  [1mSTEP:[0m ensure all pods are created [38;5;243m@ 06/03/26 12:18:03.977[0m
+  [1mSTEP:[0m Waiting for the group to get status updates [38;5;243m@ 06/03/26 12:18:03.98[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [9.053 seconds][0m
+[0mMultiKueue [38;5;243mwhen Preemption with a multikueue admission check [38;5;10m[1mShould preempt a running low-priority workload when a high-priority workload is admitted (other workers)[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:789[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-pb2p8"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-pb2p8"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-pb2p8"
+  [1mSTEP:[0m Checking that the low-priority workload is created and admitted in the manager cluster [38;5;243m@ 06/03/26 12:18:11.487[0m
+  [1mSTEP:[0m Checking that the low-priority workload is created in worker1 and not in worker2, and that its spec matches the manager workload [38;5;243m@ 06/03/26 12:18:13.185[0m
+  [1mSTEP:[0m Checking that the high-priority workload is created and admitted in the manager cluster [38;5;243m@ 06/03/26 12:18:13.231[0m
+  [1mSTEP:[0m Checking that the high-priority workload is created in worker2 and not in worker1, and that its spec matches the manager workload [38;5;243m@ 06/03/26 12:18:14.329[0m
+  [1mSTEP:[0m Checking that the low-priority workload is preempted in the manager cluster [38;5;243m@ 06/03/26 12:18:14.358[0m
+  [1mSTEP:[0m Checking that the low-priority workload is deleted from the worker clusters [38;5;243m@ 06/03/26 12:18:14.38[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [10.911 seconds][0m
+[0mMultiKueue [38;5;243mwhen Preemption with a multikueue admission check [38;5;10m[1mShould preempt a running low-priority workload when a high-priority workload is admitted (same worker)[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:625[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-brv5b"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-brv5b"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-brv5b"
+  [1mSTEP:[0m Checking that the low-priority workload is created and admitted in the manager cluster [38;5;243m@ 06/03/26 12:18:09.438[0m
+  [1mSTEP:[0m Checking that the low-priority workload is created in worker1 and not in worker2, and that its spec matches the manager workload [38;5;243m@ 06/03/26 12:18:10.325[0m
+  [1mSTEP:[0m Checking that the high-priority workload is created and admitted in the manager cluster [38;5;243m@ 06/03/26 12:18:10.588[0m
+  [1mSTEP:[0m Checking that the high-priority workload is created in worker1 and not in worker2, and that its spec matches the manager workload [38;5;243m@ 06/03/26 12:18:14.699[0m
+  [1mSTEP:[0m Checking that the low-priority workload is preempted in the manager cluster [38;5;243m@ 06/03/26 12:18:14.733[0m
+  [1mSTEP:[0m Checking that the low-priority workload is deleted from the worker clusters [38;5;243m@ 06/03/26 12:18:14.742[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [10.978 seconds][0m
+[0mMultiKueue [38;5;243mwhen Preemption with a multikueue admission check [38;5;10m[1mShould re-do admission process when workload gets evicted in the worker[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:704[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-nfgds"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-nfgds"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-nfgds"
+  [1mSTEP:[0m Checking that the workload is created and admitted in the manager cluster [38;5;243m@ 06/03/26 12:18:10.379[0m
+  [1mSTEP:[0m Checking that the workload is created on worker1 [38;5;243m@ 06/03/26 12:18:12.38[0m
+  [1mSTEP:[0m Checking that the workload is not created on worker2 [38;5;243m@ 06/03/26 12:18:12.393[0m
+  [1mSTEP:[0m Switching worker cluster queues' resources to enforce re-admission on the worker2 [38;5;243m@ 06/03/26 12:18:12.41[0m
+  [1mSTEP:[0m Triggering eviction in worker1 [38;5;243m@ 06/03/26 12:18:12.667[0m
+  [1mSTEP:[0m Checking that the workload is re-admitted in worker2 [38;5;243m@ 06/03/26 12:18:12.815[0m
+  [1mSTEP:[0m Checking that the workload is created in worker2 [38;5;243m@ 06/03/26 12:18:15.024[0m
+  [1mSTEP:[0m Checking that the workload is not created in worker1 [38;5;243m@ 06/03/26 12:18:15.04[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [10.661 seconds][0m
+[0mMultiKueue [38;5;243mwhen Preemption with a multikueue admission check [38;5;10m[1mShould preempt a running low-priority workload on a worker when a high-priority workload is admitted to it by manager[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:874[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-rzv5p"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-rzv5p"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-rzv5p"
+  [1mSTEP:[0m Adjusting manager CQ quota to allow both jobs [38;5;243m@ 06/03/26 12:18:18.398[0m
+  [1mSTEP:[0m Checking that the low-priority workload is created and admitted in the manager cluster [38;5;243m@ 06/03/26 12:18:18.746[0m
+  [1mSTEP:[0m Checking that the low-priority workload is created in worker2 and not in worker1, and that its spec matches the manager workload [38;5;243m@ 06/03/26 12:18:20.336[0m
+  [1mSTEP:[0m Checking that the low-priority job is active [38;5;243m@ 06/03/26 12:18:20.361[0m
+  [1mSTEP:[0m Checking that the high-priority workload is created and admitted in the manager cluster [38;5;243m@ 06/03/26 12:18:20.4[0m
+  [1mSTEP:[0m Checking that the high-priority workload has preempted the low-priority job on worker2 and is not present on worker1, and that its spec matches the manager workload [38;5;243m@ 06/03/26 12:18:22.521[0m
+  [1mSTEP:[0m Checking that the low-priority workload was evicted and backed off (is no longer admitted) [38;5;243m@ 06/03/26 12:18:22.566[0m
+  [1mSTEP:[0m Checking that the low-priority job is not active [38;5;243m@ 06/03/26 12:18:22.611[0m
+  [1mSTEP:[0m Checking that the high-priority job is active [38;5;243m@ 06/03/26 12:18:22.636[0m
+  [1mSTEP:[0m Checking that the low-priority workload is dispatched again after backoff [38;5;243m@ 06/03/26 12:18:22.986[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [19.836 seconds][0m
+[0mMultiKueue [38;5;243mwhen Creating a multikueue integration workload [38;5;10m[1mShould run a job on worker if admitted[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:546[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tx6jv"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tx6jv"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tx6jv"
+  [1mSTEP:[0m Creating the job [38;5;243m@ 06/03/26 12:18:08.942[0m
+  [1mSTEP:[0m Waiting to be admitted in admitted worker, and the manager's job unsuspended [38;5;243m@ 06/03/26 12:18:09.938[0m
+  [1mSTEP:[0m Waiting for the job to get status updates [38;5;243m@ 06/03/26 12:18:09.989[0m
+  [1mSTEP:[0m Finishing the job's pod [38;5;243m@ 06/03/26 12:18:10.274[0m
+  "level"=0 "msg"="Terminating pod" "pod"={"name"="job-h8xhc" "namespace"="multikueue-tx6jv"}
+  [1mSTEP:[0m Waiting for the job to finish [38;5;243m@ 06/03/26 12:18:17.179[0m
+  [1mSTEP:[0m Checking no objects are left in the worker clusters and the job is completed [38;5;243m@ 06/03/26 12:18:23.102[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [12.861 seconds][0m
+[0mMultiKueue [38;5;243mwhen Priority class mutation [38;5;10m[1mShould allow to mutate kueue.x-k8s.io/priority-class (other workers)[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:998[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-7dsh7"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-7dsh7"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-7dsh7"
+  [1mSTEP:[0m Creating the first job [38;5;243m@ 06/03/26 12:18:20.827[0m
+  [1mSTEP:[0m Checking that the first workload is created and admitted in the manager cluster [38;5;243m@ 06/03/26 12:18:20.866[0m
+  [1mSTEP:[0m Checking that the first workload is created in worker1 and not in worker2, and that its spec matches the manager workload [38;5;243m@ 06/03/26 12:18:21.683[0m
+  [1mSTEP:[0m Creating the second job [38;5;243m@ 06/03/26 12:18:21.708[0m
+  [1mSTEP:[0m Checking that the second workload is created and pending in the manager cluster [38;5;243m@ 06/03/26 12:18:21.74[0m
+  [1mSTEP:[0m Checking that the second workload is not created on the workers [38;5;243m@ 06/03/26 12:18:22.329[0m
+  [1mSTEP:[0m Set a low priority class on the first job [38;5;243m@ 06/03/26 12:18:22.419[0m
+  [1mSTEP:[0m Checking that the second workload is created in worker2 and not in worker1, and that its spec matches the manager workload [38;5;243m@ 06/03/26 12:18:22.632[0m
+  [1mSTEP:[0m Checking that the first workload is preempted in the manager cluster [38;5;243m@ 06/03/26 12:18:26.365[0m
+  [1mSTEP:[0m Checking that the first workload is deleted from the worker clusters [38;5;243m@ 06/03/26 12:18:26.376[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [8.677 seconds][0m
+[0mMultiKueue [38;5;243mMultiKueue Manager Quota Automation [38;5;10m[1mshould automatically aggregate quotas from active worker ClusterQueues[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:1276[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-hrc6s"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-hrc6s"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-hrc6s"
+  [1mSTEP:[0m Setting manager ClusterQueue quotas to zeroes [38;5;243m@ 06/03/26 12:18:28.711[0m
+  [1mSTEP:[0m Enabling QuotaAutomation in MultiKueueConfig [38;5;243m@ 06/03/26 12:18:28.778[0m
+  [1mSTEP:[0m Verifying the MultiKueueManagerQuotaAutomation status condition transitions to true [38;5;243m@ 06/03/26 12:18:28.831[0m
+  [1mSTEP:[0m Verifying that the nominal resource quotas are automatically aggregated on the manager [38;5;243m@ 06/03/26 12:18:30.454[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[SynchronizedAfterSuite] PASSED [0.000 seconds][0m
+[38;5;10m[1m[SynchronizedAfterSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:95[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[DeferCleanup (Suite)] PASSED [0.000 seconds][0m
+[38;5;10m[1m[DeferCleanup (Suite)] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:76[0m
+[38;5;243m------------------------------[0m
+[38;5;10m• [55.284 seconds][0m
+[0mMultiKueue [38;5;243mwhen Priority class mutation [38;5;10m[1mShould keep workload priority event if job reconcile[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:1095[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-8vlt6"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-8vlt6"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-8vlt6"
+  [1mSTEP:[0m Creating the first job [38;5;243m@ 06/03/26 12:18:20.886[0m
+  [1mSTEP:[0m Checking that the workload is created and admitted in the manager cluster [38;5;243m@ 06/03/26 12:18:20.912[0m
+  [1mSTEP:[0m Checking that the workload is created in worker1 and not in worker2, and that its spec matches the manager workload [38;5;243m@ 06/03/26 12:18:21.832[0m
+  [1mSTEP:[0m Setting a low priority class on the job [38;5;243m@ 06/03/26 12:18:21.918[0m
+  [1mSTEP:[0m Checking that the workload was updated on worker [38;5;243m@ 06/03/26 12:18:22.007[0m
+  [1mSTEP:[0m Checking that the workload was updated on worker [38;5;243m@ 06/03/26 12:18:22.081[0m
+  [1mSTEP:[0m Simulating pod failure [38;5;243m@ 06/03/26 12:18:22.793[0m
+  "level"=0 "msg"="Terminating pod" "pod"={"name"="job-0-xd6sh" "namespace"="multikueue-8vlt6"}
+  [1mSTEP:[0m Checking that the workload still have low priority value [38;5;243m@ 06/03/26 12:18:27.89[0m
+  [1mSTEP:[0m Checking that the workload is still admitted on the worker1 [38;5;243m@ 06/03/26 12:18:28.891[0m
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;9m• [FAILED] [60.657 seconds][0m
+[0mMultiKueue TAS with asymmetric quotas [38;5;9m[1m[It] Should route a TAS Job with preferred topology to worker1 deterministically[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:541[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-z5fv7"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-z5fv7"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-z5fv7"
+  [1mSTEP:[0m Creating Job with preferred hostname topology on manager [38;5;243m@ 06/03/26 12:18:29.108[0m
+  [1mSTEP:[0m Waiting for TopologyAssignment to be computed on worker1-txpjg [38;5;243m@ 06/03/26 12:18:30.603[0m
+  [1mSTEP:[0m Waiting for DelayedTopologyRequest to be marked Ready on manager [38;5;243m@ 06/03/26 12:18:30.727[0m
+  [1mSTEP:[0m Finishing the job's pods on worker1-txpjg [38;5;243m@ 06/03/26 12:18:30.781[0m
+  "level"=0 "msg"="Terminating pod" "pod"={"name"="tas-job-k2xzh" "namespace"="multikueue-tas-z5fv7"}
+  [1mSTEP:[0m Waiting for workload to finish [38;5;243m@ 06/03/26 12:18:35.847[0m
+  [38;5;9m[FAILED][0m in [It] - /home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:576 [38;5;243m@ 06/03/26 12:19:20.848[0m
+  [38;5;243m<< Timeline[0m
+
+  [38;5;9m[FAILED] Timed out after 45.001s.
+  The function passed to Eventually failed at /home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:575 with:
+  Expected
+      <[]v1.Condition | len:2, cap:2>: [
+          {
+              Type: "QuotaReserved",
+              Status: "True",
+              ObservedGeneration: 1,
+              LastTransitionTime: {
+                  Time: 2026-06-03T12:18:29Z,
+              },
+              Reason: "QuotaReserved",
+              Message: "Quota reserved in ClusterQueue tas-cq-kxcbg",
+          },
+          {
+              Type: "Admitted",
+              Status: "True",
+              ObservedGeneration: 1,
+              LastTransitionTime: {
+                  Time: 2026-06-03T12:18:30Z,
+              },
+              Reason: "Admitted",
+              Message: "The workload is admitted",
+          },
+      ]
+  to have condition type Finished, status True and reason Succeeded[0m
+  [38;5;9mIn [1m[It][0m[38;5;9m at: [1m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:576[0m [38;5;243m@ 06/03/26 12:19:20.848[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[SynchronizedAfterSuite] PASSED [0.000 seconds][0m
+[38;5;10m[1m[SynchronizedAfterSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:95[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[DeferCleanup (Suite)] PASSED [0.000 seconds][0m
+[38;5;10m[1m[DeferCleanup (Suite)] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:76[0m
+[38;5;243m------------------------------[0m
+[38;5;9m• [FAILED] [69.031 seconds][0m
+[0mMultiKueue [38;5;243mwhen Cluster Role Sharing [38;5;9m[1m[It] should allow to run a MultiKueue and a regular Job on the same cluster[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:1202[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-kj6j7"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-kj6j7"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-kj6j7"
+  [1mSTEP:[0m Creating jobs [38;5;243m@ 06/03/26 12:18:21.621[0m
+  [1mSTEP:[0m Verifying both jobs are unsuspended and running [38;5;243m@ 06/03/26 12:18:21.726[0m
+  [1mSTEP:[0m Finishing the MK job's pod [38;5;243m@ 06/03/26 12:18:23.698[0m
+  "level"=0 "msg"="Terminating pod" "pod"={"name"="job-mk-hvwcv" "namespace"="multikueue-kj6j7"}
+  [1mSTEP:[0m Finishing the regular job's pod [38;5;243m@ 06/03/26 12:18:27.404[0m
+  "level"=0 "msg"="Terminating pod" "pod"={"name"="job-regular-dmrmz" "namespace"="multikueue-kj6j7"}
+  [1mSTEP:[0m Waiting for both jobs to complete [38;5;243m@ 06/03/26 12:18:29.772[0m
+  [38;5;9m[FAILED][0m in [It] - /home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:1243 [38;5;243m@ 06/03/26 12:19:14.775[0m
+  [38;5;243m<< Timeline[0m
+
+  [38;5;9m[FAILED] Timed out after 45.000s.
+  Job did not complete
+  metadata:
+    creationTimestamp: "2026-06-03T12:18:21Z"
+    generation: 2
+    labels:
+      kueue.x-k8s.io/queue-name: q1-gk2qh
+    managedFields:
+    - apiVersion: batch/v1
+      fieldsType: FieldsV1
+      fieldsV1:
+        f:metadata:
+          f:labels:
+            .: {}
+            f:kueue.x-k8s.io/queue-name: {}
+        f:spec:
+          f:backoffLimit: {}
+          f:completionMode: {}
+          f:manualSelector: {}
+          f:parallelism: {}
+          f:podReplacementPolicy: {}
+          f:template:
+            f:spec:
+              f:containers:
+                k:{"name":"c"}:
+                  .: {}
+                  f:args: {}
+                  f:image: {}
+                  f:imagePullPolicy: {}
+                  f:name: {}
+                  f:resources:
+                    .: {}
+                    f:limits:
+                      .: {}
+                      f:cpu: {}
+                      f:memory: {}
+                    f:requests:
+                      .: {}
+                      f:cpu: {}
+                      f:memory: {}
+                  f:terminationMessagePath: {}
+                  f:terminationMessagePolicy: {}
+              f:dnsPolicy: {}
+              f:restartPolicy: {}
+              f:schedulerName: {}
+              f:securityContext: {}
+              f:terminationGracePeriodSeconds: {}
+      manager: baseline.test
+      operation: Update
+      time: "2026-06-03T12:18:21Z"
+    - apiVersion: batch/v1
+      fieldsType: FieldsV1
+      fieldsV1:
+        f:spec:
+          f:suspend: {}
+          f:template:
+            f:metadata:
+              f:annotations:
+                .: {}
+                f:kueue.x-k8s.io/workload: {}
+              f:labels:
+                f:kueue.x-k8s.io/cluster-queue-name: {}
+                f:kueue.x-k8s.io/local-queue-name: {}
+                f:kueue.x-k8s.io/podset: {}
+      manager: kueue
+      operation: Update
+      time: "2026-06-03T12:18:23Z"
+    - apiVersion: batch/v1
+      fieldsType: FieldsV1
+      fieldsV1:
+        f:status:
+          f:active: {}
+          f:conditions: {}
+          f:ready: {}
+          f:startTime: {}
+          f:terminating: {}
+          f:uncountedTerminatedPods: {}
+      manager: kueue
+      operation: Update
+      subresource: status
+      time: "2026-06-03T12:19:02Z"
+    name: job-mk
+    namespace: multikueue-kj6j7
+    resourceVersion: "2760"
+    uid: 5bcfcfd5-4429-4806-8d96-182b098a4b03
+  spec:
+    backoffLimit: 6
+    completionMode: NonIndexed
+    managedBy: kueue.x-k8s.io/multikueue
+    manualSelector: false
+    parallelism: 1
+    podReplacementPolicy: TerminatingOrFailed
+    selector:
+      matchLabels:
+        batch.kubernetes.io/controller-uid: 5bcfcfd5-4429-4806-8d96-182b098a4b03
+    suspend: false
+    template:
+      metadata:
+        annotations:
+          kueue.x-k8s.io/workload: job-job-mk-df80a
+        labels:
+          batch.kubernetes.io/controller-uid: 5bcfcfd5-4429-4806-8d96-182b098a4b03
+          batch.kubernetes.io/job-name: job-mk
+          controller-uid: 5bcfcfd5-4429-4806-8d96-182b098a4b03
+          job-name: job-mk
+          kueue.x-k8s.io/cluster-queue-name: q1-gk2qh
+          kueue.x-k8s.io/local-queue-name: q1-gk2qh
+          kueue.x-k8s.io/podset: main
+      spec:
+        containers:
+        - args:
+          - netexec
+          image: registry.k8s.io/e2e-test-images/agnhost:2.63.0
+          imagePullPolicy: IfNotPresent
+          name: c
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2G
+            requests:
+              cpu: "1"
+              memory: 2G
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+        dnsPolicy: ClusterFirst
+        restartPolicy: Never
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 1
+  status:
+    active: 1
+    conditions:
+    - lastProbeTime: "2026-06-03T12:18:23Z"
+      lastTransitionTime: "2026-06-03T12:18:23Z"
+      message: Job resumed
+      reason: JobResumed
+      status: "False"
+      type: Suspended
+    ready: 0
+    startTime: "2026-06-03T12:18:23Z"
+    terminating: 0
+    uncountedTerminatedPods: {}
+
+
+  The function passed to Eventually failed at /home/prow/go/src/sigs.k8s.io/kueue/test/util/util.go:1460 with:
+  Expected
+      <[]v1.JobCondition | len:1, cap:1>: [
+          {
+              Type: "Suspended",
+              Status: "False",
+              LastProbeTime: {
+                  Time: 2026-06-03T12:18:23Z,
+              },
+              LastTransitionTime: {
+                  Time: 2026-06-03T12:18:23Z,
+              },
+              Reason: "JobResumed",
+              Message: "Job resumed",
+          },
+      ]
+  to contain element matching
+      <*matchers.BeComparableToMatcher | 0x282686bc2480>: {
+          Expected: <v1.JobCondition>{
+              Type: "Complete",
+              Status: "True",
+              LastProbeTime: {
+                  Time: 0001-01-01T00:00:00Z,
+              },
+              LastTransitionTime: {
+                  Time: 0001-01-01T00:00:00Z,
+              },
+              Reason: "",
+              Message: "",
+          },
+          Options: [
+              <*cmp.pathFilter | 0x282686ba8528>{
+                  core: {},
+                  fnc: 0x6530c0,
+                  opt: <cmp.ignore>{core: {}},
+              },
+          ],
+      }[0m
+  [38;5;9mIn [1m[It][0m[38;5;9m at: [1m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:1243[0m [38;5;243m@ 06/03/26 12:19:14.775[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[SynchronizedAfterSuite] PASSED [0.000 seconds][0m
+[38;5;10m[1m[SynchronizedAfterSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:95[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[DeferCleanup (Suite)] PASSED [0.000 seconds][0m
+[38;5;10m[1m[DeferCleanup (Suite)] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:76[0m
+[38;5;243m------------------------------[0m
+[38;5;9m• [FAILED] [59.375 seconds][0m
+[0mMultiKueue TAS with asymmetric quotas [38;5;9m[1m[It] Should admit a TAS Job with required hostname topology[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:592[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-hdvb4"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-hdvb4"
+  "level"=0 "msg"="Created namespace" "namespace"="multikueue-tas-hdvb4"
+  [1mSTEP:[0m Creating Job with required hostname topology on manager [38;5;243m@ 06/03/26 12:18:33.366[0m
+  [1mSTEP:[0m Waiting for workload to be admitted and assigned to a worker [38;5;243m@ 06/03/26 12:18:33.434[0m
+  [1mSTEP:[0m Waiting for TopologyAssignment to be computed on worker1-pkhms [38;5;243m@ 06/03/26 12:18:34.272[0m
+  [1mSTEP:[0m Waiting for DelayedTopologyRequest to be marked Ready on manager [38;5;243m@ 06/03/26 12:18:34.282[0m
+  [1mSTEP:[0m Finishing the job's pods on worker1-pkhms [38;5;243m@ 06/03/26 12:18:34.336[0m
+  "level"=0 "msg"="Terminating pod" "pod"={"name"="tas-required-job-gs4mg" "namespace"="multikueue-tas-hdvb4"}
+  [1mSTEP:[0m Waiting for workload to finish [38;5;243m@ 06/03/26 12:18:41.198[0m
+  [38;5;9m[FAILED][0m in [It] - /home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:647 [38;5;243m@ 06/03/26 12:19:26.199[0m
+  [38;5;243m<< Timeline[0m
+
+  [38;5;9m[FAILED] Timed out after 45.001s.
+  The function passed to Eventually failed at /home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:646 with:
+  Expected
+      <[]v1.Condition | len:2, cap:2>: [
+          {
+              Type: "QuotaReserved",
+              Status: "True",
+              ObservedGeneration: 1,
+              LastTransitionTime: {
+                  Time: 2026-06-03T12:18:33Z,
+              },
+              Reason: "QuotaReserved",
+              Message: "Quota reserved in ClusterQueue tas-cq-tbclz",
+          },
+          {
+              Type: "Admitted",
+              Status: "True",
+              ObservedGeneration: 1,
+              LastTransitionTime: {
+                  Time: 2026-06-03T12:18:34Z,
+              },
+              Reason: "Admitted",
+              Message: "The workload is admitted",
+          },
+      ]
+  to have condition type Finished, status True and reason Succeeded[0m
+  [38;5;9mIn [1m[It][0m[38;5;9m at: [1m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:647[0m [38;5;243m@ 06/03/26 12:19:26.199[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[SynchronizedAfterSuite] PASSED [0.000 seconds][0m
+[38;5;10m[1m[SynchronizedAfterSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:95[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[DeferCleanup (Suite)] PASSED [0.000 seconds][0m
+[38;5;10m[1m[DeferCleanup (Suite)] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:76[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[SynchronizedAfterSuite] PASSED [16.954 seconds][0m
+[38;5;10m[1m[SynchronizedAfterSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:95[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[DeferCleanup (Suite)] PASSED [0.001 seconds][0m
+[38;5;10m[1m[DeferCleanup (Suite)] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/suite_test.go:76[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[ReportAfterSuite] PASSED [0.014 seconds][0m
+[38;5;10m[1m[ReportAfterSuite] Generate JUnit Report[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/util/util.go:96[0m
+
+  [38;5;243mTimeline >>[0m
+  "level"=0 "msg"="Generating JUnit report" "path"="/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5/junit-test-e2e-multikueue-baseline.xml"
+  [38;5;243m<< Timeline[0m
+[38;5;243m------------------------------[0m
+[38;5;10m[ReportAfterSuite] PASSED [0.019 seconds][0m
+[38;5;10m[1m[ReportAfterSuite] Autogenerated ReportAfterSuite for --json-report[0m
+[38;5;243mautogenerated by Ginkgo[0m
+[38;5;243m------------------------------[0m
+
+[38;5;9m[1mSummarizing 3 Failures:[0m
+  [38;5;9m[FAIL][0m [0mMultiKueue TAS with asymmetric quotas [38;5;9m[1m[It] Should route a TAS Job with preferred topology to worker1 deterministically[0m
+  [38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:576[0m
+  [38;5;9m[FAIL][0m [0mMultiKueue [38;5;243mwhen Cluster Role Sharing [38;5;9m[1m[It] should allow to run a MultiKueue and a regular Job on the same cluster[0m
+  [38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/e2e_test.go:1243[0m
+  [38;5;9m[FAIL][0m [0mMultiKueue TAS with asymmetric quotas [38;5;9m[1m[It] Should admit a TAS Job with required hostname topology[0m
+  [38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/multikueue/baseline/tas_test.go:647[0m
+
+[38;5;9m[1mRan 17 of 17 Specs in 106.093 seconds[0m
+[38;5;9m[1mFAIL![0m -- [38;5;10m[1m14 Passed[0m | [38;5;9m[1m3 Failed[0m | [38;5;11m[1m0 Pending[0m | [38;5;14m[1m0 Skipped[0m
+
+
+Ginkgo ran 1 suite in 3m38.429639315s
+
+Test Suite Failed
+Exporting logs for cluster "kind-manager" to:
+/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5
+Exporting logs for cluster "kind-worker2" to:
+/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5
+Exporting logs for cluster "kind-worker1" to:
+/logs/artifacts/run-test-multikueue-e2e-baseline-1.35.5
+No resources found in default namespace.
+No resources found in default namespace.
+No resources found in default namespace.
+Deleting cluster "kind-manager" ...
+Deleted nodes: ["kind-manager-control-plane" "kind-manager-worker"]
+Deleting cluster "kind-worker1" ...
+Deleted nodes: ["kind-worker1-control-plane" "kind-worker1-worker"]
+Deleting cluster "kind-worker2" ...
+Deleted nodes: ["kind-worker2-control-plane" "kind-worker2-worker"]
+make: *** [Makefile-test.mk:296: run-test-multikueue-e2e-baseline-1.35.5] Error 1
++ EXIT_VALUE=2
++ set +o xtrace
+Cleaning up after docker in docker.
+================================================================================
+Waiting 30 seconds for pods stopped with terminationGracePeriod:30
+Cleaning up after docker
+Waiting for docker to stop for 30 seconds
+Stopping Docker: dockerProgram process in pidfile '/var/run/docker-ssd.pid', 1 process(es), refused to die.
+================================================================================
+Done cleaning up after docker in docker.
