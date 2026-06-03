@@ -52,7 +52,7 @@ func (c *Cache) ClearClusterQueueOldResourceMetrics(log logr.Logger, oldCq *kueu
 		return
 	}
 
-	for rgi, oldRg := range queue.GetEffectiveResourceGroup(oldCq) {
+	for rgi, oldRg := range queue.GetEffectiveResourceGroups(oldCq) {
 		newFlavorSet := sets.New[kueue.ResourceFlavorReference]()
 		if rgi < len(newCq.EffectiveResourceGroups) && len(newCq.EffectiveResourceGroups[rgi].Flavors) > 0 {
 			newFlavorSet.Insert(newCq.EffectiveResourceGroups[rgi].Flavors...)

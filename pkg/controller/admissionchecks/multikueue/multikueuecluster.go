@@ -407,7 +407,7 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 		UpdateFunc: func(oldObj, newObj any) {
 			oldCQ, ok1 := oldObj.(*kueue.ClusterQueue)
 			newCQ, ok2 := newObj.(*kueue.ClusterQueue)
-			if ok1 && ok2 && !equality.Semantic.DeepEqual(queue.GetEffectiveResourceGroup(oldCQ), queue.GetEffectiveResourceGroup(newCQ)) {
+			if ok1 && ok2 && !equality.Semantic.DeepEqual(queue.GetEffectiveResourceGroups(oldCQ), queue.GetEffectiveResourceGroups(newCQ)) {
 				rc.queueEventsForCQ(ctx, newCQ)
 			}
 		},

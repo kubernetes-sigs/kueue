@@ -148,7 +148,7 @@ func (c *clusterQueue) updateClusterQueue(
 	admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck,
 	oldParent *cohort,
 ) error {
-	if c.updateQuotasAndResourceGroups(queue.GetEffectiveResourceGroup(in)) || oldParent != c.Parent() {
+	if c.updateQuotasAndResourceGroups(queue.GetEffectiveResourceGroups(in)) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortTreeResourcesIfNoCycle(oldParent)
 		}

@@ -415,7 +415,7 @@ func TestCQReconcile(t *testing.T) {
 				t.Fatalf("failed to fetch local ClusterQueue: %v", err)
 			}
 
-			rgs := queue.GetEffectiveResourceGroup(gotCQ)
+			rgs := queue.GetEffectiveResourceGroups(gotCQ)
 
 			// Verify quotas
 			if tc.wantQuotaAutomated {

@@ -131,7 +131,7 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	erg := queue.GetEffectiveResourceGroup(cq)
+	erg := queue.GetEffectiveResourceGroups(cq)
 	flavorOrder := make(map[kueue.ResourceFlavorReference]int, len(erg[0].Flavors))
 	for i, flavor := range erg[0].Flavors {
 		flavorOrder[flavor.Name] = i

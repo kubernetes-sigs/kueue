@@ -484,7 +484,7 @@ func (r *Recorder) RecordCQState(cq *kueue.ClusterQueue) {
 		cpuUsed = cq.Status.FlavorsUsage[0].Resources[0].Total.MilliValue()
 	}
 
-	erg := queue.GetEffectiveResourceGroup(cq)
+	erg := queue.GetEffectiveResourceGroups(cq)
 	if len(erg) > 0 && len(erg[0].Flavors) > 0 && len(erg[0].Flavors[0].Resources) > 0 {
 		cpuQuota = erg[0].Flavors[0].Resources[0].NominalQuota.MilliValue()
 	}

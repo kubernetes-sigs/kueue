@@ -36,10 +36,14 @@ func AllFlavors(rgs []kueue.ResourceGroup) sets.Set[kueue.ResourceFlavorReferenc
 	)
 }
 
-func GetEffectiveResourceGroup(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
+func GetEffectiveResourceGroups(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
 	if features.Enabled(features.EffectiveResourceQuotas) {
 		return cq.Status.EffectiveResourceGroups
 	}
+	return cq.Spec.ResourceGroups
+}
+
+func GetResourceGroupsSpec(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
 	return cq.Spec.ResourceGroups
 }
 

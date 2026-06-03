@@ -47,15 +47,15 @@ func Check(ctx context.Context, c client.Client, importCache *cache.ImportCache,
 			return skip, err
 		}
 
-		if len(queue.GetEffectiveResourceGroup(cq)) == 0 {
+		if len(queue.GetEffectiveResourceGroups(cq)) == 0 {
 			return false, fmt.Errorf("%q has no resource groups: %w", cq.Name, cache.ErrCQInvalid)
 		}
 
-		if len(queue.GetEffectiveResourceGroup(cq)[0].Flavors) == 0 {
+		if len(queue.GetEffectiveResourceGroups(cq)[0].Flavors) == 0 {
 			return false, fmt.Errorf("%q has no resource groups flavors: %w", cq.Name, cache.ErrCQInvalid)
 		}
 
-		rfName := queue.GetEffectiveResourceGroup(cq)[0].Flavors[0].Name
+		rfName := queue.GetEffectiveResourceGroups(cq)[0].Flavors[0].Name
 		rf, rfFound := importCache.ResourceFlavors[rfName]
 		if !rfFound {
 			return false, fmt.Errorf("%q flavor %q: %w", cq.Name, rfName, cache.ErrCQInvalid)

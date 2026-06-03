@@ -225,7 +225,7 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 
 func allFlavors(cq *kueue.ClusterQueue) sets.Set[kueue.ResourceFlavorReference] {
 	flavors := sets.New[kueue.ResourceFlavorReference]()
-	for _, rg := range queue.GetEffectiveResourceGroup(cq) {
+	for _, rg := range queue.GetEffectiveResourceGroups(cq) {
 		for _, fv := range rg.Flavors {
 			flavors.Insert(fv.Name)
 		}

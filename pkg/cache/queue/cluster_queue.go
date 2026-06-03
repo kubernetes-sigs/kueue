@@ -278,7 +278,7 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 // zero entries for resources removed from the spec.
 func (c *ClusterQueue) updateConfiguredResources(apiCQ *kueue.ClusterQueue) {
 	newConfigured := sets.New[corev1.ResourceName]()
-	for _, rg := range queue.GetEffectiveResourceGroup(apiCQ) {
+	for _, rg := range queue.GetEffectiveResourceGroups(apiCQ) {
 		for _, fq := range rg.Flavors {
 			for _, r := range fq.Resources {
 				newConfigured.Insert(r.Name)

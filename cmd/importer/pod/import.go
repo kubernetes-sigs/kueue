@@ -186,7 +186,7 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 				},
 			},
 		}
-		flv := queue.GetEffectiveResourceGroup(cq)[0].Flavors[0].Name
+		flv := queue.GetEffectiveResourceGroups(cq)[0].Flavors[0].Name
 		for r := range info.TotalRequests[0].Requests {
 			admission.PodSetAssignments[0].Flavors[r] = flv
 		}
