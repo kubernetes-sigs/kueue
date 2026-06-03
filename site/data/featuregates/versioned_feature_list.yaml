@@ -19,7 +19,7 @@
     version: "0.17"
 - name: AdmittedWorkloadsCountByFlavor
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
     preRelease: Beta
     version: "0.18"

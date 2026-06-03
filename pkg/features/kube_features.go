@@ -442,11 +442,10 @@ const (
 	// Enable accurately topology aware scheduling when multiple flavors cover the same Node.
 	TASHandleOverlappingFlavors featuregate.Feature = "TASHandleOverlappingFlavors"
 
-	// owner: @polinasand
-	// kep: https://github.com/kubernetes-sigs/kueue/issues/11644
-	//
-	// When enabled, metrics for Kueue active admitted workloads count by flavor
-	// are populated by clusterqueue.
+	// owner: @olekzabl
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/11644
+	// Adds a metric for ClusterQueue active admitted workloads count,
+	// broken down by flavor.
 	AdmittedWorkloadsCountByFlavor featuregate.Feature = "AdmittedWorkloadsCountByFlavor"
 )
 
@@ -695,7 +694,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	AdmittedWorkloadsCountByFlavor: {
-		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
