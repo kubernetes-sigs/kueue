@@ -19,7 +19,6 @@ package baseline
 import (
 	"context"
 	"fmt"
-	"regexp"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -449,7 +448,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Namespace: managerNs.Name,
 			}
 
-			admittedWorkerName := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			workerClient := kubernetesClients[admittedWorkerName].client
 
 			ginkgo.By("Waiting for StatefulSet to be synced to worker cluster", func() {
@@ -513,7 +512,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			wlLookupKey := types.NamespacedName{Name: groupName, Namespace: managerNs.Name}
-			admittedWorkerName := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 
 			// the execution should be given to the admitted worker
 			ginkgo.By("Waiting to be admitted in the worker", func() {
@@ -565,7 +564,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			createdLeaderWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
-			admittedWorkerName := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			admittedWorker := kubernetesClients[admittedWorkerName]
 
 			// the execution should be given to the admitted worker
@@ -1322,20 +1321,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 })
 
-func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, client client.Client, wlLookupKey types.NamespacedName, acName string) string {
-	ginkgo.GinkgoHelper()
-	createdWorkload := &kueue.Workload{}
-	var workerName string
-	util.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, client, util.MediumTimeout, wlLookupKey)
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(client.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-		admissionCheckMessage := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName)).Message
-		workerName = GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheckMessage)
-		g.Expect(workerName).NotTo(gomega.BeEmpty())
-	}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-	return workerName
-}
-
 func ensurePodWorkloadsRunning(deployment *appsv1.Deployment, managerNs corev1.Namespace, multiKueueAc *kueue.AdmissionCheck, kubernetesClients map[string]struct {
 	client     client.Client
 	restClient *rest.RESTClient
@@ -1361,7 +1346,7 @@ func ensurePodWorkloadsRunning(deployment *appsv1.Deployment, managerNs corev1.N
 			})
 
 			// Through checking the assigned cluster we can discern which client to use
-			workerClusterName := GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheck.Message)
+			workerClusterName := util.GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheck.Message)
 			if workerClusterName == "" {
 				ginkgo.Fail(fmt.Sprintf("Could not find Worker Cluster for multikueue admission check message: \"%s\"", admissionCheck.Message))
 			}
@@ -1379,17 +1364,6 @@ func ensurePodWorkloadsRunning(deployment *appsv1.Deployment, managerNs corev1.N
 			})
 		})
 	}
-}
-
-func GetMultiKueueClusterNameFromAdmissionCheckMessage(message string) string {
-	regex := regexp.MustCompile(`"([^"]*)"`)
-	// Find the match
-	match := regex.FindStringSubmatch(message)
-	if len(match) > 1 {
-		workerName := match[1]
-		return workerName
-	}
-	return ""
 }
 
 func expectJobToBeCreatedAndManagedBy(ctx context.Context, c client.Client, job *batchv1.Job, managedBy string) {

@@ -18,6 +18,12 @@ package util
 
 import (
 	"context"
+	"regexp"
+
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -256,4 +262,32 @@ func MakeMultiKueueSecret(ctx context.Context, c client.Client, namespace string
 func CleanMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string) error {
 	secret := utiltesting.MakeSecret(name, namespace).Obj()
 	return client.IgnoreNotFound(c.Delete(ctx, secret))
+}
+
+// GetMultiKueueClusterNameFromAdmissionCheckMessage extracts the cluster name
+// from a MultiKueue admission check message of the form
+// "The workload got reservation on \"<clusterName>\"".
+func GetMultiKueueClusterNameFromAdmissionCheckMessage(message string) string {
+	regex := regexp.MustCompile(`"([^"]*)"`)
+	match := regex.FindStringSubmatch(message)
+	if len(match) > 1 {
+		return match[1]
+	}
+	return ""
+}
+
+// ExpectWorkloadsToBeAdmittedAndGetWorkerName waits for the workload to be admitted
+// and returns the name of the worker cluster it was admitted to.
+func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient client.Client, wlLookupKey types.NamespacedName, acName string) string {
+	ginkgo.GinkgoHelper()
+	createdWorkload := &kueue.Workload{}
+	var workerName string
+	ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, MediumTimeout, wlLookupKey)
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+		admissionCheckMessage := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName)).Message
+		workerName = GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheckMessage)
+		g.Expect(workerName).NotTo(gomega.BeEmpty())
+	}, MediumTimeout, Interval).Should(gomega.Succeed())
+	return workerName
 }
