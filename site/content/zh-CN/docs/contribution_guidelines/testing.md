@@ -112,7 +112,8 @@ make test-e2e-certmanager
 make test-e2e-kueueviz
 make test-tas-e2e-baseline
 make test-tas-e2e-extended
-make test-multikueue-e2e-main
+make test-multikueue-e2e-baseline
+make test-multikueue-e2e-extended
 make test-multikueue-e2e-sequential
 ```
 
@@ -132,14 +133,14 @@ E2E_K8S_FULL_VERSION=1.35.0 make test-e2e-baseline
 E2E_MODE=dev make kind-image-build test-e2e-baseline
 
 # MultiKueue 的 dev 模式
-E2E_MODE=dev make kind-image-build test-multikueue-e2e-main
+E2E_MODE=dev make kind-image-build test-multikueue-e2e-baseline
 
 # 循环运行（直到失败），同时保留集群
 E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build test-e2e-baseline
 
 # 跳过重新安装 kueue（仅在 dev 模式下有效）
 E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-e2e-baseline
-E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e-main
+E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e-baseline
 
 # 跳过重新拉取依赖镜像并将其重新导入 kind（仅 dev 模式）
 E2E_MODE=dev E2E_SKIP_IMAGE_RELOAD=true make kind-image-build test-e2e-baseline
@@ -174,7 +175,7 @@ Kueue 控制器镜像始终会重新加载到集群中，除非设置了 `E2E_SK
 ```shell
 # 已发布版本
 E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e-baseline
-E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e-main
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e-baseline
 
 # 预发布镜像（例如来自 PR 或每日构建）
 E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-e2e-baseline
@@ -189,7 +190,7 @@ E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
 
 ### 旧方式：交互式附加模式 {#legacy-interactive-attach-mode}
 
-运行 `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-main` 并等待 `Do you want to cleanup? [Y/n] ` 出现（CI 风格行为）。
+运行 `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-baseline` 并等待 `Do you want to cleanup? [Y/n] ` 出现（CI 风格行为）。
 
 集群已准备就绪，现在你可以从另一个终端运行测试：
 ```shell
