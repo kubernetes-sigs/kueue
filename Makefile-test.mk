@@ -178,13 +178,40 @@ test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
 
 ## Label Taxonomy:
-##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,tas,trainjob
+##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,trainjob
 ##
 ## Examples:
 ##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
 .PHONY: test-e2e-extended
-test-e2e-extended: E2E_NPROCS := 4
-test-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-extended: test-e2e-extended-shard-0 test-e2e-extended-shard-1
+
+## Label Taxonomy:
+##   Features: jobset,kuberay,leaderworkerset
+##
+## Examples:
+##   Run only LeaderWorkerSet tests: GINKGO_ARGS="--label-filter=feature:leaderworkerset" make test-e2e-extended-shard-0
+.PHONY: test-e2e-extended-shard-0
+test-e2e-extended-shard-0: E2E_NPROCS := 4
+test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=shard-0
+test-e2e-extended-shard-0: export JOBSET_VERSION := $(JOBSET_VERSION)
+test-e2e-extended-shard-0: export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
+test-e2e-extended-shard-0: export KUBERAY_VERSION := $(KUBERAY_VERSION)
+test-e2e-extended-shard-0: export RAY_VERSION := $(RAY_VERSION)
+test-e2e-extended-shard-0: export RAYMINI_VERSION := $(RAYMINI_VERSION)
+test-e2e-extended-shard-0: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+## Label Taxonomy:
+##   Features: appwrapper,jaxjob,pytorchjob,trainjob
+##
+## Examples:
+##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended-shard-1
+.PHONY: test-e2e-extended-shard-1
+test-e2e-extended-shard-1: E2E_NPROCS := 4
+test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-e2e-extended-shard-1: export APPWRAPPER_VERSION := $(APPWRAPPER_VERSION)
+test-e2e-extended-shard-1: export KUBEFLOW_VERSION := $(KUBEFLOW_VERSION)
+test-e2e-extended-shard-1: export KUBEFLOW_TRAINER_VERSION := $(KUBEFLOW_TRAINER_VERSION)
+test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
 ##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,e2e_v1beta1,ha
@@ -280,12 +307,7 @@ run-test-e2e-extended-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-		JOBSET_VERSION=$(JOBSET_VERSION) \
-		KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
-		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
-		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
+		USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
