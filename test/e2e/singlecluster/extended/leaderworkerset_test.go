@@ -42,7 +42,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label(util.Shard0, "area:singlecluster", "feature:leaderworkerset"), func() {
+var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label(util.Shard1, "area:singlecluster", "feature:leaderworkerset"), func() {
 	var (
 		ns                 *corev1.Namespace
 		rf                 *kueue.ResourceFlavor

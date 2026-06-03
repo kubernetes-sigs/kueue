@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.Label(util.Shard0), func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.Label(util.Shard1), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
