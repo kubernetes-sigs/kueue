@@ -18,10 +18,13 @@ package util
 
 import (
 	"context"
+	"regexp"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -31,6 +34,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -40,6 +44,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -256,4 +261,32 @@ func MakeMultiKueueSecret(ctx context.Context, c client.Client, namespace string
 func CleanMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string) error {
 	secret := utiltesting.MakeSecret(name, namespace).Obj()
 	return client.IgnoreNotFound(c.Delete(ctx, secret))
+}
+
+// GetMultiKueueClusterNameFromAdmissionCheckMessage extracts the cluster name
+// from a MultiKueue admission check message of the form
+// "The workload got reservation on \"<clusterName>\"".
+func GetMultiKueueClusterNameFromAdmissionCheckMessage(message string) string {
+	regex := regexp.MustCompile(`"([^"]*)"`)
+	match := regex.FindStringSubmatch(message)
+	if len(match) > 1 {
+		return match[1]
+	}
+	return ""
+}
+
+// ExpectWorkloadsToBeAdmittedAndGetWorkerName waits for the workload to be admitted
+// and returns the name of the worker cluster it was admitted to.
+func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient client.Client, wlLookupKey types.NamespacedName, acName string) string {
+	ginkgo.GinkgoHelper()
+	createdWorkload := &kueue.Workload{}
+	var workerName string
+	ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, MediumTimeout, wlLookupKey)
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+		admissionCheckMessage := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName)).Message
+		workerName = GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheckMessage)
+		g.Expect(workerName).NotTo(gomega.BeEmpty())
+	}, MediumTimeout, Interval).Should(gomega.Succeed())
+	return workerName
 }
