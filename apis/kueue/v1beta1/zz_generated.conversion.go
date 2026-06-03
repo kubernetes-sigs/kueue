@@ -184,11 +184,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.ClusterQueueStatus)(nil), (*ClusterQueueStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_ClusterQueueStatus_To_v1beta1_ClusterQueueStatus(a.(*v1beta2.ClusterQueueStatus), b.(*ClusterQueueStatus), scope)
-	}); err != nil {
-		return err
-	}
 	if err := s.AddGeneratedConversionFunc((*Cohort)(nil), (*v1beta2.Cohort)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_Cohort_To_v1beta2_Cohort(a.(*Cohort), b.(*v1beta2.Cohort), scope)
 	}); err != nil {
@@ -741,6 +736,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddConversionFunc((*v1beta2.ClusterQueueSpec)(nil), (*ClusterQueueSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta2_ClusterQueueSpec_To_v1beta1_ClusterQueueSpec(a.(*v1beta2.ClusterQueueSpec), b.(*ClusterQueueSpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*v1beta2.ClusterQueueStatus)(nil), (*ClusterQueueStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_ClusterQueueStatus_To_v1beta1_ClusterQueueStatus(a.(*v1beta2.ClusterQueueStatus), b.(*ClusterQueueStatus), scope)
 	}); err != nil {
 		return err
 	}
