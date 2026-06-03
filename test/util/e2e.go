@@ -462,12 +462,19 @@ func waitForKueueControllerReadyWithWebhookEndpoints(ctx context.Context, k8sCli
 		endpointIPs := sets.New[string]()
 		for _, slice := range endpointSlices.Items {
 			for _, ep := range slice.Endpoints {
-				if ep.Conditions.Ready == nil || *ep.Conditions.Ready {
+				if ep.Conditions.Ready != nil && *ep.Conditions.Ready {
 					endpointIPs.Insert(ep.Addresses...)
 				}
 			}
 		}
 		g.Expect(endpointIPs).To(gomega.Equal(readyPodIPs))
+
+		// Probe the webhook via a dry-run ResourceFlavor create to confirm the
+		// kube-apiserver can actually reach the new webhook pod. The endpoint
+		// slice being updated is not enough — the apiserver may still be using a
+		// stale connection to the previous pod.
+		rf := &kueue.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{GenerateName: "webhook-probe-"}}
+		g.Expect(k8sClient.Create(ctx, rf, client.DryRunAll)).To(gomega.Succeed())
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 
 	ginkgo.GinkgoLogr.Info("Ready pods and webhook endpoints verified", "deployment", key, "waitingTime", time.Since(waitStart))
