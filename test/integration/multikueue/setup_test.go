@@ -811,11 +811,22 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, w2Cq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			ginkgo.By("Setting manager ClusterQueue ResourceGroups to empty list")
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
+				cq.Spec.ResourceGroups = []kueue.ResourceGroup{}
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, cq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
 			ginkgo.By("enable quota automation on the MultiKueueConfig")
 			gomega.Eventually(func(g gomega.Gomega) {
 				mkc := &kueue.MultiKueueConfig{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(managerMultiKueueConfig), mkc)).To(gomega.Succeed())
 				mkc.Spec.QuotaManagementMode = ptr.To(kueue.QuotaManagementAutomated)
+				mkc.Spec.AutomatedQuotaManagementConfig = &kueue.AutomatedQuotaManagementConfig{
+					AggregateResourceFlavorSpec: managerFlavor.Spec,
+				}
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, mkc)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

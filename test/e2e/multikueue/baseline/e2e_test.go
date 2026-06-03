@@ -1249,17 +1249,11 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 	ginkgo.Context("MultiKueue Manager Quota Automation", func() {
 		ginkgo.BeforeEach(func() {
-			ginkgo.By("Setting manager ClusterQueue quotas to zeroes", func() {
+			ginkgo.By("Setting manager ClusterQueue ResourceGroups to empty list", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					cq := &kueue.ClusterQueue{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
-					cq.Spec.ResourceGroups[0].Flavors[0].Resources = []kueue.ResourceQuota{
-						{Name: corev1.ResourceCPU, NominalQuota: resource.MustParse("0")},
-						{Name: corev1.ResourceMemory, NominalQuota: resource.MustParse("0")},
-						{Name: corev1.ResourceEphemeralStorage, NominalQuota: resource.MustParse("0")},
-						{Name: extraResourceGPUHighCost, NominalQuota: resource.MustParse("0")},
-						{Name: extraResourceGPULowCost, NominalQuota: resource.MustParse("0")},
-					}
+					cq.Spec.ResourceGroups = []kueue.ResourceGroup{}
 					g.Expect(k8sManagerClient.Update(ctx, cq)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1269,6 +1263,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					cfg := &kueue.MultiKueueConfig{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(multiKueueConfig), cfg)).To(gomega.Succeed())
 					cfg.Spec.QuotaManagementMode = ptr.To(kueue.QuotaManagementAutomated)
+					cfg.Spec.AutomatedQuotaManagementConfig = &kueue.AutomatedQuotaManagementConfig{
+						AggregateResourceFlavorSpec: managerFlavor.Spec,
+					}
 					g.Expect(k8sManagerClient.Update(ctx, cfg)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
