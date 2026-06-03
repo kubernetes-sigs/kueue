@@ -81,6 +81,179 @@ spec:
           spec:
             description: spec is the specification of the MultiKueueConfig.
             properties:
+              automatedQuotaManagementConfig:
+                description: |-
+                  automatedQuotaManagementConfig is the configuration for the automated quota management.
+                  It is only relevant when quotaManagementMode is set to `Automated`.
+                properties:
+                  aggregateResourceFlavorSpec:
+                    description: aggregateResourceFlavorSpec is the specification
+                      of the resource flavor MultiKueue creates and maintains for
+                      the auto-aggregated resource flavors
+                    properties:
+                      nodeLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          nodeLabels are labels that associate the ResourceFlavor with Nodes that
+                          have the same labels.
+                          When a Workload is admitted, its podsets can only get assigned
+                          ResourceFlavors whose nodeLabels match the nodeSelector and nodeAffinity
+                          fields.
+                          Once a ResourceFlavor is assigned to a podSet, the ResourceFlavor's
+                          nodeLabels should be injected into the pods of the Workload by the
+                          controller that integrates with the Workload object.
+
+                          nodeLabels can be up to 8 elements.
+                        maxProperties: 8
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      nodeTaints:
+                        description: |-
+                          nodeTaints are taints that the nodes associated with this ResourceFlavor
+                          have.
+                          Workloads' podsets must have tolerations for these nodeTaints in order to
+                          get assigned this ResourceFlavor during admission.
+                          When this ResourceFlavor has also set the matching tolerations (in .spec.tolerations),
+                          then the nodeTaints are not considered during admission.
+                          Only the 'NoSchedule' and 'NoExecute' taint effects are evaluated,
+                          while 'PreferNoSchedule' is ignored.
+
+                          An example of a nodeTaint is
+                          cloud.provider.com/preemptible="true":NoSchedule
+
+                          nodeTaints can be up to 8 elements.
+                        items:
+                          description: |-
+                            The node this Taint is attached to has the "effect" on
+                            any pod that does not tolerate the Taint.
+                          properties:
+                            effect:
+                              description: |-
+                                Required. The effect of the taint on pods
+                                that do not tolerate the taint.
+                                Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
+                              type: string
+                            key:
+                              description: Required. The taint key to be applied to
+                                a node.
+                              type: string
+                            timeAdded:
+                              description: TimeAdded represents the time at which
+                                the taint was added.
+                              format: date-time
+                              type: string
+                            value:
+                              description: The taint value corresponding to the taint
+                                key.
+                              type: string
+                          required:
+                          - effect
+                          - key
+                          type: object
+                        maxItems: 8
+                        type: array
+                        x-kubernetes-list-type: atomic
+                        x-kubernetes-validations:
+                        - message: 'supported taint effect values: ''NoSchedule'',
+                            ''PreferNoSchedule'', ''NoExecute'''
+                          rule: self.all(x, x.effect in ['NoSchedule', 'PreferNoSchedule',
+                            'NoExecute'])
+                      tolerations:
+                        description: |-
+                          tolerations are extra tolerations that will be added to the pods admitted in
+                          the quota associated with this resource flavor.
+
+                          An example of a toleration is
+                          cloud.provider.com/preemptible="true":NoSchedule
+
+                          tolerations can be up to 8 elements.
+                        items:
+                          description: |-
+                            The pod this Toleration is attached to tolerates any taint that matches
+                            the triple <key,value,effect> using the matching operator <operator>.
+                          properties:
+                            effect:
+                              description: |-
+                                Effect indicates the taint effect to match. Empty means match all taint effects.
+                                When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                              type: string
+                            key:
+                              description: |-
+                                Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                                If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                              type: string
+                            operator:
+                              description: |-
+                                Operator represents a key's relationship to the value.
+                                Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
+                                Exists is equivalent to wildcard for value, so that a pod can
+                                tolerate all taints of a particular category.
+                                Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
+                              type: string
+                            tolerationSeconds:
+                              description: |-
+                                TolerationSeconds represents the period of time the toleration (which must be
+                                of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                                it is not set, which means tolerate the taint forever (do not evict). Zero and
+                                negative values will be treated as 0 (evict immediately) by the system.
+                              format: int64
+                              type: integer
+                            value:
+                              description: |-
+                                Value is the taint value the toleration matches to.
+                                If the operator is Exists, the value should be empty, otherwise just a regular string.
+                              type: string
+                          type: object
+                        maxItems: 8
+                        type: array
+                        x-kubernetes-list-type: atomic
+                        x-kubernetes-validations:
+                        - message: operator must be Exists when 'key' is empty, which
+                            means 'match all values and all keys'
+                          rule: 'self.all(x, !has(x.key) ? x.operator == ''Exists''
+                            : true)'
+                        - message: effect must be 'NoExecute' when 'tolerationSeconds'
+                            is set
+                          rule: 'self.all(x, has(x.tolerationSeconds) ? x.effect ==
+                            ''NoExecute'' : true)'
+                        - message: 'supported toleration values: ''Equal''(default),
+                            ''Exists'''
+                          rule: self.all(x, !has(x.operator) || x.operator in ['Equal',
+                            'Exists'])
+                        - message: a value must be empty when 'operator' is 'Exists'
+                          rule: 'self.all(x, has(x.operator) && x.operator == ''Exists''
+                            ? !has(x.value) : true)'
+                        - message: 'supported taint effect values: ''NoSchedule'',
+                            ''PreferNoSchedule'', ''NoExecute'''
+                          rule: self.all(x, !has(x.effect) || x.effect in ['NoSchedule',
+                            'PreferNoSchedule', 'NoExecute'])
+                      topologyName:
+                        description: |-
+                          topologyName indicates topology for the TAS ResourceFlavor.
+                          When specified, it enables scraping of the topology information from the
+                          nodes matching to the Resource Flavor node labels.
+                        maxLength: 253
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                        type: string
+                    type: object
+                    x-kubernetes-validations:
+                    - message: at least one nodeLabel is required when topology is
+                        set
+                      rule: '!has(self.topologyName) || self.nodeLabels.size() >=
+                        1'
+                    - message: nodeLabels are immutable when topologyName is set
+                      rule: '!has(oldSelf.topologyName) || (has(self.nodeLabels) ==
+                        has(oldSelf.nodeLabels) && (!has(self.nodeLabels) || self.nodeLabels
+                        == oldSelf.nodeLabels))'
+                    - message: tolerations are immutable when topologyName is set
+                      rule: '!has(oldSelf.topologyName) || (has(self.tolerations)
+                        == has(oldSelf.tolerations) && (!has(self.tolerations) ||
+                        self.tolerations == oldSelf.tolerations))'
+                    - message: topologyName is immutable when topologyName is set
+                      rule: '!has(oldSelf.topologyName) || (has(self.topologyName)
+                        && self.topologyName == oldSelf.topologyName)'
+                type: object
               clusters:
                 description: clusters is a list of MultiKueueClusters names where
                   the workloads from the ClusterQueue should be distributed.
@@ -91,9 +264,9 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: set
-              quotaManagement:
+              quotaManagementMode:
                 description: |-
-                  quotaManagement specifies the management of ClusterQueue quotas
+                  quotaManagementMode specifies the management of ClusterQueue quotas
                   in the manager cluster.
                   Supported modes:
                   - `Manual`: Quota automation is manual.
@@ -106,6 +279,11 @@ spec:
             required:
             - clusters
             type: object
+            x-kubernetes-validations:
+            - message: automatedQuotaManagementConfig is only relevant when quotaManagementMode
+                is set to 'Automated'
+              rule: 'has(self.quotaManagementMode) && self.quotaManagementMode ==
+                ''Automated'' ? has(self.automatedQuotaManagementConfig) : true'
         type: object
     served: true
     storage: true
