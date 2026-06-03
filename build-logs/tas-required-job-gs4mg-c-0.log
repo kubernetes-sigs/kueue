@@ -1,0 +1,6 @@
+2026-06-03T12:18:37.936617218Z stderr F I0603 12:18:37.936219       1 log.go:244] Started HTTP server on port 8080
+2026-06-03T12:18:37.9367541Z stderr F I0603 12:18:37.936585       1 log.go:244] Started UDP server on port  8081
+2026-06-03T12:18:39.042609688Z stderr F I0603 12:18:39.042463       1 log.go:244] GET /readyz
+2026-06-03T12:18:39.191537781Z stderr F I0603 12:18:39.191339       1 log.go:244] GET /exit?code=0&timeout=2s&wait=2s
+2026-06-03T12:18:39.191567301Z stderr F I0603 12:18:39.191408       1 log.go:244] Will begin shutdown in 2s, allowing 2s for connections to close, then will exit with 0
+2026-06-03T12:18:41.1923991Z stderr F I0603 12:18:41.192183       1 log.go:244] Graceful shutdown completed with: <nil>
