@@ -31,6 +31,13 @@ type ClusterQueueStatusApplyConfiguration struct {
 	// current state.
 	// conditions are limited to 16 elements.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// effectiveResourceGroups describes the groups of resources as seen by Kueue controllers.
+	// Each resource group defines the list of resources and a list of flavors
+	// that provide quotas for these resources.
+	// Each resource and each flavor can only form part of one resource group.
+	// By default, it's equal to spec.resourceGroups. However, in some scenarios (e.g. MultiKueue)
+	// it may differ from spec.resourceGroups.
+	EffectiveResourceGroups []ResourceGroupApplyConfiguration `json:"effectiveResourceGroups,omitempty"`
 	// flavorsReservation are the reserved quotas, by flavor, currently in use by the
 	// workloads assigned to this ClusterQueue.
 	// flavorsReservation are limited to 64 elements.
@@ -68,6 +75,19 @@ func (b *ClusterQueueStatusApplyConfiguration) WithConditions(values ...*v1.Cond
 			panic("nil value passed to WithConditions")
 		}
 		b.Conditions = append(b.Conditions, *values[i])
+	}
+	return b
+}
+
+// WithEffectiveResourceGroups adds the given value to the EffectiveResourceGroups field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the EffectiveResourceGroups field.
+func (b *ClusterQueueStatusApplyConfiguration) WithEffectiveResourceGroups(values ...*ResourceGroupApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithEffectiveResourceGroups")
+		}
+		b.EffectiveResourceGroups = append(b.EffectiveResourceGroups, *values[i])
 	}
 	return b
 }

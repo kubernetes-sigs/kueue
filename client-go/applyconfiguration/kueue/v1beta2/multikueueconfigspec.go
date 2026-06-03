@@ -29,13 +29,16 @@ import (
 type MultiKueueConfigSpecApplyConfiguration struct {
 	// clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
 	Clusters []string `json:"clusters,omitempty"`
-	// quotaManagement specifies the management of ClusterQueue quotas
+	// quotaManagementMode specifies the management of ClusterQueue quotas
 	// in the manager cluster.
 	// Supported modes:
 	// - `Manual`: Quota automation is manual.
 	// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
 	// If unspecified, defaults to `Manual`.
-	QuotaManagement *kueuev1beta2.MultiKueueConfigQuotaManagementMode `json:"quotaManagement,omitempty"`
+	QuotaManagementMode *kueuev1beta2.MultiKueueConfigQuotaManagementMode `json:"quotaManagementMode,omitempty"`
+	// automatedQuotaManagementConfig is the configuration for the automated quota management.
+	// It is only relevant when quotaManagementMode is set to `Automated`.
+	AutomatedQuotaManagementConfig *AutomatedQuotaManagementConfigApplyConfiguration `json:"automatedQuotaManagementConfig,omitempty"`
 }
 
 // MultiKueueConfigSpecApplyConfiguration constructs a declarative configuration of the MultiKueueConfigSpec type for use with
@@ -54,10 +57,18 @@ func (b *MultiKueueConfigSpecApplyConfiguration) WithClusters(values ...string) 
 	return b
 }
 
-// WithQuotaManagement sets the QuotaManagement field in the declarative configuration to the given value
+// WithQuotaManagementMode sets the QuotaManagementMode field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the QuotaManagement field is set to the value of the last call.
-func (b *MultiKueueConfigSpecApplyConfiguration) WithQuotaManagement(value kueuev1beta2.MultiKueueConfigQuotaManagementMode) *MultiKueueConfigSpecApplyConfiguration {
-	b.QuotaManagement = &value
+// If called multiple times, the QuotaManagementMode field is set to the value of the last call.
+func (b *MultiKueueConfigSpecApplyConfiguration) WithQuotaManagementMode(value kueuev1beta2.MultiKueueConfigQuotaManagementMode) *MultiKueueConfigSpecApplyConfiguration {
+	b.QuotaManagementMode = &value
+	return b
+}
+
+// WithAutomatedQuotaManagementConfig sets the AutomatedQuotaManagementConfig field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AutomatedQuotaManagementConfig field is set to the value of the last call.
+func (b *MultiKueueConfigSpecApplyConfiguration) WithAutomatedQuotaManagementConfig(value *AutomatedQuotaManagementConfigApplyConfiguration) *MultiKueueConfigSpecApplyConfiguration {
+	b.AutomatedQuotaManagementConfig = value
 	return b
 }

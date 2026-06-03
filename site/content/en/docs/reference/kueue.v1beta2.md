@@ -709,6 +709,32 @@ in the AdmissionScope. Possible values are:</p>
 </tbody>
 </table>
 
+## `AutomatedQuotaManagementConfig`     {#kueue-x-k8s-io-v1beta2-AutomatedQuotaManagementConfig}
+    
+
+**Appears in:**
+
+- [MultiKueueConfigSpec](#kueue-x-k8s-io-v1beta2-MultiKueueConfigSpec)
+
+
+<p>AutomatedQuotaManagementConfig is the configuration for the automated quota management in MultiKueue ClusterQueues.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>aggregateResourceFlavorSpec</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ResourceFlavorSpec"><code>ResourceFlavorSpec</code></a>
+</td>
+<td>
+   <p>aggregateResourceFlavorSpec is the specification of the resource flavor MultiKueue creates and maintains for the auto-aggregated resource flavors</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `BorrowWithinCohort`     {#kueue-x-k8s-io-v1beta2-BorrowWithinCohort}
     
 
@@ -1065,6 +1091,18 @@ It enables them to migrate to more preferable, whenever capacity appears.</p>
    <p>conditions hold the latest available observations of the ClusterQueue
 current state.
 conditions are limited to 16 elements.</p>
+</td>
+</tr>
+<tr><td><code>effectiveResourceGroups</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ResourceGroup"><code>[]ResourceGroup</code></a>
+</td>
+<td>
+   <p>effectiveResourceGroups describes the groups of resources as seen by Kueue controllers.
+Each resource group defines the list of resources and a list of flavors
+that provide quotas for these resources.
+Each resource and each flavor can only form part of one resource group.
+By default, it's equal to spec.resourceGroups. However, in some scenarios (e.g. MultiKueue)
+it may differ from spec.resourceGroups.</p>
 </td>
 </tr>
 <tr><td><code>flavorsReservation</code><br/>
@@ -2039,11 +2077,11 @@ Supported modes:</p>
    <p>clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.</p>
 </td>
 </tr>
-<tr><td><code>quotaManagement</code><br/>
+<tr><td><code>quotaManagementMode</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-MultiKueueConfigQuotaManagementMode"><code>MultiKueueConfigQuotaManagementMode</code></a>
 </td>
 <td>
-   <p>quotaManagement specifies the management of ClusterQueue quotas
+   <p>quotaManagementMode specifies the management of ClusterQueue quotas
 in the manager cluster.
 Supported modes:</p>
 <ul>
@@ -2051,6 +2089,14 @@ Supported modes:</p>
 <li><code>Automated</code>: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
 If unspecified, defaults to <code>Manual</code>.</li>
 </ul>
+</td>
+</tr>
+<tr><td><code>automatedQuotaManagementConfig</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-AutomatedQuotaManagementConfig"><code>AutomatedQuotaManagementConfig</code></a>
+</td>
+<td>
+   <p>automatedQuotaManagementConfig is the configuration for the automated quota management.
+It is only relevant when quotaManagementMode is set to <code>Automated</code>.</p>
 </td>
 </tr>
 </tbody>
@@ -3084,6 +3130,8 @@ this time would be reset to null.</p>
 
 - [ResourceFlavor](#kueue-x-k8s-io-v1beta2-ResourceFlavor)
 
+- [AutomatedQuotaManagementConfig](#kueue-x-k8s-io-v1beta2-AutomatedQuotaManagementConfig)
+
 
 <p>ResourceFlavorSpec defines the desired state of the ResourceFlavor</p>
 
@@ -3154,6 +3202,8 @@ nodes matching to the Resource Flavor node labels.</p>
 **Appears in:**
 
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta2-ClusterQueueSpec)
+
+- [ClusterQueueStatus](#kueue-x-k8s-io-v1beta2-ClusterQueueStatus)
 
 - [CohortSpec](#kueue-x-k8s-io-v1beta2-CohortSpec)
 
