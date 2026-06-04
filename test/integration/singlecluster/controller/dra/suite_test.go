@@ -126,7 +126,11 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
-		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
+		draBackedResources := dra.NewExtendedResourceCache()
+		queueOptions := []qcache.Option{
+			qcache.WithPreemptionExpectations(preemptionExpectations),
+			qcache.WithDRABackedResources(draBackedResources),
+		}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		// Core controllers
@@ -135,7 +139,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			queues,
 			cCache,
 			controllersCfg,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, DRAMapper: draMapper, DRABackedResources: dra.NewExtendedResourceCache()},
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, DRAMapper: draMapper, DRABackedResources: draBackedResources},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 

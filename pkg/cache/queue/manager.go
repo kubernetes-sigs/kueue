@@ -693,7 +693,11 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	}
 	log := ctrl.LoggerFrom(ctx)
 	workload.AdjustResources(ctx, m.client, &w)
-	info.Update(log, &w)
+	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
+		info.Update(log, &w, workload.WithPreserveTotalRequests())
+	} else {
+		info.Update(log, &w, m.workloadInfoOptions...)
+	}
 	m.addWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
