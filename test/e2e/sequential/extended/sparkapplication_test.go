@@ -137,7 +137,10 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 		})
 
 		ginkgo.It("should run if admitted", func() {
+			sparkImage := util.GetSparkTestImage()
 			sparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapplication-simple", ns.Name).
+				Image(sparkImage).
+				SparkVersion(util.VersionFromImage(sparkImage)).
 				DriverServiceAccount(sa.Name).
 				DriverCoreRequest("0.1").
 				DriverMemoryRequest("512m"). // 512MB
@@ -234,7 +237,10 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 		})
 
 		ginkgo.It("should admit a SparkApplication via TAS", func() {
+			sparkImage := util.GetSparkTestImage()
 			sparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapplication-tas", ns.Name).
+				Image(sparkImage).
+				SparkVersion(util.VersionFromImage(sparkImage)).
 				DriverAnnotation(
 					kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname,
 				).
