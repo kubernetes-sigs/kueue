@@ -73,6 +73,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
+const (
+	draRequeueDelay = time.Second
+)
+
 var (
 	realClock = clock.RealClock{}
 )
@@ -351,7 +355,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			if updateErr != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
 			}
-			return ctrl.Result{}, err
+			return ctrl.Result{RequeueAfter: draRequeueDelay}, nil
 		}
 
 		// Process Extended Resources backed by DRA (new path)
@@ -373,7 +377,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				if updateErr != nil {
 					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA extended resources error: %w", updateErr)
 				}
-				return ctrl.Result{}, err
+				return ctrl.Result{RequeueAfter: draRequeueDelay}, nil
 			}
 		}
 
@@ -408,7 +412,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				if updateErr != nil {
 					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA counter resources error: %w", updateErr)
 				}
-				return ctrl.Result{}, err
+				return ctrl.Result{RequeueAfter: draRequeueDelay}, nil
 			}
 			for podSetName, resources := range counterResources {
 				if existing, ok := draResources[podSetName]; ok {
