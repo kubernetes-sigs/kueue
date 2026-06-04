@@ -185,7 +185,6 @@ test-multikueue-e2e-helm: test-multikueue-e2e
 .PHONY: test-e2e-extended
 test-e2e-extended: test-e2e-extended-shard-0 test-e2e-extended-shard-1
 
-
 ## Label Taxonomy:
 ##   Features: jobset,kuberay,leaderworkerset
 ##
@@ -194,8 +193,6 @@ test-e2e-extended: test-e2e-extended-shard-0 test-e2e-extended-shard-1
 .PHONY: test-e2e-extended-shard-0
 test-e2e-extended-shard-0: E2E_NPROCS := 4
 test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=shard-0
-test-e2e-extended-shard-0: export JOBSET_VERSION := $(JOBSET_VERSION)
-test-e2e-extended-shard-0: export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
 test-e2e-extended-shard-0: export KUBERAY_VERSION := $(KUBERAY_VERSION)
 test-e2e-extended-shard-0: export RAY_VERSION := $(RAY_VERSION)
 test-e2e-extended-shard-0: export RAYMINI_VERSION := $(RAYMINI_VERSION)
@@ -209,6 +206,8 @@ test-e2e-extended-shard-0: setup-e2e-env kind-ray-project-mini-image-build run-t
 .PHONY: test-e2e-extended-shard-1
 test-e2e-extended-shard-1: E2E_NPROCS := 4
 test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-e2e-extended-shard-1: export JOBSET_VERSION := $(JOBSET_VERSION)
+test-e2e-extended-shard-1: export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
 test-e2e-extended-shard-1: export APPWRAPPER_VERSION := $(APPWRAPPER_VERSION)
 test-e2e-extended-shard-1: export KUBEFLOW_VERSION := $(KUBEFLOW_VERSION)
 test-e2e-extended-shard-1: export KUBEFLOW_TRAINER_VERSION := $(KUBEFLOW_TRAINER_VERSION)
