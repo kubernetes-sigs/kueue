@@ -1742,7 +1742,16 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 			log.Error(err, "Could not list workloads for extended resource", "resource", name)
 			continue
 		}
-		for _, w := range lst.Items {
+		for i := range lst.Items {
+			w := &lst.Items[i]
+			log.V(3).Info("Requeuing workload due to DeviceClass change", "workload", klog.KObj(w), "resource", name)
+			if !dra.NeedsDRAReconcile(w, h.r.draBackedResources) && workload.IsAdmissible(w) {
+				wlCopy := w.DeepCopy()
+				workload.AdjustResources(ctx, h.r.client, wlCopy)
+				if err := h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+					log.Error(err, "Failed to re-add workload to queue after DeviceClass change")
+				}
+			}
 			q.AddAfter(reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      w.Name,
