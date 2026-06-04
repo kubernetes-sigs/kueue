@@ -37,25 +37,36 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 - ✔️ Test coverage:
   - ✔️ Unit test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-unit-main).
   - ✔️ Integration tests:
-    - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-baseline-main).
-    - ✔️ Extended suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-extended-main).
+    - ✔️ Baseline suite 
+      - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-shard-0-main)
+      - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-shard-1-main)
+      - ✔️ [shard-2](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-shard-2-main)
     - ✔️ MultiKueue suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-multikueue-main).
   - ✔️ E2E tests:
     - ✔️ Baseline suites for Kubernetes
-      [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-33),
-      [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-34),
+      [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-33)
+      [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-34)
       [1.35](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-35)
       on Kind.
-    - ✔️ Extended suites for Kubernetes
-      [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-33),
-      [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-34),
-      [1.35](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-main-1-35)
-      on Kind.
+    - ✔️ Extended suites for Kubernetes on Kind:
+      - ✔️ 1.33:
+        - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-0-main-1-33)
+        - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-1-main-1-33)
+      - ✔️ 1.34:
+        - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-0-main-1-34)
+        - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-1-main-1-34)
+      - ✔️ 1.35:
+        - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-0-main-1-35)
+        - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-1-main-1-35)
     - ✔️ TAS: 
       - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-baseline-main).
-      - ✔️ Extended suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-extended-main).
+      - ✔️ Extended suite: 
+        - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-extended-shard-0-main)
+        - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-extended-shard-1-main)
     - ✔️ Sequential tests: 
-      - ✔️ Baseline suites [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-baseline-main).
+      - ✔️ Baseline suites:
+        - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-baseline-shard-0-main)
+        - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-baseline-shard-1-main)
       - ✔️ Extended suites [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-sequential-extended-main).
     - ✔️ E2E Cert Manager test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-certmanager-main).
     - ✔️ DRA test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-dra-main).
