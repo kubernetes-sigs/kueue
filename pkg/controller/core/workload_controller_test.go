@@ -669,10 +669,10 @@ func TestReconcile(t *testing.T) {
 				}
 				return wl
 			}(),
-			wantErrorMsg: "not mapped in DRA configuration",
-			wantEvents:   nil,
+			wantResult: reconcile.Result{RequeueAfter: draRequeueDelay},
+			wantEvents: nil,
 		},
-		"reconcile DRA ResourceClaimTemplate not found should return error": {
+		"reconcile DRA ResourceClaimTemplate not found should requeue and mark inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
@@ -707,8 +707,8 @@ func TestReconcile(t *testing.T) {
 					Message: `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: failed to get claim spec for ResourceClaimTemplate missing-template in podset main: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
 				}).
 				Obj(),
-			wantErrorMsg: "failed to get claim spec",
-			wantEvents:   nil,
+			wantResult: reconcile.Result{RequeueAfter: draRequeueDelay},
+			wantEvents: nil,
 		},
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
