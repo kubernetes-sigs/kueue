@@ -40,7 +40,7 @@ require (
 	sigs.k8s.io/cluster-inventory-api v0.1.0 // indirect
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.24.1
 	sigs.k8s.io/controller-tools v0.20.1
-	sigs.k8s.io/kind v0.31.0
+	sigs.k8s.io/kind v0.32.0
 	sigs.k8s.io/kustomize/kustomize/v5 v5.8.1
 	sigs.k8s.io/mdtoc v1.4.0
 	sigs.k8s.io/yaml v1.6.0
