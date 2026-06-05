@@ -416,9 +416,6 @@ objectRetentionPolicies:
 		Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
 		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 		DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-		IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
-			StepSize: ptr.To[int32](3),
-		},
 	}
 
 	defaultVisibility := &configapi.VisibilityServerConfiguration{
@@ -954,9 +951,6 @@ webhook:
 					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
-						StepSize: ptr.To[int32](3),
-					},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1007,9 +1001,6 @@ webhook:
 					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
-						StepSize: ptr.To[int32](3),
-					},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1060,9 +1051,6 @@ webhook:
 					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
-						StepSize: ptr.To[int32](3),
-					},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1109,9 +1097,6 @@ webhook:
 					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
-						StepSize: ptr.To[int32](3),
-					},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1263,9 +1248,6 @@ func TestEncode(t *testing.T) {
 					"origin":            "multikueue",
 					"workerLostTimeout": "15m0s",
 					"dispatcherName":    configapi.MultiKueueDispatcherModeAllAtOnce,
-					"incrementalDispatcherConfig": map[string]any{
-						"stepSize": int64(3),
-					},
 				},
 				"visibilityServer": map[string]any{
 					"bindPort": int64(8082),
