@@ -545,6 +545,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "1500m").
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
 			Obj()
 		util.MustCreate(ctx, k8sManagerClient, job)
 
@@ -552,7 +553,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
 			Namespace: managerNs.Name,
 		}
-		admittedWorkerName := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		workerClient := kubernetesClients[admittedWorkerName].client
 
 		ginkgo.By(fmt.Sprintf("Waiting for TopologyAssignment to be computed on %s", admittedWorkerName), func() {
@@ -595,6 +596,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "500m").
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
 			Obj()
 		util.MustCreate(ctx, k8sManagerClient, job)
 

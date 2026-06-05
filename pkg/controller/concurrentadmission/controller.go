@@ -143,7 +143,7 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if len(variants) < len(flavorOrder) {
 		log.V(3).Info("Too few variants, creating new ones", "desired", len(flavorOrder), "actual", len(variants))
-		if err := r.createVariants(ctx, parent, variants, flavorOrder); err != nil {
+		if err := r.createVariants(ctx, parent, variants, cq.Spec.ResourceGroups[0].Flavors); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -230,15 +230,15 @@ func (r *variantReconciler) getClusterQueue(ctx context.Context, wl *kueue.Workl
 	return cq, nil
 }
 
-func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload, resourceFlavors map[kueue.ResourceFlavorReference]int) error {
+func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload, resourceFlavors []kueue.FlavorQuotas) error {
 	log := ctrl.LoggerFrom(ctx)
-	for flavor := range resourceFlavors {
-		if r.hasVariantWithFlavor(ctx, variants, flavor) {
+	for _, flavorQuota := range resourceFlavors {
+		if r.hasVariantWithFlavor(ctx, variants, flavorQuota.Name) {
 			continue
 		}
 
-		variant := generateVariant(parent, flavor)
-		log.V(3).Info("Creating variant for flavor", "flavor", flavor, "variant", variant.Name)
+		variant := generateVariant(parent, flavorQuota.Name)
+		log.V(3).Info("Creating variant for flavor", "flavor", flavorQuota.Name, "variant", variant.Name)
 
 		// Set the owner reference to the parent workload
 		if err := ctrl.SetControllerReference(parent, variant, r.client.Scheme()); err != nil {
@@ -249,7 +249,7 @@ func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Wo
 			log.V(3).Info("Failed to create variant", "variant", klog.KObj(variant), "error", err)
 			return err
 		}
-		log.V(3).Info("Variant created", "variant", klog.KObj(variant), "flavor", flavor)
+		log.V(3).Info("Variant created", "variant", klog.KObj(variant), "flavor", flavorQuota.Name)
 		r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonCreatedVariant, ReasonCreatedVariant, "Variant Workload %q created", klog.KObj(variant))
 	}
 	return nil
@@ -357,6 +357,22 @@ func (r *variantReconciler) deactivateVariant(ctx context.Context, v *kueue.Work
 	return nil
 }
 
+func (r *variantReconciler) deactivateMatchingVariants(ctx context.Context, variants []kueue.Workload, reason string, match func(*kueue.Workload) bool, logArgs ...any) error {
+	log := ctrl.LoggerFrom(ctx)
+	for i := range variants {
+		v := &variants[i]
+		if match != nil && !match(v) {
+			continue
+		}
+		logFields := append([]any{"variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "reason", reason}, logArgs...)
+		log.V(2).Info("Deactivating variant", logFields...)
+		if err := r.deactivateVariant(ctx, v, reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *variantReconciler) deactivateVariants(
 	ctx context.Context,
 	parent *kueue.Workload,
@@ -367,13 +383,12 @@ func (r *variantReconciler) deactivateVariants(
 	log := ctrl.LoggerFrom(ctx)
 	if !workload.IsActive(parent) {
 		log.V(2).Info("Parent is not active, deactivating all variants", "parent", klog.KObj(parent))
-		for i := range variants {
-			v := &variants[i]
-			if err := r.deactivateVariant(ctx, v, fmt.Sprintf("Parent Workload %q not active", klog.KObj(parent))); err != nil {
-				return err
-			}
-		}
-		return nil
+		return r.deactivateMatchingVariants(
+			ctx,
+			variants,
+			fmt.Sprintf("Parent Workload %q not active", klog.KObj(parent)),
+			nil,
+		)
 	}
 
 	admittedWl := getAdmittedVariant(variants)
@@ -381,40 +396,51 @@ func (r *variantReconciler) deactivateVariants(
 		log.V(3).Info("No admitted variant, no need to deactivate any variant")
 		return nil
 	}
-	// deactivate Variants below lastAcceptableFlavor if specified
-	var lastAcceptableFlavor *kueue.ResourceFlavorReference
-	if cq.Spec.ConcurrentAdmissionPolicy != nil && cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil {
-		lastAcceptableFlavor = cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
-	}
-	if lastAcceptableFlavor != nil {
-		log.V(3).Info("Deactivating variants below lastAcceptableFlavor", "lastAcceptableFlavor", *lastAcceptableFlavor)
-		for i := range variants {
-			v := &variants[i]
-			if v.Name == admittedWl.Name {
-				continue
-			}
-			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[*lastAcceptableFlavor] {
-				log.V(2).
-					Info("Deactivating variant because it is below the lastAcceptableFlavor", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "lastAcceptableFlavor", *lastAcceptableFlavor)
-				if err := r.deactivateVariant(ctx, v, fmt.Sprintf("being below lastAcceptableFlavor: %q and another Variant admitted %q", *lastAcceptableFlavor, klog.KObj(admittedWl))); err != nil {
-					return err
-				}
-			}
+	switch migrationMode(cq) {
+	case kueue.ConcurrentAdmissionRetainFirstAdmission:
+		log.V(3).Info("RetainFirstAdmission mode, deactivating all variants except the admitted one", "admittedVariant", klog.KObj(admittedWl))
+		return r.deactivateMatchingVariants(
+			ctx,
+			variants,
+			fmt.Sprintf("RetainFirstAdmission: another Variant %q is admitted", klog.KObj(admittedWl)),
+			func(v *kueue.Workload) bool { return v.Name != admittedWl.Name },
+		)
+	case kueue.ConcurrentAdmissionTryPreferredFlavors:
+		// deactivate Variants below lastAcceptableFlavor if specified
+		var lastAcceptableFlavor *kueue.ResourceFlavorReference
+		if cq.Spec.ConcurrentAdmissionPolicy != nil && cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil {
+			lastAcceptableFlavor = cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
 		}
-	}
-	// also deactivate Variants below the admitted variant regardless of lastAcceptableFlavorName
-	log.V(3).Info("Deactivating variants below the admitted variant", "admittedVariant", klog.KObj(admittedWl), "admittedFlavor", concurrentadmission.GetVariantFlavor(admittedWl))
-	for i := range variants {
-		v := &variants[i]
-		if flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[concurrentadmission.GetVariantFlavor(admittedWl)] {
-			log.V(2).
-				Info("Deactivating variant because it is below the admitted variant", "variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "admittedFlavor", concurrentadmission.GetVariantFlavor(admittedWl))
-			if err := r.deactivateVariant(ctx, v, fmt.Sprintf("being lower priority than admitted Variant %q", klog.KObj(admittedWl))); err != nil {
+		if lastAcceptableFlavor != nil {
+			log.V(3).Info("Deactivating variants below lastAcceptableFlavor", "lastAcceptableFlavor", *lastAcceptableFlavor)
+			err := r.deactivateMatchingVariants(
+				ctx,
+				variants,
+				fmt.Sprintf("being below lastAcceptableFlavor: %q and another Variant admitted %q", *lastAcceptableFlavor, klog.KObj(admittedWl)),
+				func(v *kueue.Workload) bool {
+					return v.Name != admittedWl.Name &&
+						flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[*lastAcceptableFlavor]
+				},
+				"lastAcceptableFlavor", *lastAcceptableFlavor,
+			)
+			if err != nil {
 				return err
 			}
 		}
+		// also deactivate Variants below the admitted variant regardless of lastAcceptableFlavorName
+		log.V(3).Info("Deactivating variants below the admitted variant", "admittedVariant", klog.KObj(admittedWl), "admittedFlavor", concurrentadmission.GetVariantFlavor(admittedWl))
+		return r.deactivateMatchingVariants(
+			ctx,
+			variants,
+			fmt.Sprintf("being lower priority than admitted Variant %q", klog.KObj(admittedWl)),
+			func(v *kueue.Workload) bool {
+				return flavorOrder[concurrentadmission.GetVariantFlavor(v)] > flavorOrder[concurrentadmission.GetVariantFlavor(admittedWl)]
+			},
+			"admittedFlavor", concurrentadmission.GetVariantFlavor(admittedWl),
+		)
+	default:
+		return fmt.Errorf("unknown migration mode %q", migrationMode(cq))
 	}
-	return nil
 }
 
 func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload, cq *kueue.ClusterQueue, flavorOrder map[kueue.ResourceFlavorReference]int) error {
@@ -435,36 +461,44 @@ func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.
 		}
 		return nil
 	}
-	// activate all variants that are at least at the lastAcceptableFlavorName if specificed
-	var lastAcceptableFlavor *kueue.ResourceFlavorReference
-	if cq.Spec.ConcurrentAdmissionPolicy != nil && cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil {
-		lastAcceptableFlavor = cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
-	}
-	if lastAcceptableFlavor != nil {
+	switch migrationMode(cq) {
+	case kueue.ConcurrentAdmissionRetainFirstAdmission:
+		log.V(3).Info("RetainFirstAdmission mode and a Variant is admitted, not activating any other variant", "admittedVariant", klog.KObj(admittedVariant))
+		return nil
+	case kueue.ConcurrentAdmissionTryPreferredFlavors:
+		// activate all variants that are at least at the lastAcceptableFlavorName if specificed
+		var lastAcceptableFlavor *kueue.ResourceFlavorReference
+		if cq.Spec.ConcurrentAdmissionPolicy != nil && cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil {
+			lastAcceptableFlavor = cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
+		}
+		if lastAcceptableFlavor != nil {
+			for i := range variants {
+				v := &variants[i]
+				if flavorOrder[concurrentadmission.GetVariantFlavor(v)] <= flavorOrder[*lastAcceptableFlavor] &&
+					flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {
+					// activate the variant, the smaller or equal the flavor order is to the lastAcceptableFlavor, the higher the priority is
+					if err := r.activateWl(ctx, v, fmt.Sprintf("being at least lastAcceptableFlavor: %q and higher priority than admitted Variant %q",
+						*lastAcceptableFlavor, klog.KObj(admittedVariant))); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}
+		// no lastAcceptableFlavorName specified, so activate all variants that are below the admitted variant in the flavor order
 		for i := range variants {
 			v := &variants[i]
-			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] <= flavorOrder[*lastAcceptableFlavor] &&
-				flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {
-				// activate the variant, the smaller or equal the flavor order is to the lastAcceptableFlavor, the higher the priority is
-				if err := r.activateWl(ctx, v, fmt.Sprintf("being at least lastAcceptableFlavor: %q and higher priority than admitted Variant %q",
-					*lastAcceptableFlavor, klog.KObj(admittedVariant))); err != nil {
+			if flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {
+				// activate the variant, the smaller the flavor order is to the admitted variant, the higher the priority is
+				if err := r.activateWl(ctx, v, fmt.Sprintf("being higher priority than admitted Variant %q", klog.KObj(admittedVariant))); err != nil {
 					return err
 				}
 			}
 		}
 		return nil
+	default:
+		return fmt.Errorf("unknown migration mode %q", migrationMode(cq))
 	}
-	// no lastAcceptableFlavorName specified, so activate all variants that are below the admitted variant in the flavor order
-	for i := range variants {
-		v := &variants[i]
-		if flavorOrder[concurrentadmission.GetVariantFlavor(v)] < flavorOrder[concurrentadmission.GetVariantFlavor(admittedVariant)] {
-			// activate the variant, the smaller the flavor order is to the admitted variant, the higher the priority is
-			if err := r.activateWl(ctx, v, fmt.Sprintf("being higher priority than admitted Variant %q", klog.KObj(admittedVariant))); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func (r *variantReconciler) activateWl(ctx context.Context, wl *kueue.Workload, message string) error {
@@ -605,4 +639,12 @@ func getAdmittedVariant(variants []kueue.Workload) *kueue.Workload {
 		}
 	}
 	return nil
+}
+
+func migrationMode(cq *kueue.ClusterQueue) kueue.ConcurrentAdmissionMigrationMode {
+	if cq.Spec.ConcurrentAdmissionPolicy == nil ||
+		cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode == "" {
+		return kueue.ConcurrentAdmissionTryPreferredFlavors
+	}
+	return cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode
 }

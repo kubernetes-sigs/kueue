@@ -1,10 +1,8 @@
 aliases:
   kueue-approvers:
-    - gabesaba
     - mimowo
     - tenzen-y
   kueue-reviewers:
-    - gabesaba
     - mbobrovskyi
     - mimowo
     - pbundyra
@@ -29,4 +27,6 @@ aliases:
     - kannon92
     - pbundyra
   hugo-approvers:
+    - mbobrovskyi
+  infra-approvers:
     - mbobrovskyi

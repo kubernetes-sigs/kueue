@@ -45,7 +45,7 @@ creates and deletes Workloads and Jobs in the worker clusters as needed.
 
 ### Using manager to run workloads
 
-MultiKueue supports running regular Jobs regular Jobs on the manager when using 
+MultiKueue supports running regular Jobs on the manager when using 
 a dedicated ClusterQueue. However, we do not support currently role sharing where the manager
 cluster is also one of workers for itself, see [limitations](#limitations)
 

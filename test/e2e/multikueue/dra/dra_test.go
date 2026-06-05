@@ -182,6 +182,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "gpu-template").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, job)
 
@@ -260,13 +261,15 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 			createdJob := &batchv1.Job{}
-			gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-			gomega.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
-				batchv1.JobCondition{
-					Type:   batchv1.JobComplete,
-					Status: corev1.ConditionTrue,
-				},
-				cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
+			gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+				gomega.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+					batchv1.JobCondition{
+						Type:   batchv1.JobComplete,
+						Status: corev1.ConditionTrue,
+					},
+					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("Job", createdJob))
 		})
 
 		ginkgo.It("Should handle workload when ResourceClaimTemplate is missing on worker", func() {
@@ -282,6 +285,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "missing-rct").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, job)
 
@@ -325,6 +329,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "worker1-only-rct").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, job)
 
@@ -401,6 +406,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "multi-pod-gpu-template").
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, job)
 

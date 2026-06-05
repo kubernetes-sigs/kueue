@@ -414,8 +414,8 @@ spec:
 - `reclaimWithinCohort` 确定是否可以预留
   cohort 中使用更多配额的 Workloads。可能的值是：
   - `Never`（默认）：不要预留 cohort 中的 Workloads。
-  - `LowerPriority`：如果待处理的工作负载适合其 ClusterQueue 的配额，则仅预留 cohort 中优先级较低的 Workloads。
-  - `Any`：如果待处理的工作负载适合其 ClusterQueue 的配额，则预留 cohort 中的任何 Workloads，无论优先级如何。
+  - `LowerPriority`：**经典抢占**下，若待处理工作负载可容纳在其 ClusterQueue 的名义配额内，则仅预留 cohort 中优先级较低的 Workloads。**公平共享**下，仅预留 cohort 中优先级低于待处理工作负载且满足公平共享抢占策略的 Workloads。
+  - `Any`：**经典抢占**下，若待处理工作负载可容纳在其 ClusterQueue 的名义配额内，则预留 cohort 中任意优先级的 Workloads。**公平共享**下，预留 cohort 中满足公平共享抢占策略的 Workloads。
 
 - `borrowWithinCohort` 确定是否可以预留
   Workloads 从其他 ClusterQueues 如果工作负载需要借用。

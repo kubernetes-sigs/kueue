@@ -609,7 +609,8 @@ func TestReconciler(t *testing.T) {
 		wantEvents        []utiltesting.EventRecord
 		wantErr           error
 	}{
-		"job is not found": {
+		"job is not found with FinishOrphanedWorkloads disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_job"},
 			job:          nil,
 			workloads: []kueue.Workload{
@@ -624,7 +625,31 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"job is deleted": {
+		"job is not found with FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_job"},
+			job:          nil,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(gvk, "deleted_job", "deleted_job").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					ControllerReference(gvk, "deleted_job", "deleted_job").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadFinishedReasonOwnerNotFound,
+						Message:            "The workload's owner no longer exists",
+					}).
+					Obj(),
+			},
+		},
+		"job is deleted with FinishOrphanedWorkloads disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
 			job: baseJobWrapper.Clone().
 				DeletionTimestamp(now).
 				Finalizers(kueue.ResourceInUseFinalizerName).
@@ -642,6 +667,35 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
 					ControllerReference(gvk, baseJobWrapper.GetName(), string(baseJobWrapper.GetUID())).
+					Obj(),
+			},
+		},
+		"job is deleted with FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			job: baseJobWrapper.Clone().
+				DeletionTimestamp(now).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				DeletionTimestamp(now).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(gvk, baseJobWrapper.GetName(), string(baseJobWrapper.GetUID())).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					ControllerReference(gvk, baseJobWrapper.GetName(), string(baseJobWrapper.GetUID())).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadFinishedReasonOwnerNotFound,
+						Message:            "The workload's owner no longer exists",
+					}).
 					Obj(),
 			},
 		},
@@ -3713,12 +3767,12 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
-				Label(controllerconsts.PrebuiltWorkloadLabel, "missing-workload").
+				PrebuiltWorkloadLabel("missing-workload").
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				Label(controllerconsts.PrebuiltWorkloadLabel, "missing-workload").
+				PrebuiltWorkloadLabel("missing-workload").
 				UID("test-uid").
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -3740,12 +3794,12 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
@@ -3788,12 +3842,12 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
@@ -3835,12 +3889,12 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
@@ -4378,16 +4432,16 @@ func TestReconciler(t *testing.T) {
 					WithStatusSubresource(&kueue.Workload{}).
 					Build()
 
-				useesPrebuiltWorkload := false
+				prebuiltWorkload := ""
 				if tc.job != nil {
 					// For prebuilt workloads we are skipping the ownership setup in the test body and
 					// expect the reconciler to do it.
-					_, useesPrebuiltWorkload = tc.job.Labels[controllerconsts.PrebuiltWorkloadLabel]
+					prebuiltWorkload = jobframework.PrebuiltWorkloadNameFor(tc.job)
 				}
 
 				for _, testWl := range tc.workloads {
 					controller := metav1.GetControllerOfNoCopy(&testWl)
-					if !useesPrebuiltWorkload && controller == nil {
+					if prebuiltWorkload == "" && controller == nil {
 						if err := ctrl.SetControllerReference(tc.job, &testWl, kClient.Scheme()); err != nil {
 							t.Fatalf("Could not setup owner reference in Workloads: %v", err)
 						}
@@ -4427,7 +4481,7 @@ func TestReconciler(t *testing.T) {
 				}
 
 				wlCheckOpts := workloadCmpOpts
-				if useesPrebuiltWorkload {
+				if prebuiltWorkload != "" {
 					wlCheckOpts = workloadCmpOptsWithOwner
 				}
 

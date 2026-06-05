@@ -37,6 +37,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -329,13 +330,16 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	podSetShapes := make([]map[string]any, 0, len(wl.Spec.PodSets))
 	for i, ps := range wl.Spec.PodSets {
 		effectiveCount := ps.Count
+		var effectiveRequests resources.Requests
 		if i < len(totalRequests) {
 			effectiveCount = totalRequests[i].Count
+			effectiveRequests = totalRequests[i].Requests
 		}
 		podSetShapes = append(podSetShapes, map[string]any{
 			"name":            ps.Name,
 			"spec":            utilpod.SpecShape(&ps.Template.Spec),
 			"count":           effectiveCount,
+			"requests":        effectiveRequests,
 			"minCount":        ps.MinCount,
 			"topologyRequest": ps.TopologyRequest,
 		})
@@ -384,7 +388,7 @@ func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
 	for _, psReqs := range i.TotalRequests {
 		for res, q := range psReqs.Requests {
 			flv := psReqs.Flavors[res]
-			total[resources.FlavorResource{Flavor: flv, Resource: res}] += q
+			total[resources.FlavorResource{Flavor: flv, Resource: res}] = total[resources.FlavorResource{Flavor: flv, Resource: res}].AddInt64(q)
 		}
 	}
 	return total
@@ -1543,6 +1547,32 @@ func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message str
 	}
 }
 
+func FinalizeOrphanedWorkload(ctx context.Context, c client.Client, clk clock.Clock, wl *kueue.Workload, canFinish bool) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Only Finish workloads that are not currently being deleted.
+	if features.Enabled(features.FinishOrphanedWorkloads) && wl.DeletionTimestamp.IsZero() && canFinish {
+		log.V(2).Info("Workload is orphaned; finishing to release quota")
+		if err := Finish(ctx, c, wl, kueue.WorkloadFinishedReasonOwnerNotFound,
+			"The workload's owner no longer exists", clk); err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				log.Error(err, "Failed to finish Workload")
+				return err
+			}
+			return nil
+		}
+	}
+
+	if err := RemoveFinalizer(ctx, c, wl); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			log.Error(err, "Failed to remove finalizer")
+			return err
+		}
+	}
+
+	return nil
+}
+
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
 		return c.Update(ctx, wl)
@@ -1896,6 +1926,22 @@ func ReasonWithCause(reason, underlyingCause string) string {
 // it returns an empty string.
 func ClusterName(wl *kueue.Workload) string {
 	return ptr.Deref(wl.Status.ClusterName, "")
+}
+
+// ShouldSkipClusterNomination returns true if cluster nomination should be
+// skipped. This covers the case when eviction is ongoing (ClusterName is still
+// assigned while the admission check transitions through Retry), as well as
+// any other state where the admission check is not Pending.
+// Elastic workloads are exempt from the stale-ClusterName check because they
+// intentionally set ClusterName on new slices to target the same worker cluster.
+func ShouldSkipClusterNomination(acs *kueue.AdmissionCheckState, wl *kueue.Workload, isElastic bool) bool {
+	if acs == nil || acs.State != kueue.CheckStatePending {
+		return true
+	}
+	if isElastic {
+		return false
+	}
+	return wl.Status.ClusterName != nil
 }
 
 func PriorityChanged(log logr.Logger, old, new *kueue.Workload) bool {

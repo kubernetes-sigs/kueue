@@ -19,22 +19,13 @@ endif
 GO_TEST_FLAGS ?= -race
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.35
+ENVTEST_K8S_VERSION ?= 1.36
 
-# setup-envtest occasionally fails to download binaries due to network errors in CI.
-# Retry up to ENVTEST_RETRY_ATTEMPTS times with an ENVTEST_RETRY_DELAY second delay before giving up.
 ENVTEST_RETRY_ATTEMPTS ?= 4
 ENVTEST_RETRY_DELAY ?= 5
-define _envtest_with_retry
-attempts=$(ENVTEST_RETRY_ATTEMPTS); delay=$(ENVTEST_RETRY_DELAY);
-for i in $$(seq 1 $$attempts); do
-	echo "setup-envtest attempt $$i/$$attempts" 1>&2;
-	$(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path && exit 0;
-	echo "setup-envtest attempt $$i/$$attempts failed" 1>&2;
-	[ "$$i" -lt "$$attempts" ] && sleep "$$delay";
-done
-endef
-KUBEBUILDER_ASSETS = $(or $(shell $(_envtest_with_retry)),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
+KUBEBUILDER_ASSETS = $(or \
+	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
+	$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 
 TEST_LOG_LEVEL ?= -3
 
@@ -44,7 +35,14 @@ TEST_LOG_LEVEL ?= -3
 INTEGRATION_NPROCS ?= 4
 INTEGRATION_NPROCS_MULTIKUEUE ?= 3
 # Folder where the integration tests are located.
+ifdef INTEGRATION_TOTAL_SHARDS
+INTEGRATION_TARGET := $(shell ./hack/testing/shard-integration-tests.sh $(INTEGRATION_SHARD_INDEX) $(INTEGRATION_TOTAL_SHARDS))
+ifeq ($(INTEGRATION_TARGET),)
+$(error Aborting execution due to invalid sharding parameters (INTEGRATION_SHARD_INDEX / INTEGRATION_TOTAL_SHARDS))
+endif
+else
 INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
+endif
 INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
@@ -52,8 +50,8 @@ INTEGRATION_API_LOG_LEVEL ?= 0
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_K8S_VERSIONS ?= 1.33.7 1.34.3 1.35.0
-E2E_K8S_VERSION ?= 1.35
+E2E_K8S_VERSIONS ?= 1.34.8 1.35.5 1.36.1
+E2E_K8S_VERSION ?= 1.36
 E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
 E2E_K8S_FULL_VERSION := $(or $(E2E_K8S_FULL_VERSION),$(E2E_K8S_VERSION).0)
@@ -153,29 +151,63 @@ test-e2e-baseline-helm: test-e2e-baseline
 test-e2e-extended-helm: E2E_USE_HELM=true
 test-e2e-extended-helm: test-e2e-extended
 
-.PHONY: test-multikueue-e2e-parallel-builds
-test-multikueue-e2e-parallel-builds:
-	$(MAKE) -j2 kind-ray-project-mini-image-build kind-secretreader-plugin-image-build
+.PHONY: test-multikueue-e2e-baseline
+test-multikueue-e2e-baseline: E2E_NPROCS := 5
+test-multikueue-e2e-baseline: setup-e2e-env run-test-multikueue-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
-test-multikueue-e2e-main: E2E_NPROCS := 5
-.PHONY: test-multikueue-e2e-main
-test-multikueue-e2e-main: setup-e2e-env test-multikueue-e2e-parallel-builds run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+.PHONY: test-multikueue-e2e-extended
+test-multikueue-e2e-extended: export USE_RAY_FOR_TESTS="ray"
+test-multikueue-e2e-extended: E2E_NPROCS := 5
+test-multikueue-e2e-extended: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-sequential
-test-multikueue-e2e-sequential: setup-e2e-env test-multikueue-e2e-parallel-builds run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-multikueue-e2e-sequential-shard-0
+test-multikueue-e2e-sequential-shard-0: GINKGO_ARGS=--label-filter=shard-0
+test-multikueue-e2e-sequential-shard-0: test-multikueue-e2e-sequential
+
+.PHONY: test-multikueue-e2e-sequential-shard-1
+test-multikueue-e2e-sequential-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-multikueue-e2e-sequential-shard-1: test-multikueue-e2e-sequential
 
 .PHONY: test-multikueue-e2e-helm
 test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
 
+# Assign Shard 0 variables to all parent suites AND all shard-0 targets
+TEST_E2E_SHARD_0_TARGETS := test-e2e-extended test-e2e-extended-shard-0 test-tas-e2e-extended test-tas-e2e-extended-shard-0
+$(TEST_E2E_SHARD_0_TARGETS): export KUBERAY_VERSION := $(KUBERAY_VERSION)
+$(TEST_E2E_SHARD_0_TARGETS): export RAY_VERSION := $(RAY_VERSION)
+$(TEST_E2E_SHARD_0_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
+
+# Assign Shard 1 variables to all parent suites AND all shard-1 targets
+TEST_E2E_SHARD_1_TARGETS := test-e2e-extended test-e2e-extended-shard-1 test-tas-e2e-extended test-tas-e2e-extended-shard-1
+$(TEST_E2E_SHARD_1_TARGETS): export JOBSET_VERSION := $(JOBSET_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export APPWRAPPER_VERSION := $(APPWRAPPER_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export KUBEFLOW_VERSION := $(KUBEFLOW_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export KUBEFLOW_MPI_VERSION := $(KUBEFLOW_MPI_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export KUBEFLOW_TRAINER_VERSION := $(KUBEFLOW_TRAINER_VERSION)
+
 ## Label Taxonomy:
-##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,tas,trainjob
+##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,trainjob
 ##
 ## Examples:
 ##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
 .PHONY: test-e2e-extended
 test-e2e-extended: E2E_NPROCS := 4
-test-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-extended: run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-extended-shard-0
+test-e2e-extended-shard-0: E2E_NPROCS := 4
+test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=feature:kuberay
+test-e2e-extended-shard-0: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-extended-shard-1
+test-e2e-extended-shard-1: E2E_NPROCS := 4
+test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob
+test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
 ##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,e2e_v1beta1,ha
@@ -190,7 +222,15 @@ test-e2e-baseline: setup-e2e-env kueuectl run-test-e2e-baseline-$(E2E_KIND_VERSI
 test-tas-e2e-baseline: setup-e2e-env run-test-tas-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-extended
-test-tas-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-tas-e2e-extended: run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-tas-e2e-extended-shard-0
+test-tas-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=feature:kuberay
+test-tas-e2e-extended-shard-0: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-tas-e2e-extended-shard-1
+test-tas-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob,feature:mpijob
+test-tas-e2e-extended-shard-1: setup-e2e-env run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-baseline-helm
 test-tas-e2e-baseline-helm: E2E_USE_HELM=true
@@ -209,8 +249,18 @@ test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:
 ##   Run only Admission Fair Sharing tests: GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-sequential-baseline
 ##   Run only Certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e-sequential-baseline
 ##   Run only Failure Recovery Policy tests: GINKGO_ARGS="--label-filter=feature:failurerecoverypolicy" make test-e2e-sequential-baseline
+##   Run only shard 0 tests: make test-e2e-sequential-baseline-shard-0
+##   Run only shard 1 tests: make test-e2e-sequential-baseline-shard-1
 .PHONY: test-e2e-sequential-baseline
 test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-sequential-baseline-shard-0
+test-e2e-sequential-baseline-shard-0: GINKGO_ARGS=--label-filter=shard-0
+test-e2e-sequential-baseline-shard-0: test-e2e-sequential-baseline
+
+.PHONY: test-e2e-sequential-baseline-shard-1
+test-e2e-sequential-baseline-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-e2e-sequential-baseline-shard-1: test-e2e-sequential-baseline
 
 .PHONY: test-e2e-sequential-baseline-helm
 test-e2e-sequential-baseline-helm: E2E_USE_HELM=true
@@ -261,21 +311,30 @@ run-test-e2e-extended-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-		JOBSET_VERSION=$(JOBSET_VERSION) \
-		KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
-		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
-		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
+		USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
-run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
-run-test-multikueue-e2e-%:
-	@echo Running multikueue e2e for k8s ${K8S_VERSION}
+run-test-multikueue-e2e-baseline-%: K8S_VERSION = $(@:run-test-multikueue-e2e-baseline-%=%)
+run-test-multikueue-e2e-baseline-%:
+	@echo Running baseline multikueue e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_TARGET_FOLDER="multikueue/baseline" \
+		E2E_CONFIG_FOLDER="multikueue/baseline" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-multikueue-test.sh
+
+run-test-multikueue-e2e-extended-%: K8S_VERSION = $(@:run-test-multikueue-e2e-extended-%=%)
+run-test-multikueue-e2e-extended-%:
+	@echo Running extended multikueue e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
 		E2E_MODE=$(E2E_MODE) \
@@ -287,7 +346,7 @@ run-test-multikueue-e2e-%:
 		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		E2E_TARGET_FOLDER="multikueue/baseline" \
+		E2E_TARGET_FOLDER="multikueue/extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
@@ -315,11 +374,7 @@ run-test-tas-e2e-extended-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
-		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
-		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
+		USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
@@ -410,7 +465,7 @@ run-test-e2e-dra-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/baseline" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
@@ -439,6 +494,7 @@ run-test-e2e-multikueue-sequential-%:
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		E2E_TARGET_FOLDER="multikueue/sequential" \
+		E2E_CONFIG_FOLDER="multikueue/sequential" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		CLUSTERPROFILE_VERSION=$(CLUSTERPROFILE_VERSION) \
 		CLUSTERPROFILE_PLUGIN_IMAGE_VERSION=$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \

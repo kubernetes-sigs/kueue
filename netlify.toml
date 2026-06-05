@@ -4,7 +4,8 @@
   command = "npm install && hugo --gc --minify && npx -y pagefind --site public"
 
 [build.environment]
-  HUGO_VERSION = "0.160.1"
+  HUGO_VERSION = "0.162.1"
+  NODE_VERSION = "23"
 
 [context.production.environment]
   HUGO_ENV = "production"
@@ -12,6 +13,8 @@
 
 [context.deploy-preview]
   command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"
+  # Runs from "site"; "." includes docs, and "../netlify.toml" includes config changes.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF . ../netlify.toml"
 
 [context.branch-deploy]
   command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"

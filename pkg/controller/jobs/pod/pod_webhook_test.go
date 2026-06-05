@@ -552,6 +552,94 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				Obj(),
 		},
+		"default WorkloadPriorityClass is applied when feature gate is enabled and pod has no priority class label": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         false,
+				features.WorkloadPriorityClassDefaulting: true,
+			},
+			initObjects: []client.Object{
+				defaultNamespace,
+				utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj(),
+			},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
+		"default WorkloadPriorityClass is not applied when feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         false,
+				features.WorkloadPriorityClassDefaulting: false,
+			},
+			initObjects: []client.Object{
+				defaultNamespace,
+				utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj(),
+			},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
+		"default WorkloadPriorityClass is not applied when pod already has a priority class label": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         false,
+				features.WorkloadPriorityClassDefaulting: true,
+			},
+			initObjects: []client.Object{
+				defaultNamespace,
+				utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj(),
+			},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Label(constants.WorkloadPriorityClassLabel, "high").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Label(constants.WorkloadPriorityClassLabel, "high").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
+		"default WorkloadPriorityClass is not applied when default WorkloadPriorityClass does not exist": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         false,
+				features.WorkloadPriorityClassDefaulting: true,
+			},
+			initObjects:       []client.Object{defaultNamespace},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("queue").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -686,11 +774,13 @@ func TestGetRoleHash(t *testing.T) {
 func TestValidateCreate(t *testing.T) {
 	t.Cleanup(jobframework.EnableIntegrationsForTest(t, "batch/job"))
 	testCases := map[string]struct {
-		pod       *corev1.Pod
-		wantErr   error
-		wantWarns admission.Warnings
+		pod          *corev1.Pod
+		wantErr      error
+		wantWarns    admission.Warnings
+		featureGates map[featuregate.Feature]bool
 	}{
 		"pod owner is managed by kueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
@@ -700,6 +790,7 @@ func TestValidateCreate(t *testing.T) {
 			},
 		},
 		"pod with group name and no group total count": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				GroupNameLabel("test-group").
@@ -712,6 +803,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"pod with group total count and no group name": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				GroupTotalCount("3").
@@ -724,6 +816,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"pod with 0 group total count": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				GroupNameLabel("test-group").
@@ -737,6 +830,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"pod with empty group total count": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				GroupNameLabel("test-group").
@@ -750,6 +844,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"pod with incorrect group name": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				GroupNameLabel("notAdns1123Subdomain*").
@@ -763,12 +858,14 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"valid topology request": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 		},
 		"invalid topology request": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
@@ -782,11 +879,13 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"prebuilt workload for pod": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				PrebuiltWorkloadLabel("workload-name").
 				Obj(),
 		},
 		"prebuilt workload for pod group valid": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				PrebuiltWorkloadLabel("group-name").
 				GroupNameLabel("group-name").
@@ -794,6 +893,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"prebuilt workload for pod group invalid": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				PrebuiltWorkloadLabel("workload-name").
 				GroupNameLabel("group-name").
@@ -806,10 +906,128 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"prebuilt workload annotation for pod, WorkloadIdentifierAnnotations enabled": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkloadAnnotation("workload-name").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload label fallback for pod, WorkloadIdentifierAnnotations enabled": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkloadLabel("workload-name").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload different label and annotation, label ignored, WorkloadIdentifierAnnotations enabled": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkloadLabel("workload-a").
+				PrebuiltWorkloadAnnotation("workload-b").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload annotation matches group name annotation, WorkloadIdentifierAnnotations enabled": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkloadAnnotation("group-name").
+				GroupNameAnnotation("group-name").
+				GroupTotalCount("3").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload annotation mismatches group name annotation, WorkloadIdentifierAnnotations enabled": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkloadAnnotation("workload-name").
+				GroupNameAnnotation("group-name").
+				GroupTotalCount("3").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/prebuilt-workload-name]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload label mismatches group name annotation, WorkloadIdentifierAnnotations enabled": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkloadLabel("workload-name").
+				GroupNameAnnotation("group-name").
+				GroupTotalCount("3").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/prebuilt-workload-name]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload annotation mismatches group name label, WorkloadIdentifierAnnotations enabled": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkloadAnnotation("workload-name").
+				GroupNameLabel("group-name").
+				GroupTotalCount("3").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/prebuilt-workload-name]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"invalid group name": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("group name").
+				GroupTotalCount("3").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/pod-group-name]",
+				},
+			}.ToAggregate(),
+		},
+		"invalid group name label, WorkloadIdentifierAnnotations enabled": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("group name").
+				GroupTotalCount("3").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/pod-group-name]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"invalid group name annotation, WorkloadIdentifierAnnotations enabled": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameAnnotation("group name").
+				GroupTotalCount("3").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-name]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"different group name label and annotation, label ignored, WorkloadIdentifierAnnotations enabled": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("group-name-a").
+				GroupNameAnnotation("group-name-b").
+				GroupTotalCount("3").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
 			builder := utiltesting.NewClientBuilder()
 			cli := builder.Build()
 
@@ -833,12 +1051,14 @@ func TestValidateCreate(t *testing.T) {
 func TestValidateUpdate(t *testing.T) {
 	t.Cleanup(jobframework.EnableIntegrationsForTest(t, "batch/job"))
 	testCases := map[string]struct {
-		oldPod    *corev1.Pod
-		newPod    *corev1.Pod
-		wantErr   error
-		wantWarns admission.Warnings
+		oldPod       *corev1.Pod
+		newPod       *corev1.Pod
+		wantErr      error
+		wantWarns    admission.Warnings
+		featureGates map[featuregate.Feature]bool
 	}{
 		"pods owner is managed by kueue, managed label is set for both pods": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
@@ -852,6 +1072,7 @@ func TestValidateUpdate(t *testing.T) {
 			},
 		},
 		"pod owner is managed by kueue, managed label is set for new pod": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
@@ -864,6 +1085,7 @@ func TestValidateUpdate(t *testing.T) {
 			},
 		},
 		"pod owner is managed by kueue, managed label is set for new pod with suspend by parent annotation": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
@@ -874,7 +1096,8 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"pod with group name and no group total count": {
-			oldPod: testingpod.MakePod("test-pod", "test-ns").GroupNameLabel("test-group").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			oldPod:       testingpod.MakePod("test-pod", "test-ns").GroupNameLabel("test-group").Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				GroupNameLabel("test-group").
@@ -887,7 +1110,8 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"pod with 0 group total count": {
-			oldPod: testingpod.MakePod("test-pod", "test-ns").GroupNameLabel("test-group").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			oldPod:       testingpod.MakePod("test-pod", "test-ns").GroupNameLabel("test-group").Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				GroupNameLabel("test-group").
@@ -901,7 +1125,8 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"pod with empty group total count": {
-			oldPod: testingpod.MakePod("test-pod", "test-ns").GroupNameLabel("test-group").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			oldPod:       testingpod.MakePod("test-pod", "test-ns").GroupNameLabel("test-group").Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
 				GroupNameLabel("test-group").
@@ -915,6 +1140,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"pod group name is changed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				GroupNameLabel("test-group").
 				GroupTotalCount("2").
@@ -930,7 +1156,87 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"pod group name is changed, labels, WorkloadIdentifierAnnotations enabled": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group-new").
+				GroupTotalCount("2").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/pod-group-name]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"pod group name is changed, annotations, WorkloadIdentifierAnnotations enabled": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameAnnotation("test-group").
+				GroupTotalCount("2").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameAnnotation("test-group-new").
+				GroupTotalCount("2").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-name]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"pod group name is changed, label to annotation, WorkloadIdentifierAnnotations enabled": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameAnnotation("test-group-new").
+				GroupTotalCount("2").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-name]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"pod group name is changed, annotation to label, WorkloadIdentifierAnnotations enabled": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameAnnotation("test-group").
+				GroupTotalCount("2").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group-new").
+				GroupTotalCount("2").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/pod-group-name]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"pod group name label replaced with annotation, WorkloadIdentifierAnnotations enabled": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameAnnotation("test-group").
+				GroupTotalCount("2").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
 		"assign pod group name": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				Obj(),
 			newPod: testingpod.MakePod("test-pod", "test-ns").
@@ -939,6 +1245,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"retriable in group annotation is removed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				GroupNameLabel("test-group").
 				GroupTotalCount("2").
@@ -956,6 +1263,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"retriable in group annotation is changed from false to true": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				GroupNameLabel("test-group").
 				GroupTotalCount("2").
@@ -974,6 +1282,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"prebuilt workload for pod group invalid": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				PrebuiltWorkloadLabel("group-name").
 				GroupNameLabel("group-name").
@@ -993,10 +1302,48 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"prebuilt workload annotation unchanged on update, WorkloadIdentifierAnnotations enabled": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkloadAnnotation("group-name").
+				GroupNameAnnotation("group-name").
+				GroupTotalCount("3").
+				KueueSchedulingGate().
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkloadAnnotation("group-name").
+				GroupNameAnnotation("group-name").
+				GroupTotalCount("3").
+				KueueSchedulingGate().
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload annotation mismatches group name on update, WorkloadIdentifierAnnotations enabled": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkloadAnnotation("group-name").
+				GroupNameAnnotation("group-name").
+				GroupTotalCount("3").
+				KueueSchedulingGate().
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				PrebuiltWorkloadAnnotation("workload-name").
+				GroupNameAnnotation("group-name").
+				GroupTotalCount("3").
+				KueueSchedulingGate().
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/prebuilt-workload-name]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
 			builder := utiltesting.NewClientBuilder()
 			cli := builder.Build()
 

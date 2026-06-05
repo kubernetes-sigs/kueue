@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -681,15 +682,13 @@ func (r *JobReconciler) getWorkloads(ctx context.Context, key types.NamespacedNa
 
 // finalizeWorkloads removes finalizers from workloads associated with the specified job.
 func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob) error {
-	log := ctrl.LoggerFrom(ctx)
 	workloads, err := r.getWorkloads(ctx, key, job)
 	if err != nil {
 		return err
 	}
 	for i := range workloads {
 		wl := &workloads[i]
-		if err := workload.RemoveFinalizer(ctx, r.client, wl); client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Removing finalizer")
+		if err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl)); err != nil {
 			return err
 		}
 	}
@@ -893,9 +892,9 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	if prebuiltWorkloadName, usePrebuiltWorkload := PrebuiltWorkloadFor(job); usePrebuiltWorkload {
+	if prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object()); prebuiltWorkload != "" {
 		wl := &kueue.Workload{}
-		err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkloadName, Namespace: object.GetNamespace()}, wl)
+		err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkload, Namespace: object.GetNamespace()}, wl)
 		if err != nil {
 			return nil, client.IgnoreNotFound(err)
 		}
@@ -1240,9 +1239,11 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 // EquivalentToWorkload checks if the job corresponds to the workload
 func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
-	// Indexes don't work in unit tests, so we explicitly check for the
-	// owner here.
 	if owner.Name != job.Object().GetName() {
+		return false, nil
+	}
+
+	if features.Enabled(features.FinishOrphanedWorkloads) && owner.UID != job.Object().GetUID() {
 		return false, nil
 	}
 
@@ -1568,10 +1569,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		if features.Enabled(features.TopologyAwareScheduling) {
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}
-		// Set workload slice name annotation on pods for elastic workloads.
-		// This enables pod lookup by annotation instead of owner reference,
-		// supporting JobSet and other workloads where pods are not immediate children.
-		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if workloadslicing.IsElasticWorkload(w) {
 			info.Annotations[kueue.WorkloadSliceNameAnnotation] = workloadslicing.SliceName(w)
 		}
 
@@ -1617,8 +1615,8 @@ func assignQueueLabels(ctx context.Context, labels map[string]string, wl *kueue.
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	_, usePrebuiltWorkload := PrebuiltWorkloadFor(job)
-	if usePrebuiltWorkload {
+	prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object())
+	if prebuiltWorkload != "" {
 		// Stop the job if not already suspended
 		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
 			return stopErr
@@ -1633,7 +1631,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 		return nil
 	}
 
-	if usePrebuiltWorkload {
+	if prebuiltWorkload != "" {
 		return ErrPrebuiltWorkloadNotFound
 	}
 

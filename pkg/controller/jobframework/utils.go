@@ -179,21 +179,43 @@ func WorkloadPriorityClassName(object client.Object) string {
 	return ""
 }
 
-// PrebuiltWorkloadFor retrieves the prebuilt workload name and its existence from the given GenericJob's labels.
-func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
-	name, found := job.Object().GetLabels()[controllerconstants.PrebuiltWorkloadLabel]
-	return name, found
+func PrebuiltWorkloadNameFor(obj client.Object) string {
+	if features.Enabled(features.WorkloadIdentifierAnnotations) {
+		if name := obj.GetAnnotations()[controllerconstants.PrebuiltWorkloadAnnotation]; name != "" {
+			return name
+		}
+	}
+	return obj.GetLabels()[controllerconstants.PrebuiltWorkloadLabel]
 }
 
-// SetMultiKueueMeta sets the MultiKueue origin label and the prebuilt workload label on the given object.
+func SetPrebuiltWorkloadName(obj client.Object, workloadName string) {
+	if features.Enabled(features.WorkloadIdentifierAnnotations) {
+		annotations := obj.GetAnnotations()
+		if annotations == nil {
+			annotations = make(map[string]string, 1)
+		}
+		annotations[controllerconstants.PrebuiltWorkloadAnnotation] = workloadName
+		obj.SetAnnotations(annotations)
+	} else {
+		objLabels := obj.GetLabels()
+		if objLabels == nil {
+			objLabels = make(map[string]string, 1)
+		}
+		objLabels[controllerconstants.PrebuiltWorkloadLabel] = workloadName
+		obj.SetLabels(objLabels)
+	}
+}
+
+// SetMultiKueueMeta sets the MultiKueue origin label and the prebuilt workload name on the given object.
 func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 	objLabels := obj.GetLabels()
 	if objLabels == nil {
-		objLabels = make(map[string]string, 2)
+		objLabels = make(map[string]string, 1)
 	}
 	objLabels[kueue.MultiKueueOriginLabel] = origin
-	objLabels[controllerconstants.PrebuiltWorkloadLabel] = workloadName
 	obj.SetLabels(objLabels)
+
+	SetPrebuiltWorkloadName(obj, workloadName)
 }
 
 // NewWorkload creates a new Workload object with the specified name,

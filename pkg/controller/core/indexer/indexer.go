@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -44,6 +45,7 @@ const (
 	WorkloadAdmissionCheckKey            = "status.admissionChecks"
 	WorkloadPriorityClassKey             = "spec.priorityClassRef"
 	DeviceClassExtendedResourceNameIndex = "spec.extendedResourceName"
+	WorkloadExtendedResourceKey          = "spec.extendedResources"
 	// WorkloadSliceNameKey is an index for pods by their workload slice name annotation.
 	// Used to find pods belonging to an elastic workload slice chain.
 	WorkloadSliceNameKey = "metadata.workloadSliceName"
@@ -214,6 +216,32 @@ func IndexWorkloadPriorityClass(obj client.Object) []string {
 	return []string{wl.Spec.PriorityClassRef.Name}
 }
 
+// IndexWorkloadExtendedResources indexes Workloads by the extended resource names
+// in their container requests. Used by the DeviceClass handler to find workloads
+// affected by a specific DeviceClass change.
+func IndexWorkloadExtendedResources(obj client.Object) []string {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok {
+		return nil
+	}
+	resNames := sets.New[string]()
+	for _, ps := range wl.Spec.PodSets {
+		for _, containers := range [][]corev1.Container{ps.Template.Spec.InitContainers, ps.Template.Spec.Containers} {
+			for _, c := range containers {
+				for name, qty := range c.Resources.Requests {
+					if !qty.IsZero() && utilresource.IsExtendedResourceName(name) {
+						resNames.Insert(string(name))
+					}
+				}
+			}
+		}
+	}
+	if resNames.Len() > 0 {
+		return resNames.UnsortedList()
+	}
+	return nil
+}
+
 // IndexDeviceClassExtendedResourceName indexes DeviceClasses by spec.extendedResourceName.
 func IndexDeviceClassExtendedResourceName(obj client.Object) []string {
 	dc, ok := obj.(*resourceapi.DeviceClass)
@@ -261,16 +289,15 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, IndexPodWorkloadSliceName); err != nil {
 			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
 		}
-		// OwnerReferenceUID index for Pod is for backwards compatibility only.
-		// TODO(sohankunkerkar): remove in 0.18
-		if err := indexer.IndexField(ctx, &corev1.Pod{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
-			return fmt.Errorf("setting index on ownerReferences.uid for Pod: %w", err)
-		}
 	}
 	// Index DeviceClasses by extendedResourceName for fast lookup during extended resource translation.
+	// The index is skipped if the DeviceClass API is not available on the cluster.
 	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
-		if err := indexer.IndexField(ctx, &resourceapi.DeviceClass{}, DeviceClassExtendedResourceNameIndex, IndexDeviceClassExtendedResourceName); err != nil {
+		if err := indexer.IndexField(ctx, &resourceapi.DeviceClass{}, DeviceClassExtendedResourceNameIndex, IndexDeviceClassExtendedResourceName); err != nil && !apimeta.IsNoMatchError(err) {
 			return fmt.Errorf("setting index on extendedResourceName for DeviceClass: %w", err)
+		}
+		if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadExtendedResourceKey, IndexWorkloadExtendedResources); err != nil {
+			return fmt.Errorf("setting index on extended resources for Workload: %w", err)
 		}
 	}
 	return nil

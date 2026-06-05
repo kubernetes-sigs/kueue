@@ -606,7 +606,3 @@ type UpdateTrainJobStatusRequest struct {
 	// +optional
 	TrainerStatus *TrainerStatus `json:"trainerStatus,omitempty"`
 }
-
-func init() {
-	SchemeBuilder.Register(&TrainJob{}, &TrainJobList{})
-}

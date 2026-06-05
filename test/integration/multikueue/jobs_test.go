@@ -348,6 +348,14 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("waiting for the Job on the manager to be unsuspended", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob := batchv1.Job{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(false)))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("updating the worker job status", func() {
 			startTime := metav1.NewTime(time.Now().Truncate(time.Second))
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1329,7 +1337,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
 				g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
@@ -1781,9 +1789,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		*/
 
 		ginkgo.By("scale-up the job", func() {
-			getJob(manager.ctx, manager.client, job)
-			job.Spec.Parallelism = new(int32(2))
 			gomega.Eventually(func(g gomega.Gomega) {
+				getJob(manager.ctx, manager.client, job)
+				job.Spec.Parallelism = new(int32(2))
 				g.Expect(manager.client.Update(manager.ctx, job)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

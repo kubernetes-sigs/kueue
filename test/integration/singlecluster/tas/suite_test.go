@@ -74,7 +74,10 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager) {
+func managerSetupWithConfig(
+	controllersCfg *config.Configuration,
+	resourceTransformations ...config.ResourceTransformation,
+) func(ctx context.Context, mgr manager.Manager) {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -85,7 +88,6 @@ func managerSetup(resourceTransformations ...config.ResourceTransformation) func
 		err = webhook.SetupNoopWebhook(mgr, &corev1.Pod{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		controllersCfg := &config.Configuration{}
 		mgr.GetScheme().Default(controllersCfg)
 
 		cacheOptions := []schdcache.Option{
@@ -100,7 +102,13 @@ func managerSetup(resourceTransformations ...config.ResourceTransformation) func
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 		qManager = queues
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, nil, preemptionExpectations, nil)
+		failedCtrl, err := core.SetupControllers(
+			mgr,
+			queues,
+			cCache,
+			controllersCfg,
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
 		failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
@@ -122,8 +130,20 @@ func managerSetup(resourceTransformations ...config.ResourceTransformation) func
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
+		sched := scheduler.New(
+			queues,
+			cCache,
+			mgr.GetClient(),
+			mgr.GetEventRecorder(constants.AdmissionName),
+			scheduler.WithPreemptionExpectations(preemptionExpectations),
+		)
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+}
+
+func managerSetup(
+	resourceTransformations ...config.ResourceTransformation,
+) func(ctx context.Context, mgr manager.Manager) {
+	return managerSetupWithConfig(&config.Configuration{}, resourceTransformations...)
 }

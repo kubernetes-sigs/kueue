@@ -66,6 +66,12 @@ func parsePodSetReplicaCount(annotationValue, groupName string) (int32, error) {
 	return 0, fmt.Errorf("group %q not found in annotation", groupName)
 }
 
+const (
+	// objectStoreMemory is the Ray object store memory (bytes) set on each node
+	// to avoid Ray auto-sizing it too large for the constrained test environment.
+	objectStoreMemory = "100000000"
+)
+
 var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:kuberay"), func() {
 	var (
 		ns                 *corev1.Namespace
@@ -142,7 +148,9 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -212,7 +220,8 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		})
 	})
 
-	ginkgo.It("Should run a rayjob with InTreeAutoscaling", func() {
+	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
+	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Serial, func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script
@@ -267,7 +276,9 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python /home/ray/samples/sample_code.py").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -276,10 +287,10 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 							Image: kuberayTestImage,
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("200m"),
+									corev1.ResourceCPU: resource.MustParse("400m"),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("200m"),
+									corev1.ResourceCPU: resource.MustParse("400m"),
 								},
 							},
 						},
@@ -291,7 +302,7 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			Volumes(rayv1.HeadNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
-			TerminationGracePeriodSeconds(int64(5)).
+			TerminationGracePeriodSeconds(int64(1)).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -344,13 +355,13 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 worker pod", podList))
 		})
 
-		// RayJob is top level job, the submitter job created by RayJob will not create its own workload, there will be only 1 workload
-		ginkgo.By("Waiting for 1 workloads", func() {
-			// 1 workload for the ray cluster
+		ginkgo.By("Waiting for exactly 1 non-finished admitted workload", func() {
 			workloadList := &kueue.WorkloadList{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected exactly 1 workload")
+				activeWorkloads := util.FindNonFinishedWorkloads(workloadList.Items)
+				g.Expect(activeWorkloads).To(gomega.HaveLen(1), "Expected exactly 1 non-finished workload")
+				g.Expect(workload.IsAdmitted(&activeWorkloads[0])).To(gomega.BeTrue(), "Expected admitted workload")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -463,7 +474,9 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python /home/ray/samples/sample_code.py").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -472,10 +485,10 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 							Image: kuberayTestImage,
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("200m"),
+									corev1.ResourceCPU: resource.MustParse("400m"),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("200m"),
+									corev1.ResourceCPU: resource.MustParse("400m"),
 								},
 							},
 						},
@@ -487,7 +500,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			Volumes(rayv1.HeadNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
-			TerminationGracePeriodSeconds(int64(5)).
+			TerminationGracePeriodSeconds(int64(1)).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -523,39 +536,40 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayJob cluster did not become ready", createdRayJob))
 		})
 
-		ginkgo.By("Waiting for 3 pods in rayjob namespace", func() {
-			// 3 rayjob pods: head, worker, submitter job
+		// The Ray autoscaler can scale workers past minReplicas before the RayJob
+		// transitions to JobDeploymentStatusRunning, so the initial pod and worker
+		// counts are lower bounds rather than exact values (see issue #11582).
+		ginkgo.By("Waiting for at least 3 pods in rayjob namespace", func() {
+			// at least head + worker + submitter job
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(podList.Items).To(gomega.HaveLen(3), "Expected exactly 3 pods in rayjob namespace")
+				g.Expect(len(podList.Items)).To(gomega.BeNumerically(">=", 3), "Expected at least 3 pods in rayjob namespace")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for exactly 1 worker pod", func() {
-			podList := &corev1.PodList{}
+		ginkgo.By("Waiting for at least 1 worker pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workerPodNames := getRunningRayWorkerPodNames(g)
-				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pod with 'workers' in the name")
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 worker pod", podList))
+				g.Expect(workerPodNames).ToNot(gomega.BeEmpty(), "Expected at least 1 pod with 'workers' in the name")
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), "Expected at least 1 worker pod")
 		})
 
-		// RayJob is top level job, the submitter job created by RayJob will not create its own workload, there will be only 1 workload
-		ginkgo.By("Waiting for 1 workloads", func() {
-			// 1 workload for the ray cluster
+		ginkgo.By("Waiting for exactly 1 non-finished admitted workload", func() {
 			workloadList := &kueue.WorkloadList{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected exactly 1 workload")
+				activeWorkloads := util.FindNonFinishedWorkloads(workloadList.Items)
+				g.Expect(activeWorkloads).To(gomega.HaveLen(1), "Expected exactly 1 non-finished workload")
+				g.Expect(workload.IsAdmitted(&activeWorkloads[0])).To(gomega.BeTrue(), "Expected admitted workload")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for second scale-up to 5 workers due to high parallelism tasks", func() {
-			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				currentPodNames := getRunningRayWorkerPodNames(g)
 				g.Expect(currentPodNames).To(gomega.HaveLen(5), "Expected exactly 5 pods with 'workers' in the name after second scale-up")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Did not scale up to 5 worker pods", podList))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), "Did not scale up to 5 worker pods")
 		})
 
 		ginkgo.By("Checking podset-replica-sizes annotation is set on the RayJob after second scale-up", func() {
@@ -603,14 +617,17 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 		})
 	})
 
-	ginkgo.It("Should run a RayCluster on worker if admitted", func() {
+	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
+	ginkgo.It("Should run a RayCluster on worker if admitted", ginkgo.Serial, func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		raycluster := testingraycluster.MakeCluster("raycluster1", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
 			Obj()
@@ -713,7 +730,7 @@ app = HelloWorld.bind()`,
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).
-			RayStartParam(rayv1.HeadNode, "object-store-memory", "100000000").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
 			WithServeConfigV2(serveConfigV2).
 			Env(rayv1.HeadNode, env).
 			Env(rayv1.WorkerNode, env).
@@ -775,7 +792,8 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	ginkgo.It("Should run a rayservice with InTreeAutoscaling", func() {
+	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
+	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Serial, func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a Ray Serve application that supports a delay parameter
@@ -856,7 +874,7 @@ app = HelloWorld.bind()`,
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).
-			RayStartParam(rayv1.HeadNode, "object-store-memory", "100000000").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
 			WithServeConfigV2(serveConfigV2).
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			EnableInTreeAutoscaling().
@@ -876,13 +894,18 @@ app = HelloWorld.bind()`,
 			gomega.Expect(k8sClient.Create(ctx, rayService)).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Checking one workload is created and admitted", func() {
+		ginkgo.By("Checking one non-finished workload is created and admitted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).To(gomega.HaveLen(1), "Expected one workload in namespace")
-				wl := workloadList.Items[0]
-				g.Expect(workload.IsAdmitted(&wl)).Should(gomega.BeTrue(), "Expected admitted workload")
+				var activeWorkloads []kueue.Workload
+				for i := range workloadList.Items {
+					if !workload.IsFinished(&workloadList.Items[i]) {
+						activeWorkloads = append(activeWorkloads, workloadList.Items[i])
+					}
+				}
+				g.Expect(activeWorkloads).To(gomega.HaveLen(1), "Expected exactly 1 non-finished workload")
+				g.Expect(workload.IsAdmitted(&activeWorkloads[0])).To(gomega.BeTrue(), "Expected admitted workload")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 

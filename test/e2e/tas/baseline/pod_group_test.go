@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", ginkgo.Label(util.Shard1, "area:tas", "feature:pod"), func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pod-group-")
@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(extraResource, "1").
 				Limit(extraResource, "1")
-			podGroup := basePod.MakeIndexedGroup(numPods)
+			podGroup := basePod.TerminationGracePeriod(1).MakeIndexedGroup(numPods)
 
 			for _, pod := range podGroup {
 				util.MustCreate(ctx, k8sClient, pod)
@@ -219,7 +219,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(extraResource, "1").
 				Limit(extraResource, "1")
-			podGroup := basePod.MakeIndexedGroup(numPods)
+			podGroup := basePod.TerminationGracePeriod(1).MakeIndexedGroup(numPods)
 
 			for _, pod := range podGroup {
 				util.MustCreate(ctx, k8sClient, pod)

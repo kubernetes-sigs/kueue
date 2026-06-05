@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Shard1, "area:tas", "feature:job"), func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-job-")
@@ -236,6 +236,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
 
@@ -292,6 +293,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Indexed(true).
 				RequestAndLimit(extraResource, "1").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
 

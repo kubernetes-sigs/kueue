@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectretentionpolicies"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectretentionpolicies", util.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		rf *kueue.ResourceFlavor
@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 	})
 })
 
-var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Label(util.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		rf *kueue.ResourceFlavor
@@ -267,7 +267,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 	})
 })
 
-var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingLimitExceeded", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingLimitExceeded", ginkgo.Label(util.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		rf *kueue.ResourceFlavor

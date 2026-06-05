@@ -649,6 +649,7 @@ func Test_GetResourceRequests(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			var testMapper *ResourceMapper
 			if tc.lookup != nil {
 				mappings := []configapi.DeviceClassMapping{
 					{
@@ -663,10 +664,12 @@ func Test_GetResourceRequests(t *testing.T) {
 				if tc.name == "Unmapped DeviceClass returns error" {
 					mappings = []configapi.DeviceClassMapping{}
 				}
-				err := CreateMapperFromConfiguration(mappings)
+				mapper := NewResourceMapper()
+				err := mapper.PopulateFromConfiguration(mappings)
 				if err != nil {
 					t.Fatalf("Failed to initialize DRA mapper: %v", err)
 				}
+				testMapper = mapper
 			}
 
 			objs := []client.Object{tmpl, claim}
@@ -683,7 +686,10 @@ func Test_GetResourceRequests(t *testing.T) {
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, wlCopy)
+			if testMapper == nil {
+				testMapper = NewResourceMapper()
+			}
+			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, testMapper, wlCopy)
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("GetResourceRequestsForResourceClaimTemplates() error mismatch (-want +got):\n%s", diff)

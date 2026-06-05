@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
-	ginkgo.When("Incremental mode", ginkgo.Ordered, func() {
+	ginkgo.Describe("Incremental mode", ginkgo.Label(util.Shard0), ginkgo.Ordered, func() {
 		var defaultManagerKueueCfg *kueueconfig.Configuration
 
 		ginkgo.BeforeAll(func() {
@@ -297,7 +297,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.When("The connection to a worker cluster is unreliable", func() {
+	ginkgo.Describe("The connection to a worker cluster is unreliable", ginkgo.Label(util.Shard1), func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
 			worker1Cq2 := utiltestingapi.MakeClusterQueue("q2").
 				ResourceGroup(
@@ -368,7 +368,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.When("Connection via ClusterProfile no plugins", ginkgo.Ordered, func() {
+	ginkgo.Describe("Connection via ClusterProfile no plugins", ginkgo.Label(util.Shard0), ginkgo.Ordered, func() {
 		var (
 			workerCluster3         *kueue.MultiKueueCluster
 			defaultManagerKueueCfg *kueueconfig.Configuration
@@ -466,7 +466,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.When("Connection via ClusterProfile with plugins", ginkgo.Ordered, func() {
+	ginkgo.Describe("Connection via ClusterProfile with plugins", ginkgo.Label(util.Shard0), ginkgo.Ordered, func() {
 		const (
 			secretReaderPath    = "/plugins/secretreader-plugin"
 			volumeName          = "plugins"
@@ -697,7 +697,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.When("MultiKueueOrchestratedPreemption is enabled", ginkgo.Ordered, func() {
+	ginkgo.Describe("MultiKueueOrchestratedPreemption is enabled", ginkgo.Label(util.Shard1), ginkgo.Ordered, func() {
 		var defaultManagerKueueCfg, defaultWorker1KueueCfg, defaultWorker2KueueCfg *kueueconfig.Configuration
 
 		ginkgo.BeforeAll(func() {

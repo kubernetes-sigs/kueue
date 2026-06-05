@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -142,4 +143,17 @@ func getDefaultPriorityClass(ctx context.Context, client client.Client) (*schedu
 	}
 
 	return defaultPC, nil
+}
+
+// DefaultWorkloadPriorityClassExist returns true if a WorkloadPriorityClass
+// named "default" exists in the cluster.
+func DefaultWorkloadPriorityClassExist(ctx context.Context, c client.Client) (bool, error) {
+	wpc := &kueue.WorkloadPriorityClass{}
+	if err := c.Get(ctx, types.NamespacedName{Name: controllerconstants.DefaultWorkloadPriorityClassName}, wpc); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }

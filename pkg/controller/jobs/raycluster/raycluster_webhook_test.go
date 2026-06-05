@@ -126,7 +126,7 @@ func TestValidateDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	worker := rayv1.WorkerGroupSpec{}
-	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker}
+	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker, worker, worker}
 
 	testcases := map[string]struct {
 		job          *rayv1.RayCluster
@@ -135,11 +135,13 @@ func TestValidateCreate(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 	}{
 		"invalid unmanaged": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").
 				Obj(),
 			wantErr: nil,
 		},
 		"invalid managed - has auto scaler": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				WithEnableAutoscaling(new(true)).
 				Obj(),
@@ -152,14 +154,16 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid managed - too many worker groups": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				WithWorkerGroups(bigWorkerGroup...).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 8, 7),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 10, 9),
 			}.ToAggregate(),
 		},
 		"worker group uses head name": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				WithWorkerGroups(rayv1.WorkerGroupSpec{
 					GroupName: headGroupPodSetName,
@@ -548,6 +552,13 @@ func TestValidateCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"valid with prebuilt workload annotation, WorkloadIdentifierAnnotations enabled": {
+			job: testingrayutil.MakeCluster("raycluster", "ns").
+				Queue("queue").
+				PrebuiltWorkloadAnnotation("wl1").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
 	}
 

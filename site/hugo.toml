@@ -53,16 +53,13 @@ ignoreFiles = []
 ###############################################################################
 # Docsy - Services configuration
 ###############################################################################
-[services]
-  [services.googleAnalytics]
-  id = "UA-135379910-1"
 
 ###############################################################################
 # Docsy - Language configuration
 ###############################################################################
 [languages]
   [languages.en]
-    languageName = "English"
+    label = "English"
     # weight used for sorting in the language menu
     weight = 1
     contentDir = "content/en"
@@ -70,7 +67,7 @@ ignoreFiles = []
     language_code = "en-US"
   [languages.zh-CN]
     title = "Kueue"
-    languageName = "简体中文"
+    label = "简体中文"
     weight = 2
     contentDir = "content/zh-CN"
     [languages.zh-CN.params]
@@ -99,10 +96,10 @@ ignoreFiles = []
   # The major.minor version tag for the version of the docs represented in this
   # branch of the repository. Used in the "version-banner" partial to display a
   # version number for this doc set.
-  version = "v0.17.3"
+  version = "v0.18.0"
 
   # Version of Kueue without the leading "v", as used for Helm charts.
-  chart_version = "0.17.3"
+  chart_version = "0.18.0"
 
   # Flag used in the "version-banner" partial to decide whether to display a
   # banner on every page indicating that this is an archived version of the docs.
@@ -177,3 +174,75 @@ ignoreFiles = []
   [[module.imports]]
     path = "github.com/google/docsy"
     disable = false
+    [[module.imports.mounts]]
+      source = "assets"
+      target = "assets"
+    [[module.imports.mounts]]
+      source = "assets/_vendor/bootstrap/scss"
+      target = "assets/vendor/bootstrap/scss/vendor"
+    [[module.imports.mounts]]
+      source = "i18n"
+      target = "i18n"
+    [[module.imports.mounts]]
+      source = "layouts/_internal"
+      target = "layouts/_internal"
+    [[module.imports.mounts]]
+      source = "layouts/_default/single.html"
+      target = "layouts/_default/single.html"
+    [[module.imports.mounts]]
+      source = "layouts/_default/list.html"
+      target = "layouts/_default/list.html"
+    [[module.imports.mounts]]
+      source = "layouts/_default/terms.html"
+      target = "layouts/_default/terms.html"
+    [[module.imports.mounts]]
+      source = "layouts/_default/taxonomy.html"
+      target = "layouts/_default/taxonomy.html"
+    [[module.imports.mounts]]
+      source = "layouts/_default/search.html"
+      target = "layouts/_default/search.html"
+    [[module.imports.mounts]]
+      source = "layouts/_default/content.html"
+      target = "layouts/_default/content.html"
+    [[module.imports.mounts]]
+      source = "layouts/_default/baseof.html"
+      target = "layouts/_default/baseof.html"
+    [[module.imports.mounts]]
+      source = "layouts/_default/_markup/render-codeblock-math.html"
+      target = "layouts/_default/_markup/render-codeblock-math.html"
+    [[module.imports.mounts]]
+      source = "layouts/_default/_markup/render-codeblock-chem.html"
+      target = "layouts/_default/_markup/render-codeblock-chem.html"
+    [[module.imports.mounts]]
+      source = "layouts/_default/_markup/render-codeblock-mermaid.html"
+      target = "layouts/_default/_markup/render-codeblock-mermaid.html"
+    [[module.imports.mounts]]
+      source = "layouts/community"
+      target = "layouts/community"
+    [[module.imports.mounts]]
+      source = "layouts/docs"
+      target = "layouts/docs"
+    [[module.imports.mounts]]
+      source = "layouts/partials"
+      target = "layouts/partials"
+    [[module.imports.mounts]]
+      source = "layouts/shortcodes"
+      target = "layouts/shortcodes"
+    [[module.imports.mounts]]
+      source = "layouts/swagger"
+      target = "layouts/swagger"
+    [[module.imports.mounts]]
+      source = "layouts/404.html"
+      target = "layouts/404.html"
+    [[module.imports.mounts]]
+      source = "layouts/home.html"
+      target = "layouts/home.html"
+    [[module.imports.mounts]]
+      source = "static"
+      target = "static"
+
+[security]
+  allowContent = ['.*']
+
+[security.node.permissions]
+  allowRead = ["*"]

@@ -61,6 +61,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.13"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: ElasticJobsViaWorkloadSlicesWithTAS
   versionedSpecs:
   - default: false
@@ -93,9 +97,9 @@
     version: "0.17"
 - name: FinishOrphanedWorkloads
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.18"
 - name: FlavorFungibility
   versionedSpecs:
@@ -124,6 +128,18 @@
   - default: false
     lockToDefault: false
     preRelease: Alpha
+    version: "0.18"
+- name: KueueDRAIntegrationPartitionableDevices
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
+- name: KueueDRARejectWorkloadsWhenDRADisabled
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
     version: "0.18"
 - name: LendingLimit
   versionedSpecs:
@@ -174,6 +190,12 @@
     preRelease: Beta
     version: "0.15"
 - name: MetricForWorkloadCreationLatency
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
+- name: MetricsForCohorts
   versionedSpecs:
   - default: true
     lockToDefault: false
@@ -417,6 +439,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASHandleOverlappingFlavors
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: TASMultiLayerTopology
   versionedSpecs:
   - default: false
@@ -481,6 +509,18 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.9"
+- name: WorkloadIdentifierAnnotations
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
+- name: WorkloadPriorityClassDefaulting
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: WorkloadRequestUseMergePatch
   versionedSpecs:
   - default: false

@@ -49,12 +49,13 @@ updates:
       - "/hack/releasing/krew-release-bot"
       - "/hack/testing/agnhost"
       - "/hack/testing/cypress"
-      - "/hack/testing/linkchecker"
       - "/hack/testing/depcheck"
+      - "/hack/testing/linkchecker"
       - "/hack/testing/ray"
       - "/hack/testing/ray-mini"
       - "/hack/testing/secretreader"
       - "/hack/testing/shellcheck"
+      - "/hack/testing/spark"
     schedule:
       interval: "weekly"
     labels:

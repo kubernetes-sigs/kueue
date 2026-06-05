@@ -1050,8 +1050,8 @@ func TestFlavorResourceUsage(t *testing.T) {
 				}},
 			},
 			want: resources.FlavorResourceQuantities{
-				{Flavor: "", Resource: "cpu"}:             1_000,
-				{Flavor: "", Resource: "example.com/gpu"}: 3,
+				{Flavor: "", Resource: "cpu"}:             resources.NewAmount(1_000),
+				{Flavor: "", Resource: "example.com/gpu"}: resources.NewAmount(3),
 			},
 		},
 		"one podset, multiple flavors": {
@@ -1068,8 +1068,8 @@ func TestFlavorResourceUsage(t *testing.T) {
 				}},
 			},
 			want: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "cpu"}:         1_000,
-				{Flavor: "gpu", Resource: "example.com/gpu"}: 3,
+				{Flavor: "default", Resource: "cpu"}:         resources.NewAmount(1_000),
+				{Flavor: "gpu", Resource: "example.com/gpu"}: resources.NewAmount(3),
 			},
 		},
 		"multiple podsets, multiple flavors": {
@@ -1106,10 +1106,10 @@ func TestFlavorResourceUsage(t *testing.T) {
 				},
 			},
 			want: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "cpu"}:             3_000,
-				{Flavor: "default", Resource: "memory"}:          2 * utiltesting.Gi,
-				{Flavor: "model_a", Resource: "example.com/gpu"}: 3,
-				{Flavor: "model_b", Resource: "example.com/gpu"}: 1,
+				{Flavor: "default", Resource: "cpu"}:             resources.NewAmount(3_000),
+				{Flavor: "default", Resource: "memory"}:          resources.NewAmount(2 * utiltesting.Gi),
+				{Flavor: "model_a", Resource: "example.com/gpu"}: resources.NewAmount(3),
+				{Flavor: "model_b", Resource: "example.com/gpu"}: resources.NewAmount(1),
 			},
 		},
 	}
@@ -3082,6 +3082,35 @@ func TestSchedulingHash(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("DRA translation producing different TotalRequests produces different hash", func(t *testing.T) {
+		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+			features.SchedulingEquivalenceHashing: true,
+		})
+		wl := utiltestingapi.MakeWorkload("wl", "ns").
+			Request("example.com/gpu", "1").Obj()
+		before := NewInfo(wl)
+		before.UpdateSchedulingHash(logr.Discard())
+
+		after := NewInfo(wl, WithPreprocessedDRAResources(
+			map[kueue.PodSetReference]corev1.ResourceList{
+				kueue.DefaultPodSetName: {
+					"gpu": resource.MustParse("1"),
+				},
+			},
+			map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		))
+		after.UpdateSchedulingHash(logr.Discard())
+
+		if diff := cmp.Diff(before.TotalRequests, after.TotalRequests); diff == "" {
+			t.Fatal("precondition failed: TotalRequests should differ after DRA translation")
+		}
+		if before.SchedulingHash == after.SchedulingHash {
+			t.Errorf("expected different hashes after DRA translation, got same %q", before.SchedulingHash)
+		}
+	})
 }
 
 func TestUsedNodes(t *testing.T) {
@@ -3493,5 +3522,103 @@ func TestSumTotalRequestsWithDRAFromAdmission(t *testing.T) {
 	}
 	if gpuVal.Cmp(resource.MustParse("2")) != 0 {
 		t.Errorf("gpu-logical = %v, want 2", gpuVal)
+	}
+}
+
+func TestShouldSkipClusterNomination(t *testing.T) {
+	cases := map[string]struct {
+		acs       *kueue.AdmissionCheckState
+		wl        *kueue.Workload
+		isElastic bool
+		want      bool
+	}{
+		"nil admission check state": {
+			acs:  nil,
+			wl:   &kueue.Workload{},
+			want: true,
+		},
+		"admission check Pending, no ClusterName": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStatePending,
+			},
+			wl:   &kueue.Workload{},
+			want: false,
+		},
+		"admission check Retry": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStateRetry,
+			},
+			wl:   &kueue.Workload{},
+			want: true,
+		},
+		"admission check Ready": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStateReady,
+			},
+			wl:   &kueue.Workload{},
+			want: true,
+		},
+		"admission check Rejected": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStateRejected,
+			},
+			wl:   &kueue.Workload{},
+			want: true,
+		},
+		"admission check Pending, ClusterName set (eviction ongoing)": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStatePending,
+			},
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ClusterName: new("worker1"),
+				},
+			},
+			want: true,
+		},
+		"admission check Pending, ClusterName set, elastic workload": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStatePending,
+			},
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ClusterName: new("worker1"),
+				},
+			},
+			isElastic: true,
+			want:      false,
+		},
+		"admission check Retry, ClusterName set (eviction ongoing)": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStateRetry,
+			},
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ClusterName: new("worker1"),
+				},
+			},
+			want: true,
+		},
+		"admission check Retry, ClusterName set, elastic workload": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStateRetry,
+			},
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					ClusterName: new("worker1"),
+				},
+			},
+			isElastic: true,
+			want:      true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := ShouldSkipClusterNomination(tc.acs, tc.wl, tc.isElastic)
+			if got != tc.want {
+				t.Errorf("ShouldSkipClusterNomination() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

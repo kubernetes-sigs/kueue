@@ -25,6 +25,7 @@ const (
 
 	SuspendedByParentAnnotation       = "kueue.x-k8s.io/pod-suspending-parent"
 	GroupNameLabel                    = "kueue.x-k8s.io/pod-group-name"
+	GroupNameAnnotation               = "kueue.x-k8s.io/pod-group-name"
 	GroupTotalCountAnnotation         = "kueue.x-k8s.io/pod-group-total-count"
 	GroupFastAdmissionAnnotationKey   = "kueue.x-k8s.io/pod-group-fast-admission"
 	GroupFastAdmissionAnnotationValue = "true"

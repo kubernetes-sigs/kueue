@@ -47,7 +47,7 @@ var (
 	annotationsPath                = metaPath.Child("annotations")
 	managedLabelPath               = labelsPath.Key(constants.ManagedByKueueLabelKey)
 	groupNameLabelPath             = labelsPath.Key(podconstants.GroupNameLabel)
-	prebuiltWorkloadLabelPath      = labelsPath.Key(ctrlconstants.PrebuiltWorkloadLabel)
+	groupNameAnnotationPath        = annotationsPath.Key(podconstants.GroupNameAnnotation)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
 )
@@ -157,6 +157,8 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 			pod.pod.Labels[ctrlconstants.QueueLabel] = string(ctrlconstants.DefaultLocalQueueName)
 		}
 
+		jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, pod.Object())
+
 		suspend = jobframework.QueueNameForObject(pod.Object()) != "" || w.manageJobsWithoutQueueName
 		if suspend {
 			if pod.pod.Labels == nil {
@@ -225,8 +227,9 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.
 	allErrs = append(allErrs, validateCommon(newPod)...)
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
 
-	if podGroupName(oldPod.pod) != "" {
-		allErrs = append(allErrs, validation.ValidateImmutableField(podGroupName(newPod.pod), podGroupName(oldPod.pod), groupNameLabelPath)...)
+	if oldGroupName := GetPodGroupName(&oldPod.pod); oldGroupName != "" {
+		newGroupName := GetPodGroupName(&newPod.pod)
+		allErrs = append(allErrs, validation.ValidateImmutableField(newGroupName, oldGroupName, getGroupNamePath(&newPod.pod))...)
 	}
 
 	if _, suspendByParent := newPod.pod.Annotations[podconstants.SuspendedByParentAnnotation]; !suspendByParent {
@@ -276,30 +279,26 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 
 	gtc, gtcExists := p.pod.GetAnnotations()[podconstants.GroupTotalCountAnnotation]
 
-	if podGroupName(p.pod) == "" {
+	errorDetail := fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameLabel)
+	groupNameAnnotation := p.pod.Annotations[podconstants.GroupNameAnnotation]
+	if features.Enabled(features.WorkloadIdentifierAnnotations) && groupNameAnnotation != "" {
+		errorDetail = fmt.Sprintf("both the '%s' annotation and the '%s' annotation should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameAnnotation)
+	}
+
+	if groupName := GetPodGroupName(&p.pod); groupName == "" {
 		if gtcExists {
-			return append(allErrs, field.Required(
-				groupNameLabelPath,
-				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameLabel),
-			))
+			return append(allErrs, field.Required(getGroupNamePath(&p.pod), errorDetail))
 		}
 	} else {
-		allErrs = append(allErrs, jobframework.ValidateLabelAsCRDName(p.Object(), podconstants.GroupNameLabel)...)
+		allErrs = append(allErrs, validatePodGroupName(p.Object())...)
 
 		if !gtcExists {
-			return append(allErrs, field.Required(
-				groupTotalCountAnnotationPath,
-				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameLabel),
-			))
+			return append(allErrs, field.Required(groupTotalCountAnnotationPath, errorDetail))
 		}
 	}
 
 	if _, err := p.groupTotalCount(); gtcExists && err != nil {
-		return append(allErrs, field.Invalid(
-			groupTotalCountAnnotationPath,
-			gtc,
-			err.Error(),
-		))
+		return append(allErrs, field.Invalid(groupTotalCountAnnotationPath, gtc, err.Error()))
 	}
 
 	return allErrs
@@ -310,7 +309,7 @@ func validateTopologyRequest(pod *Pod) field.ErrorList {
 }
 
 func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.ErrorList {
-	if podGroupName(newPod.pod) != "" && isUnretriablePod(oldPod.pod) && !isUnretriablePod(newPod.pod) {
+	if groupName := GetPodGroupName(&newPod.pod); groupName != "" && isUnretriablePod(oldPod.pod) && !isUnretriablePod(newPod.pod) {
 		return field.ErrorList{
 			field.Forbidden(retriableInGroupAnnotationPath, "unretriable pod group can't be converted to retriable"),
 		}
@@ -321,10 +320,26 @@ func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.Erro
 
 func validatePrebuiltWorkloadName(pod *Pod) field.ErrorList {
 	var allErrs field.ErrorList
-	prebuiltWorkloadName, hasPrebuiltWorkload := jobframework.PrebuiltWorkloadFor(pod)
-	groupName := podGroupName(pod.pod)
-	if hasPrebuiltWorkload && groupName != "" && prebuiltWorkloadName != groupName {
-		allErrs = append(allErrs, field.Invalid(prebuiltWorkloadLabelPath, prebuiltWorkloadLabelPath, "prebuilt workload and pod group should be equal"))
+
+	groupName := GetPodGroupName(&pod.pod)
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(&pod.pod)
+	if groupName != "" && prebuiltWorkload != "" && prebuiltWorkload != groupName {
+		allErrs = append(allErrs, field.Invalid(jobframework.GetPrebuiltWorkloadPath(&pod.pod), prebuiltWorkload, "prebuilt workload and pod group should be equal"))
 	}
 	return allErrs
+}
+func validatePodGroupName(obj client.Object) field.ErrorList {
+	groupName := obj.GetAnnotations()[podconstants.GroupNameAnnotation]
+	if features.Enabled(features.WorkloadIdentifierAnnotations) && groupName != "" {
+		return jobframework.ValidateAnnotationAsCRDName(obj, podconstants.GroupNameAnnotation)
+	}
+	return jobframework.ValidateLabelAsCRDName(obj, podconstants.GroupNameLabel)
+}
+
+func getGroupNamePath(obj client.Object) *field.Path {
+	groupNameAnnotation := obj.GetAnnotations()[podconstants.GroupNameAnnotation]
+	if features.Enabled(features.WorkloadIdentifierAnnotations) && groupNameAnnotation != "" {
+		return groupNameAnnotationPath
+	}
+	return groupNameLabelPath
 }

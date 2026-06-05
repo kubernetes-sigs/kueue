@@ -27,6 +27,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -54,6 +55,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -140,6 +142,18 @@ func WithAdmissionFairSharing(value *config.AdmissionFairSharing) Option {
 	}
 }
 
+func WithDRAMapper(value *dra.ResourceMapper) Option {
+	return func(r *WorkloadReconciler) {
+		r.draMapper = value
+	}
+}
+
+func WithDRABackedResources(value *dra.ExtendedResourceCache) Option {
+	return func(r *WorkloadReconciler) {
+		r.draBackedResources = value
+	}
+}
+
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
@@ -156,6 +170,8 @@ type WorkloadReconciler struct {
 	clock                  clock.Clock
 	workloadRetention      *workloadRetentionConfig
 	draReconcileChannel    chan event.TypedGenericEvent[*kueue.Workload]
+	draMapper              *dra.ResourceMapper
+	draBackedResources     *dra.ExtendedResourceCache
 	admissionFSConfig      *config.AdmissionFairSharing
 	roleTracker            *roletracker.RoleTracker
 	preemptionExpectations *expectations.Store
@@ -206,27 +222,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
-	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
-		// manual deletion triggered by the user
-		err := workload.RemoveFinalizer(ctx, r.client, &wl)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	// Finish orphaned workloads whose controller owner no longer exists.
-	// The ownerReference still points to a non-existent object (e.g., a
-	// Deployment-owned pod deleted after PodsReady timeout eviction).
-	if features.Enabled(features.FinishOrphanedWorkloads) && wl.DeletionTimestamp.IsZero() {
-		if ownerGone, err := r.isControllerOwnerGone(ctx, &wl); err != nil {
+	if isOrphanedWorkload(&wl) {
+		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, &wl, true)
+		if err != nil {
 			return ctrl.Result{}, err
-		} else if ownerGone {
-			log.V(2).Info("Workload is orphaned, finishing to release quota")
-			if err := workload.Finish(ctx, r.client, &wl, kueue.WorkloadFinishedReasonOwnerNotFound, "The workload's owner no longer exists", r.clock); err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
-			if err := workload.RemoveFinalizer(ctx, r.client, &wl); err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
-			return ctrl.Result{}, nil
+		}
+		// If it was deleted, there is nothing to do.
+		// Otherwise, we still need to handle finished workload logic.
+		if !features.Enabled(features.FinishOrphanedWorkloads) || !wl.DeletionTimestamp.IsZero() {
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -293,7 +297,27 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		})
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
-	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl) {
+	if workload.Status(&wl) == workload.StatusPending &&
+		!features.Enabled(features.KueueDRAIntegration) &&
+		features.Enabled(features.KueueDRARejectWorkloadsWhenDRADisabled) &&
+		workload.HasDRA(&wl) {
+		log.V(3).Info("Rejecting workload that uses DRA resources because KueueDRAIntegration feature gate is disabled")
+		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible,
+				"Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				r.clock.Now())
+			if workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible,
+				"Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled", false) {
+				updated = true
+			}
+			return updated, nil
+		})
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA rejection: %w", err)
+		}
+		return ctrl.Result{}, nil
+	}
+	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl, r.draBackedResources) {
 		workload.AdjustResources(ctx, r.client, &wl)
 		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
@@ -313,7 +337,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		log.V(3).Info("Processing DRA resources for workload")
 
 		// Process ResourceClaimTemplates (existing DRA path)
-		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, &wl)
+		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, r.draMapper, &wl)
 		if len(fieldErrs) > 0 {
 			err := fieldErrs.ToAggregate()
 			log.Error(err, "Failed to process DRA resources for workload")
@@ -335,7 +359,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		var replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
 		if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 			var extFieldErrs field.ErrorList
-			extendedResources, replacedExtendedResources, extFieldErrs = dra.ResolveExtendedResourceQuota(ctx, r.client, &wl)
+			extendedResources, replacedExtendedResources, extFieldErrs = dra.ResolveExtendedResourceQuota(ctx, r.client, r.draMapper, &wl)
 			if len(extFieldErrs) > 0 {
 				err := extFieldErrs.ToAggregate()
 				log.Error(err, "Failed to process DRA extended resources for workload")
@@ -365,6 +389,36 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 					draResources = make(map[kueue.PodSetReference]corev1.ResourceList)
 				}
 				draResources[podSetName] = resources
+			}
+		}
+
+		// Process counter-based resources for partitionable devices
+		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+			counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, r.draMapper, &wl)
+			if len(counterFieldErrs) > 0 {
+				err := counterFieldErrs.ToAggregate()
+				log.Error(err, "Failed to process DRA counter resources for workload")
+				updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+					updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now())
+					if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, err.Error(), false) {
+						updated = true
+					}
+					return updated, nil
+				})
+				if updateErr != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA counter resources error: %w", updateErr)
+				}
+				return ctrl.Result{}, err
+			}
+			for podSetName, resources := range counterResources {
+				if existing, ok := draResources[podSetName]; ok {
+					draResources[podSetName] = resource.MergeResourceListKeepSum(existing, resources)
+				} else {
+					if draResources == nil {
+						draResources = make(map[kueue.PodSetReference]corev1.ResourceList)
+					}
+					draResources[podSetName] = resources
+				}
 			}
 		}
 
@@ -687,6 +741,29 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// isOrphanedWorkload determines if a workload is orphaned and should be finalized.
+//
+// A workload is considered orphaned when it meets **both** of the following conditions:
+//  1. It has no OwnerReferences.
+//  2. Either:
+//     - Its DeletionTimestamp is set (it's in the process of being deleted), OR
+//     - It has a JobUIDLabel (controllerconsts.JobUIDLabel), meaning it was
+//     previously owned by a Job whose OwnerReference was later removed.
+func isOrphanedWorkload(wl *kueue.Workload) bool {
+	// If it has an owner, it cannot be orphaned.
+	if len(wl.OwnerReferences) > 0 {
+		return false
+	}
+
+	// Check if the workload is actively being deleted.
+	if !wl.DeletionTimestamp.IsZero() {
+		return true
+	}
+
+	// Check if the workload is associated with a specific Job UID.
+	return features.Enabled(features.FinishOrphanedWorkloads) && wl.Labels[controllerconsts.JobUIDLabel] != ""
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
@@ -1103,7 +1180,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
-	if dra.NeedsDRAReconcile(e.Object) {
+	if dra.NeedsDRAReconcile(e.Object, r.draBackedResources) {
 		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
 		return true
 	}
@@ -1203,9 +1280,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			}
 		})
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		if dra.NeedsDRAReconcile(e.ObjectNew) {
+		switch {
+		case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
-		} else {
+		default:
 			if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
@@ -1242,9 +1320,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// AddOrUpdateWorkload is only called once. When moving it to the main
 			// reconciler, we would execute it on every run, which might mess up the state.
 			if immediate {
-				if dra.NeedsDRAReconcile(e.ObjectNew) {
+				switch {
+				case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
-				} else {
+				default:
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
 					}
@@ -1327,7 +1406,8 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	ruh := &resourceUpdatesHandler{r: r}
 	wqh := &workloadQueueHandler{r: r}
 	deh := &draEventHandler{}
-	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+	dch := &deviceClassHandler{r: r}
+	bld := builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("workload_controller").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
@@ -1344,36 +1424,17 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Watches(&corev1.LimitRange{}, ruh).
 		Watches(&nodev1.RuntimeClass{}, ruh).
 		Watches(&kueue.ClusterQueue{}, wqh).
-		Watches(&kueue.LocalQueue{}, wqh).
-		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
-}
-
-// isControllerOwnerGone checks whether the controller owner of the workload
-// still exists. Returns true if the controller owner reference points to an
-// object that no longer exists (NotFound) or whose UID no longer matches.
-// This is used to detect stale workloads whose owning pod was deleted
-// (e.g., by eviction) and replaced by a new pod from a Deployment.
-func (r *WorkloadReconciler) isControllerOwnerGone(ctx context.Context, wl *kueue.Workload) (bool, error) {
-	ref := metav1.GetControllerOf(wl)
-	if ref == nil {
-		return false, nil
-	}
-	obj := &metav1.PartialObjectMetadata{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: ref.APIVersion,
-			Kind:       ref.Kind,
-		},
-	}
-	key := client.ObjectKey{Namespace: wl.Namespace, Name: ref.Name}
-	if err := r.client.Get(ctx, key, obj); err != nil {
-		if apierrors.IsNotFound(err) {
-			return true, nil
+		Watches(&kueue.LocalQueue{}, wqh)
+	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		if _, err := mgr.GetRESTMapper().RESTMapping(resourcev1.SchemeGroupVersion.WithKind("DeviceClass").GroupKind()); err != nil && apimeta.IsNoMatchError(err) {
+			r.logger().V(2).Info("DeviceClass API not available, skipping DeviceClass watcher")
+		} else if err != nil {
+			return err
+		} else {
+			bld = bld.Watches(&resourcev1.DeviceClass{}, dch)
 		}
-		return false, err
 	}
-	// A different UID means the original owner was deleted and a new object
-	// with the same name was created.
-	return obj.UID != ref.UID, nil
+	return bld.Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
 // admittedNotReadyWorkload returns the underlying cause and remaining time for
@@ -1466,7 +1527,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
 
-		if dra.NeedsDRAReconcile(wlCopy) {
+		if dra.NeedsDRAReconcile(wlCopy, h.r.draBackedResources) {
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      wlCopy.Name,
@@ -1618,4 +1679,76 @@ func (h *draEventHandler) Generic(ctx context.Context, e event.TypedGenericEvent
 // GetDRAReconcileChannel returns the DRA reconcile channel for connecting to the queue manager.
 func (r *WorkloadReconciler) GetDRAReconcileChannel() chan<- event.TypedGenericEvent[*kueue.Workload] {
 	return r.draReconcileChannel
+}
+
+type deviceClassHandler struct {
+	r *WorkloadReconciler
+}
+
+func (h *deviceClassHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	dc := e.Object.(*resourcev1.DeviceClass)
+	if ern := extendedResourceName(dc); ern != "" {
+		h.r.draBackedResources.Add(corev1.ResourceName(ern), dc.Name)
+		h.reconcileWorkloads(ctx, q, ern)
+	}
+}
+
+func (h *deviceClassHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	oldDC := e.ObjectOld.(*resourcev1.DeviceClass)
+	newDC := e.ObjectNew.(*resourcev1.DeviceClass)
+	if oldERN := extendedResourceName(oldDC); oldERN != "" {
+		h.r.draBackedResources.Remove(corev1.ResourceName(oldERN), oldDC.Name)
+	}
+	if newERN := extendedResourceName(newDC); newERN != "" {
+		h.r.draBackedResources.Add(corev1.ResourceName(newERN), newDC.Name)
+	}
+	h.reconcileWorkloads(ctx, q, extendedResourceName(oldDC), extendedResourceName(newDC))
+}
+
+func (h *deviceClassHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	dc := e.Object.(*resourcev1.DeviceClass)
+	if ern := extendedResourceName(dc); ern != "" {
+		h.r.draBackedResources.Remove(corev1.ResourceName(ern), dc.Name)
+		h.reconcileWorkloads(ctx, q, ern)
+	}
+}
+
+func (h *deviceClassHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func extendedResourceName(dc *resourcev1.DeviceClass) string {
+	if dc.Spec.ExtendedResourceName != nil {
+		return *dc.Spec.ExtendedResourceName
+	}
+	return ""
+}
+
+func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], resourceNames ...string) {
+	log := h.r.logger()
+
+	// Requeue only workloads that request the affected extended resources.
+	for _, name := range resourceNames {
+		if name == "" {
+			continue
+		}
+		lst := kueue.WorkloadList{}
+		err := h.r.client.List(ctx, &lst,
+			client.MatchingFields{
+				indexer.WorkloadExtendedResourceKey: name,
+				indexer.WorkloadQuotaReservedKey:    string(metav1.ConditionFalse),
+			},
+		)
+		if err != nil {
+			log.Error(err, "Could not list workloads for extended resource", "resource", name)
+			continue
+		}
+		for _, w := range lst.Items {
+			q.AddAfter(reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      w.Name,
+					Namespace: w.Namespace,
+				},
+			}, time.Second)
+		}
+	}
 }

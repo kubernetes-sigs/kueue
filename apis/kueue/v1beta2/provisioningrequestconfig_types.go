@@ -165,7 +165,7 @@ type Parameter string
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={prc}
 
 // ProvisioningRequestConfig is the Schema for the provisioningrequestconfig API
 type ProvisioningRequestConfig struct {

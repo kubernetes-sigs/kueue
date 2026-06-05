@@ -22,8 +22,14 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -101,6 +107,78 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 			}
 			if suspend != tc.wantSuspend {
 				t.Errorf("Unexpected result: got %v wanted %v", suspend, tc.wantSuspend)
+			}
+		})
+	}
+}
+
+func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
+	t.Cleanup(EnableIntegrationsForTest(t, "batch/job"))
+	parent := utiltestingjob.MakeJob("parent", "default").UID("parent").Queue("default").Obj()
+
+	defaultWPC := &kueue.WorkloadPriorityClass{
+		ObjectMeta: metav1.ObjectMeta{Name: constants.DefaultWorkloadPriorityClassName},
+		Value:      100,
+	}
+
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
+
+	cases := map[string]struct {
+		job                    client.Object
+		wpcObjects             []client.Object
+		featureGates           map[featuregate.Feature]bool
+		wantPriorityClassLabel string
+	}{
+		"feature gate enabled, no label, default WPC exists": {
+			job:                    utiltestingjob.MakeJob("test-job", "default").Obj(),
+			wpcObjects:             []client.Object{defaultWPC},
+			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			wantPriorityClassLabel: constants.DefaultWorkloadPriorityClassName,
+		},
+		"feature gate disabled, no label, default WPC exists": {
+			job:                    utiltestingjob.MakeJob("test-job", "default").Obj(),
+			wpcObjects:             []client.Object{defaultWPC},
+			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: false},
+			wantPriorityClassLabel: "",
+		},
+		"feature gate enabled, label already set": {
+			job:                    utiltestingjob.MakeJob("test-job", "default").WorkloadPriorityClass("high").Obj(),
+			wpcObjects:             []client.Object{defaultWPC},
+			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			wantPriorityClassLabel: "high",
+		},
+		"feature gate enabled, no label, default WPC does not exist": {
+			job:                    utiltestingjob.MakeJob("test-job", "default").Obj(),
+			wpcObjects:             nil,
+			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			wantPriorityClassLabel: "",
+		},
+		"feature gate enabled, owner managed by kueue": {
+			job: utiltestingjob.MakeJob("test-job", "default").
+				OwnerReference(parent.Name, batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			wpcObjects:             []client.Object{defaultWPC},
+			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			wantPriorityClassLabel: "",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := fake.NewClientBuilder().WithScheme(scheme)
+			if len(tc.wpcObjects) > 0 {
+				builder = builder.WithObjects(tc.wpcObjects...)
+			}
+			k8sClient := builder.Build()
+			ApplyDefaultWorkloadPriorityClass(ctx, k8sClient, tc.job)
+			got := tc.job.GetLabels()[constants.WorkloadPriorityClassLabel]
+			if got != tc.wantPriorityClassLabel {
+				t.Errorf("unexpected priority class label: got %q, want %q", got, tc.wantPriorityClassLabel)
 			}
 		})
 	}

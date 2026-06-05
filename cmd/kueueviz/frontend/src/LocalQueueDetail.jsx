@@ -42,9 +42,9 @@ const LocalQueueDetail = () => {
     if (workloadsData) setWorkloads(workloadsData);
   }, [workloadsData]);
 
-  if (!queue) return <CircularProgress />;
   if (queueError) return <ErrorMessage error={queueError} />;
   if (workloadsError) return <ErrorMessage error={workloadsError} />;
+  if (!queue) return <CircularProgress />;
 
   return (
     <Paper className="parentContainer">

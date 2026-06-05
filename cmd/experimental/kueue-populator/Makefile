@@ -19,8 +19,12 @@ ENVTEST := $(BIN_DIR)/setup-envtest
 GINKGO := $(BIN_DIR)/ginkgo
 GOTESTSUM := $(BIN_DIR)/gotestsum
 ARTIFACTS ?= $(ROOT_DIR)/artifacts
-ENVTEST_K8S_VERSION ?= 1.35
-KUBEBUILDER_ASSETS = $(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
+ENVTEST_K8S_VERSION ?= 1.36
+ENVTEST_RETRY_ATTEMPTS ?= 4
+ENVTEST_RETRY_DELAY ?= 5
+KUBEBUILDER_ASSETS = $(or \
+	$(shell $(ROOT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
+	$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 INTEGRATION_NPROCS ?= 4
 CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 YAML_PROCESSOR = $(BIN_DIR)/yaml-processor

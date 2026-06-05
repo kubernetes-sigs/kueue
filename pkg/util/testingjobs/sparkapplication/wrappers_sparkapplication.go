@@ -38,8 +38,6 @@ func MakeSparkApplication(name, ns string) *SparkApplicationWrapper {
 		Spec: sparkappv1beta2.SparkApplicationSpec{
 			Type:                sparkappv1beta2.SparkApplicationTypeScala,
 			Mode:                sparkappv1beta2.DeployModeCluster,
-			SparkVersion:        "4.0.0",
-			Image:               new("spark:4.0.0"),
 			MainApplicationFile: new("local:///opt/spark/examples/jars/spark-examples.jar"),
 			MainClass:           new("org.apache.spark.examples.SparkPi"),
 			Arguments:           []string{"1000"},
@@ -69,6 +67,18 @@ func (w *SparkApplicationWrapper) Clone() *SparkApplicationWrapper {
 	return &SparkApplicationWrapper{*clone}
 }
 
+// Image sets the container image for the SparkApplication.
+func (w *SparkApplicationWrapper) Image(image string) *SparkApplicationWrapper {
+	w.Spec.Image = new(image)
+	return w
+}
+
+// SparkVersion sets the spark version of the SparkApplication.
+func (w *SparkApplicationWrapper) SparkVersion(version string) *SparkApplicationWrapper {
+	w.Spec.SparkVersion = version
+	return w
+}
+
 // Suspend sets the suspend field of the SparkApplication.
 func (w *SparkApplicationWrapper) Suspend(suspend bool) *SparkApplicationWrapper {
 	w.Spec.Suspend = new(suspend)
@@ -87,7 +97,7 @@ func (w *SparkApplicationWrapper) Label(key, value string) *SparkApplicationWrap
 // Annotation sets the annotation of the SparkApplication.
 func (w *SparkApplicationWrapper) Annotation(key, value string) *SparkApplicationWrapper {
 	if w.Annotations == nil {
-		w.Annotations = make(map[string]string)
+		w.Annotations = make(map[string]string, 1)
 	}
 	w.Annotations[key] = value
 	return w

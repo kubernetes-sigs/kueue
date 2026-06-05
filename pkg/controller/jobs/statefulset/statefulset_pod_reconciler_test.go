@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -31,6 +32,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -46,9 +48,11 @@ func TestPodReconciler(t *testing.T) {
 		workloads                  []kueue.Workload
 		wantPods                   []corev1.Pod
 		wantErr                    error
+		featureGates               map[featuregate.Feature]bool
 	}{
 		"should finalize succeeded pod": {
-			sts: statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				OwnerReference("sts", gvk).
 				StatusPhase(corev1.PodSucceeded).
@@ -62,7 +66,8 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should finalize failed pod": {
-			sts: statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				OwnerReference("sts", gvk).
 				StatusPhase(corev1.PodFailed).
@@ -76,7 +81,8 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should finalize deleted pod": {
-			sts: statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				OwnerReference("sts", gvk).
 				DeletionTimestamp(now).
@@ -84,7 +90,8 @@ func TestPodReconciler(t *testing.T) {
 				Obj(),
 		},
 		"shouldn't set default values without controller reference": {
-			sts: statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				Obj(),
@@ -95,7 +102,8 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't set default values without queue name": {
-			sts: statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				OwnerReference("sts", gvk).
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
@@ -108,6 +116,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should set default values": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("queue").
@@ -134,6 +143,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should set default values with priority class": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("queue").
@@ -162,6 +172,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't update pod if already labeled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("queue").
@@ -187,6 +198,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should sync queue label on already labeled pod": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("new-queue").
@@ -212,6 +224,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't relabel pod with legacy workload name when legacy workload exists": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("queue").
@@ -240,6 +253,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should label new pod with legacy name when legacy workload exists": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("queue").
@@ -269,6 +283,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should set default values without queue name when manageJobsWithoutQueueName": {
+			featureGates:               map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			manageJobsWithoutQueueName: true,
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
@@ -296,6 +311,7 @@ func TestPodReconciler(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 

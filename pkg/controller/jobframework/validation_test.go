@@ -263,8 +263,9 @@ func TestValidateJobOnUpdate(t *testing.T) {
 		wantErr           field.ErrorList
 	}{
 		"local queue cannot be changed if job is not suspended": {
-			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(false).Obj(),
-			newJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(false).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(false).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(false).Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -273,16 +274,19 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			},
 		},
 		"local queue can be changed": {
+			featureGates:      map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(true).Obj(),
 			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(true).Obj(),
 			nsHasDefaultQueue: true,
 		},
 		"local queue can be changed from default": {
+			featureGates:      map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("default").Suspend(true).Obj(),
 			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(true).Obj(),
 			nsHasDefaultQueue: true,
 		},
 		"local queue cannot be removed if default queue exists and feature is enabled": {
+			featureGates:      map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("lq1").Obj(),
 			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("").Obj(),
 			nsHasDefaultQueue: true,
@@ -294,6 +298,7 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			},
 		},
 		"local queue can be removed if default queue does not exists and feature is enabled": {
+			featureGates:      map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("lq1").Obj(),
 			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("").Obj(),
 			nsHasDefaultQueue: false,
@@ -318,6 +323,78 @@ func TestValidateJobOnUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("metadata.annotations["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
 			},
 		},
+		"prebuilt workload label valid on update": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name").Suspend(true).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name").Suspend(true).Obj(),
+		},
+		"prebuilt workload annotation valid on update, WorkloadIdentifierAnnotations enabled": {
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name").Suspend(true).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name").Suspend(true).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload label fallback valid on update, WorkloadIdentifierAnnotations enabled": {
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name").Suspend(true).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name").Suspend(true).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload same label and annotation on update, WorkloadIdentifierAnnotations enabled": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				PrebuiltWorkloadLabel("workload-name").
+				PrebuiltWorkloadAnnotation("workload-name").Suspend(true).Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				PrebuiltWorkloadLabel("workload-name").
+				PrebuiltWorkloadAnnotation("workload-name").Suspend(true).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload invalid label format with fallback on update, WorkloadIdentifierAnnotations enabled": {
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload name").Suspend(true).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload name").Suspend(true).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/prebuilt-workload-name]",
+				},
+			},
+		},
+		"prebuilt workload invalid annotation format, WorkloadIdentifierAnnotations enabled": {
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload name").Suspend(true).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload name").Suspend(true).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/prebuilt-workload-name]",
+				},
+			},
+		},
+		"prebuilt workload annotation update, WorkloadIdentifierAnnotations enabled": {
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name").Suspend(true).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name-new").Suspend(true).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload annotation update not suspended, WorkloadIdentifierAnnotations enabled": {
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name").Suspend(false).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name-new").Suspend(false).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/prebuilt-workload-name]",
+				},
+			},
+		},
+		"prebuilt workload label to annotation update, WorkloadIdentifierAnnotations enabled": {
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name").Suspend(true).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name-new").Suspend(true).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"prebuilt workload annotation to label update, WorkloadIdentifierAnnotations enabled": {
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name").Suspend(true).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name-new").Suspend(true).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
 	}
 
 	for tcName, tc := range testCases {
@@ -330,6 +407,7 @@ func TestValidateJobOnUpdate(t *testing.T) {
 				mj := mocks.NewMockGenericJob(mockctrl)
 				mj.EXPECT().Object().Return(job).AnyTimes()
 				mj.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
+				mj.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
 				return mj
 			}
 
@@ -381,7 +459,8 @@ func TestValidateJobOnCreate(t *testing.T) {
 			job: utiltestingjob.MakeJob("test-job", "ns1").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
-			gvk: schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"},
+			gvk:          schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"},
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 		},
 	}
 

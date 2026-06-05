@@ -218,6 +218,7 @@ type ConcurrentAdmissionMigration struct {
 	// mode defines the mode of Workload's migration.
 	// The possible values are:
 	// - `TryPreferredFlavors` (default): a Workload will try to migrate to the preferred flavor after it's admitted and running.
+	// - `RetainFirstAdmission`: a Workload, once admitted to a flavor, will stick to a flavor and will not be migrated.
 	//
 	// +required
 	Mode ConcurrentAdmissionMigrationMode `json:"mode,omitempty"`
@@ -240,12 +241,14 @@ type ConcurrentAdmissionConstraints struct {
 }
 
 // +kubebuilder:validation:MaxLength=253
-// +kubebuilder:validation:Enum=TryPreferredFlavors
+// +kubebuilder:validation:Enum=TryPreferredFlavors;RetainFirstAdmission
 type ConcurrentAdmissionMigrationMode string
 
 const (
 	// TryPreferredFlavors means that a Workload will try to migrate to the preferred flavor after it's admitted and running.
 	ConcurrentAdmissionTryPreferredFlavors ConcurrentAdmissionMigrationMode = "TryPreferredFlavors"
+	// RetainFirstAdmission means that a Workload, once admitted to a flavor, will not try to migrate to another flavor.
+	ConcurrentAdmissionRetainFirstAdmission ConcurrentAdmissionMigrationMode = "RetainFirstAdmission"
 )
 
 // +kubebuilder:validation:XValidation:rule="self.flavors.all(x, size(x.resources) == size(self.coveredResources))", message="flavors must have the same number of resources as the coveredResources"

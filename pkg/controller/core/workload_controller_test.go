@@ -397,6 +397,10 @@ var (
 	}
 )
 
+var (
+	errTest = stderrors.New("test error")
+)
+
 func TestReconcile(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
@@ -404,14 +408,14 @@ func TestReconcile(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 
 	cases := map[string]struct {
-		featureGates map[featuregate.Feature]bool
-
+		featureGates              map[featuregate.Feature]bool
 		workload                  *kueue.Workload
 		additionalObjects         []client.Object
 		cq                        *kueue.ClusterQueue
 		lq                        *kueue.LocalQueue
 		resourceClaims            []*resourcev1.ResourceClaim
 		resourceClaimTemplates    []*resourcev1.ResourceClaimTemplate
+		patchErr                  error
 		wantDRAResourceTotal      *int64
 		wantWorkloadsInQueue      *int
 		wantWorkload              *kueue.Workload
@@ -460,6 +464,82 @@ func TestReconcile(t *testing.T) {
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadInadmissible,
 					Message: "DRA resource claims not supported",
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
+		"reconcile DRA ResourceClaimTemplate rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                    false,
+				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
+				features.MultiKueueOrchestratedPreemption:       false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpus", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
+		"reconcile DRA ResourceClaim rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                    false,
+				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
+				features.MultiKueueOrchestratedPreemption:       false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaim("gpu", "rc1").
+					Obj()).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpus", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaim("gpu", "rc1").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
 				}).
 				Obj(),
 			wantEvents: nil,
@@ -754,6 +834,44 @@ func TestReconcile(t *testing.T) {
 				DeletionTimestamp(now).
 				Obj(),
 			wantWorkload: nil,
+		},
+		"remove finalizer for deleted orphaned workload with FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			workload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				DeletionTimestamp(now).
+				Obj(),
+			wantWorkload: nil,
+		},
+		"remove finalizer for deleted orphaned workload with FinishOrphanedWorkloads disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
+			workload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				DeletionTimestamp(now).
+				Obj(),
+			wantWorkload: nil,
+		},
+		"remove finalizer for orphaned workload with JobUID label and FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			workload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				JobUID("job_uid").
+				Obj(),
+			wantWorkload: nil,
+		},
+		"remove finalizer for orphaned workload with JobUID label and FinishOrphanedWorkloads disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
+			workload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				JobUID("job_uid").
+				Condition(metav1.Condition{
+					Type:   "Finished",
+					Status: "True",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				JobUID("job_uid").
+				Condition(metav1.Condition{
+					Type:   "Finished",
+					Status: "True",
+				}).
+				Obj(),
 		},
 		"don't remove finalizer for owned finished workload": {
 			workload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -2684,6 +2802,53 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"should handle finished workload logic for orphaned workloads when FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				JobUID("job_uid").
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(
+					&workloadRetentionConfig{
+						afterFinished: new(util.MediumTimeout),
+					},
+				),
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				JobUID("job_uid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonOwnerNotFound,
+					Message: "The workload's owner no longer exists",
+				}).
+				Obj(),
+			wantError: nil,
+			wantResult: reconcile.Result{
+				RequeueAfter: util.MediumTimeout,
+			},
+		},
+		"shouldn't handle finished workload logic for orphaned workloads on error when FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				JobUID("job_uid").
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(
+					&workloadRetentionConfig{
+						afterFinished: new(util.MediumTimeout),
+					},
+				),
+			},
+			patchErr: errTest,
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				JobUID("job_uid").
+				Obj(),
+			wantError: errTest,
+		},
 		"shouldn't delete the workload because, object retention not configured": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
@@ -3223,24 +3388,6 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
-
-		"workload with gone controller owner should be finished": {
-			featureGates: map[featuregate.Feature]bool{
-				features.FinishOrphanedWorkloads: true,
-			},
-			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "deleted-job", "gone-uid").
-				Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "deleted-job", "gone-uid").
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadFinished,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadFinishedReasonOwnerNotFound,
-					Message: "The workload's owner no longer exists",
-				}).
-				Obj(),
-		},
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
@@ -3277,7 +3424,14 @@ func TestReconcile(t *testing.T) {
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithObjects(objs...).
 					WithStatusSubresource(objs...).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							if tc.patchErr != nil {
+								return tc.patchErr
+							}
+							return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+						},
+					})
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 
@@ -3328,10 +3482,12 @@ func TestReconcile(t *testing.T) {
 							DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
 						},
 					}
-					err := dra.CreateMapperFromConfiguration(draConfig)
+					draMapper := dra.NewResourceMapper()
+					err := draMapper.PopulateFromConfiguration(draConfig)
 					if err != nil {
 						t.Fatalf("Failed to initialize DRA mapper: %v", err)
 					}
+					reconciler.draMapper = draMapper
 				}
 
 				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})

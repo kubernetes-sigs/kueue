@@ -267,7 +267,3 @@ const (
 	MPIImplementationIntel   MPIImplementation = "Intel"
 	MPIImplementationMPICH   MPIImplementation = "MPICH"
 )
-
-func init() {
-	SchemeBuilder.Register(&ClusterTrainingRuntime{}, &ClusterTrainingRuntimeList{}, &TrainingRuntime{}, &TrainingRuntimeList{})
-}

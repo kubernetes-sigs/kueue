@@ -1,11 +1,8 @@
 # kueue
 
-
-![Version: 0.17.3](https://img.shields.io/badge/Version-0.17.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.17.3](https://img.shields.io/badge/AppVersion-v0.17.3-informational?style=flat-square) 
+![Version: 0.18.0](https://img.shields.io/badge/Version-0.18.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.18.0](https://img.shields.io/badge/AppVersion-v0.18.0-informational?style=flat-square)
 
 Kueue is a set of APIs and controllers for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
-
-
 
 ### Installation
 
@@ -18,7 +15,7 @@ Quick start instructions for the setup and configuration of kueue using Helm.
 
 #### Installing the chart
 
-##### Install chart using Helm v3.0+
+##### Install chart using Helm v4+
 
 Either clone the kueue repository:
 
@@ -31,7 +28,7 @@ $ helm install kueue kueue/ --create-namespace --namespace kueue-system
 Or use the charts pushed to `oci://registry.k8s.io/kueue/charts/kueue`:
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.17.3" --create-namespace --namespace=kueue-system
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.18.0" --create-namespace --namespace=kueue-system
 ```
 
 For more advanced parametrization of Kueue, we recommend using a local overrides file, passed via the `--values` flag. For example:
@@ -53,7 +50,7 @@ controllerManager:
 ```
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.17.3" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.18.0" \
   --create-namespace --namespace=kueue-system \
   --values overrides.yaml
 ```
@@ -61,7 +58,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.17.3" \
 You can also use the `--set` flag. For example, to enable a feature gate (e.g., `TopologyAwareScheduling`):
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.17.3" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.18.0" \
   --create-namespace --namespace=kueue-system \
   --set "controllerManager.featureGates[0].name=TopologyAwareScheduling" \
   --set "controllerManager.featureGates[0].enabled=true"

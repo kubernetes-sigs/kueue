@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
@@ -35,7 +36,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Kueuectl List", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Kueuectl List", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
@@ -235,6 +236,73 @@ wl2                                             very-long-local-queue-name      
 					duration.HumanDuration(executeTime.Sub(wl1.CreationTimestamp.Time)),
 					duration.HumanDuration(executeTime.Sub(wl2.CreationTimestamp.Time)),
 				)))
+		})
+
+		ginkgo.It("Should filter workloads by status.admission.clusterQueue field selector", func() {
+			wlCQ1 := utiltestingapi.MakeWorkload("wl-cq1", ns.Name).Queue("lq1").Obj()
+			util.MustCreate(ctx, k8sClient, wlCQ1)
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ1), utiltestingapi.MakeAdmission("cq1").Obj())
+
+			wlCQ2a := utiltestingapi.MakeWorkload("wl-cq2a", ns.Name).Queue("lq1").Obj()
+			util.MustCreate(ctx, k8sClient, wlCQ2a)
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2a), utiltestingapi.MakeAdmission("cq2").Obj())
+
+			wlCQ2b := utiltestingapi.MakeWorkload("wl-cq2b", ns.Name).Queue("lq1").Obj()
+			util.MustCreate(ctx, k8sClient, wlCQ2b)
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2b), utiltestingapi.MakeAdmission("cq2").Obj())
+
+			wlPending := utiltestingapi.MakeWorkload("wl-pending", ns.Name).Queue("lq1").Obj()
+			util.MustCreate(ctx, k8sClient, wlPending)
+
+			ginkgo.By("filtering for a specific ClusterQueue")
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
+			kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
+				"status.admission.clusterQueue=cq2", "--namespace", ns.Name})
+			err := kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2a"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2b"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq1"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-pending"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("very-long-workload-name"))
+
+			ginkgo.By("filtering for any ClusterQueue (all reserved workloads)")
+			streams, _, output, errOutput = genericiooptions.NewTestIOStreams()
+			configFlags = CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl = app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
+			kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
+				"status.admission.clusterQueue!=", "--namespace", ns.Name})
+			err = kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq1"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2a"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2b"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-pending"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("very-long-workload-name"))
+
+			ginkgo.By("filtering for workloads without quota reserved")
+			streams, _, output, errOutput = genericiooptions.NewTestIOStreams()
+			configFlags = CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl = app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
+			kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
+				"status.admission.clusterQueue=", "--namespace", ns.Name})
+			err = kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-pending"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl1"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl2"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("very-long-workload-name"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq1"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq2a"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq2b"))
 		})
 	})
 

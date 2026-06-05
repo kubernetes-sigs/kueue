@@ -1317,6 +1317,7 @@ Workload can migrate to any flavor that is more preferable than the one it was a
 The possible values are:</p>
 <ul>
 <li><code>TryPreferredFlavors</code> (default): a Workload will try to migrate to the preferred flavor after it's admitted and running.</li>
+<li><code>RetainFirstAdmission</code>: a Workload, once admitted to a flavor, will stick to a flavor and will not be migrated.</li>
 </ul>
 </td>
 </tr>
@@ -3681,7 +3682,7 @@ This may be an empty string.</p>
 <td>
    <p>podSets is a list of sets of homogeneous pods, each described by a Pod spec
 and a count.
-There must be at least one element and at most 8.
+There must be at least one element and at most 10.
 podSets cannot be changed.</p>
 </td>
 </tr>

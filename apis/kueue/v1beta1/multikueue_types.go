@@ -94,7 +94,7 @@ type MultiKueueClusterStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:deprecatedversion:warning="This version is deprecated. Use v1beta2 instead."
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={mkc}
 
 // +kubebuilder:printcolumn:name="Connected",JSONPath=".status.conditions[?(@.type=='Active')].status",type="string",description="MultiKueueCluster is connected"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
@@ -133,7 +133,7 @@ type MultiKueueConfigSpec struct {
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName={mkconf}
 
 // MultiKueueConfig is the Schema for the multikueue API
 type MultiKueueConfig struct {
