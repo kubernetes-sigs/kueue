@@ -259,6 +259,10 @@ export E2E_TEST_AGNHOST_IMAGE_OLD=${E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA%%@*}
 E2E_TEST_AGNHOST_IMAGE_WITH_SHA=$(grep '^FROM' "${SOURCE_DIR}/agnhost/Dockerfile" | awk '{print $2}')
 export E2E_TEST_AGNHOST_IMAGE=${E2E_TEST_AGNHOST_IMAGE_WITH_SHA%%@*}
 
+if [ -z "${E2E_TEST_SPARK_IMAGE:-}" ]; then
+  E2E_TEST_SPARK_IMAGE=$(grep '^FROM' "${ROOT_DIR}/hack/testing/spark/Dockerfile" | awk '{print $2}')
+  export E2E_TEST_SPARK_IMAGE=${E2E_TEST_SPARK_IMAGE%%@*}
+fi
 
 # $1 cluster name
 function cluster_cleanup {
@@ -521,6 +525,7 @@ function prepare_docker_images {
     fi
     if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${SPARKOPERATOR_IMAGE}"
+        e2e_docker_pull_if_needed "${E2E_TEST_SPARK_IMAGE}"
     fi
     if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${PROMETHEUS_OPERATOR_IMAGE}"
@@ -1073,6 +1078,7 @@ function install_sparkoperator {
     expected_version="${expected_version#v}"
     local install_cmd="install"
     cluster_kind_load_image "${cluster_name}" "${SPARKOPERATOR_IMAGE}"
+    cluster_kind_load_image "${cluster_name}" "${E2E_TEST_SPARK_IMAGE}"
 
     ${HELM} repo add --force-update spark-operator https://kubeflow.github.io/spark-operator
 

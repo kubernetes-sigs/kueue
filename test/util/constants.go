@@ -18,6 +18,7 @@ package util
 
 import (
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -99,4 +100,9 @@ const (
 const (
 	Shard0 = "shard-0"
 	Shard1 = "shard-1"
+)
+
+var (
+	sparkTestImageOnce sync.Once
+	sparkTestImage     string
 )
