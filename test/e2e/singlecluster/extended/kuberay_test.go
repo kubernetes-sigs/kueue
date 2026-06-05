@@ -73,7 +73,7 @@ const (
 	objectStoreMemory = "100000000"
 )
 
-var _ = ginkgo.Describe("Kuberay", ginkgo.Label(util.Shard0, "area:singlecluster", "feature:kuberay"), func() {
+var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:kuberay"), func() {
 	var (
 		ns                 *corev1.Namespace
 		rf                 *kueue.ResourceFlavor

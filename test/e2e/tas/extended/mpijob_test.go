@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label(util.Shard1, "area:tas", "feature:mpijob"), func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area:tas", "feature:mpijob"), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
