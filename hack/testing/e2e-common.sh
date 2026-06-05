@@ -437,6 +437,7 @@ function patch_kind_config_for_dra {
     $YQ -i '.featureGates.DynamicResourceAllocation = true' "$patched_config"
     # Enable Extended Resources (alpha feature in k8s 1.35)
     $YQ -i '.featureGates.DRAExtendedResource = true' "$patched_config"
+    $YQ -i '.featureGates.DRAPartitionableDevices = true' "$patched_config"
     $YQ -i '.containerdConfigPatches += ["[plugins.\"io.containerd.grpc.v1.cri\"]\n  enable_cdi = true"]' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta4
@@ -866,7 +867,11 @@ function cluster_kueue_deploy {
             deploy_with_certmanager "$1"
         fi
     elif [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
-        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/baseline"
+        if [[ ${E2E_TARGET_FOLDER:-} == "dra/extended" ]]; then
+            build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/extended"
+        else
+            build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/baseline"
+        fi
     elif [ "$E2E_USE_HELM" == 'true' ]; then
         helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
     else
@@ -1402,6 +1407,11 @@ function install_dra_example_driver {
 
     cluster_kind_load_image "${name}" "${dra_image_repo}:${dra_image_tag}"
 
+    local -a extra_helm_args=()
+    if [[ -n ${DRA_GPU_PARTITIONS:-} ]]; then
+        extra_helm_args+=(--set "kubeletPlugin.gpuPartitions=${DRA_GPU_PARTITIONS}")
+    fi
+
     $HELM upgrade -i \
       --create-namespace \
       --namespace dra-example-driver \
@@ -1409,6 +1419,7 @@ function install_dra_example_driver {
       --set image.repository="${dra_image_repo}" \
       --set image.tag="${dra_image_tag}" \
       --set kubeletPlugin.containers.plugin.securityContext.privileged=true \
+      "${extra_helm_args[@]}" \
       --wait \
       dra-example-driver \
       "$dra_driver_temp_dir/deployments/helm/dra-example-driver"
