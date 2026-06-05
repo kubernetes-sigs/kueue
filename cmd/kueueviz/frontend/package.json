@@ -20,10 +20,10 @@
     "@mui/icons-material": "^9.0.1",
     "@mui/material": "^9.0.0",
     "ace-builds": "^1.44.0",
-    "react": "^19.2.6",
+    "react": "^19.2.7",
     "react-ace": "^14.0.1",
-    "react-dom": "^19.2.6",
-    "react-router-dom": "^7.16.0",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.17.0",
     "react-toastify": "^11.1.0"
   },
   "devDependencies": {
