@@ -1,1 +1,1 @@
-FROM apache/spark:4.0.0
+FROM apache/spark:4.1.2
