@@ -306,6 +306,7 @@ type WaitForPodsReady struct {
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.incrementalDispatcherConfig) || (has(self.dispatcherName) && self.dispatcherName == 'kueue.x-k8s.io/multikueue-dispatcher-incremental')",message="incrementalDispatcherConfig is only valid when dispatcherName is set to the incremental dispatcher"
 type MultiKueue struct {
 	// GCInterval defines the time interval between two consecutive garbage collection runs.
 	// Defaults to 1min. If 0, the garbage collection is disabled.

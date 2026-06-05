@@ -60,7 +60,10 @@ type IncrementalDispatcherReconciler struct {
 var realClock = clock.RealClock{}
 var _ reconcile.Reconciler = (*IncrementalDispatcherReconciler)(nil)
 
-const IncrementalDispatcherControllerName = "multikueue_incremental_dispatcher"
+const (
+	IncrementalDispatcherControllerName = "multikueue_incremental_dispatcher"
+	DefaultStepSize                     = 3
+)
 
 func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg *kueueconfig.Configuration) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -192,17 +195,15 @@ func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters
 }
 
 func (r *IncrementalDispatcherReconciler) stepSize() int {
-	const defaultStepSize = 3
-	if !utilfeature.DefaultFeatureGate.Enabled(features.MultiKueueIncrementalDispatcherConfig) {
-		return defaultStepSize
-	}
-	if r.cfg != nil &&
+	if utilfeature.DefaultFeatureGate.Enabled(features.MultiKueueIncrementalDispatcherConfig) &&
+		r.cfg != nil &&
 		r.cfg.MultiKueue != nil &&
 		r.cfg.MultiKueue.IncrementalDispatcherConfig != nil &&
 		r.cfg.MultiKueue.IncrementalDispatcherConfig.StepSize != nil {
 		return int(*r.cfg.MultiKueue.IncrementalDispatcherConfig.StepSize)
 	}
-	return defaultStepSize
+
+	return DefaultStepSize
 }
 
 func (r *IncrementalDispatcherReconciler) setRoundStartTime(key types.NamespacedName, t time.Time) {
