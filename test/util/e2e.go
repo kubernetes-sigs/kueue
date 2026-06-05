@@ -111,6 +111,36 @@ func GetAgnHostImage() string {
 	return agnhostImage
 }
 
+func GetSparkTestImage() string {
+	sparkTestImageOnce.Do(func() {
+		if image := os.Getenv("E2E_TEST_SPARK_IMAGE"); image != "" {
+			sparkTestImage = image
+			return
+		}
+
+		sparkDockerfilePath := filepath.Join(ProjectBaseDir, "hack", "testing", "spark", "Dockerfile")
+		sparkImage, err := getDockerImageFromDockerfile(sparkDockerfilePath)
+		if err != nil {
+			panic(fmt.Errorf("failed to get spark image: %v", err))
+		}
+
+		sparkTestImage = sparkImage
+	})
+	return sparkTestImage
+}
+
+// VersionFromImage extracts the version tag from an image reference,
+func VersionFromImage(image string) string {
+	if at := strings.IndexByte(image, '@'); at != -1 {
+		image = image[:at]
+	}
+
+	if colon := strings.LastIndexByte(image, ':'); colon > strings.LastIndexByte(image, '/') {
+		return image[colon+1:]
+	}
+	return ""
+}
+
 func getDockerImageFromDockerfile(filePath string) (string, error) {
 	// Open the Dockerfile
 	file, err := os.Open(filePath)
