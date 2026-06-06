@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.It("Should run a rayjob if admitted", func() {
+	ginkgo.It("Should run a rayjob if admitted", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		rayJob := testingrayjob.MakeJob("rayjob", ns.Name).
@@ -221,7 +221,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 	})
 
 	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
-	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Serial, func() {
+	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Serial, ginkgo.Label("shard:kuberay-b"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script
@@ -407,7 +407,7 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 		})
 	})
 
-	ginkgo.It("Should run a rayjob with multi scale-up steps", func() {
+	ginkgo.It("Should run a rayjob with multi scale-up steps", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script that triggers multiple scale-up phases
@@ -618,7 +618,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 	})
 
 	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
-	ginkgo.It("Should run a RayCluster on worker if admitted", ginkgo.Serial, func() {
+	ginkgo.It("Should run a RayCluster on worker if admitted", ginkgo.Serial, ginkgo.Label("shard:kuberay-b"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		raycluster := testingraycluster.MakeCluster("raycluster1", ns.Name).
@@ -659,7 +659,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 		})
 	})
 
-	ginkgo.It("Should run a RayService if admitted", func() {
+	ginkgo.It("Should run a RayService if admitted", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a simple Ray Serve application
@@ -793,7 +793,7 @@ app = HelloWorld.bind()`,
 	})
 
 	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
-	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Serial, func() {
+	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Serial, ginkgo.Label("shard:kuberay-b"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a Ray Serve application that supports a delay parameter
