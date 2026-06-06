@@ -109,6 +109,9 @@ func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 	expectGaugeMetric(metrics.ReservingActiveWorkloads, lvs, gomega.Equal(float64(value)))
 }
 
+// ExpectAdmittedWorkloadsTotalMetricWithTimeout asserts that the total number of admitted
+// workloads in a specific ClusterQueue equals the expected value within a custom timeout window.
+// This method provides an explicit configuration override for heavily throttled CI environments.
 func ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq *kueue.ClusterQueue, priorityClass string, v int, timeout time.Duration, customLabels ...string) {
 	ginkgo.GinkgoHelper()
 	expectCounterMetricWithTimeout(metrics.AdmittedWorkloadsTotal, v,
@@ -229,6 +232,9 @@ func ExpectLQFinishedWorkloadsGaugeMetric(lq *kueue.LocalQueue, count int) {
 	expectGaugeMetric(metrics.LocalQueueFinishedWorkloads, lvs, gomega.Equal(float64(count)))
 }
 
+// expectCounterMetricWithTimeout polls a Prometheus counter metric until its value
+// matches the expected count or the custom timeout duration expires. It utilizes
+// gomega.Eventually to gracefully retry assertions without crashing the test harness.
 func expectCounterMetricWithTimeout(metric *prometheus.CounterVec, count int, timeout time.Duration, lvs ...string) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
